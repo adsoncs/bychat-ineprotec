@@ -128,7 +128,7 @@ import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
 import { meetingsRoutes } from './routes/meetings.js'
 import { negotiationsRoutes } from './routes/negotiations.js'
-import { portalComercialRoutes } from './routes/portalComercial.js'
+import { portalComercialRoutes, educacionalComercialRoutes } from './routes/portalComercial.js'
 import { goalsCommissionsRoutes } from './routes/goalsCommissions.js'
 import { catalogRoutes } from './routes/catalog.js'
 import { waCallsRoutes } from './routes/waCalls.js'
@@ -905,6 +905,7 @@ await app.register(voipRoutes)
 await app.register(meetingsRoutes)
 await app.register(negotiationsRoutes)
 await app.register(portalComercialRoutes)
+await app.register(educacionalComercialRoutes)
 await app.register(goalsCommissionsRoutes)
 await app.register(catalogRoutes)
 await app.register(waCallsRoutes)

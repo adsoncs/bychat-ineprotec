@@ -68,10 +68,20 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     const userIds = Array.from(new Set(rules.flatMap((r) => r.agents.map((a) => a.userId))))
     const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     const uname = new Map(users.map((u) => [u.id, u.name]))
+    const portalIds = Array.from(new Set(rules.map((r) => r.portalId).filter((v): v is number => !!v)))
+    const courseIds = Array.from(new Set(rules.map((r) => r.courseId).filter((v): v is number => !!v)))
+    const [portais, cursos] = await Promise.all([
+      portalIds.length ? prisma.enrollmentPortal.findMany({ where: { id: { in: portalIds } }, select: { id: true, nome: true } }) : [],
+      courseIds.length ? prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, nome: true } }) : [],
+    ])
+    const pname = new Map(portais.map((p) => [p.id, p.nome]))
+    const cname = new Map(cursos.map((c) => [c.id, c.nome]))
     return {
       rules: rules.map((r) => ({
         ...r,
         funnelName: r.funnelId ? fname.get(r.funnelId) ?? null : null,
+        portalName: r.portalId ? pname.get(r.portalId) ?? null : null,
+        courseName: r.courseId ? cname.get(r.courseId) ?? null : null,
         agentIds: r.agents.map((a) => a.userId),
         agentNames: r.agents.map((a) => uname.get(a.userId) ?? `#${a.userId}`),
       })),
@@ -84,6 +94,8 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       nome: String(b.nome || 'Regra de comissão').slice(0, 120),
       active: b.active !== false,
       funnelId: idOrNull(b.funnelId),
+      portalId: idOrNull(b.portalId),
+      courseId: idOrNull(b.courseId),
       prioridade: Math.round(dec(b.prioridade)),
       base: b.base === 'bruto' ? 'bruto' : 'liquido',
       tipoUnico: normRateType(b.tipoUnico),

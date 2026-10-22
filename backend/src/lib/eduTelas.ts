@@ -92,6 +92,10 @@ export const EDU_TELAS: TelaDef[] = [
     rotas: ['/api/admin/enrollment-portals', '/api/admin/enrollment-registrations', '/api/admin/portal-accounts'] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
+  // Painel comercial do Educacional: vendas (propostas ganhas das inscrições),
+  // vendedores, metas e comissões por portal/curso/polo (Fase 3, 22/10/2026).
+  { id: 'edu_comercial', legado: 'admin', name: 'Comercial', parent: 'enrollment_portals', menuId: 'edu-comercial', actions: ['view', 'edit'],
+    rotas: ['/api/admin/educacional/comercial'] },
   { id: 'edu_cupons', legado: 'leitura', name: 'Cupons', parent: 'enrollment_portals', menuId: 'edu-cupons', actions: ['view', 'create', 'edit', 'delete'],
     rotas: ['/api/admin/coupons'], alternativos: ['payments'] },
   { id: 'edu_contratos', name: 'Contratos', parent: 'enrollment_portals', menuId: 'edu-contratos', actions: ['view', 'create', 'edit', 'delete'],

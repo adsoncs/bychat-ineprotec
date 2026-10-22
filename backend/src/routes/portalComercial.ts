@@ -52,3 +52,36 @@ export async function portalComercialRoutes(app: FastifyInstance) {
     return simularPortal(p.id, marco)
   })
 }
+
+// ── Educacional › Comercial (Fase 3): painel e metas por portal ─────────────
+export async function educacionalComercialRoutes(app: FastifyInstance) {
+  const num = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null }
+  const mesAtual = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 7)
+
+  app.get('/api/admin/educacional/comercial/painel', { preHandler: guardTela('admin') }, async (req) => {
+    const q = (req.query as any) || {}
+    const { painelComercial } = await import('../services/comercialEducacional.js')
+    return painelComercial({
+      mes: /^\d{4}-\d{2}$/.test(String(q.mes || '')) ? String(q.mes) : mesAtual(),
+      portalId: num(q.portalId), courseId: num(q.courseId), campusId: num(q.campusId), vendedorId: num(q.vendedorId),
+    })
+  })
+
+  app.put('/api/admin/educacional/comercial/metas', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const portalId = num(b.portalId)
+    if (!portalId || !/^\d{4}-\d{2}$/.test(String(b.mes || ''))) return reply.code(400).send({ error: 'portalId e mes (AAAA-MM) são obrigatórios' })
+    const { salvarMetaDoPortal } = await import('../services/comercialEducacional.js')
+    const meta = await salvarMetaDoPortal(portalId, String(b.mes), { valor: b.valor, quantidade: b.quantidade })
+    void logUserAudit({ action: 'portal.meta_comercial', targetType: 'portal', targetLabel: `Meta comercial do portal #${portalId} em ${b.mes}`, changes: meta as any, ...auditActor(req) })
+    return { meta }
+  })
+
+  // Card "Comercial" no detalhe da inscrição: proposta + comissão.
+  app.get('/api/admin/enrollment-registrations/:id/comercial', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const id = num((req.params as any).id)
+    if (!id) return reply.code(400).send({ error: 'id inválido' })
+    const { comercialDaInscricao } = await import('../services/comercialEducacional.js')
+    return comercialDaInscricao(id)
+  })
+}

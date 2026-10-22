@@ -472,6 +472,7 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
                     </td>
                     <td class="px-3 py-2 text-xs text-fg-muted">
                       <div>{r.funnelName ?? 'Qualquer funil'}</div>
+                      {(r.portalName || r.courseName) && <div class="text-2xs text-fg-muted">{[r.portalName, r.courseName].filter(Boolean).join(' · ')}</div>}
                       <div class="text-fg-muted">
                         {r.agentNames.length ? r.agentNames.join(', ') : 'Todos os agentes'}
                       </div>

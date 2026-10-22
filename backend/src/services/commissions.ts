@@ -108,11 +108,20 @@ export interface ResolvedRule {
  * usa a mesma taxa — e a exceção de um vendedor não teria como existir.
  * `prioridade` desempata entre regras de mesma especificidade.
  */
-export async function resolveRule(userId: number | null, funnelId: number | null): Promise<ResolvedRule | null> {
+export async function resolveRule(
+  userId: number | null,
+  funnelId: number | null,
+  // Venda do Educacional (Fase 3): regra pode ser só de um portal e/ou curso.
+  edu: { portalId?: number | null; courseId?: number | null } = {},
+): Promise<ResolvedRule | null> {
   const rules = await prisma.commissionRule.findMany({
     where: {
       active: true,
-      OR: [{ funnelId: null }, ...(funnelId ? [{ funnelId }] : [])],
+      AND: [
+        { OR: [{ funnelId: null }, ...(funnelId ? [{ funnelId }] : [])] },
+        { OR: [{ portalId: null }, ...(edu.portalId ? [{ portalId: edu.portalId }] : [])] },
+        { OR: [{ courseId: null }, ...(edu.courseId ? [{ courseId: edu.courseId }] : [])] },
+      ],
     },
     include: { tiers: { orderBy: { atingimentoMin: 'asc' } }, agents: { select: { userId: true } } },
   })
@@ -124,9 +133,11 @@ export async function resolveRule(userId: number | null, funnelId: number | null
     })
     .map((r) => ({
       r,
-      // Agente pesa mais que funil: "a taxa do João" é exceção deliberada e não
-      // pode ser derrubada por uma regra genérica de funil.
-      score: (r.agents.length ? 2 : 0) + (r.funnelId != null ? 1 : 0),
+      // Agente pesa mais que tudo: "a taxa do João" é exceção deliberada e não
+      // pode ser derrubada por uma regra genérica. Depois curso, portal e funil
+      // (do mais para o menos específico). Regras sem portal/curso mantêm a
+      // ordem de antes (agente > funil).
+      score: (r.agents.length ? 8 : 0) + (r.courseId != null ? 4 : 0) + (r.portalId != null ? 2 : 0) + (r.funnelId != null ? 1 : 0),
     }))
     .sort((a, b) => b.score - a.score || b.r.prioridade - a.r.prioridade || b.r.id - a.r.id)
 
@@ -303,7 +314,7 @@ export async function previewNegotiation(
     where: { id: negotiationId },
     select: {
       id: true, leadId: true, funnelId: true, resultado: true, fechadaEm: true, responsavelUserId: true,
-      valorUnico: true, valorRecorrente: true, valorFinal: true,
+      valorUnico: true, valorRecorrente: true, valorFinal: true, registrationId: true, offeringId: true,
     },
   })
   if (!neg) return semComissao('Negociação não encontrada')
@@ -317,7 +328,10 @@ export async function previewNegotiation(
   const userId = neg.responsavelUserId ?? lead?.assignedUserId ?? null
   if (userId == null) return semComissao('Negociação sem responsável — defina o dono do lead', { funnelId })
 
-  const rule = await resolveRule(userId, funnelId)
+  // Venda ligada ao Educacional: portal da inscrição e curso da oferta.
+  const reg = neg.registrationId ? await prisma.enrollmentRegistration.findUnique({ where: { id: neg.registrationId }, select: { portalId: true } }) : null
+  const of = neg.offeringId ? await prisma.courseOffering.findUnique({ where: { id: neg.offeringId }, select: { courseId: true } }) : null
+  const rule = await resolveRule(userId, funnelId, { portalId: reg?.portalId ?? null, courseId: of?.courseId ?? null })
   if (!rule) return semComissao('Nenhuma regra de comissão atende este agente/funil', { userId, funnelId })
 
   // Base bruta = valor de tabela dos itens (antes do desconto). Vale para quem

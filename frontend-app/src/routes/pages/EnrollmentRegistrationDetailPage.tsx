@@ -1,3 +1,4 @@
+import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
 import { useState } from 'preact/hooks'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
@@ -136,6 +137,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               Etapas › tela de inscrição) — a mesma do cabeçalho e do candidato. */}
           <SomenteLeitura aviso={false} tela="enrollment_portals"><CandidatePortalCard review={review} /></SomenteLeitura>
           <CandidateCard review={review} />
+          <ComercialInscricaoCard registrationId={review.registration.id} />
           <DadosCadastroCard review={review} />
           <RegistrationCard review={review} />
           {ordemDasEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel).map((chave) => {

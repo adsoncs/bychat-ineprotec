@@ -9451,6 +9451,9 @@ model CommissionRule {
   active Boolean @default(true)
 
   funnelId   Int? // null = qualquer funil
+  // Regra só para vendas deste portal / curso (Educacional, Fase 3). null = qualquer.
+  portalId Int?
+  courseId Int?
   prioridade Int  @default(0) // desempate manual entre regras igualmente específicas
 
   // liquido = valor negociado (com desconto) · bruto = valor de tabela dos itens.

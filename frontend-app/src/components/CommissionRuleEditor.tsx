@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { toast } from '@/lib/toast'
+import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
+import { useCourses } from '@/hooks/useEducational'
+import { useIsModuleActive } from '@/hooks/usePermissions'
 import {
   METRIC_LABEL, METRICS,
   useSaveCommissionRule,
@@ -25,6 +28,8 @@ type Draft = {
   nome: string
   active: boolean
   funnelId: number | null
+  portalId: number | null
+  courseId: number | null
   prioridade: number
   base: 'liquido' | 'bruto'
   tipoUnico: RateType
@@ -43,7 +48,7 @@ const str = (v: unknown) => (v === null || v === undefined ? '' : String(v))
 
 function emptyDraft(): Draft {
   return {
-    nome: '', active: true, funnelId: null, prioridade: 0, base: 'liquido',
+    nome: '', active: true, funnelId: null, portalId: null, courseId: null, prioridade: 0, base: 'liquido',
     tipoUnico: 'percent', taxaUnico: '', tipoRecorrente: 'percent', taxaRecorrente: '',
     mesesRecorrente: 1, aceleradorAtivo: false, aceleradorMetrica: null, observacoes: '',
     agentIds: [], tiers: [],
@@ -52,7 +57,7 @@ function emptyDraft(): Draft {
 
 function toDraft(r: CommissionRule): Draft {
   return {
-    id: r.id, nome: r.nome, active: r.active, funnelId: r.funnelId, prioridade: r.prioridade,
+    id: r.id, nome: r.nome, active: r.active, funnelId: r.funnelId, portalId: r.portalId ?? null, courseId: r.courseId ?? null, prioridade: r.prioridade,
     base: r.base, tipoUnico: r.tipoUnico, taxaUnico: str(r.taxaUnico),
     tipoRecorrente: r.tipoRecorrente, taxaRecorrente: str(r.taxaRecorrente),
     mesesRecorrente: r.mesesRecorrente, aceleradorAtivo: r.aceleradorAtivo,
@@ -104,6 +109,10 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
   users: UserOption[]
   onClose: () => void
 }) {
+  // Venda do Educacional (Fase 3): regra só de um portal e/ou curso.
+  const eduAtivo = useIsModuleActive('enrollment_portals')
+  const portais = useEnrollmentPortals()
+  const cursos = useCourses()
   const [d, setD] = useState<Draft>(emptyDraft())
   const save = useSaveCommissionRule()
 
@@ -177,6 +186,18 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
             <option value="">Qualquer funil</option>
             {funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </Select>
+          {eduAtivo && (
+            <>
+              <Select label="Portal (Educacional)" value={d.portalId ? String(d.portalId) : ''} onChange={(e) => patch({ portalId: Number((e.target as HTMLSelectElement).value) || null })}>
+                <option value="">Qualquer portal</option>
+                {(portais.data?.portals ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </Select>
+              <Select label="Curso (Educacional)" value={d.courseId ? String(d.courseId) : ''} onChange={(e) => patch({ courseId: Number((e.target as HTMLSelectElement).value) || null })}>
+                <option value="">Qualquer curso</option>
+                {((cursos.data as any)?.courses ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </Select>
+            </>
+          )}
         </div>
 
         {/* Para quem vale */}

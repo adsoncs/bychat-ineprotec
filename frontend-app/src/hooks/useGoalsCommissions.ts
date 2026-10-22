@@ -38,6 +38,11 @@ export interface CommissionRule {
   active: boolean
   funnelId: number | null
   funnelName: string | null
+  /** Regra só para vendas deste portal/curso do Educacional (Fase 3). */
+  portalId?: number | null
+  portalName?: string | null
+  courseId?: number | null
+  courseName?: string | null
   prioridade: number
   base: 'liquido' | 'bruto'
   tipoUnico: RateType

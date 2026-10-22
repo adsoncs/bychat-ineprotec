@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { useIsModuleActive } from '@/hooks/usePermissions'
+import { PainelComercial } from '@/components/comercial/PainelComercial'
 
 type Marco = 'pagamento' | 'jornada'
 interface Config { modo: 'desligado' | 'ativo'; marco: Marco }
@@ -127,6 +128,8 @@ export function PortalComercialTab({ portal }: { portal: { id: number; nome: str
           </div>
         </Card>
       )}
+
+      <PainelComercial portalId={portal.id} />
 
       {confirmar && (
         <ConfirmDialog open onOpenChange={(o) => { if (!o) setConfirmar(null) }}
