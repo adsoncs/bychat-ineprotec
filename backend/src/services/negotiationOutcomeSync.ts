@@ -130,9 +130,13 @@ export async function syncNegotiationsWithLeadOutcome(
   }
 
   if (fechadas > 0) {
+    // Registro na linha do tempo, NÃO desfecho do lead: o `lead.won`/`lead.lost`
+    // de domínio já sai de `markLeadWon`/`markLeadLost`, que chamou esta função.
+    // Com o tipo LEAD_WON aqui, workflows, webhooks e Google Ads recebiam o
+    // mesmo ganho duas vezes (Fase 0, 22/10/2026).
     logEvent({
       leadId,
-      type: outcome === 'won' ? EVENT_TYPES.LEAD_WON : EVENT_TYPES.LEAD_LOST,
+      type: 'negotiation_closed' as any,
       category: 'lifecycle',
       title: fechadas === 1
         ? `Proposta "${alvos[0]!.titulo}" fechada como ${outcome === 'won' ? 'ganha' : 'perdida'}`

@@ -319,7 +319,7 @@ export async function reopenLead(input: ReopenInput): Promise<{ leadId: number; 
   const { leadId, userId, userName, ipAddress } = input
   const before = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, outcome: true, lostReasonId: true },
+    select: { id: true, outcome: true, lostReasonId: true, outcomeAt: true },
   })
   if (!before) throw new Error('Lead não encontrado')
   if (!before.outcome) return { leadId, previousOutcome: null }
@@ -346,5 +346,42 @@ export async function reopenLead(input: ReopenInput): Promise<{ leadId: number; 
     ipAddress,
   })
 
+  // As propostas que fecharam JUNTO com o desfecho reabrem com ele — e a
+  // comissão sai (ou vira 'cancelada', se já paga). Antes o lead voltava para
+  // "em andamento" com a proposta ganha e a comissão prevista de pé (Fase 0,
+  // 22/10/2026). "Junto" = mesmo resultado, fechada até 2 min do desfecho; uma
+  // proposta fechada à parte, em outro momento, fica como está.
+  const reabertas = await reabrirPropostasDoDesfecho(leadId, before.outcome, before.outcomeAt).catch((e) => {
+    console.warn('[leadOutcome] reabrir propostas:', (e as Error).message); return [] as number[]
+  })
+  if (reabertas.length) {
+    logEvent({
+      leadId,
+      type: 'negotiation_reopened' as any,
+      category: 'lifecycle',
+      title: reabertas.length === 1 ? 'Proposta reaberta junto com o lead' : `${reabertas.length} propostas reabertas junto com o lead`,
+      source: 'panel',
+      ...(await actor(userId, userName)),
+      metadata: { negotiationIds: reabertas },
+      ipAddress,
+    })
+  }
+
   return { leadId, previousOutcome: before.outcome }
+}
+
+async function reabrirPropostasDoDesfecho(leadId: number, outcome: string, outcomeAt: Date | null): Promise<number[]> {
+  if ((outcome !== 'won' && outcome !== 'lost') || !outcomeAt) return []
+  const janela = 2 * 60_000
+  const props = await prisma.negotiation.findMany({
+    where: { leadId, resultado: outcome, fechadaEm: { gte: new Date(outcomeAt.getTime() - janela), lte: new Date(outcomeAt.getTime() + janela) } },
+    select: { id: true },
+  })
+  if (!props.length) return []
+  const { onNegotiationChanged } = await import('./commissions.js')
+  for (const p of props) {
+    await prisma.negotiation.update({ where: { id: p.id }, data: { resultado: null, lostReasonId: null, fechadaEm: null, fechadaPor: null, status: 'em_negociacao' } })
+    await onNegotiationChanged(p.id).catch(() => null)
+  }
+  return props.map((p) => p.id)
 }

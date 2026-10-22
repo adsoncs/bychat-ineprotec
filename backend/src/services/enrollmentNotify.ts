@@ -48,6 +48,9 @@ async function buildEnrollmentPayload(enrollmentId: number) {
       courseName,
       paymentUrl: e.paymentUrl || '',
       paymentAmount: amount,
+      // Valor numérico para conversões (Google Ads lê `value`): o
+      // `paymentAmount` acima é texto formatado e ia sem valor (Fase 0, 22/10).
+      value: e.paymentAmount != null ? Number(e.paymentAmount) : null,
       paymentDeadline: deadline,
       candidateUrl,
       ctaMessage: e.portal?.ctaMessage || '',

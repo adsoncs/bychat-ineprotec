@@ -12,7 +12,7 @@ import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import {
   GOAL_METRICS, METRIC_LABEL, isMetric, normRateType,
-  competenciaOf, monthRange, parseCompetencia,
+  competenciaOf, monthRange, parseCompetencia, janelaDeFechamento,
   realizadoDoAgente, metaDoAgente, resolveRule, previewNegotiation,
   recalcPeriod, reconcile, type GoalMetric,
 } from '../services/commissions.js'
@@ -259,7 +259,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       select: { userId: true },
     })
     const comVenda = await prisma.negotiation.findMany({
-      where: { resultado: 'won', fechadaEm: { gte: start, lte: end }, responsavelUserId: { not: null } },
+      where: { resultado: 'won', fechadaEm: janelaDeFechamento(start, end), responsavelUserId: { not: null } },
       select: { responsavelUserId: true },
     })
     const extraIds = Array.from(new Set([

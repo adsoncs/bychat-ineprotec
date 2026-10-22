@@ -15,6 +15,7 @@ import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 // divergir do número da proposta.
 import { onNegotiationChanged, recalcAgentMonth } from '../services/commissions.js'
 import { markLeadWon, markLeadLost } from '../services/leadOutcome.js'
+import { buildLeadAccessWhere, canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -161,11 +162,37 @@ async function funilDaNegociacao(
   return vinculo && vinculo.saiuEm === null ? pedido : principal
 }
 
+// ── Acesso ──────────────────────────────────────────────────────────────────
+// A negociação é do LEAD: quem não enxerga o lead não lê, cria, edita, fecha,
+// reabre nem apaga a proposta dele. Antes só o login era exigido — qualquer
+// usuário com o módulo fechava ou apagava a proposta de outro agente, e com ela
+// a comissão (Fase 0 da integração com o Educacional, 22/10/2026).
+const GESTAO = ['SUPERADMIN', 'ADMIN', 'MANAGER']
+
+async function podeNoLead(req: any, reply: any, leadId: number | null | undefined): Promise<boolean> {
+  const user = req.user as { userId: number; role: string } | undefined
+  if (!user) { reply.code(401).send({ error: 'Não autenticado' }); return false }
+  if (!leadId) { reply.code(404).send({ error: 'Negociação sem lead' }); return false }
+  if (!(await canUserAccessLead(user.userId, user.role as AccessRole, leadId))) {
+    reply.code(403).send({ error: 'Sem permissão sobre o lead desta negociação' })
+    return false
+  }
+  return true
+}
+
+/** Negociação + checagem de acesso ao lead dela; null quando já respondeu (404/403). */
+async function negociacaoComAcesso(req: any, reply: any, id: number) {
+  const n = await prisma.negotiation.findUnique({ where: { id }, select: { id: true, leadId: true, responsavelUserId: true } })
+  if (!n) { reply.code(404).send({ error: 'Negociação não encontrada' }); return null }
+  return (await podeNoLead(req, reply, n.leadId)) ? n : null
+}
+
 export async function negotiationsRoutes(app: FastifyInstance) {
   // Lista de negociações de um lead.
-  app.get('/api/admin/negotiations', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/negotiations', { preHandler: authMiddleware }, async (req, reply) => {
     const leadId = Number((req.query as any)?.leadId)
     if (!leadId) return { negotiations: [] }
+    if (!(await podeNoLead(req, reply, leadId))) return
     const rows = await prisma.negotiation.findMany({
       where: { leadId }, orderBy: { createdAt: 'desc' },
       include: { _count: { select: { items: true, attachments: true } } },
@@ -202,15 +229,21 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const search = String(q.q || '').trim()
     const orderBy = String(q.orderBy || 'recent')
 
+    // Escopo do usuário (próprios / equipe / todos): a tela e o CSV só trazem
+    // negociações de leads que ele enxerga.
+    const userAcc = (req as any).user as { userId: number; role: string }
+    const escopo = await buildLeadAccessWhere(userAcc.userId, userAcc.role as AccessRole)
+    const restrito = !!escopo && Object.keys(escopo).length > 0
+
     // Ids de lead quando o filtro é do lado do lead (funil, responsável ou busca).
     let leadIdFilter: number[] | null = null
-    if (funnelId || search || responsavelUserId || semResponsavel) {
-      const leadWhere: any = {}
+    if (funnelId || search || responsavelUserId || semResponsavel || restrito) {
+      const leadWhere: any = restrito ? { AND: [escopo] } : {}
       if (funnelId) leadWhere.funnelId = funnelId
       if (responsavelUserId) leadWhere.assignedUserId = responsavelUserId
       if (semResponsavel) leadWhere.assignedUserId = null
       if (search) leadWhere.OR = [{ nome: { contains: search } }, { email: { contains: search } }, { whatsapp: { contains: search } }]
-      const leads = await prisma.lead.findMany({ where: leadWhere, select: { id: true }, take: 5000 })
+      const leads = await prisma.lead.findMany({ where: leadWhere, select: { id: true }, take: restrito ? 20000 : 5000 })
       leadIdFilter = leads.map((l) => l.id)
     }
 
@@ -225,7 +258,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     // Busca também casa com o título da proposta, não só com o lead — mas só
     // quando o recorte de lead veio da própria busca (senão o OR furaria o
     // filtro de funil/responsável).
-    if (search && leadIdFilter && !funnelId && !responsavelUserId && !semResponsavel) {
+    if (search && leadIdFilter && !funnelId && !responsavelUserId && !semResponsavel && !restrito) {
       delete where.leadId
       where.OR = [{ leadId: { in: leadIdFilter.length ? leadIdFilter : [-1] } }, { titulo: { contains: search } }]
     }
@@ -349,6 +382,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       include: { items: true, attachments: { orderBy: { createdAt: 'desc' } } },
     })
     if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!(await podeNoLead(req, reply, n.leadId))) return
     const lostReason = n.lostReasonId
       ? await prisma.lossReason.findUnique({ where: { id: n.lostReasonId } }).catch(() => null)
       : null
@@ -358,9 +392,10 @@ export async function negotiationsRoutes(app: FastifyInstance) {
   // Rascunho sugerido a partir do que o lead já traz da Kommo (curso + valor de
   // tabela, forma de pagamento, parcelamento, desconto). Não persiste nada — a
   // UI usa para pré-preencher o formulário de nova negociação.
-  app.get('/api/admin/negotiations/suggestion/:leadId', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/negotiations/suggestion/:leadId', { preHandler: authMiddleware }, async (req, reply) => {
     const leadId = Number((req.params as any).leadId)
     if (!leadId) return { suggestion: null }
+    if (!(await podeNoLead(req, reply, leadId))) return
     const suggestion = await buildNegotiationSuggestion(leadId).catch(() => null)
     return { suggestion }
   })
@@ -369,6 +404,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
   app.post('/api/admin/negotiations', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
     if (!b.leadId) return reply.code(400).send({ error: 'leadId é obrigatório' })
+    if (!(await podeNoLead(req, reply, Number(b.leadId)))) return
     const leadDono = await prisma.lead.findUnique({ where: { id: Number(b.leadId) }, select: { assignedUserId: true, funnelId: true } })
     const items = normItems(b.items)
     const descontoTipo = b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)
@@ -416,6 +452,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const b = (req.body as any) || {}
     const cur = await prisma.negotiation.findUnique({ where: { id } })
     if (!cur) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!(await podeNoLead(req, reply, cur.leadId))) return
     const items = b.items !== undefined ? normItems(b.items) : null
     const descontoTipo = b.descontoTipo !== undefined ? (b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)) : cur.descontoTipo
     const descontoValor = b.descontoValor !== undefined ? num(b.descontoValor) : (cur.descontoValor != null ? Number(cur.descontoValor) : null)
@@ -456,8 +493,15 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     return { negotiation: n }
   })
 
-  app.delete('/api/admin/negotiations/:id', { preHandler: authMiddleware }, async (req) => {
+  app.delete('/api/admin/negotiations/:id', { preHandler: authMiddleware }, async (req, reply) => {
     const id = Number((req.params as any).id)
+    // Apagar some com a venda e com a comissão: só a gestão ou o responsável.
+    const alvo = await negociacaoComAcesso(req, reply, id)
+    if (!alvo) return
+    const quem = (req as any).user as { userId: number; role: string }
+    if (!GESTAO.includes(quem.role) && alvo.responsavelUserId !== quem.userId) {
+      return reply.code(403).send({ error: 'Só o responsável pela negociação ou a gestão pode apagá-la' })
+    }
     // O lançamento de comissão cai por cascade, mas a faixa do mês do agente foi
     // calculada COM esta venda — sem recalcular, as outras comissões do mês
     // ficariam numa faixa que o agente não atinge mais.
@@ -477,6 +521,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (!resultado) return reply.code(400).send({ error: 'resultado deve ser won ou lost' })
     const n = await prisma.negotiation.findUnique({ where: { id } })
     if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!(await podeNoLead(req, reply, n.leadId))) return
     const actor = auditActor(req)
     // Proposta aceita marca o lead Ganho: com a jornada da inscrição incompleta,
     // só com justificativa (chave routing.ganhoExigeJornada).
@@ -563,6 +608,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const id = Number((req.params as any).id)
     const n = await prisma.negotiation.findUnique({ where: { id } })
     if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!(await podeNoLead(req, reply, n.leadId))) return
     if (!n.resultado) return reply.code(400).send({ error: 'Negociação já está aberta' })
     const actor = auditActor(req)
     const prevResultado = n.resultado
@@ -612,8 +658,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
   // Anexar a proposta enviada (arquivo).
   app.post('/api/admin/negotiations/:id/attachments', { preHandler: authMiddleware }, async (req, reply) => {
     const id = Number((req.params as any).id)
-    const n = await prisma.negotiation.findUnique({ where: { id }, select: { id: true } })
-    if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!(await negociacaoComAcesso(req, reply, id))) return
     const data = await req.file()
     if (!data) return reply.code(400).send({ error: 'Arquivo é obrigatório (multipart "file")' })
     const buffer = await data.toBuffer()
@@ -629,9 +674,10 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     return { attachment: { ...att, url: fileUrl(storagePath) } }
   })
 
-  app.delete('/api/admin/negotiations/attachments/:attId', { preHandler: authMiddleware }, async (req) => {
+  app.delete('/api/admin/negotiations/attachments/:attId', { preHandler: authMiddleware }, async (req, reply) => {
     const attId = Number((req.params as any).attId)
     const att = await prisma.negotiationAttachment.findUnique({ where: { id: attId } })
+    if (att && !(await negociacaoComAcesso(req, reply, att.negotiationId))) return
     if (att) {
       await fs.unlink(join(process.cwd(), '..', 'uploads', att.storagePath)).catch(() => {})
       await prisma.negotiationAttachment.delete({ where: { id: attId } }).catch(() => {})

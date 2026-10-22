@@ -46,9 +46,26 @@ const dec = (v: unknown): number => {
 }
 const round2 = (n: number): number => Math.round(n * 100) / 100
 
-/** 1º dia do mês (UTC) da data — é a competência pela qual o painel agrupa. */
+// Mês no horário de Brasília (UTC−3, sem horário de verão desde 2019). Antes o
+// mês era o do UTC: venda fechada depois das 21h do último dia caía no mês
+// seguinte na comissão e na meta (Fase 0, 22/10/2026). A competência continua
+// sendo "1º dia do mês, 00:00 UTC" — é só um rótulo, e as metas já gravadas
+// usam esse formato; o que muda é QUAL mês um instante pertence.
+const BRT_MS = 3 * 60 * 60 * 1000
+
+/** Competência (1º dia do mês, como rótulo) do instante, no horário de Brasília. */
 export function competenciaOf(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+  const local = new Date(d.getTime() - BRT_MS)
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1))
+}
+
+/**
+ * Janela real dos instantes do mês, em Brasília, a partir do `monthRange`
+ * (que é o rótulo do mês: 00:00 do dia 1 até 23:59:59 do último dia, em UTC).
+ * Usar nos filtros por `fechadaEm`.
+ */
+export function janelaDeFechamento(start: Date, end: Date): { gte: Date; lte: Date } {
+  return { gte: new Date(start.getTime() + BRT_MS), lte: new Date(end.getTime() + BRT_MS) }
 }
 /** Intervalo fechado do mês de uma competência. */
 export function monthRange(competencia: Date): { start: Date; end: Date } {
@@ -166,7 +183,7 @@ export async function realizadoDoAgente(
     where: {
       ...(userId != null ? { responsavelUserId: userId } : {}),
       resultado: { not: null },
-      fechadaEm: { gte: start, lte: end },
+      fechadaEm: janelaDeFechamento(start, end),
     },
     select: { id: true, leadId: true, funnelId: true, resultado: true, valorFinal: true, valorRecorrente: true },
   })
@@ -440,7 +457,7 @@ export async function recalcAgentMonth(userId: number | null, competencia: Date)
   if (userId == null) return 0
   const { start, end } = monthRange(competencia)
   const negs = await prisma.negotiation.findMany({
-    where: { responsavelUserId: userId, resultado: 'won', fechadaEm: { gte: start, lte: end } },
+    where: { responsavelUserId: userId, resultado: 'won', fechadaEm: janelaDeFechamento(start, end) },
     select: { id: true },
   })
   for (const n of negs) await syncNegotiationCommission(n.id)
@@ -484,7 +501,7 @@ export async function recalcPeriod(start: Date, end: Date, userId?: number | nul
   const negs = await prisma.negotiation.findMany({
     where: {
       resultado: 'won',
-      fechadaEm: { gte: start, lte: end },
+      fechadaEm: janelaDeFechamento(start, end),
       ...(userId ? { responsavelUserId: userId } : {}),
     },
     select: { id: true, responsavelUserId: true, fechadaEm: true },
@@ -522,7 +539,7 @@ export interface Divergencia {
 export async function reconcile(start: Date, end: Date): Promise<Divergencia[]> {
   const out: Divergencia[] = []
   const won = await prisma.negotiation.findMany({
-    where: { resultado: 'won', fechadaEm: { gte: start, lte: end } },
+    where: { resultado: 'won', fechadaEm: janelaDeFechamento(start, end) },
     select: { id: true, leadId: true, titulo: true },
   })
   const entries = await prisma.commissionEntry.findMany({
