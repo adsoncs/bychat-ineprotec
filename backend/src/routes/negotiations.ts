@@ -478,6 +478,13 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const n = await prisma.negotiation.findUnique({ where: { id } })
     if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
     const actor = auditActor(req)
+    // Proposta aceita marca o lead Ganho: com a jornada da inscrição incompleta,
+    // só com justificativa (chave routing.ganhoExigeJornada).
+    const ganho = await import('../services/ganhoComPendencia.js')
+    const pendenciasGanho = resultado === 'won' && n.leadId ? await ganho.pendenciasDoGanho(n.leadId) : null
+    const justificativaGanho = ganho.justificativaDoCorpo(req.body)
+    if (pendenciasGanho && !justificativaGanho) return reply.code(409).send(ganho.respostaDePendencia(pendenciasGanho))
+    if (pendenciasGanho && justificativaGanho && n.leadId) await ganho.registrarGanhoJustificado(n.leadId, { userId: actor.actorId, nome: actor.actorName }, justificativaGanho, pendenciasGanho).catch(() => {})
     // A UI pode fechar com um total diferente do salvo (ajuste de última hora).
     // Nesse caso o split mensal/único acompanha na mesma proporção — sem isso os
     // KPIs de recorrência ficariam contando um valor que a negociação não tem mais.

@@ -60,6 +60,8 @@ export function invalidateRoutingCache() {
 //                          direção recebe alguém (services/leadSemDono.ts).
 //   inscricaoHerdaDono   — a inscrição cai com o responsável que a mesma
 //                          pessoa já tem em outra ficha (leadSemDono.ts).
+//   ganhoExigeJornada    — Ganho humano de lead com inscrição aberta e jornada
+//                          incompleta pede justificativa (ganhoComPendencia.ts).
 //   perdidoSemDono       — lead marcado Perdido num funil com etapa de
 //                          Perdido volta ao sistema sem responsável
 //                          (leadSemDono.liberarDonoDoPerdido).
@@ -73,6 +75,7 @@ export interface AjustesRoteamento {
   varreduraSemDono: boolean
   inscricaoHerdaDono: boolean
   perdidoSemDono: boolean
+  ganhoExigeJornada: boolean
 }
 export const CHAVES_AJUSTES = {
   presencaMinutos: 'routing.presenca.minutos',
@@ -84,6 +87,7 @@ export const CHAVES_AJUSTES = {
   varreduraSemDono: 'routing.varreduraSemDono',
   inscricaoHerdaDono: 'routing.inscricaoHerdaDono',
   perdidoSemDono: 'routing.perdidoSemDono',
+  ganhoExigeJornada: 'routing.ganhoExigeJornada',
 } as const
 let _ajustesCache: { ajustes: AjustesRoteamento; expiresAt: number } | null = null
 
@@ -101,6 +105,7 @@ export async function getAjustesRoteamento(): Promise<AjustesRoteamento> {
     varreduraSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.varreduraSemDono), false),
     inscricaoHerdaDono: readBoolSetting(v.get(CHAVES_AJUSTES.inscricaoHerdaDono), false),
     perdidoSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.perdidoSemDono), false),
+    ganhoExigeJornada: readBoolSetting(v.get(CHAVES_AJUSTES.ganhoExigeJornada), false),
   }
   _ajustesCache = { ajustes, expiresAt: Date.now() + CACHE_TTL_MS }
   return ajustes

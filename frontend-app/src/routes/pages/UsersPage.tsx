@@ -603,6 +603,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   'user.edited': 'Usuário editado',
   'user.deleted': 'Usuário excluído',
   'lead.merge_justificado': 'Juntou fichas de processos diferentes (com justificativa)',
+  'lead.ganho_com_pendencia': 'Marcou Ganho com a jornada incompleta (com justificativa)',
   'auth.login': 'Login',
   'auth.logout': 'Logout',
   'auth.password_reset': 'Senha redefinida',

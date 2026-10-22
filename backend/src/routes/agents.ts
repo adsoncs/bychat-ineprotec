@@ -604,7 +604,7 @@ export async function agentsRoutes(app: FastifyInstance) {
     return getAjustesRoteamento()
   })
 
-  app.post<{ Body: { presencaMinutos?: number; rodizioJusto?: boolean; redistribuirSemDono?: boolean; escalacaoPorMensagem?: boolean; donoFixo?: boolean; setorPeloRodizio?: boolean; varreduraSemDono?: boolean; inscricaoHerdaDono?: boolean; perdidoSemDono?: boolean } }>(
+  app.post<{ Body: { presencaMinutos?: number; rodizioJusto?: boolean; redistribuirSemDono?: boolean; escalacaoPorMensagem?: boolean; donoFixo?: boolean; setorPeloRodizio?: boolean; varreduraSemDono?: boolean; inscricaoHerdaDono?: boolean; perdidoSemDono?: boolean; ganhoExigeJornada?: boolean } }>(
     '/api/admin/routing/ajustes',
     { preHandler: [authMiddleware, adminOnly] },
     async (req, reply) => {
@@ -625,6 +625,7 @@ export async function agentsRoutes(app: FastifyInstance) {
         ['varreduraSemDono', 'Varredura: lead sem responsável com equipe recebe alguém'],
         ['inscricaoHerdaDono', 'Inscrição cai com o responsável que a pessoa já tem'],
         ['perdidoSemDono', 'Lead perdido volta ao sistema sem responsável'],
+        ['ganhoExigeJornada', 'Ganho só com a jornada da inscrição concluída (ou justificativa)'],
       ] as const) {
         if (b[campo] !== undefined) {
           if (typeof b[campo] !== 'boolean') return reply.code(400).send({ error: `${campo} deve ser true/false` })

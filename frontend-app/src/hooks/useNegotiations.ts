@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { comJustificativa } from '@/lib/justificativa'
 
 export interface NegItem {
   id?: number | undefined
@@ -129,7 +130,7 @@ export function useCloseNegotiation(leadId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, resultado, lostReasonId, valorFinal }: { id: number; resultado: 'won' | 'lost'; lostReasonId?: number | undefined; valorFinal?: number | undefined }) =>
-      api.post<{ negotiation: Negotiation }>(`/admin/negotiations/${id}/close`, { resultado, lostReasonId, valorFinal }),
+      comJustificativa((justificativa) => api.post<{ negotiation: Negotiation }>(`/admin/negotiations/${id}/close`, { resultado, lostReasonId, valorFinal, ...(justificativa ? { justificativa } : {}) })),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['negotiations', leadId] }); qc.invalidateQueries({ queryKey: ['negotiation'] }); qc.invalidateQueries({ queryKey: ['lead'] }) },
   })
 }

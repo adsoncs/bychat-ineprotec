@@ -617,6 +617,19 @@ export async function leadsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Etapa inválida para este funil' })
     }
 
+    // Etapa de Ganho com a jornada da inscrição incompleta: só com justificativa
+    // (chave routing.ganhoExigeJornada — services/ganhoComPendencia.ts).
+    const ganho = await import('../services/ganhoComPendencia.js')
+    let ganhoJustificado: { justificativa: string; pendencias: string[] } | null = null
+    if (lead.outcome !== 'won' && await ganho.ehEtapaDeGanho(targetStage.funnelId, status)) {
+      const pendencias = await ganho.pendenciasDoGanho(lead.id)
+      if (pendencias) {
+        const justificativa = ganho.justificativaDoCorpo(req.body)
+        if (!justificativa) return reply.code(409).send(ganho.respostaDePendencia(pendencias))
+        ganhoJustificado = { justificativa, pendencias }
+      }
+    }
+
     // A etapa de ORIGEM é lida no funil de origem — em troca de funil, comparar
     // posições entre funis diferentes não quer dizer nada.
     const currentStage = lead.funnelId
@@ -731,6 +744,7 @@ export async function leadsRoutes(app: FastifyInstance) {
       leadId: parseInt(id), toStageKey: status, funnelId: targetStage.funnelId,
       origem: 'panel', userId: user.userId, userName: (user as any).name,
     }).catch((e) => console.warn('[stageOutcome] falhou:', (e as Error).message))
+    if (ganhoJustificado) await ganho.registrarGanhoJustificado(parseInt(id), { userId: user.userId, nome: (user as any).name || user.email }, ganhoJustificado.justificativa, ganhoJustificado.pendencias).catch(() => {})
 
     // Trigger CAPI se etapa mapeada (fire-and-forget)
     onLeadStageChanged(parseInt(id), status).catch(() => {})
@@ -774,6 +788,11 @@ export async function leadsRoutes(app: FastifyInstance) {
       negotiationId = n.id
     }
 
+    const ganho = await import('../services/ganhoComPendencia.js')
+    const pendencias = await ganho.pendenciasDoGanho(leadId)
+    const justificativa = ganho.justificativaDoCorpo(req.body)
+    if (pendencias && !justificativa) return reply.code(409).send(ganho.respostaDePendencia(pendencias))
+
     try {
       const result = await markLeadWon({
         leadId,
@@ -785,6 +804,7 @@ export async function leadsRoutes(app: FastifyInstance) {
         outcomeAt,
         negotiationId,
       })
+      if (pendencias && justificativa) await ganho.registrarGanhoJustificado(leadId, { userId: user?.userId, nome: user?.name || user?.email }, justificativa, pendencias).catch(() => {})
       broadcastRealtimeEvent({ type: 'lead:outcome_changed', payload: { id: parseInt(id), outcome: 'won' } })
       return { ok: true, ...result }
     } catch (err: any) {
@@ -841,9 +861,18 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (reqIds.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
     const user = (req as any).user as JwtPayload
     const ids = await filterAccessibleLeadIds(user, reqIds)
+    // Leads com a jornada incompleta só entram com justificativa (vale para o lote).
+    const ganho = await import('../services/ganhoComPendencia.js')
+    const justificativa = ganho.justificativaDoCorpo(req.body)
+    const pendentes: Record<number, string[]> = {}
+    for (const id of ids) { const p = await ganho.pendenciasDoGanho(id); if (p) pendentes[id] = p }
+    if (Object.keys(pendentes).length && !justificativa) {
+      return reply.code(409).send({ ...ganho.respostaDePendencia(Object.entries(pendentes).map(([id, p]) => `#${id} ${p.join('; ')}`)), error: `${Object.keys(pendentes).length} lead(s) ainda não concluíram a jornada da inscrição. Para marcar Ganho mesmo assim, explique o motivo.` })
+    }
     let processed = 0, failed = 0
     for (const id of ids) {
       try {
+        if (pendentes[id] && justificativa) await ganho.registrarGanhoJustificado(id, { userId: user?.userId, nome: user?.name || user?.email }, justificativa, pendentes[id]).catch(() => {})
         await markLeadWon({
           leadId: id,
           value: body.value != null ? Number(body.value) : null,
@@ -1892,9 +1921,20 @@ export async function leadsRoutes(app: FastifyInstance) {
       select: { id: true, empresa: true, status: true }
     })
 
+    // Lote para a etapa de Ganho: leads com a jornada incompleta só com justificativa.
+    const ganhoLote = await import('../services/ganhoComPendencia.js')
+    const justificativaLote = ganhoLote.justificativaDoCorpo(req.body)
+    const pendentesLote: Record<number, string[]> = {}
+    if (await ganhoLote.ehEtapaDeGanho(targetStage.funnelId, status)) {
+      for (const l of leads) { if (l.status === status) continue; const p = await ganhoLote.pendenciasDoGanho(l.id); if (p) pendentesLote[l.id] = p }
+      if (Object.keys(pendentesLote).length && !justificativaLote) {
+        return reply.code(409).send({ ...ganhoLote.respostaDePendencia(Object.entries(pendentesLote).map(([id, p]) => `#${id} ${p.join('; ')}`)), error: `${Object.keys(pendentesLote).length} lead(s) ainda não concluíram a jornada da inscrição. Para marcar Ganho mesmo assim, explique o motivo.` })
+      }
+    }
     let moved = 0
     for (const lead of leads) {
       if (lead.status === status) continue
+      if (pendentesLote[lead.id] && justificativaLote) await ganhoLote.registrarGanhoJustificado(lead.id, { userId: user.userId, nome: (user as any).name || user.email }, justificativaLote, pendentesLote[lead.id]).catch(() => {})
       await prisma.lead.update({
         where: { id: lead.id },
         data: { status, funnelId: targetStage.funnelId }

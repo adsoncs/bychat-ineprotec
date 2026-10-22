@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { comJustificativa } from '@/lib/justificativa'
 
 export interface KanbanFunnelSummary {
   id: number
@@ -168,7 +169,7 @@ export function useMoveLeadStage(funnelId?: number) {
 
   return useMutation({
     mutationFn: ({ leadId, status }: { leadId: number; status: string }) =>
-      api.put<{ ok: true }>(`/bychat/leads/${leadId}/status`, { status }),
+      comJustificativa((justificativa) => api.put<{ ok: true }>(`/bychat/leads/${leadId}/status`, { status, ...(justificativa ? { justificativa } : {}) })),
     onMutate: async ({ leadId, status }) => {
       await qc.cancelQueries({ queryKey })
       const prev = qc.getQueryData<KanbanBoardResponse>(queryKey)

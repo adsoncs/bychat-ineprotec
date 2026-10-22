@@ -18,6 +18,7 @@ import { PageStrip } from './PageStrip'
 import { FaixaDeStatus } from './StatusIntegracoes'
 import { CommandPalette } from './CommandPalette'
 import { CallWidget } from '@/components/voip/CallWidget'
+import { JustificativaGlobal } from '@/lib/justificativa'
 import { WaCallWidget } from '@/components/voip/WaCallWidget'
 import { initWaCallManager } from '@/lib/waCallManager'
 import { env } from '@/lib/env'
@@ -144,6 +145,7 @@ export function AppShell({ children }: AppShellProps) {
       </main>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <CallWidget />
+      <JustificativaGlobal />
       <WaCallWidget />
       <EquipeNoShell />
     </div>

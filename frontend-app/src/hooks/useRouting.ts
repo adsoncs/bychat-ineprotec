@@ -558,6 +558,7 @@ export interface AjustesRoteamento {
   varreduraSemDono: boolean
   inscricaoHerdaDono: boolean
   perdidoSemDono: boolean
+  ganhoExigeJornada: boolean
 }
 
 export function useAjustesRoteamento() {

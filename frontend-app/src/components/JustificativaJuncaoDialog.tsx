@@ -15,27 +15,30 @@ export function pedeJustificativa(e: unknown): string | null {
   return null
 }
 
-export function JustificativaJuncaoDialog({ motivo, loading, onCancel, onConfirm }: {
+export function JustificativaJuncaoDialog({ motivo, loading, onCancel, onConfirm, titulo, descricao, acao }: {
   motivo: string
   loading?: boolean | undefined
+  titulo?: string | undefined
+  descricao?: string | undefined
+  acao?: string | undefined
   onCancel: () => void
   onConfirm: (justificativa: string) => void
 }) {
   const [texto, setTexto] = useState('')
   const ok = texto.trim().length >= 10
   return (
-    <Modal open onOpenChange={(o) => { if (!o) onCancel() }} title="Juntar processos diferentes?"
-      description="Cada processo (curso + forma de ingresso) costuma ter a sua ficha, com a sua etapa no funil. Juntar deixa os dois numa ficha só."
+    <Modal open onOpenChange={(o) => { if (!o) onCancel() }} title={titulo ?? "Juntar processos diferentes?"}
+      description={descricao ?? "Cada processo (curso + forma de ingresso) costuma ter a sua ficha, com a sua etapa no funil. Juntar deixa os dois numa ficha só."}
       size="md"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onCancel} disabled={!!loading}>Cancelar</Button>
-          <Button size="sm" onClick={() => onConfirm(texto.trim())} disabled={!ok || !!loading} loading={!!loading}>Juntar mesmo assim</Button>
+          <Button size="sm" onClick={() => onConfirm(texto.trim())} disabled={!ok || !!loading} loading={!!loading}>{acao ?? 'Juntar mesmo assim'}</Button>
         </>
       }>
       <div class="space-y-3 text-sm">
         <div class="rounded-md border border-warning/30 bg-warning/5 p-2 text-xs">{motivo}</div>
-        <Textarea label="Por que juntar?" hint="Mínimo de 10 caracteres. Fica no histórico do lead e no seu histórico de ações." rows={3}
+        <Textarea label="Justificativa" hint="Mínimo de 10 caracteres. Fica no histórico do lead e no seu histórico de ações." rows={3}
           value={texto} onInput={(e) => setTexto((e.currentTarget as HTMLTextAreaElement).value)} />
       </div>
     </Modal>

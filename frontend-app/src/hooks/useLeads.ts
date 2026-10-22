@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/apiClient'
+import { comJustificativa } from '@/lib/justificativa'
 
 /**
  * Detecta o 409 do guard de inscrições no portal de matrículas (delete individual
@@ -352,7 +353,7 @@ export function useBulkUpdateLeadsStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ leadIds, status }: { leadIds: number[]; status: string }) =>
-      api.put<{ ok: true; moved: number; total: number }>('/bychat/leads/bulk/status', { leadIds, status }),
+      comJustificativa((justificativa) => api.put<{ ok: true; moved: number; total: number }>('/bychat/leads/bulk/status', { leadIds, status, ...(justificativa ? { justificativa } : {}) })),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
   })
 }
@@ -426,7 +427,7 @@ export function useUpdateLeadStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
-      api.put<{ ok: true }>(`/bychat/leads/${id}/status`, { status }),
+      comJustificativa((justificativa) => api.put<{ ok: true }>(`/bychat/leads/${id}/status`, { status, ...(justificativa ? { justificativa } : {}) })),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: ['leads'] })
       void qc.invalidateQueries({ queryKey: ['lead', vars.id] })
