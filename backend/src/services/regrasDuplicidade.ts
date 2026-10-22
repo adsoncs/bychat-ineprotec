@@ -156,6 +156,15 @@ export async function impedimentoParaJuntar(aId: number, bId: number, matchType:
   }
   const alunos = await prisma.aluno.count({ where: { leadId: { in: [aId, bId] } } }).catch(() => 0)
   if (alunos > 1) return 'as duas fichas têm cadastro de aluno'
+  // Mesma pessoa, ASSUNTO diferente: quem conversa com Matrículas e manda o
+  // formulário de Expansão precisa aparecer na Expansão. A junção mantém o funil
+  // e a equipe da ficha que fica — o destino da outra sumia (fabad, 22/10,
+  // fichas 1379→1175 e 1340→917). Funis diferentes (ou, sem funil, equipes
+  // diferentes) = duas fichas, cada uma no seu lugar, sinalizadas.
+  const destino = (id: number) => prisma.lead.findUnique({ where: { id }, select: { funnelId: true, teamId: true, funnel: { select: { name: true } }, team: { select: { name: true } } } })
+  const [da, db] = await Promise.all([destino(aId), destino(bId)])
+  if (da?.funnelId && db?.funnelId && da.funnelId !== db.funnelId) return `assuntos diferentes (funil "${da.funnel?.name}" × "${db.funnel?.name}")`
+  if ((!da?.funnelId || !db?.funnelId) && da?.teamId && db?.teamId && da.teamId !== db.teamId) return `assuntos diferentes (equipe "${da.team?.name}" × "${db.team?.name}")`
   return null
 }
 
