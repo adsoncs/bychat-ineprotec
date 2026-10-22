@@ -1743,6 +1743,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const r = await ensureLeadForRegistration(reg.id).catch(() => ({ leadId: null as number | null }))
       leadId = r.leadId
     }
+    // Quem vendeu (Fase 1): o responsável da ficha; sem ele, quem criou a inscrição.
+    {
+      const dono = leadId ? (await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true } }))?.assignedUserId : null
+      const vendedor = dono ?? u?.userId ?? null
+      if (vendedor) await prisma.enrollmentRegistration.update({ where: { id: reg.id }, data: { vendedorUserId: vendedor } }).catch(() => {})
+    }
 
     if (leadId) {
       logEvent({
@@ -2592,6 +2598,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       : await prisma.enrollmentRegistration.create({
           data: {
             ...dadosDoEnvio,
+            // Quem vendeu: o responsável da ficha agora (congelado — Fase 1 da
+            // integração com Negociações/Comissões). Retomada mantém o original.
+            vendedorUserId: lead.assignedUserId ?? null,
             portalId: portal.id,
             candidateCode,
             // 'pending'   = aguardando pagamento (só faz sentido se portal.requirePayment=true)

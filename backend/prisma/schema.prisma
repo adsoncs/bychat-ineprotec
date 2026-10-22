@@ -4481,10 +4481,26 @@ model Negotiation {
   // Módulo Metas e Comissões: a comissão é derivada desta venda (some junto).
   commission CommissionEntry?
 
+  // Integração com o Educacional (Fase 1, 22/10/2026): a inscrição e o curso
+
+  // (oferta) desta proposta, e de onde ela veio (null/"manual" = criada no painel;
+
+  // "portal" = gerada pela inscrição). Escalares, como leadId.
+
+  registrationId Int?
+
+  offeringId     Int?
+
+  origem         String? @db.VarChar(20)
+
+  
+
   @@index([leadId])
   @@index([status])
   @@index([funnelId])
   @@map("bychat_negotiations")
+  @@index([registrationId])
+  @@index([offeringId])
 }
 
 model NegotiationItem {
@@ -4553,10 +4569,19 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Curso do Educacional que este produto representa (Fase 1, 22/10/2026) —
+
+  // a ineprotec vende cursos cadastrados como produtos do Catálogo.
+
+  courseId Int?
+
+  
+
   @@index([categoria])
   @@index([nome])
   @@index([active])
   @@map("bychat_products")
+  @@index([courseId])
 }
 
 // Auditoria de cada webhook recebido (Pagar.me/Asaas). Persistido ANTES do
@@ -4772,6 +4797,14 @@ model EnrollmentRegistration {
   /// "Manter separadas": a secretaria viu o aviso de duplicidade e decidiu que não é.
   duplicataIgnorada   Boolean @default(false)
 
+  // Quem vendeu: o responsável da ficha NO MOMENTO da inscrição (Fase 1,
+
+  // 22/10/2026). Congelado — transferir o lead depois não muda a venda.
+
+  vendedorUserId Int?
+
+  
+
   @@index([portalId])
   @@index([status])
   @@index([paymentStatus])
@@ -4779,6 +4812,7 @@ model EnrollmentRegistration {
   @@index([mergedIntoId])
   @@index([createdAt])
   @@map("bychat_enrollment_registrations")
+  @@index([vendedorUserId])
 }
 
 // Checkout transparente: 1 linha por método ativo na inscrição (PIX/Boleto/Cartão).

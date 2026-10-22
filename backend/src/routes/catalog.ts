@@ -49,7 +49,51 @@ function str(v: unknown, max: number): string | null {
   return s ? s.slice(0, max) : null
 }
 
+/** Curso do Educacional existente, ou null (vínculo produto ↔ curso, Fase 1). */
+async function cursoValido(v: unknown): Promise<number | null> {
+  const id = Number(v)
+  if (!v || !Number.isInteger(id) || id <= 0) return null
+  const c = await prisma.course.findUnique({ where: { id }, select: { id: true } }).catch(() => null)
+  return c?.id ?? null
+}
+
 export async function catalogRoutes(app: FastifyInstance) {
+  // ── Vínculo produto ↔ curso do Educacional (Fase 1 da integração) ──
+  // A ineprotec vende cursos cadastrados como produtos; sem o vínculo, metas e
+  // comissões não sabem qual curso foi vendido (o Painel Gerencial lia o curso
+  // do título da proposta). A tela sugere o curso pelo nome; quem decide é o
+  // admin.
+  app.get('/api/admin/catalog/vinculo-cursos', { preHandler: adminOnly }, async () => {
+    const { sugerirCurso } = await import('../services/vinculoEducacional.js')
+    const [produtos, cursos] = await Promise.all([
+      prisma.product.findMany({ where: { active: true }, orderBy: [{ categoria: 'asc' }, { nome: 'asc' }], select: { id: true, nome: true, categoria: true, courseId: true } }),
+      prisma.course.findMany({ orderBy: { nome: 'asc' }, select: { id: true, nome: true } }),
+    ])
+    return {
+      cursos,
+      produtos: produtos.map((p) => ({ ...p, sugestao: p.courseId ? null : sugerirCurso(p.nome, cursos) })),
+    }
+  })
+
+  app.post('/api/admin/catalog/vinculo-cursos', { preHandler: adminOnly }, async (req, reply) => {
+    const lista = Array.isArray((req.body as any)?.vinculos) ? (req.body as any).vinculos : null
+    if (!lista) return reply.code(400).send({ error: 'vinculos (lista) é obrigatório' })
+    let gravados = 0
+    for (const v of lista) {
+      const productId = Number(v?.productId)
+      if (!Number.isInteger(productId)) continue
+      await prisma.product.update({ where: { id: productId }, data: { courseId: await cursoValido(v?.courseId) } }).then(() => gravados++).catch(() => {})
+    }
+    return { ok: true, gravados }
+  })
+
+  // Liga as propostas antigas às inscrições quando há correspondência certa
+  // (curso do item = curso da inscrição do mesmo lead). Sem `gravar`, só simula.
+  app.post('/api/admin/catalog/vincular-propostas', { preHandler: adminOnly }, async (req) => {
+    const { vincularPropostasAntigas } = await import('../services/vinculoEducacional.js')
+    return vincularPropostasAntigas({ gravar: (req.body as any)?.gravar === true })
+  })
+
   // ── Listagem (com busca/categoria) ──
   // Leitura com `authMiddleware`, não `adminOnly`: quem monta a proposta escolhe
   // os itens no catálogo, e vendedor (AGENT) não é administrador — com o gate
@@ -82,6 +126,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         preco: parsePreco(b.preco), estoque: parseInt2(b.estoque),
         disponivel: b.disponivel !== false, imageUrl: str(b.imageUrl, 500),
         cobranca: parseCobranca(b.cobranca),
+        courseId: await cursoValido(b.courseId),
       },
     })
     return { product: p }
@@ -102,6 +147,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     if (b.disponivel !== undefined) data.disponivel = !!b.disponivel
     if (b.imageUrl !== undefined) data.imageUrl = str(b.imageUrl, 500)
     if (b.cobranca !== undefined) data.cobranca = parseCobranca(b.cobranca)
+    if (b.courseId !== undefined) data.courseId = await cursoValido(b.courseId)
     const p = await prisma.product.update({ where: { id }, data }).catch(() => null)
     if (!p) return reply.code(404).send({ error: 'Produto não encontrado' })
     return { product: p }

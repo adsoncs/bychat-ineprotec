@@ -18,6 +18,8 @@ export interface Product {
   /** unico = cobrança de uma vez; recorrente = mensalidade. Puxado como padrão
    * ao inserir o item numa negociação. */
   cobranca?: 'unico' | 'recorrente'
+  /** Curso do Educacional que o produto vende (Catálogo › Ligar ao Educacional). */
+  courseId?: number | null
 }
 
 export interface ProductInput {
