@@ -597,21 +597,36 @@ export async function mergeLeads(opts: MergeOptions) {
     if (!(keep as any)[campo] && (merge as any)[campo]) updateData[campo] = (merge as any)[campo]
   }
 
-  // Mesclar formData: guardar dados do merge como _mergedFormData
+  // Mesclar formData: os dados da absorvida entram numa LISTA de junções
+  // (`_mescladas`), uma por junção — antes só a primeira era guardada
+  // (`_mergedFrom`) e da segunda em diante os dados do formulário sumiam. O que
+  // diverge da que fica vira "valor anterior" em vez de sumir.
+  const { fotoAntesDeJuntar, moverTabelasSemChave, conflitosDaJuncao, destinoDaFicha, resumoDosConflitos } = await import('./juncaoSegura.js')
   const keepFD = (keep.formData as any) || {}
   const mergeFD = (merge.formData as any) || {}
-  if (Object.keys(mergeFD).length > 0 && !keepFD._mergedFrom) {
-    updateData.formData = {
-      ...keepFD,
-      _mergedFrom: { leadId: mergeId, uid: merge.uid, data: mergeFD, mergedAt: new Date().toISOString() }
-    }
+  const conflitos = conflitosDaJuncao(keep, merge, updateData.nome !== undefined)
+  const destinoDaAbsorvida = await destinoDaFicha(merge)
+  updateData.formData = {
+    ...keepFD,
+    _mescladas: [...(Array.isArray(keepFD._mescladas) ? keepFD._mescladas : []),
+      { leadId: mergeId, uid: merge.uid, nome: merge.nome, destino: destinoDaAbsorvida, data: mergeFD, mergedAt: new Date().toISOString() }],
+    ...(conflitos.length ? { _valoresAnteriores: [...(Array.isArray(keepFD._valoresAnteriores) ? keepFD._valoresAnteriores : []), ...conflitos] } : {}),
   }
+
+  // Foto ANTES de mover: o que é da absorvida, tabela a tabela, e as linhas que
+  // a junção apaga. Vai para a Lixeira — restaurar desfaz a junção.
+  const foto = await fotoAntesDeJuntar(keepId, mergeId)
 
   // 2. Mover TUDO o que pertence ao lead absorvido. O passo 6 o apaga, e as
   // relações com onDelete: Cascade iriam junto — antes, só mensagens, eventos e
   // atividades eram movidos, e mesclar apagava aluno, inscrição no processo
   // seletivo, conta do portal, notas, etiquetas, anexos e funis do secundário.
-  await prisma.$transaction((tx) => transferirRelacoesDoLead(tx, mergeId, keepId))
+  // As tabelas SEM chave para o lead (propostas, formulários, consentimentos…)
+  // ficavam apontando para a ficha apagada.
+  await prisma.$transaction(async (tx) => {
+    await transferirRelacoesDoLead(tx, mergeId, keepId)
+    await moverTabelasSemChave(tx, mergeId, keepId)
+  })
 
   // 3. Atualizar contadores
   const msgCount = await prisma.message.count({ where: { leadId: keepId } })
@@ -650,6 +665,22 @@ export async function mergeLeads(opts: MergeOptions) {
     oldValue: JSON.stringify({ id: mergeId, uid: merge.uid, nome: merge.nome, whatsapp: merge.whatsapp, email: merge.email }),
     metadata: { mergedLeadId: mergeId, mergedUid: merge.uid },
   })
+
+  // Foto na Lixeira (desfazer junção) e nota com o que a absorvida tinha de
+  // diferente — onde estava e os valores que não prevaleceram.
+  foto.keepDepois = Object.fromEntries(Object.entries(updateData).filter(([k]) => !['lastMessageAt', 'unreadMessages'].includes(k)))
+  foto.keepAntes = Object.fromEntries(Object.keys(foto.keepDepois).map((k) => [k, (keep as any)[k] ?? null]))
+  const { moveToTrash } = await import('./trash.js')
+  await moveToTrash({
+    entityType: 'lead_merge', entityId: mergeId,
+    entityLabel: `${merge.nome || merge.whatsapp || '#' + mergeId} → juntada em #${keepId}`,
+    snapshot: JSON.parse(JSON.stringify(foto)), deletedBy: opts.operatorId, deletedByName: opts.operatorName, reason: 'Junção de fichas (restaurar = desfazer a junção)',
+  })
+  await prisma.leadNote.create({ data: { leadId: keepId, userId: null, userName: 'Sistema', content: [
+    `Junção: a ficha #${mergeId} (${merge.nome || merge.whatsapp || ''}) foi juntada a esta${opts.operatorName ? ` por ${opts.operatorName}` : ''}. Ela estava em ${destinoDaAbsorvida}.`,
+    resumoDosConflitos(conflitos),
+    'Dá para desfazer pela Lixeira.',
+  ].filter(Boolean).join('\n') } }).catch(() => {})
 
   // 6. Excluir lead secundário
   await prisma.lead.delete({ where: { id: mergeId } })

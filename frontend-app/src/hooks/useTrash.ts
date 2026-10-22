@@ -118,6 +118,7 @@ export function usePurgeExpiredTrash() {
 
 export const TRASH_TYPE_LABELS: Record<string, string> = {
   lead: 'Lead',
+  lead_merge: 'Junção de fichas',
   funnel: 'Funil',
   chatbot: 'Chatbot',
   tag: 'Tag',
@@ -144,6 +145,7 @@ type BadgeTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info
 
 export const TRASH_TYPE_TONES: Record<string, BadgeTone> = {
   lead: 'info',
+  lead_merge: 'warning',
   funnel: 'accent',
   chatbot: 'success',
   tag: 'warning',

@@ -165,8 +165,16 @@ export async function impedimentoParaJuntar(aId: number, bId: number, matchType:
   const [da, db] = await Promise.all([destino(aId), destino(bId)])
   if (da?.funnelId && db?.funnelId && da.funnelId !== db.funnelId) return `assuntos diferentes (funil "${da.funnel?.name}" × "${db.funnel?.name}")`
   if ((!da?.funnelId || !db?.funnelId) && da?.teamId && db?.teamId && da.teamId !== db.teamId) return `assuntos diferentes (equipe "${da.team?.name}" × "${db.team?.name}")`
+  // Duas pessoas da equipe conversando com o contato agora, uma em cada ficha:
+  // juntar mistura os dois atendimentos no meio. Fica para o time decidir.
+  const { atendimentoHumanoAtivo } = await import('./journey/validacaoContato.js')
+  const [ha, hb] = await Promise.all([atendimentoHumanoAtivo(aId), atendimentoHumanoAtivo(bId)])
+  if (ha && hb && ha.nome !== hb.nome) return `duas conversas em andamento com pessoas diferentes (${ha.nome} × ${hb.nome})`
   return null
 }
+
+/** Motivo de não juntar que é "mesma pessoa, outro assunto": liga as fichas. */
+export const ehOutroAssunto = (motivo: string | null) => !!motivo && motivo.startsWith('assuntos diferentes')
 
 /** Qual fica: a que tem mais conversa; empate, a mais antiga (menor id). */
 async function qualFica(aId: number, bId: number): Promise<[number, number]> {
@@ -207,6 +215,14 @@ export async function juntarDuplicatasAutomaticas(): Promise<{ juntadas: number;
     if (jaAvaliada || (canal && regras.canais[canal] === false)) continue
     const outro = p.possibleDuplicateOfId!
     const motivo = await impedimentoParaJuntar(p.id, outro, p.duplicateMatchedBy || '')
+    if (ehOutroAssunto(motivo)) {
+      // Mesma pessoa, assunto diferente: as duas fichas seguem, cada uma no seu
+      // funil, ligadas como "mesma pessoa" (aparece na ficha e para a IA).
+      const { ligarFichas } = await import('./juncaoSegura.js')
+      await ligarFichas(outro, p.id, { nome: 'Sistema (regra de duplicidade)', motivo: motivo! }).catch(() => null)
+      mantidas++
+      continue
+    }
     if (motivo) {
       mantidas++
       const texto = `Duplicata NÃO juntada automaticamente com a ficha #${outro}: ${motivo}. Fica para revisão do time.`

@@ -11,6 +11,7 @@ import { useEnrollmentLinkByLead } from '@/hooks/useEnrollmentPortals'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DuplicateLeadModal } from '@/components/DuplicateLeadModal'
+import { MesmaPessoaAviso } from '@/components/MesmaPessoaAviso'
 import { MergeLeadsModal } from '@/components/MergeLeadsModal'
 import {
   LeadDetailOverviewTab as LeadOverviewTab,
@@ -112,6 +113,7 @@ export function LeadDetailContent({ id, section }: Props) {
           </div>
         </div>
       )}
+      <MesmaPessoaAviso leadId={lead.id} formData={(lead as any).formData} />
       {section === 'overview'   && <LeadOverviewTab lead={lead} />}
       {section === 'negociacao' && <LeadNegotiationTab leadId={lead.id} />}
       {section === 'tracking'   && <LeadTrackingTab lead={lead} />}

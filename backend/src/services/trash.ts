@@ -31,6 +31,8 @@ export type TrashEntityType =
   | 'product'
   | 'persona'
   | 'stage'
+  // Junção de fichas: a foto da absorvida (services/juncaoSegura.ts).
+  | 'lead_merge'
 
 interface TrashOptions {
   entityType: TrashEntityType
@@ -388,6 +390,12 @@ export async function restoreFromTrash(trashItemId: number, restoredBy: number) 
     case 'chatbot':
       restored = await restoreChatbot(snapshot)
       break
+    case 'lead_merge': {
+      const { desfazerJuncao } = await import('./juncaoSegura.js')
+      const r = await desfazerJuncao(snapshot, { userId: restoredBy })
+      restored = r.lead
+      break
+    }
     default:
       restored = await restoreSimpleEntity(item.entityType as TrashEntityType, snapshot)
   }

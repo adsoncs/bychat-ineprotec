@@ -283,7 +283,7 @@ function TrashPageContent() {
           open
           onOpenChange={(o) => { if (!o) setConfirmRestore(null) }}
           title={`Restaurar "${confirmRestore.entityLabel}"`}
-          description="O item será recriado no sistema com um novo ID."
+          description={confirmRestore.entityType === 'lead_merge' ? 'Desfaz a junção: a ficha absorvida volta com o mesmo número, com as mensagens, propostas e inscrições que eram dela.' : 'O item será recriado no sistema com um novo ID.'}
           confirmLabel="Restaurar"
           loading={restore.isPending}
           onConfirm={() => handleRestoreOne(confirmRestore)}
@@ -597,6 +597,20 @@ function renderSnapshotSummary(entityType: string, snap: Record<string, unknown>
     return typeof v === 'string' && v.length > 0 ? v : '—'
   }
 
+  if (entityType === 'lead_merge') {
+    const lead = (snap!.lead || {}) as Record<string, unknown>
+    const ids = (snap!.ids || {}) as Record<string, number[]>
+    const n = (t: string) => ids[t]?.length ?? 0
+    return (
+      <div class="space-y-2 text-sm">
+        <div>Ficha <strong>#{String(snap!.mergeId)}</strong> ({String(lead.nome || lead.whatsapp || '—')}) foi juntada na <strong>#{String(snap!.keepId)}</strong>.</div>
+        <div class="text-xs text-fg-muted">
+          {n('bychat_messages')} mensagens · {n('bychat_lead_events')} eventos · {n('bychat_negotiations')} propostas · {n('bychat_enrollment_registrations')} inscrições · {n('bychat_form_submissions')} formulários
+        </div>
+        <div class="text-xs text-fg-muted">Restaurar desfaz a junção: a ficha volta com o mesmo número e o que era dela volta para ela.</div>
+      </div>
+    )
+  }
   if (entityType === 'lead') {
     return (
       <div class="space-y-2">

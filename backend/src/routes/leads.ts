@@ -2143,10 +2143,64 @@ export async function leadsRoutes(app: FastifyInstance) {
         })
         merged++
       }
+      // Escolhas da tela de comparação: qual valor fica em cada campo em conflito.
+      // O que perdeu já está guardado como "valor anterior" pela junção.
+      const escolhas = (req.body as any)?.escolhas as Record<string, unknown> | undefined
+      if (escolhas && typeof escolhas === 'object') {
+        const lead = await prisma.lead.findUnique({ where: { id: masterId }, select: { customFields: true } })
+        const data: any = {}
+        const cf: any = { ...((lead?.customFields as any) || {}) }
+        for (const [campo, valor] of Object.entries(escolhas)) {
+          if (campo.startsWith('campo:')) cf[campo.slice(6)] = valor
+          else if (['nome', 'email', 'cidade', 'empresa', 'segmento', 'whatsapp', 'solucaoNome', 'maturidade'].includes(campo)) data[campo] = valor == null ? null : String(valor)
+        }
+        if (Object.keys(cf).length) data.customFields = cf
+        if (Object.keys(data).length) await prisma.lead.update({ where: { id: masterId }, data })
+      }
       return { ok: true, merged, masterId }
     } catch (err: any) {
       return reply.code(400).send({ error: err.message || 'Erro ao mesclar leads' })
     }
+  })
+
+  // ── Revisão de duplicatas: comparar, parecer da IA, ligar como mesma pessoa ──
+  // (services/juncaoSegura.ts)
+  app.get('/api/bychat/leads/duplicates/compare', { preHandler: authMiddleware }, async (req, reply) => {
+    const q = req.query as any
+    const a = parseInt(q.a), b = parseInt(q.b)
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return reply.code(400).send({ error: 'Informe duas fichas diferentes (a e b)' })
+    if (!await assertLeadAccess(req, reply, a) || !await assertLeadAccess(req, reply, b)) return
+    const { compararFichas } = await import('../services/juncaoSegura.js')
+    try { return await compararFichas(a, b) } catch (e: any) { return reply.code(400).send({ error: e?.message || 'Erro ao comparar' }) }
+  })
+
+  app.post('/api/bychat/leads/duplicates/parecer', { preHandler: authMiddleware }, async (req, reply) => {
+    const body = (req.body || {}) as any
+    const a = parseInt(body.a), b = parseInt(body.b)
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return reply.code(400).send({ error: 'Informe duas fichas diferentes (a e b)' })
+    if (!await assertLeadAccess(req, reply, a) || !await assertLeadAccess(req, reply, b)) return
+    const { parecerDaIa } = await import('../services/juncaoSegura.js')
+    try { return await parecerDaIa(a, b) } catch (e: any) { return reply.code(400).send({ error: e?.message || 'Erro no parecer da IA' }) }
+  })
+
+  app.post('/api/bychat/leads/duplicates/link', { preHandler: authMiddleware }, async (req, reply) => {
+    const body = (req.body || {}) as any
+    const principal = parseInt(body.principal), outras = (Array.isArray(body.outras) ? body.outras : [body.outra]).map((x: any) => parseInt(x)).filter((n: number) => Number.isFinite(n))
+    if (!Number.isFinite(principal) || !outras.length) return reply.code(400).send({ error: 'Informe a ficha principal e as outras' })
+    for (const id of [principal, ...outras]) if (!await assertLeadAccess(req, reply, id)) return
+    const user = (req as any).user as JwtPayload
+    const { ligarFichas } = await import('../services/juncaoSegura.js')
+    try {
+      for (const o of outras) await ligarFichas(principal, o, { userId: user.userId, nome: user.name || user.email, motivo: 'mesma pessoa, assuntos diferentes (decisão do time)' })
+      return { ok: true, ligadas: outras.length }
+    } catch (e: any) { return reply.code(400).send({ error: e?.message || 'Erro ao ligar fichas' }) }
+  })
+
+  app.get('/api/bychat/leads/:id/mesma-pessoa', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    if (!await assertLeadAccess(req, reply, id)) return
+    const { fichasLigadas } = await import('../services/juncaoSegura.js')
+    return { fichas: await fichasLigadas(id) }
   })
 
   // ── GET /api/bychat/leads/duplicates/groups ─── Tela "Duplicados pendentes" (Fase 24) ──

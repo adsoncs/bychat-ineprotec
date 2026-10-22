@@ -27,6 +27,7 @@ import { useFunnels } from '@/hooks/useFunnels'
 import { formatDateTime } from '@/lib/format'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { toast } from '@/lib/toast'
+import { CompararFichasModal } from '@/components/CompararFichasModal'
 import { cn } from '@/lib/cn'
 
 export function LeadsDuplicatesPage() {
@@ -180,6 +181,7 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
   const [confirmKeep, setConfirmKeep] = useState(false)
   const [picked, setPicked] = useState<Set<number>>(() => new Set(group.duplicates.map(d => d.id)))
   const [masterId, setMasterId] = useState<number>(group.masterId)
+  const [comparando, setComparando] = useState<number | null>(null)
 
   const allLeads = useMemo(() => [
     { ...group.master, _isMasterDefault: true },
@@ -277,11 +279,16 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
                   setPicked(p => { const n = new Set(p); n.delete(lead.id); return n })
                 }}
                 onTogglePick={() => togglePick(lead.id)}
+                onCompare={lead.id !== masterId && masterId ? () => setComparando(lead.id) : undefined}
               />
             ))}
           </tbody>
         </table>
       </div>
+
+      {comparando != null && masterId && (
+        <CompararFichasModal a={masterId} b={comparando} onClose={() => setComparando(null)} onDone={() => setComparando(null)} />
+      )}
 
       <ConfirmDialog
         open={confirmKeep}
@@ -297,13 +304,14 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
 }
 
 function DuplicateLeadRow({
-  lead, isMaster, isMergePicked, onSetMaster, onTogglePick,
+  lead, isMaster, isMergePicked, onSetMaster, onTogglePick, onCompare,
 }: {
   lead: DuplicateLeadSummary & { _isMasterDefault?: boolean }
   isMaster: boolean
   isMergePicked: boolean
   onSetMaster: () => void
   onTogglePick: () => void
+  onCompare?: (() => void) | undefined
 }) {
   const matchedByLabel = lead.duplicateMatchedBy
     ? ({ whatsapp: 'WhatsApp', email: 'E-mail', cpf: 'CPF', nome: 'Nome e DDD' } as Record<string, string>)[lead.duplicateMatchedBy] ?? lead.duplicateMatchedBy
@@ -371,7 +379,10 @@ function DuplicateLeadRow({
       <td class="px-3 py-2 text-2xs text-fg-muted whitespace-nowrap">
         {formatDateTime(lead.createdAt)}
       </td>
-      <td class="px-3 py-2 text-right">
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        {onCompare && (
+          <Button size="sm" variant="secondary" class="mr-2" onClick={onCompare}>Comparar</Button>
+        )}
         <Link href={`/app/leads/${lead.id}`} class="inline-flex items-center gap-1 text-xs text-info hover:underline">
           Abrir <ExternalLink size={11} />
         </Link>

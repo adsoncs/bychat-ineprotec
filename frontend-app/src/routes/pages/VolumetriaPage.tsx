@@ -74,6 +74,7 @@ const FUNCIONALIDADES_IA: Record<string, { nome: string; oQueFaz: string }> = {
   analise_sentimento:      { nome: 'Análise de sentimento',             oQueFaz: 'Classifica o tom da conversa do lead' },
   sugestao_abordagem:      { nome: 'Sugestão de abordagem',             oQueFaz: 'Propõe como abordar o lead na próxima mensagem' },
   auditoria_conversa:      { nome: 'Auditoria de conversa',             oQueFaz: 'Avalia a qualidade do atendimento feito pela equipe' },
+  parecer_duplicidade:     { nome: 'Parecer sobre fichas duplicadas',   oQueFaz: 'Lê duas fichas e as conversas e diz se é a mesma pessoa e o mesmo assunto' },
 
   revisao_documento:       { nome: 'Análise de documentos',             oQueFaz: 'Confere os documentos enviados na inscrição' },
   correcao_redacao:        { nome: 'Correção de redação',             oQueFaz: 'Corrige a redação da prova e propõe a nota' },
@@ -97,7 +98,7 @@ const GRUPOS_IA: Array<{ nome: string; resumo: string; chaves: string[] }> = [
   { nome: 'Chatbot (atendimento automático)', resumo: 'A IA que conversa com o lead no WhatsApp',
     chaves: ['jornada_ia', 'jornada_interpretacao', 'chatbot', 'chatbot_pos_jornada'] },
   { nome: 'Inteligência sobre a conversa', resumo: 'Lê o que foi conversado e alimenta o funil',
-    chaves: ['lead_score', 'sugestao_etapa', 'deteccao_venda', 'analise_sentimento', 'sugestao_abordagem', 'auditoria_conversa'] },
+    chaves: ['lead_score', 'sugestao_etapa', 'deteccao_venda', 'analise_sentimento', 'sugestao_abordagem', 'auditoria_conversa', 'parecer_duplicidade'] },
   { nome: 'Processo seletivo e acadêmico', resumo: 'Documentos, redação e prova',
     chaves: ['revisao_documento', 'correcao_redacao', 'tema_redacao', 'deteccao_ia_redacao'] },
   { nome: 'Cadência de contato', resumo: 'Régua automática de mensagens',
