@@ -2200,7 +2200,9 @@ export async function leadsRoutes(app: FastifyInstance) {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return
     const { fichasLigadas } = await import('../services/juncaoSegura.js')
-    return { fichas: await fichasLigadas(id) }
+    const { inscricoesAbertasDaFicha } = await import('../services/funilDaJornada.js')
+    const inscricoes = (await inscricoesAbertasDaFicha([id]).catch(() => ({} as Record<number, any[]>)))[id] ?? []
+    return { fichas: await fichasLigadas(id), inscricoes }
   })
 
   // ── GET /api/bychat/leads/duplicates/groups ─── Tela "Duplicados pendentes" (Fase 24) ──

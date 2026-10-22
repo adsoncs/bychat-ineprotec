@@ -41,13 +41,18 @@ export async function sincronizarFunilDaInscricao(
   const funnelId = reg.portal.funnelId ?? reg.lead.funnelId
   if (!funnelId || reg.lead.funnelId !== funnelId) return { moved: false, motivo: 'lead fora do funil do portal' }
 
-  const j = await etapasDaInscricao(registrationId, 'inscricao')
-  if (!j) return { moved: false, motivo: 'sem etapas' }
-  // Onde o candidato está: a primeira etapa ainda não concluída (na ordem do portal).
-  const atual = j.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
-  const chave: ChaveEtapa | 'concluido' | `${ChaveEtapa}:aguardando` =
-    !atual ? 'concluido' : atual.situacao === 'aguardando' && mapa[`${atual.chave}:aguardando`] ? `${atual.chave}:aguardando` : atual.chave
-  const destino = mapa[chave]
+  // A ficha tem UMA etapa por funil, mas a pessoa pode ter mais de uma
+  // inscrição aberta nele (ex.: Bacharel por Redação e por ENEM, ou duas fichas
+  // juntadas). O funil segue a inscrição MAIS ADIANTADA — senão o card pulava
+  // para trás a cada evento da inscrição atrasada.
+  const escolhida = await inscricaoMaisAdiantada(registrationId, reg.leadId, funnelId, mapa)
+  if (!escolhida) return { moved: false, motivo: 'sem etapas' }
+  if (escolhida.id !== reg.id) {
+    reg.candidateCode = escolhida.candidateCode
+    reg.portal = escolhida.portal as any
+  }
+  const { atual, chave } = escolhida
+  const destino = escolhida.mapa[chave]
   if (!destino) return { moved: false, motivo: `etapa "${chave}" sem etapa do funil` }
 
   const stages = await prisma.stage.findMany({ where: { funnelId, active: true }, select: { key: true, name: true, position: true } })
@@ -66,7 +71,7 @@ export async function sincronizarFunilDaInscricao(
     if (!doDePara.has(agora.key) && agora.position >= alvo.position) return { moved: false, motivo: 'lead movido à mão para etapa à frente' }
   }
 
-  const titulo = atual ? (atual.titulo || ROTULO[atual.chave]) : 'todas as etapas concluídas'
+  const titulo = atual ? (atual.titulo || ROTULO[atual.chave as ChaveEtapa]) : 'todas as etapas concluídas'
   if (opts.simular) return { moved: false, para: alvo.name, motivo: `simulação: iria de "${agora?.name ?? reg.lead.status}" para "${alvo.name}" (etapa atual: ${titulo})` }
   const r = await moveLeadStage({
     leadId: reg.leadId,
@@ -78,6 +83,46 @@ export async function sincronizarFunilDaInscricao(
     metadata: { registrationId: reg.id, candidateCode: reg.candidateCode, portalId: reg.portal.id, etapa: chave },
   })
   return { moved: r.moved, para: alvo.name }
+}
+
+type ChaveDoFunil = ChaveEtapa | 'concluido' | `${ChaveEtapa}:aguardando`
+
+/** Onde a inscrição está: a primeira etapa não concluída, na ordem do portal. */
+async function situacaoDaInscricao(registrationId: number, mapa: Record<string, string | undefined>) {
+  const j = await etapasDaInscricao(registrationId, 'inscricao')
+  if (!j) return null
+  const atual = j.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
+  const chave: ChaveDoFunil =
+    !atual ? 'concluido' : atual.situacao === 'aguardando' && mapa[`${atual.chave}:aguardando`] ? `${atual.chave}:aguardando` : atual.chave
+  const total = j.etapas.length || 1
+  const feitas = j.etapas.filter((e) => e.situacao === 'feito' || e.liberada).length
+  return { atual, chave, progresso: atual ? feitas / total : 1 }
+}
+
+/**
+ * Entre as inscrições abertas da ficha que vão para o mesmo funil, a mais
+ * adiantada (maior parte das etapas concluída; empate = a que chamou). Cancelada,
+ * recusada ou mesclada não conta.
+ */
+export async function inscricaoMaisAdiantada(registrationId: number, leadId: number, funnelId: number, mapa: Record<string, string | undefined>) {
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { leadId, mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } },
+    select: { id: true, candidateCode: true, portal: { select: { id: true, nome: true, funnelId: true, jornadaEtapas: true } } },
+  })
+  let melhor: any = null
+  for (const r of regs) {
+    if (!r.portal || (r.portal.funnelId ?? funnelId) !== funnelId) continue
+    const mapaDela = r.id === registrationId ? mapa : (lerJornada(r.portal.jornadaEtapas).funil ?? {})
+    if (!Object.keys(mapaDela).length) continue
+    const sit = await situacaoDaInscricao(r.id, mapaDela).catch(() => null)
+    if (!sit || !mapaDela[sit.chave]) continue
+    const cand = { ...r, ...sit, mapa: mapaDela }
+    if (!melhor || cand.progresso > melhor.progresso || (cand.progresso === melhor.progresso && r.id === registrationId)) melhor = cand
+  }
+  if (melhor) return melhor
+  // A que chamou não está entre as abertas (ex.: acabou de ser cancelada): ela mesma.
+  const sit = await situacaoDaInscricao(registrationId, mapa)
+  return sit ? { id: registrationId, candidateCode: '', portal: null, ...sit, mapa } : null
 }
 
 /** Dispara sem esperar e sem derrubar quem chamou. */
@@ -121,4 +166,34 @@ export async function sincronizarFunilDoPortal(portalId: number): Promise<{ tota
     if (x.moved) movidos++
   }
   return { total: regs.length, movidos }
+}
+
+/**
+ * Inscrições abertas da ficha, com a etapa de cada uma ("Redação: Pagamento ·
+ * ENEM: Documentos"). Só interessa quando há mais de uma: o card mostra a da
+ * mais adiantada e isto mostra que existe outra.
+ */
+export async function inscricoesAbertasDaFicha(leadIds: number[]): Promise<Record<number, Array<{ codigo: string; curso: string | null; etapa: string }>>> {
+  const out: Record<number, Array<{ codigo: string; curso: string | null; etapa: string }>> = {}
+  if (!leadIds.length) return out
+  const abertas = { mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } }
+  const contagem = await prisma.enrollmentRegistration.groupBy({ by: ['leadId'], where: { leadId: { in: leadIds }, ...abertas }, _count: { _all: true } })
+  const comVarias = contagem.filter((c) => c.leadId && c._count._all > 1).map((c) => c.leadId as number)
+  if (!comVarias.length) return out
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { leadId: { in: comVarias }, ...abertas },
+    orderBy: { id: 'asc' },
+    select: { id: true, leadId: true, candidateCode: true, processRegistration: { select: { offering: { select: { nome: true } }, selectionProcess: { select: { entryMode: { select: { name: true } } } } } } },
+  })
+  for (const r of regs) {
+    const j = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
+    const atual = j?.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
+    const forma = r.processRegistration?.selectionProcess?.entryMode?.name
+    ;(out[r.leadId!] ??= []).push({
+      codigo: r.candidateCode,
+      curso: forma || r.processRegistration?.offering?.nome || null,
+      etapa: atual ? (atual.titulo || ROTULO[atual.chave as ChaveEtapa]) : 'concluída',
+    })
+  }
+  return out
 }

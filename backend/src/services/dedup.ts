@@ -685,6 +685,18 @@ export async function mergeLeads(opts: MergeOptions) {
   // 6. Excluir lead secundário
   await prisma.lead.delete({ where: { id: mergeId } })
 
+  // A ficha que fica pode ter agora duas inscrições no mesmo funil: a etapa é
+  // recalculada pela mais adiantada (services/funilDaJornada.ts), em vez de
+  // ficar a etapa de quem tinha mais mensagens.
+  const aberta = await prisma.enrollmentRegistration.findFirst({
+    where: { leadId: keepId, mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } },
+    orderBy: { id: 'desc' }, select: { id: true },
+  }).catch(() => null)
+  if (aberta) {
+    const { sincronizarFunilDaInscricao } = await import('./funilDaJornada.js')
+    await sincronizarFunilDaInscricao(aberta.id).catch(() => null)
+  }
+
   // Retornar lead atualizado
   return prisma.lead.findUnique({ where: { id: keepId } })
 }

@@ -1215,6 +1215,13 @@ function LeadCard({
             </div>
           )}
 
+          {/* Duas inscrições abertas (ex.: Redação e ENEM): o card está na etapa
+            * da mais adiantada; esta linha mostra que existe a outra. */}
+          {lead._inscricoes && lead._inscricoes.length > 1 && (
+            <div class="mt-1.5 text-2xs text-fg-muted truncate" title={lead._inscricoes.map((i) => `${i.codigo} — ${i.curso ?? ''}: ${i.etapa}`).join('\n')}>
+              {lead._inscricoes.map((i) => `${i.curso ?? i.codigo}: ${i.etapa}`).join(' · ')}
+            </div>
+          )}
           {/* A negociação. É o dado pelo qual o funil existe, então o VALOR tem
             * peso tipográfico — não cor. Prazo vencido é a exceção: aí vira
             * decisão, e decisão pode acender. */}

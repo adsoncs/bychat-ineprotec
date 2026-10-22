@@ -244,6 +244,11 @@ export async function kanbanRoutes(app: FastifyInstance) {
       }
     }
 
+    // Pessoa com mais de uma inscrição aberta neste funil: o card fica na etapa
+    // da mais adiantada e mostra as outras (services/funilDaJornada.ts).
+    const { inscricoesAbertasDaFicha } = await import('../services/funilDaJornada.js')
+    const inscMap = await inscricoesAbertasDaFicha(leadIds).catch(() => ({} as Record<number, any[]>))
+
     // Lookup Meta form names
     const metaFormIds = [...new Set(leads.map(l => l.metaFormId).filter(Boolean))] as string[]
     const metaFormNames: Record<string, string> = {}
@@ -270,6 +275,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
       const enriched = {
         ...l,
         _negociacao: negocMap[l.id] ?? null,
+        _inscricoes: inscMap[l.id] ?? null,
         _temConversa: temConversa,
         _conversaAberta: temConversa && conversaAberta,
         _naoLidas: l.unreadMessages ?? 0,

@@ -81,6 +81,8 @@ export interface KanbanLead {
   _metaFormName: string | null
   /** A negociação que o card mostra: aberta de maior valor, preferindo a deste funil. */
   _negociacao?: { titulo: string; valor: number | null; moeda: string; prazo: string | null; aberta: boolean } | null
+  /** Mais de uma inscrição aberta: cada uma com a sua etapa (o card fica na da mais adiantada). */
+  _inscricoes?: Array<{ codigo: string; curso: string | null; etapa: string }> | null
   /** Já houve mensagem trocada — é o que autoriza o atalho para o Conversas. */
   _temConversa?: boolean
   /** A conversa está aberta agora (em atendimento, ou o contato voltou a falar). */

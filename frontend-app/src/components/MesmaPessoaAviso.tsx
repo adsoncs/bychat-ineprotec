@@ -15,13 +15,14 @@ const nomeDoCampo = (c: string) => c.replace(/^campo:/, '').replace(/^formulario
 export function MesmaPessoaAviso({ leadId, formData }: { leadId: number; formData?: unknown }) {
   const { data } = useQuery({
     queryKey: ['lead-mesma-pessoa', leadId],
-    queryFn: () => api.get<{ fichas: FichaLigada[] }>(`/bychat/leads/${leadId}/mesma-pessoa`),
+    queryFn: () => api.get<{ fichas: FichaLigada[]; inscricoes: Array<{ codigo: string; curso: string | null; etapa: string }> }>(`/bychat/leads/${leadId}/mesma-pessoa`),
     staleTime: 60_000,
   })
   const [verValores, setVerValores] = useState(false)
   const fichas = data?.fichas ?? []
+  const inscricoes = data?.inscricoes ?? []
   const anteriores: ValorAnterior[] = Array.isArray((formData as any)?._valoresAnteriores) ? (formData as any)._valoresAnteriores : []
-  if (!fichas.length && !anteriores.length) return null
+  if (!fichas.length && !anteriores.length && inscricoes.length < 2) return null
   return (
     <div class="rounded-lg border border-info/30 bg-info/5 p-3 text-sm space-y-2">
       {fichas.length > 0 && (
@@ -37,6 +38,15 @@ export function MesmaPessoaAviso({ leadId, formData }: { leadId: number; formDat
             ))}
             <div class="text-2xs text-muted">Assuntos diferentes: cada ficha segue no seu funil, com o seu responsável.</div>
           </div>
+        </div>
+      )}
+      {inscricoes.length > 1 && (
+        <div class="text-xs">
+          <strong class="text-info">{inscricoes.length} inscrições abertas</strong>
+          <span class="text-muted"> — o funil acompanha a mais adiantada:</span>
+          {inscricoes.map((i) => (
+            <div key={i.codigo}><span class="font-mono text-2xs">{i.codigo}</span> {i.curso ?? ''}: <span class="text-muted">{i.etapa}</span></div>
+          ))}
         </div>
       )}
       {anteriores.length > 0 && (
