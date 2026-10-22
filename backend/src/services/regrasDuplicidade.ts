@@ -156,6 +156,12 @@ export async function impedimentoParaJuntar(aId: number, bId: number, matchType:
   }
   const alunos = await prisma.aluno.count({ where: { leadId: { in: [aId, bId] } } }).catch(() => 0)
   if (alunos > 1) return 'as duas fichas têm cadastro de aluno'
+  // Mesmo funil, processos diferentes (curso + forma de ingresso): cada um é
+  // uma ficha com a sua etapa — ex.: duas Pós, duas Extensões, ou Bacharel por
+  // Redação e por ENEM. Não junta: liga como mesma pessoa.
+  const { processosDiferentes } = await import('./juncaoSegura.js')
+  const processos = await processosDiferentes(aId, bId)
+  if (processos) return `assuntos diferentes (${processos})`
   // Mesma pessoa, ASSUNTO diferente: quem conversa com Matrículas e manda o
   // formulário de Expansão precisa aparecer na Expansão. A junção mantém o funil
   // e a equipe da ficha que fica — o destino da outra sumia (fabad, 22/10,

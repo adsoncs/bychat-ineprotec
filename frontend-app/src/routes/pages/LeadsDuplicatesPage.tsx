@@ -28,6 +28,7 @@ import { formatDateTime } from '@/lib/format'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { toast } from '@/lib/toast'
 import { CompararFichasModal } from '@/components/CompararFichasModal'
+import { JustificativaJuncaoDialog, pedeJustificativa } from '@/components/JustificativaJuncaoDialog'
 import { cn } from '@/lib/cn'
 
 export function LeadsDuplicatesPage() {
@@ -196,15 +197,20 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
     })
   }
 
-  function handleMerge() {
+  const [pedido, setPedido] = useState<string | null>(null)
+  function handleMerge(justificativa?: string) {
     const mergeIds = Array.from(picked).filter(id => id !== masterId)
     if (mergeIds.length === 0) {
       toast('Selecione ao menos 1 lead duplicado', 'danger')
       return
     }
-    merge.mutate({ masterId, mergeIds }, {
-      onSuccess: (r) => toast(`${r.merged} lead(s) absorvido(s) em #${masterId}`, 'success'),
-      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    merge.mutate({ masterId, mergeIds, ...(justificativa ? { justificativa } : {}) }, {
+      onSuccess: (r) => { setPedido(null); toast(`${r.merged} lead(s) absorvido(s) em #${masterId}`, 'success') },
+      onError: (e: unknown) => {
+        const motivo = pedeJustificativa(e)
+        if (motivo != null) setPedido(motivo)
+        else toast((e as Error).message, 'danger')
+      },
     })
   }
 
@@ -236,7 +242,7 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
         <div class="flex items-center gap-2 flex-wrap">
           <Button
             variant="primary" size="sm"
-            onClick={handleMerge}
+            onClick={() => handleMerge()}
             disabled={merge.isPending || keepSeparate.isPending || picked.size === 0}
           >
             <GitMerge size={14} />
@@ -286,6 +292,9 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
         </table>
       </div>
 
+      {pedido != null && (
+        <JustificativaJuncaoDialog motivo={pedido} loading={merge.isPending} onCancel={() => setPedido(null)} onConfirm={(j) => handleMerge(j)} />
+      )}
       {comparando != null && masterId && (
         <CompararFichasModal a={masterId} b={comparando} onClose={() => setComparando(null)} onDone={() => setComparando(null)} />
       )}

@@ -2131,6 +2131,24 @@ export async function leadsRoutes(app: FastifyInstance) {
       if (!await assertLeadAccess(req, reply, tid)) return
     }
 
+    // Fichas com processos diferentes (curso + forma de ingresso) não se juntam
+    // sozinhas; à mão, pode — com justificativa, que vai para o histórico do
+    // lead e da pessoa que juntou (fabad, 22/10).
+    const justificativa = String((req.body as any)?.justificativa ?? '').trim()
+    const { processosDiferentes } = await import('../services/juncaoSegura.js')
+    const motivos: Record<number, string> = {}
+    for (const tid of targetIds) {
+      const dif = await processosDiferentes(masterId, tid).catch(() => null)
+      if (dif) motivos[tid] = dif
+    }
+    if (Object.keys(motivos).length && justificativa.length < 10) {
+      return reply.code(409).send({
+        error: 'Estas fichas têm inscrições em processos diferentes (curso ou forma de ingresso). Para juntar, explique o motivo.',
+        precisaJustificativa: true,
+        motivo: Object.values(motivos).join(' | '),
+      })
+    }
+
     try {
       const { mergeLeads } = await import('../services/dedup.js')
       let merged = 0
@@ -2140,6 +2158,7 @@ export async function leadsRoutes(app: FastifyInstance) {
           mergeId: tid,
           operatorName: user.name || user.email,
           operatorId: user.userId,
+          ...(motivos[tid] ? { justificativa, motivoDaJustificativa: motivos[tid] } : {}),
         })
         merged++
       }

@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { formatDateTime } from '@/lib/format'
+import { JustificativaJuncaoDialog, pedeJustificativa } from '@/components/JustificativaJuncaoDialog'
 
 interface Ficha {
   id: number; uid: string | null; nome: string | null; whatsapp: string | null; email: string | null; cidade: string | null
@@ -61,18 +62,23 @@ export function CompararFichasModal({ a, b, onClose, onDone }: { a: number; b: n
     void qc.invalidateQueries({ queryKey: ['lead-duplicates-count'] })
     void qc.invalidateQueries({ queryKey: ['leads'] })
   }
+  const [pedido, setPedido] = useState<string | null>(null)
   const juntar = useMutation({
-    mutationFn: () => {
+    mutationFn: (justificativa?: string) => {
       const absorvida = fica === a ? b : a
       const valores: Record<string, unknown> = {}
       for (const c of data?.conflitos ?? []) {
         const lado = escolhas[c.campo] ?? (fica === a ? 'a' : 'b')
         valores[c.campo] = lado === 'a' ? c.a : c.b
       }
-      return api.post('/bychat/leads/merge', { masterId: fica, mergeIds: [absorvida], escolhas: valores })
+      return api.post('/bychat/leads/merge', { masterId: fica, mergeIds: [absorvida], escolhas: valores, ...(justificativa ? { justificativa } : {}) })
     },
-    onSuccess: () => { toast('Fichas juntadas. Dá para desfazer pela Lixeira.', 'success'); atualizar(); onDone() },
-    onError: (e: any) => toast(e?.message || 'Erro ao juntar', 'danger'),
+    onSuccess: () => { setPedido(null); toast('Fichas juntadas. Dá para desfazer pela Lixeira.', 'success'); atualizar(); onDone() },
+    onError: (e: any) => {
+      const motivo = pedeJustificativa(e)
+      if (motivo != null) setPedido(motivo)
+      else toast(e?.message || 'Erro ao juntar', 'danger')
+    },
   })
   const ligar = useMutation({
     mutationFn: () => api.post('/bychat/leads/duplicates/link', { principal: a, outras: [b] }),
@@ -90,11 +96,14 @@ export function CompararFichasModal({ a, b, onClose, onDone }: { a: number; b: n
           <Button variant="secondary" onClick={() => ligar.mutate()} loading={ligar.isPending} disabled={ocupado}>
             <Link2 size={14} /> Mesma pessoa, assuntos diferentes
           </Button>
-          <Button onClick={() => juntar.mutate()} loading={juntar.isPending} disabled={ocupado}>
+          <Button onClick={() => juntar.mutate(undefined)} loading={juntar.isPending} disabled={ocupado}>
             <GitMerge size={14} /> Juntar em #{fica}
           </Button>
         </div>
       )}>
+      {pedido != null && (
+        <JustificativaJuncaoDialog motivo={pedido} loading={juntar.isPending} onCancel={() => setPedido(null)} onConfirm={(j) => juntar.mutate(j)} />
+      )}
       {isLoading && <Skeleton class="h-64" />}
       {error && <div class="text-sm text-danger">{(error as any)?.message || 'Erro ao carregar'}</div>}
       {data && (

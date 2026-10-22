@@ -2340,6 +2340,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const retomada = decisao.retomar
     if (retomada?.leadId && !lead) lead = await prisma.lead.findUnique({ where: { id: retomada.leadId } })
 
+    // Segundo PROCESSO da mesma pessoa (curso + forma de ingresso que a ficha
+    // ainda não tem em aberto — ex.: segunda Pós, ou Bacharel por ENEM depois do
+    // de Redação): ficha nova, ligada à primeira como mesma pessoa e com o mesmo
+    // responsável. Assim cada processo tem a sua etapa no funil (fabad, 22/10).
+    let fichaDoOutroProcesso: any = null
+    if (lead && !retomada && offeringId) {
+      const { processosAbertos, processoDaOferta } = await import('../services/juncaoSegura.js')
+      const [abertos, novo] = await Promise.all([processosAbertos(lead.id), processoDaOferta(offeringId)])
+      if (novo && abertos.length && !abertos.some((p) => p.chave === novo.chave)) {
+        fichaDoOutroProcesso = lead
+        lead = null
+      }
+    }
+
     // Resolve funil: portal.funnelId > default do sistema > null
     let resolvedFunnelId: number | null = portal.funnelId || null
     if (!resolvedFunnelId) {
@@ -2364,7 +2378,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // A mesma pessoa já tem responsável noutra ficha (chave inscricaoHerdaDono):
       // o lead cai com ele em vez de abrir uma segunda pessoa pelo rodízio.
       const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
-      const herdado = await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
+      const doOutroProcesso = fichaDoOutroProcesso?.assignedUserId
+        ? await prisma.user.findFirst({ where: { id: fichaDoOutroProcesso.assignedUserId, active: true, role: { not: 'VIEWER' } }, select: { id: true } })
+        : null
+      const herdado = doOutroProcesso ? { userId: doOutroProcesso.id } : await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
       const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId } : equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
       const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
@@ -2428,9 +2445,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       })
 
       // Fase 24: detecta possível duplicado (best-effort, não bloqueia o flow)
-      flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
-        console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
-      })
+      if (fichaDoOutroProcesso) {
+        const { ligarFichas } = await import('../services/juncaoSegura.js')
+        await ligarFichas(fichaDoOutroProcesso.id, lead.id, { nome: 'Sistema', motivo: 'outro processo da mesma pessoa (curso ou forma de ingresso diferente)' }).catch(() => null)
+      } else {
+        flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
+          console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
+        })
+      }
     } else {
       // Enriquece dados básicos se vieram vazios + roteia para funil/etapa/team
       // de destino do portal (mesmo lead pode ter chegado antes só por WhatsApp;

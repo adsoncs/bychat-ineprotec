@@ -495,6 +495,9 @@ interface MergeOptions {
   mergeId: number    // ID do lead que será mesclado (secundário)
   operatorName?: string
   operatorId?: number
+  /** Junção de processos diferentes feita à mão: o porquê (vai ao histórico). */
+  justificativa?: string
+  motivoDaJustificativa?: string
 }
 
 /**
@@ -663,8 +666,17 @@ export async function mergeLeads(opts: MergeOptions) {
     userName: opts.operatorName,
     description: `Lead ${merge.uid || '#' + mergeId} (${merge.nome || merge.empresa || merge.whatsapp}) foi mesclado neste lead. Mensagens, eventos e atividades foram transferidos.`,
     oldValue: JSON.stringify({ id: mergeId, uid: merge.uid, nome: merge.nome, whatsapp: merge.whatsapp, email: merge.email }),
-    metadata: { mergedLeadId: mergeId, mergedUid: merge.uid },
+    metadata: { mergedLeadId: mergeId, mergedUid: merge.uid, ...(opts.justificativa ? { justificativa: opts.justificativa, processos: opts.motivoDaJustificativa } : {}) },
   })
+  if (opts.justificativa) {
+    // Histórico de quem juntou (Usuários › Auditoria).
+    const { logUserAudit } = await import('./userAudit.js')
+    await logUserAudit({
+      action: 'lead.merge_justificado', actorId: opts.operatorId ?? null, actorName: opts.operatorName ?? null,
+      targetType: 'lead', targetLabel: `#${keepId} ← #${mergeId} (${merge.nome || merge.whatsapp || ''})`.slice(0, 191),
+      changes: { keepId, mergeId, processos: opts.motivoDaJustificativa, justificativa: opts.justificativa },
+    })
+  }
 
   // Foto na Lixeira (desfazer junção) e nota com o que a absorvida tinha de
   // diferente — onde estava e os valores que não prevaleceram.
@@ -678,6 +690,7 @@ export async function mergeLeads(opts: MergeOptions) {
   })
   await prisma.leadNote.create({ data: { leadId: keepId, userId: null, userName: 'Sistema', content: [
     `Junção: a ficha #${mergeId} (${merge.nome || merge.whatsapp || ''}) foi juntada a esta${opts.operatorName ? ` por ${opts.operatorName}` : ''}. Ela estava em ${destinoDaAbsorvida}.`,
+    opts.justificativa ? `Processos diferentes (${opts.motivoDaJustificativa}). Justificativa: ${opts.justificativa}` : '',
     resumoDosConflitos(conflitos),
     'Dá para desfazer pela Lixeira.',
   ].filter(Boolean).join('\n') } }).catch(() => {})

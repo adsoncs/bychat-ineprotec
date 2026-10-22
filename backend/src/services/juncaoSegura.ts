@@ -366,3 +366,58 @@ export async function parecerDaIa(aId: number, bId: number): Promise<any> {
   logEvent({ leadId: par[0], type: 'duplicate_ai_opinion', category: 'lifecycle', title: `Parecer da IA sobre a ficha #${par[1]}: ${parecer.recomendacao}`, description: parecer.motivo, actorType: 'system', metadata: { ...parecer, par } } as any)
   return parecer
 }
+
+// ── Processo = curso + forma de ingresso ────────────────────────────────────
+// Regra do cliente (fabad, 22/10): cada processo da pessoa (ex.: Pós X e Pós Z,
+// ou Bacharel por Redação e por ENEM) é uma ficha, com a sua etapa no funil e o
+// mesmo responsável. Fichas com processos diferentes não se juntam sozinhas —
+// ficam ligadas como mesma pessoa; à mão, só com justificativa.
+
+export interface Processo { chave: string; rotulo: string; codigo?: string }
+
+const ABERTA = { mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } }
+const SELECT_PROCESSO = {
+  offering: { select: { courseId: true, nome: true, course: { select: { nome: true } } } },
+  selectionProcess: { select: { entryModeId: true, entryMode: { select: { name: true } } } },
+} as const
+
+function processoDe(pr: any, codigo?: string): Processo | null {
+  if (!pr?.offering) return null
+  const curso = pr.offering.course?.nome || pr.offering.nome
+  const forma = pr.selectionProcess?.entryMode?.name
+  return { chave: `${pr.offering.courseId ?? 'o' + pr.offering.nome}:${pr.selectionProcess?.entryModeId ?? 0}`, rotulo: forma ? `${curso} — ${forma}` : curso, ...(codigo ? { codigo } : {}) }
+}
+
+/** Processos com inscrição aberta na ficha. */
+export async function processosAbertos(leadId: number): Promise<Processo[]> {
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { leadId, ...ABERTA },
+    select: { candidateCode: true, processRegistration: { select: SELECT_PROCESSO } },
+  }).catch(() => [] as any[])
+  const out = new Map<string, Processo>()
+  for (const r of regs) { const p = processoDe(r.processRegistration, r.candidateCode); if (p && !out.has(p.chave)) out.set(p.chave, p) }
+  return [...out.values()]
+}
+
+/** Processo de uma oferta (curso + forma de ingresso do edital dela). */
+export async function processoDaOferta(offeringId: number): Promise<Processo | null> {
+  const o = await prisma.courseOffering.findUnique({
+    where: { id: offeringId },
+    select: { courseId: true, nome: true, course: { select: { nome: true } }, selectionProcess: { select: { entryModeId: true, entryMode: { select: { name: true } } } } },
+  }).catch(() => null)
+  return o ? processoDe({ offering: o, selectionProcess: o.selectionProcess }) : null
+}
+
+/**
+ * As duas fichas tocam processos diferentes? Só quando cada uma tem algum que a
+ * outra não tem (uma ficha só de conversa, ou com um subconjunto, junta normal).
+ * Devolve a descrição, ou null.
+ */
+export async function processosDiferentes(aId: number, bId: number): Promise<string | null> {
+  const [pa, pb] = await Promise.all([processosAbertos(aId), processosAbertos(bId)])
+  if (!pa.length || !pb.length) return null
+  const ka = new Set(pa.map((p) => p.chave)), kb = new Set(pb.map((p) => p.chave))
+  const soA = pa.filter((p) => !kb.has(p.chave)), soB = pb.filter((p) => !ka.has(p.chave))
+  if (!soA.length || !soB.length) return null
+  return `inscrições em processos diferentes: ${soA.map((p) => p.rotulo).join(', ')} × ${soB.map((p) => p.rotulo).join(', ')}`
+}

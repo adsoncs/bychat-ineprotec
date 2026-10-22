@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { useLeadDuplicates, useMergeLeads } from '@/hooks/useLeads'
+import { JustificativaJuncaoDialog, pedeJustificativa } from '@/components/JustificativaJuncaoDialog'
 import { formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 
@@ -28,17 +29,24 @@ export function MergeLeadsModal({ masterId, masterName, onClose, onMerged }: Pro
     })
   }
 
-  function submit() {
+  const [pedido, setPedido] = useState<string | null>(null)
+
+  function submit(justificativa?: string) {
     if (picked.size === 0) {
       toast('Selecione ao menos 1 lead duplicado', 'danger')
       return
     }
-    merge.mutate({ masterId, mergeIds: Array.from(picked) }, {
+    merge.mutate({ masterId, mergeIds: Array.from(picked), ...(justificativa ? { justificativa } : {}) }, {
       onSuccess: (r) => {
+        setPedido(null)
         toast(`${r.merged} lead(s) mesclado(s) em "${masterName}"`, 'success')
         onMerged()
       },
-      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      onError: (e: unknown) => {
+        const motivo = pedeJustificativa(e)
+        if (motivo != null) setPedido(motivo)
+        else toast((e as Error).message, 'danger')
+      },
     })
   }
 
@@ -54,12 +62,15 @@ export function MergeLeadsModal({ masterId, masterName, onClose, onMerged }: Pro
           <Button variant="secondary" size="sm" onClick={onClose} disabled={merge.isPending}>
             Cancelar
           </Button>
-          <Button variant="primary" size="sm" onClick={submit} disabled={merge.isPending || picked.size === 0}>
+          <Button variant="primary" size="sm" onClick={() => submit()} disabled={merge.isPending || picked.size === 0}>
             {merge.isPending ? 'Mesclando…' : `Mesclar ${picked.size}`}
           </Button>
         </>
       }
     >
+      {pedido != null && (
+        <JustificativaJuncaoDialog motivo={pedido} loading={merge.isPending} onCancel={() => setPedido(null)} onConfirm={(j) => submit(j)} />
+      )}
       {isLoading && <Skeleton class="h-32 w-full" />}
       {!isLoading && data?.duplicates.length === 0 && (
         <div class="text-sm text-fg-muted text-center py-6">

@@ -87,7 +87,10 @@ export async function donoDaMesmaPessoa(dados: {
     const userId = c.assignedUserId!
     if (!(await usuarioQueAtende(userId))) continue
     const membro = await prisma.teamMember.findFirst({ where: { teamId: dados.teamId, userId }, select: { id: true } })
-    if (c.teamId !== dados.teamId && !membro) continue
+    // Outro processo da mesma pessoa (ela já tem inscrição aberta nesta ficha):
+    // o responsável é o mesmo, seja de que equipe for (fabad, 22/10).
+    const { processosAbertos } = await import('./juncaoSegura.js')
+    if (c.teamId !== dados.teamId && !membro && !(await processosAbertos(c.id)).length) continue
     return { userId, leadId: c.id }
   }
   return null

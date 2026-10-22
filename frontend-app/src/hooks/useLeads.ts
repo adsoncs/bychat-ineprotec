@@ -560,7 +560,7 @@ export function useLeadDuplicates(leadId: number | null) {
 export function useMergeLeads() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { masterId: number; mergeIds: number[] }) =>
+    mutationFn: (input: { masterId: number; mergeIds: number[]; justificativa?: string; escolhas?: Record<string, unknown> }) =>
       api.post<{ ok: true; merged: number; masterId: number }>('/bychat/leads/merge', input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['leads'] })
