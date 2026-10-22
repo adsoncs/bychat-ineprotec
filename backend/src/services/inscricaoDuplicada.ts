@@ -12,7 +12,8 @@
 //   · mesclar — uma fica; as outras viram 'merged' (reversível), têm a cobrança
 //     aberta cancelada no gateway, entregam os documentos e o lead é mesclado;
 //   · manter separadas — a secretaria decidiu que não é duplicidade;
-//   · inscrição aberta — o envio reaproveita em vez de criar outra.
+//   · inscrição aberta — o envio reaproveita em vez de criar outra, conforme
+//     as regras do painel (services/regrasDuplicidade.ts).
 
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
@@ -20,8 +21,6 @@ import { phoneKey } from '../lib/phone.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { logEvent } from './leadHistory.js'
 
-/** Status que ainda podem receber a mesma pessoa de volta (sem pagamento). */
-const STATUS_ABERTOS = ['pending', 'submitted']
 /** Pagou ou virou matrícula: nunca é a descartada numa mesclagem. */
 const ehPaga = (r: { status: string; paymentStatus: string | null }) =>
   r.paymentStatus === 'paid' || ['paid', 'enrolled'].includes(r.status)
@@ -373,16 +372,3 @@ export async function manterSeparadas(portalId: number, ids: number[]): Promise<
  * cancelada nem mesclada. O envio a retoma em vez de criar outra. Paga não
  * entra: uma nova inscrição depois de pagar é outra matrícula.
  */
-export async function inscricaoAbertaDoCpf(portalId: number, cpfBruto: string) {
-  const cpf = normalizeCpf(cpfBruto)
-  if (cpf.length !== 11) return null
-  const candidatas = await prisma.enrollmentRegistration.findMany({
-    // paymentStatus nulo (ainda sem cobrança) precisa entrar: NOT (x = 'paid')
-    // em SQL descarta o NULL — e era justamente a inscrição recém-criada.
-    where: { portalId, status: { in: STATUS_ABERTOS }, mergedIntoId: null, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
-    select: { id: true, candidateCode: true, leadId: true, formData: true, processRegistrationId: true, status: true, processRegistration: { select: { offeringId: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 2000,
-  })
-  return candidatas.find((r) => normalizeCpf(String((r.formData as any)?.cpf ?? '')) === cpf) ?? null
-}

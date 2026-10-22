@@ -75,6 +75,10 @@ export async function settingsRoutes(app: FastifyInstance) {
       const { invalidateDedupModeCache } = await import('../services/dedup.js')
       invalidateDedupModeCache()
     }
+    if (Object.keys(updates).includes('dedup.regras')) {
+      const { invalidarRegrasDuplicidade } = await import('../services/regrasDuplicidade.js')
+      invalidarRegrasDuplicidade()
+    }
     // Transcrição de áudio: o webhook guarda a flag por 60s — invalida para o
     // toggle do painel valer já no próximo áudio.
     if (Object.keys(updates).includes('conversations.transcribe_audio')) {

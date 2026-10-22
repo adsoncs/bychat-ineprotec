@@ -25,6 +25,7 @@ import { Input, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DefaultTeamCard } from '@/components/DefaultTeamCard'
 import { toast } from '@/lib/toast'
+import { useFunnels } from '@/hooks/useFunnels'
 
 const TEAM_COLORS = [
   '#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
@@ -199,6 +200,8 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
     (team?.routingMode as any) ?? 'manual',
   )
   const [conversasPrivadas, setConversasPrivadas] = useState(team?.conversasPrivadas ?? false)
+  const [funnelId, setFunnelId] = useState<number | null>(team?.funnelId ?? null)
+  const funis = useFunnels()
   const create = useCreateTeam()
   const update = useUpdateTeam()
   const loading = create.isPending || update.isPending
@@ -213,6 +216,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
       active,
       routingMode,
       conversasPrivadas,
+      funnelId,
     }
     if (isEdit) {
       const slugPatch = slug.trim() !== '' ? { slug: slug.trim() } : {}
@@ -303,6 +307,21 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
           placeholder="O que esta equipe atende?"
           rows={2}
         />
+
+        <div>
+          <div class="text-xs font-medium text-fg-muted mb-1">Funil da equipe</div>
+          <select
+            value={funnelId ?? ''}
+            onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setFunnelId(v ? Number(v) : null) }}
+            class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
+          >
+            <option value="">Nenhum</option>
+            {(funis.data?.funnels ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+          <p class="text-2xs text-fg-muted mt-1">
+            Equipe e funil andam juntos: quando o sistema manda um lead para esta equipe sem dizer o funil (destino provisório, transferência, reativação sem resposta), ele vai para este funil, na primeira etapa.
+          </p>
+        </div>
 
         <div>
           <div class="text-xs font-medium text-fg-muted mb-1">Distribuição de novos leads</div>

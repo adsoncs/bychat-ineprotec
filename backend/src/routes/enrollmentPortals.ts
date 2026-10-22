@@ -2332,8 +2332,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // pagamento, não cancelada nem mesclada). Reenviar retoma essa inscrição —
     // mesmo código, mesmo lead — em vez de criar outra: era assim que um
     // candidato testando o formulário gerava três inscrições e três leads.
-    const { inscricaoAbertaDoCpf, cancelarCobrancasAbertas } = await import('../services/inscricaoDuplicada.js')
-    const retomada = cpf ? await inscricaoAbertaDoCpf(portal.id, cpf).catch(() => null) : null
+    // Qual inscrição aberta reaproveitar segue as regras do painel (Configurações
+    // › Duplicação): mesmo curso e forma, mesmo curso com outra forma, outro curso.
+    const { cancelarCobrancasAbertas } = await import('../services/inscricaoDuplicada.js')
+    const { decidirInscricaoDoCpf, avisarInscricaoIrma } = await import('../services/regrasDuplicidade.js')
+    const decisao = cpf ? await decidirInscricaoDoCpf(portal.id, cpf, offeringId || null).catch(() => ({ retomar: null, avisar: null })) : { retomar: null, avisar: null }
+    const retomada = decisao.retomar
     if (retomada?.leadId && !lead) lead = await prisma.lead.findUnique({ where: { id: retomada.leadId } })
 
     // Resolve funil: portal.funnelId > default do sistema > null
@@ -2357,7 +2361,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // Mesmo rodízio dos formulários: a equipe do portal escolhe a pessoa (ou o
       // plantão, fora do horário). Antes o lead nascia com equipe e sem ninguém.
       const equipeDoPortal = portal.teamId || await resolveDefaultTeamId()
-      const rota = equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
+      // A mesma pessoa já tem responsável noutra ficha (chave inscricaoHerdaDono):
+      // o lead cai com ele em vez de abrir uma segunda pessoa pelo rodízio.
+      const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
+      const herdado = await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
+      const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId } : equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
       const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
         data: {
@@ -2429,6 +2437,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // a inscrição é sinal forte de intenção e o admin configurou o destino).
       const upd: any = {}
       if (nome && !lead.nome) upd.nome = nome
+      if (email && !lead.email) upd.email = email
       if (cpf && !(lead.formData as any)?.cpf) upd.formData = { ...(lead.formData as any || {}), cpf }
       if (trackingVisitorId && !lead.trackingVisitorId) upd.trackingVisitorId = trackingVisitorId
       if (!lead.originType) upd.originType = 'enrollment_portal'
@@ -2458,7 +2467,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // Lead que já existia sem responsável: o rodízio escolhe agora. Quem já
       // tem dono continua com ele (lib/donoDoLead.ts).
       if (routedTeamId && !lead.assignedUserId) {
-        const rota = await escolherComPlantao(routedTeamId, 'enrollment_portal')
+        const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
+        const herdado = await donoDaMesmaPessoa({ whatsapp: whatsapp || lead.whatsapp, cpf, teamId: routedTeamId, excetoLeadId: lead.id }).catch(() => null)
+        const rota = herdado ? { teamId: routedTeamId, userId: herdado.userId } : await escolherComPlantao(routedTeamId, 'enrollment_portal')
         if (rota.userId) {
           upd.teamId = rota.teamId
           upd.assignedUserId = rota.userId
@@ -2566,6 +2577,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             status: portal.requirePayment ? 'pending' : 'submitted',
           },
         })
+    if (decisao.avisar) await avisarInscricaoIrma(lead.id, enrollment.candidateCode, decisao.avisar).catch(() => {})
 
     // Espelho no CRM: o que o candidato preencheu vira campo personalizado do
     // lead, para quem atende ver o cadastro sem abrir a inscrição.
@@ -3973,7 +3985,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // Mesmo rodízio dos formulários: a equipe do portal escolhe a pessoa (ou o
       // plantão, fora do horário). Antes o lead nascia com equipe e sem ninguém.
       const equipeDoPortal = portal.teamId || await resolveDefaultTeamId()
-      const rota = equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
+      // A mesma pessoa já tem responsável noutra ficha (chave inscricaoHerdaDono):
+      // o lead cai com ele em vez de abrir uma segunda pessoa pelo rodízio.
+      const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
+      const herdado = await donoDaMesmaPessoa({ whatsapp, cpf: fd.cpf, teamId: equipeDoPortal }).catch(() => null)
+      const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId } : equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
       const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
         data: {

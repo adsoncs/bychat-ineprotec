@@ -81,7 +81,13 @@ export function mascaraTelefone(v: string): string {
     const d = bruto.replace(/\D/g, '').slice(0, 15)
     return '+' + d
   }
-  const d = bruto.replace(/\D/g, '').slice(0, 13)
+  let d = bruto.replace(/\D/g, '')
+  // Colado com o 55 na frente ("5582999108746"): tira o DDI. Antes a máscara
+  // guardava só os 11 primeiros dígitos — "(55) 82999-1087" — e o servidor
+  // gravava 5555829991087, número que não existe (fabad, 20/10).
+  if (d.length > 11 && d.startsWith('55') && DDD_BR.has(d.slice(2, 4))) d = d.slice(2)
+  // Mais de 11 dígitos sem DDI brasileiro: número de fora, vai com o "+".
+  if (d.length > 11) return '+' + d.slice(0, 15)
   if (d.length <= 2) return d
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`

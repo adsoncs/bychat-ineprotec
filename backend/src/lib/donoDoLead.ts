@@ -41,6 +41,16 @@ export function rotaManualDeDono(req: any, _reply: unknown, done: (err?: Error) 
   contexto.run({ userId: user.userId, admin: user.role === 'ADMIN' || user.role === 'SUPERADMIN' }, () => done())
 }
 
+/**
+ * Encaminhamento do sistema para OUTRA equipe (decisão do cliente, 20/10): o
+ * lead muda de setor, então o rodízio da equipe nova escolhe o responsável. Na
+ * MESMA equipe a trava continua valendo — quem só chama isto é
+ * `enviarParaEquipe` (services/encaminharEquipe.ts), depois de conferir isso.
+ */
+export function comoEncaminhamentoDeEquipe<T>(fn: () => Promise<T>): Promise<T> {
+  return contexto.run({ userId: 0, admin: true }, async () => await fn())
+}
+
 export function atorDaTroca(): AtorDaTroca | null {
   return contexto.getStore() ?? null
 }

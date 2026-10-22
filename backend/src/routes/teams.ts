@@ -27,7 +27,7 @@ async function requireTeamLeaderOrAdmin(req: FastifyRequest, reply: FastifyReply
 const TEAM_SELECT = {
   id: true, name: true, slug: true, description: true,
   color: true, icon: true, active: true, position: true,
-  routingMode: true, workingHoursEnabled: true, conversasPrivadas: true,
+  routingMode: true, workingHoursEnabled: true, conversasPrivadas: true, funnelId: true,
   createdAt: true, updatedAt: true,
 }
 
@@ -114,6 +114,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         active: body.active ?? true,
         routingMode: allowedModes.includes(body.routingMode) ? body.routingMode : 'manual',
         conversasPrivadas: body.conversasPrivadas === true,
+        funnelId: Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null,
       },
       select: TEAM_SELECT,
     })
@@ -150,6 +151,8 @@ export async function teamsRoutes(app: FastifyInstance) {
       data.routingMode = body.routingMode
     }
     if (body.conversasPrivadas !== undefined) data.conversasPrivadas = body.conversasPrivadas === true
+    // Funil da equipe: equipe e funil andam juntos (services/encaminharEquipe.ts).
+    if (body.funnelId !== undefined) data.funnelId = Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null
 
     try {
       const team = await prisma.team.update({

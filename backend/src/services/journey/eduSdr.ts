@@ -30,12 +30,13 @@ import { readFile } from 'fs/promises'
 import { join, extname } from 'path'
 import crypto from 'crypto'
 import { prisma } from '../../lib/prisma.js'
-import { signCandidateToken } from '../../lib/candidateAuth.js'
+import { signCandidateToken, signMagicLink } from '../../lib/candidateAuth.js'
 import { isValidCpf, normalizeCpf } from '../../lib/cpf.js'
 import { planosDaOferta, resumoParaMostrar } from '../planoFinanceiro.js'
 import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, bloqueioDoDocumento, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
 import { descreverCondicao, campoCondicionalAtende } from '../docCondicional.js'
+import { validacaoDoContato, fichasDaMesmaPessoa } from './validacaoContato.js'
 
 export interface EduState {
   /** Inscrição que esta conversa está conduzindo (criada aqui ou já existente). */
@@ -360,6 +361,9 @@ export async function contextoDoLead(leadId: number | null): Promise<string> {
   }).catch(() => [] as any[])
   if (internas.length) linhas.push(`Registros internos na conversa:\n${internas.map((m: any) => `- ${limpar(m.body, 300)}`).join('\n')}`)
 
+  const validacao = await validacaoDoContato(leadId).catch(() => '')
+  if (validacao) linhas.push(`Validação do contato (dados do sistema):\n${validacao}`)
+
   const anexos = await anexosRecentes(leadId)
   if (anexos.length) linhas.push(`Arquivos que o contato enviou no chat (últimos 7 dias):\n${anexos.map((a) => `- id ${a.id}: ${a.nome} (${a.tipo}, ${a.quando})`).join('\n')}`)
 
@@ -527,8 +531,9 @@ async function inscricaoAtual(ctx: EduCtx): Promise<{ id: number; candidateCode:
     if (r && r.status !== 'merged') return { id: r.id, candidateCode: r.candidateCode, portalSlug: r.portal.slug, leadId: r.leadId }
   }
   if (!ctx.leadId) return null
+  const fichas = await fichasDaMesmaPessoa(ctx.leadId).catch(() => [ctx.leadId!])
   const r = await prisma.enrollmentRegistration.findFirst({
-    where: { leadId: ctx.leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' },
+    where: { leadId: { in: fichas }, status: { not: 'merged' } }, orderBy: { id: 'desc' },
     select: { id: true, candidateCode: true, leadId: true, portal: { select: { slug: true } } },
   }).catch(() => null)
   if (!r) return null
@@ -641,8 +646,11 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         })
       }
       if (!ctx.leadId) return ok({ inscricoes: [], instrucao: 'Nenhuma inscrição deste contato.' })
+      // Inclui as fichas da mesma pessoa (mesmo WhatsApp/CPF): quem conversou
+      // aqui e se inscreveu pelo site tem a inscrição na outra ficha.
+      const fichas = await fichasDaMesmaPessoa(ctx.leadId).catch(() => [ctx.leadId!])
       const regs = await prisma.enrollmentRegistration.findMany({
-        where: { leadId: ctx.leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, take: 3,
+        where: { leadId: { in: fichas }, status: { not: 'merged' } }, orderBy: { id: 'desc' }, take: 3,
         select: { id: true, candidateCode: true, status: true, paymentStatus: true, portal: { select: { slug: true, nome: true } }, processRegistration: { select: { offering: { select: { id: true, nome: true } } } } },
       })
       const out = []
@@ -664,6 +672,22 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (input?.aceite_privacidade !== true) return erro('Falta o aceite da política de privacidade.', 'Peça ao lead, em uma frase, o aceite para usar os dados dele na inscrição, conforme a política de privacidade. Só prossiga com um "sim" claro.')
       const cpf = normalizeCpf(String(input?.cpf || ''))
       if (!isValidCpf(cpf)) return erro('CPF inválido.', 'Diga que o CPF não confere e peça para conferir os números.')
+      // A mesma pessoa (esta ficha, outra com o mesmo WhatsApp/CPF, ou o CPF
+      // informado) já tem inscrição viva NESTE curso: continua a existente.
+      // Curso diferente segue — são duas inscrições.
+      {
+        const fichas = ctx.leadId ? await fichasDaMesmaPessoa(ctx.leadId).catch(() => [ctx.leadId!]) : []
+        const vivas = await prisma.enrollmentRegistration.findMany({
+          where: { status: { notIn: ['merged', 'cancelled', 'rejected'] }, processRegistration: { offeringId: o.offeringId } },
+          orderBy: { id: 'desc' }, take: 500,
+          select: { id: true, candidateCode: true, leadId: true, formData: true, portal: { select: { slug: true } } },
+        }).catch(() => [] as any[])
+        const dela = vivas.find((r: any) => (r.leadId && fichas.includes(r.leadId)) || normalizeCpf(String(r.formData?.cpf ?? '')) === cpf)
+        if (dela) {
+          edu.registrationId = dela.id; edu.candidateCode = dela.candidateCode; edu.portalSlug = dela.portal.slug
+          return ok({ ja_inscrita: true, codigo: dela.candidateCode, instrucao: `Esta pessoa JÁ tem a inscrição ${dela.candidateCode} neste curso. NÃO faça outra: chame situacao_da_matricula e continue a existente a partir da primeira etapa pendente.` })
+        }
+      }
       const email = String(input?.email || '').trim()
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erro('E-mail inválido.', 'Peça para conferir o e-mail.')
       const lead = ctx.leadId ? await prisma.lead.findUnique({ where: { id: ctx.leadId }, select: { whatsapp: true, email: true } }) : null
@@ -689,8 +713,12 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         const docs = await documentosDaOferta(o.processo?.id)
         return ok({ simulacao: true, codigo: 'SIMULACAO', curso: o.curso, proximasEtapas: p ? (await etapasDoPortal(p, o, docs.length > 0)).slice(1) : [], instrucao: 'Inscrição SIMULADA (teste — nada foi gravado). Siga para a próxima etapa, na ordem.' })
       }
+      // A inscrição entra na ficha DESTA conversa: o token assinado é o mesmo da
+      // continuação do portal. Sem ele, a rota pública cria uma ficha nova (não
+      // deduplica de propósito) e a pessoa ficava com duas: conversa e inscrição.
+      const continueToken = ctx.leadId ? signMagicLink(ctx.leadId, o.portalSlug, 1) : undefined
       const r = await portalHttp(app, 'POST', `/api/public/portals/${encodeURIComponent(o.portalSlug)}/register`, {
-        payload: { formData },
+        payload: { formData, ...(continueToken ? { continueToken } : {}) },
       })
       if (r.status !== 201 || !r.body?.ok) return erro(String(r.body?.error || `Falha na inscrição (${r.status}).`), 'Explique o problema ao lead com naturalidade; se não for algo que ele resolva, chame transferir_humano.')
       edu.registrationId = r.body.enrollmentId; edu.candidateCode = r.body.candidateCode; edu.portalSlug = o.portalSlug

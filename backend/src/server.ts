@@ -1499,6 +1499,22 @@ try {
     .then(m => m.ensureModulesSeeded())
     .catch(err => console.error('[moduleManager] seed init falhou:', err))
   startInactivityChecker()
+  // Duplicatas de prova forte (regras em Configurações › Duplicação): junta a
+  // cada 2 min o que foi sinalizado depois de a regra ser ligada.
+  setInterval(() => {
+    import('./services/regrasDuplicidade.js')
+      .then((m) => m.juntarDuplicatasAutomaticas())
+      .then((r) => { if (r.juntadas || r.mantidas) console.log(`[duplicidade] juntadas ${r.juntadas}, mantidas p/ revisão ${r.mantidas}`) })
+      .catch((err) => console.error('[duplicidade] junção automática falhou:', err?.message || err))
+  }, 2 * 60_000).unref()
+  // Lead sem responsável que já tem equipe (chave routing.varreduraSemDono):
+  // recebe alguém a cada 5 min, sem esperar o contato escrever de novo.
+  setInterval(() => {
+    import('./services/leadSemDono.js')
+      .then((m) => m.distribuirLeadsSemDono())
+      .then((r) => { if (r.distribuidos || r.reserva || r.semNinguem) console.log(`[sem-dono] rodízio ${r.distribuidos}, reserva ${r.reserva}, sem ninguém ${r.semNinguem}`) })
+      .catch((err) => console.error('[sem-dono] varredura falhou:', err?.message || err))
+  }, 5 * 60_000).unref()
   // Reunião que passou e ninguém disse se aconteceu — vira alerta com a
   // pergunta junto (ver services/meetingOutcome.ts).
   startMeetingOutcomeWatch()

@@ -56,6 +56,10 @@ export function invalidateRoutingCache() {
 //                          dono (ou admin) transfere. Trava em lib/prisma.ts.
 //   setorPeloRodizio     — transferência só para o setor: o rodízio da equipe
 //                          escolhe a pessoa (antes ia para a fila do setor).
+//   varreduraSemDono     — a cada 5 min, lead sem responsável que já tem
+//                          direção recebe alguém (services/leadSemDono.ts).
+//   inscricaoHerdaDono   — a inscrição cai com o responsável que a mesma
+//                          pessoa já tem em outra ficha (leadSemDono.ts).
 export interface AjustesRoteamento {
   presencaMinutos: number
   rodizioJusto: boolean
@@ -63,6 +67,8 @@ export interface AjustesRoteamento {
   escalacaoPorMensagem: boolean
   donoFixo: boolean
   setorPeloRodizio: boolean
+  varreduraSemDono: boolean
+  inscricaoHerdaDono: boolean
 }
 export const CHAVES_AJUSTES = {
   presencaMinutos: 'routing.presenca.minutos',
@@ -71,6 +77,8 @@ export const CHAVES_AJUSTES = {
   escalacaoPorMensagem: 'routing.escalation.porMensagem',
   donoFixo: 'routing.donoFixo',
   setorPeloRodizio: 'routing.transferencia.rodizio',
+  varreduraSemDono: 'routing.varreduraSemDono',
+  inscricaoHerdaDono: 'routing.inscricaoHerdaDono',
 } as const
 let _ajustesCache: { ajustes: AjustesRoteamento; expiresAt: number } | null = null
 
@@ -85,6 +93,8 @@ export async function getAjustesRoteamento(): Promise<AjustesRoteamento> {
     escalacaoPorMensagem: readBoolSetting(v.get(CHAVES_AJUSTES.escalacaoPorMensagem), false),
     donoFixo: readBoolSetting(v.get(CHAVES_AJUSTES.donoFixo), false),
     setorPeloRodizio: readBoolSetting(v.get(CHAVES_AJUSTES.setorPeloRodizio), false),
+    varreduraSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.varreduraSemDono), false),
+    inscricaoHerdaDono: readBoolSetting(v.get(CHAVES_AJUSTES.inscricaoHerdaDono), false),
   }
   _ajustesCache = { ajustes, expiresAt: Date.now() + CACHE_TTL_MS }
   return ajustes
@@ -588,8 +598,9 @@ async function rodizioJusto(teamId: number, pool: CandidateMember[]): Promise<nu
  * seleção que o chatbot usa para triagem). Sem `userIds`, é o rodízio normal
  * da equipe. Com `userIds`, o rodízio fica restrito a esses responsáveis; se
  * nenhum estiver elegível agora (offline, fora do horário), o lead vai mesmo
- * assim para o primeiro responsável ativo da lista — quem configurou escolheu
- * a pessoa de propósito, e lead parado na fila do setor é pior.
+ * assim para um responsável ativo da lista, sorteado — quem configurou escolheu
+ * essas pessoas de propósito, e lead parado na fila do setor é pior. Sortear
+ * (e não pegar sempre o primeiro) evita que um só receba tudo fora do horário.
  */
 export async function escolherOperadorDaRota(teamId: number, userIds?: unknown): Promise<number | null> {
   const ids = Array.isArray(userIds)
@@ -603,7 +614,8 @@ export async function escolherOperadorDaRota(teamId: number, userIds?: unknown):
     select: { id: true },
   })
   const ativosSet = new Set(ativos.map((u) => u.id))
-  return ids.find((id) => ativosSet.has(id)) ?? null
+  const elegiveis = ids.filter((id) => ativosSet.has(id))
+  return elegiveis.length ? elegiveis[Math.floor(Math.random() * elegiveis.length)]! : null
 }
 
 /**

@@ -20,6 +20,8 @@ export interface Team {
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random'
   workingHoursEnabled?: boolean
   conversasPrivadas?: boolean
+  /** Funil da equipe: para onde o lead vai junto quando é mandado para ela. */
+  funnelId?: number | null
   createdAt: string
   updatedAt: string
   memberCount?: number
@@ -36,6 +38,7 @@ export interface TeamInput {
   active?: boolean | undefined
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random' | undefined
   conversasPrivadas?: boolean | undefined
+  funnelId?: number | null | undefined
 }
 
 export interface EligibleUser {

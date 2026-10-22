@@ -203,7 +203,7 @@ export interface FlagDuplicateInput {
 export interface FlagDuplicateResult {
   flagged: boolean
   masterId?: number
-  matchType?: 'whatsapp' | 'email'
+  matchType?: 'whatsapp' | 'email' | 'cpf' | 'nome'
 }
 
 /**
@@ -237,9 +237,13 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
   // Busca master entre OUTROS leads (excluindo o próprio novo). findDuplicate
   // não filtra por id, então fazemos o filtro aqui pra cobrir o caso do
   // lead novo já estar persistido.
-  const candidates: Array<{ id: number; uid: string | null; nome: string; assignedUserId: number | null; teamId: number | null; matchType: 'whatsapp' | 'email' }> = []
+  const candidates: Array<{ id: number; uid: string | null; nome: string; assignedUserId: number | null; teamId: number | null; matchType: 'whatsapp' | 'email' | 'cpf' | 'nome' }> = []
+  // Critérios ligados no painel (Configurações › Duplicação): 'nada' desliga.
+  const { lerRegrasDuplicidade } = await import('./regrasDuplicidade.js')
+  const criterio = (await lerRegrasDuplicidade()).fichas
+  const selectCandidato = { id: true, uid: true, nome: true, assignedUserId: true, teamId: true } as const
 
-  if (wa) {
+  if (wa && criterio.whatsapp !== 'nada') {
     const digits = phoneDigits(wa)
     if (digits.length >= 8) {
       const m = await prisma.lead.findFirst({
@@ -253,7 +257,21 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
       if (m) candidates.push({ ...m, matchType: 'whatsapp' })
     }
   }
-  if (candidates.length === 0 && em && em.includes('@')) {
+  // CPF: o da ficha nova (formulário) contra fichas e inscrições existentes.
+  if (candidates.length === 0 && criterio.cpf !== 'nada') {
+    const nl = await prisma.lead.findUnique({ where: { id: newLead.id }, select: { formData: true } }).catch(() => null)
+    const cpf = String((nl?.formData as any)?.cpf ?? '').replace(/\D/g, '')
+    if (cpf.length === 11) {
+      const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+        `SELECT id FROM bychat_leads WHERE id <> ? AND REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?
+         UNION SELECT leadId AS id FROM bychat_enrollment_registrations WHERE leadId IS NOT NULL AND leadId <> ? AND REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?
+         ORDER BY id DESC LIMIT 1`, newLead.id, cpf, newLead.id, cpf,
+      ).catch(() => [] as Array<{ id: number }>)
+      const m = rows[0] ? await prisma.lead.findUnique({ where: { id: Number(rows[0].id) }, select: selectCandidato }) : null
+      if (m) candidates.push({ ...m, matchType: 'cpf' })
+    }
+  }
+  if (candidates.length === 0 && em && em.includes('@') && criterio.email !== 'nada') {
     const m = await prisma.lead.findFirst({
       where: {
         email: em,
@@ -263,6 +281,19 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
       orderBy: { createdAt: 'desc' },
     })
     if (m) candidates.push({ ...m, matchType: 'email' })
+  }
+
+  // Nome completo igual + mesmo DDD: fraco (homônimos), por isso desligado por padrão.
+  if (candidates.length === 0 && criterio.nomeDdd !== 'nada') {
+    const nomeN = (newLead.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+    const ddd = phoneKey(wa)?.slice(2, 4)
+    if (ddd && nomeN.split(' ').length >= 2 && nomeN.length >= 10) {
+      const mesmos = await prisma.lead.findMany({
+        where: { id: { not: newLead.id }, nome: { equals: newLead.nome.trim() }, phoneKey: { startsWith: '55' + ddd } },
+        select: selectCandidato, orderBy: { createdAt: 'desc' }, take: 1,
+      }).catch(() => [])
+      if (mesmos[0]) candidates.push({ ...mesmos[0], matchType: 'nome' })
+    }
   }
 
   const master = candidates[0]
@@ -321,7 +352,7 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
     csv_import: 'Importação CSV',
     inbound_webhook: 'Webhook de Entrada',
   }
-  const matchPt = master.matchType === 'whatsapp' ? 'WhatsApp' : 'e-mail'
+  const matchPt = ({ whatsapp: 'WhatsApp', email: 'e-mail', cpf: 'CPF', nome: 'nome e DDD' } as const)[master.matchType]
   const newLeadLabel = newLead.uid ? `#${newLead.id} (${newLead.uid})` : `#${newLead.id}`
   const masterLabel = masterRoot?.uid ? `#${masterId} (${masterRoot.uid})` : `#${masterId}`
   try {

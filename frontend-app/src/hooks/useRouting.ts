@@ -555,6 +555,8 @@ export interface AjustesRoteamento {
   escalacaoPorMensagem: boolean
   donoFixo: boolean
   setorPeloRodizio: boolean
+  varreduraSemDono: boolean
+  inscricaoHerdaDono: boolean
 }
 
 export function useAjustesRoteamento() {

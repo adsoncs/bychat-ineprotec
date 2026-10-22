@@ -346,6 +346,12 @@ function AjustesRodizioCard() {
           <Chave ligado={a.setorPeloRodizio} onClick={() => gravar({ setorPeloRodizio: !a.setorPeloRodizio })}
             titulo="Transferência para o setor escolhe a pessoa"
             texto="Ao transferir uma conversa só para a equipe, sem escolher quem, o rodízio dela entrega a alguém (nunca a quem transferiu). Desligado, a conversa vai para a fila do setor." />
+          <Chave ligado={a.varreduraSemDono} onClick={() => gravar({ varreduraSemDono: !a.varreduraSemDono })}
+            titulo="Nenhum lead com equipe fica sem responsável"
+            texto="A cada 5 minutos, lead sem responsável que já tem equipe (ou funil de uma equipe, ou inscrição num portal) recebe alguém pelo rodízio, sem esperar o contato escrever. Se ninguém estiver disponível, fica com a reserva da equipe (o líder; sem líder, quem tem menos leads) e ela recebe um alerta. Equipe fechada pelo horário espera abrir; equipes em modo manual continuam com fila." />
+          <Chave ligado={a.inscricaoHerdaDono} onClick={() => gravar({ inscricaoHerdaDono: !a.inscricaoHerdaDono })}
+            titulo="Inscrição cai com quem já atende a pessoa"
+            texto="Quando a inscrição pelo portal abre uma ficha nova (ou chega numa ficha sem responsável), ela recebe o responsável que a mesma pessoa já tem em outra ficha — mesmo WhatsApp ou mesmo CPF, nunca CPF diferente. Vale quando esse responsável é da equipe do portal ou a outra ficha já está nela; senão, segue o rodízio." />
         </div>
       </div>
     </Card>

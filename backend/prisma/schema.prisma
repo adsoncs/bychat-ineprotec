@@ -334,6 +334,7 @@ model Funnel {
   stages              Stage[]
   chatbots            Chatbot[]
   leads               Lead[]
+  teams               Team[]              @relation("TeamFunnel")
   enrollmentPortals   EnrollmentPortal[]
   stageSuggestions    LeadStageSuggestion[]
   dbConnectors        DbConnector[]
@@ -616,6 +617,11 @@ model Team {
   // Acesso por portal: quem integra o setor vê todos os portais do Educacional
   // (Secretaria, Financeiro, Coordenação), mesmo os restritos a outras equipes.
   veTodosOsPortais    Boolean  @default(false)
+  // Funil da equipe: equipe e funil andam juntos. Quando o sistema manda um
+  // lead para a equipe sem dizer o funil (fallback, transferência, reativação
+  // sem resposta), ele vai para este funil, na primeira etapa.
+  funnelId            Int?
+  funnel              Funnel?  @relation("TeamFunnel", fields: [funnelId], references: [id], onDelete: SetNull)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -640,6 +646,7 @@ model Team {
   alerts              Alert[]
 
   @@index([active, position])
+  @@index([funnelId])
   @@map("bychat_teams")
 }
 

@@ -112,6 +112,14 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   app.get('/portal/entrar', async (req, reply) => {
     const token = String((req.query as any)?.c || '')
     const destino = String((req.query as any)?.d || '')
+    // Robô de prévia de link (WhatsApp/Meta, Telegram, Slack...) abre a URL
+    // segundos depois do envio para montar o cartão da conversa. Se ele
+    // consumisse o link, a pessoa tocava e recebia "Este link já foi usado".
+    // Para ele, uma página neutra; o link continua valendo para quem tocar.
+    if (ehRoboDePrevia(req.headers['user-agent'] as string)) {
+      return reply.code(200).header('content-type', 'text/html; charset=utf-8').header('cache-control', 'no-store')
+        .send('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Área do candidato</title><meta property="og:title" content="Área do candidato"><meta property="og:description" content="Toque para entrar na sua área do candidato."><meta name="robots" content="noindex"></head><body>Área do candidato</body></html>')
+    }
     const r = await consumirLinkDeAcesso(token, {
       userAgent: req.headers['user-agent'] as string, ip: ipDaRequisicao(req),
     })
@@ -491,4 +499,10 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     `))
   })
 
+}
+
+/** User-agent de robô que abre links para gerar prévia (não é a pessoa). */
+const ROBO_DE_PREVIA = /facebookexternalhit|facebookcatalog|meta-externalagent|WhatsApp|TelegramBot|Twitterbot|Slackbot|Discordbot|LinkedInBot|SkypeUriPreview|Applebot|Googlebot|bingbot|redditbot|Embedly|Pinterest|vkShare|bot\b.*preview|preview/i
+export function ehRoboDePrevia(userAgent: string | null | undefined): boolean {
+  return ROBO_DE_PREVIA.test(String(userAgent || ''))
 }

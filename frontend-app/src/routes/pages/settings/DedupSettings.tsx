@@ -77,6 +77,7 @@ export function DedupSettings() {
 
   return (
     <div class="space-y-4">
+      <RegrasDuplicidadeCard />
       <Card>
         <div class="flex items-start gap-3 mb-4">
           <Copy size={18} class="text-info shrink-0 mt-0.5" />
@@ -132,5 +133,160 @@ export function DedupSettings() {
         )}
       </Card>
     </div>
+  )
+}
+
+// ── Regras de duplicidade (Setting `dedup.regras`) ─────────────────────────
+// Espelha services/regrasDuplicidade.ts. As travas fixas (CPF diferente, nomes
+// diferentes, inscrição paga) não aparecem aqui de propósito: não se desligam.
+
+type AcaoFicha = 'juntar' | 'sinalizar' | 'nada'
+type AcaoInscricao = 'retomar' | 'manter' | 'manter_avisar'
+interface Regras {
+  fichas: { whatsapp: AcaoFicha; cpf: AcaoFicha; email: AcaoFicha; nomeDdd: AcaoFicha }
+  canais: Record<string, boolean>
+  inscricoes: { mesmaOferta: AcaoInscricao; mesmoCursoOutraForma: AcaoInscricao; outroCurso: AcaoInscricao }
+  ativadaEm?: string | null
+}
+
+const CANAIS_JUNCAO: { key: string; label: string }[] = [
+  { key: 'enrollmentPortal', label: 'Portal de Matrículas' },
+  { key: 'metaLeadAds', label: 'Meta Lead Ads' },
+  { key: 'forms', label: 'Forms / Landing Pages' },
+  { key: 'publicApi', label: 'API Pública' },
+  { key: 'make', label: 'Make.com' },
+  { key: 'inbound_webhook', label: 'Webhook de entrada' },
+]
+
+const REGRAS_PADRAO: Regras = {
+  fichas: { whatsapp: 'sinalizar', cpf: 'sinalizar', email: 'sinalizar', nomeDdd: 'nada' },
+  canais: Object.fromEntries(CANAIS_JUNCAO.map((c) => [c.key, true])),
+  inscricoes: { mesmaOferta: 'retomar', mesmoCursoOutraForma: 'manter_avisar', outroCurso: 'manter' },
+  ativadaEm: null,
+}
+
+const CRITERIOS: { key: keyof Regras['fichas']; label: string; help: string }[] = [
+  { key: 'whatsapp', label: 'Mesmo WhatsApp', help: 'Prova forte. Não junta se os CPFs forem diferentes ou os nomes não baterem (celular da família).' },
+  { key: 'cpf', label: 'Mesmo CPF', help: 'Prova forte: é a mesma pessoa, mesmo com outro telefone.' },
+  { key: 'email', label: 'Mesmo e-mail', help: 'Médio: e-mail da família ou da igreja é comum.' },
+  { key: 'nomeDdd', label: 'Mesmo nome completo e DDD', help: 'Fraco: homônimos existem. Use no máximo para sinalizar.' },
+]
+
+const ACOES_FICHA: { value: AcaoFicha; label: string }[] = [
+  { value: 'juntar', label: 'Juntar automaticamente' },
+  { value: 'sinalizar', label: 'Só sinalizar para revisão' },
+  { value: 'nada', label: 'Não considerar' },
+]
+
+const SITUACOES: { key: keyof Regras['inscricoes']; label: string; help: string }[] = [
+  { key: 'mesmaOferta', label: 'Mesmo curso e mesma forma de ingresso', help: 'Normalmente é o candidato reenviando o formulário.' },
+  { key: 'mesmoCursoOutraForma', label: 'Mesmo curso, outra forma de ingresso', help: 'Ex.: inscrição pela Redação e depois pelo ENEM.' },
+  { key: 'outroCurso', label: 'Outro curso', help: 'Ex.: Pós X em aberto e nova inscrição na Pós Z.' },
+]
+
+const ACOES_INSCRICAO: { value: AcaoInscricao; label: string }[] = [
+  { value: 'retomar', label: 'Retomar a inscrição aberta' },
+  { value: 'manter', label: 'Manter as duas' },
+  { value: 'manter_avisar', label: 'Manter as duas e avisar a secretaria' },
+]
+
+function lerRegras(raw: unknown): Regras {
+  let v: any = raw
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { v = null } }
+  return {
+    fichas: { ...REGRAS_PADRAO.fichas, ...(v?.fichas || {}) },
+    canais: { ...REGRAS_PADRAO.canais, ...(v?.canais || {}) },
+    inscricoes: { ...REGRAS_PADRAO.inscricoes, ...(v?.inscricoes || {}) },
+    ativadaEm: v?.ativadaEm ?? null,
+  }
+}
+
+function RegrasDuplicidadeCard() {
+  const { data, isLoading } = useSettings()
+  const update = useUpdateSettings()
+  const doServidor = useMemo(() => lerRegras(data?.settings.find((x: any) => x.key === 'dedup.regras')?.value), [data?.settings])
+  const [draft, setDraft] = useState<Regras>(doServidor)
+  useEffect(() => { setDraft(doServidor) }, [doServidor])
+  const dirty = JSON.stringify(draft) !== JSON.stringify(doServidor)
+  const juntaAlgo = Object.values(draft.fichas).includes('juntar')
+
+  function salvar() {
+    // A junção automática só vale para o que for sinalizado a partir de agora
+    // quando um critério passa a juntar — o acervo antigo é revisão humana.
+    const antes = new Set(Object.entries(doServidor.fichas).filter(([, v]) => v === 'juntar').map(([k]) => k))
+    const ganhou = Object.entries(draft.fichas).some(([k, v]) => v === 'juntar' && !antes.has(k))
+    const valor: Regras = { ...draft, ativadaEm: ganhou || !draft.ativadaEm ? (juntaAlgo ? new Date().toISOString() : null) : draft.ativadaEm }
+    update.mutate({ 'dedup.regras': valor } as any, {
+      onSuccess: () => toast('Regras de duplicidade salvas', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <Card>
+      <div class="flex items-start gap-3 mb-4">
+        <Copy size={18} class="text-info shrink-0 mt-0.5" />
+        <div class="min-w-0">
+          <div class="text-sm font-semibold text-fg">Regras de duplicidade</div>
+          <p class="text-xs text-fg-muted mt-0.5">
+            Quando a mesma pessoa chega de novo (portal, anúncio, formulário…), o que o sistema faz com a ficha e com a inscrição.
+            Juntar fichas não junta inscrições: cada inscrição continua separada, com a sua cobrança e os seus documentos.
+            Nunca são juntadas sozinhas: fichas com CPFs diferentes, nomes diferentes ou dois cadastros de aluno.
+          </p>
+        </div>
+      </div>
+      {isLoading ? <Skeleton class="h-64 w-full" /> : (
+        <div class="flex flex-col gap-5">
+          <div>
+            <div class="text-xs font-semibold text-fg mb-2">Fichas da mesma pessoa</div>
+            {CRITERIOS.map((c) => (
+              <div key={c.key} class="grid grid-cols-1 md:grid-cols-[16rem_1fr_16rem] gap-3 items-start py-2 border-b border-border last:border-b-0">
+                <div class="text-sm font-medium text-fg">{c.label}</div>
+                <p class="text-xs text-fg-muted">{c.help}</p>
+                <Select value={draft.fichas[c.key]} onChange={(e) => { const v = (e.target as HTMLSelectElement).value as AcaoFicha; setDraft((d) => ({ ...d, fichas: { ...d.fichas, [c.key]: v } })) }}>
+                  {ACOES_FICHA.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
+            ))}
+            {juntaAlgo && (
+              <div class="mt-3">
+                <div class="text-xs text-fg-muted mb-1">Juntar automaticamente nas entradas por:</div>
+                <div class="flex flex-wrap gap-x-4 gap-y-1">
+                  {CANAIS_JUNCAO.map((c) => (
+                    <label key={c.key} class="flex items-center gap-1.5 text-sm text-fg">
+                      <input type="checkbox" checked={draft.canais[c.key] !== false}
+                        onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, canais: { ...d.canais, [c.key]: v } })) }} />
+                      {c.label}
+                    </label>
+                  ))}
+                </div>
+                {doServidor.ativadaEm && (
+                  <p class="text-2xs text-fg-muted mt-2">Juntando o que foi sinalizado desde {new Date(doServidor.ativadaEm).toLocaleString('pt-BR')}. As anteriores continuam em <a class="text-info hover:underline" href="/app/leads/duplicates">Leads duplicados</a>.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <div class="text-xs font-semibold text-fg mb-2">Nova inscrição de quem já tem uma em aberto (mesmo CPF, sem pagamento)</div>
+            {SITUACOES.map((c) => (
+              <div key={c.key} class="grid grid-cols-1 md:grid-cols-[16rem_1fr_16rem] gap-3 items-start py-2 border-b border-border last:border-b-0">
+                <div class="text-sm font-medium text-fg">{c.label}</div>
+                <p class="text-xs text-fg-muted">{c.help}</p>
+                <Select value={draft.inscricoes[c.key]} onChange={(e) => { const v = (e.target as HTMLSelectElement).value as AcaoInscricao; setDraft((d) => ({ ...d, inscricoes: { ...d.inscricoes, [c.key]: v } })) }}>
+                  {ACOES_INSCRICAO.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
+            ))}
+            <p class="text-2xs text-fg-muted mt-2">Inscrição paga ou matriculada nunca é reaproveitada.</p>
+          </div>
+        </div>
+      )}
+      {dirty && (
+        <div class="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
+          <Button variant="ghost" size="sm" onClick={() => setDraft(doServidor)} disabled={update.isPending}>Descartar</Button>
+          <Button variant="primary" size="sm" onClick={salvar} disabled={update.isPending}>{update.isPending ? 'Salvando…' : 'Salvar'}</Button>
+        </div>
+      )}
+    </Card>
   )
 }

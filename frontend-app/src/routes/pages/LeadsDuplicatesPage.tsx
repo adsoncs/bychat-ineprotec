@@ -306,7 +306,7 @@ function DuplicateLeadRow({
   onTogglePick: () => void
 }) {
   const matchedByLabel = lead.duplicateMatchedBy
-    ? lead.duplicateMatchedBy === 'whatsapp' ? 'WhatsApp' : 'E-mail'
+    ? ({ whatsapp: 'WhatsApp', email: 'E-mail', cpf: 'CPF', nome: 'Nome e DDD' } as Record<string, string>)[lead.duplicateMatchedBy] ?? lead.duplicateMatchedBy
     : null
   return (
     <tr class={cn('hover:bg-surface-3/40', isMaster && 'bg-info/5')}>
