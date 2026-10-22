@@ -111,6 +111,8 @@ body {
 .resumo h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--tinta-3); }
 .resumo .linha { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 14.5px; }
 .resumo .linha b { font-variant-numeric: tabular-nums; }
+.resumo .linha.a-vista { align-items: baseline; }
+.resumo .linha.a-vista b { font-size: 21px; font-weight: 700; letter-spacing: -.01em; color: var(--marca); }
 .resumo .destaque { border-top: 1px solid var(--linha); margin-top: 8px; padding-top: 12px; font-size: 16px; }
 .resumo a { color: var(--marca); }
 

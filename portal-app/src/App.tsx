@@ -953,7 +953,7 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
             <div class="linha"><span>A partir de</span><b>{pagamento.parcelado.vezes}x de {dinheiro(pagamento.parcelado.valor)}</b></div>
           )}
           {pagamento.aVista != null && (
-            <div class="linha"><span>Curso à vista</span><b>{dinheiro(pagamento.aVista)}</b></div>
+            <div class="linha a-vista"><span>Curso à vista</span><b>{dinheiro(pagamento.aVista)}</b></div>
           )}
         </>
       ) : plano1 && (
