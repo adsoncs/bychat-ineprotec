@@ -498,7 +498,10 @@ export function Pagamento(props: {
               onClick={() => setParcelas(o.parcelas)}
             >
               <span class="q">{o.parcelas}x</span>
-              <span class="v">{dinheiro(o.parcelas === 1 ? o.valorEntrada : o.valorParcela)}</span>
+              <span class="v">
+                {dinheiro(o.parcelas === 1 ? o.valorEntrada : o.valorParcela)}
+                {o.valorEmDia != null && <span class="em-dia">{dinheiro(o.valorEmDia)} pagando até {o.pontualidadeAte}</span>}
+              </span>
               <span class="j">
                 {o.semAcrescimo ? 'sem acréscimo' : `total ${dinheiro(o.valorTotal)}`}
               </span>
@@ -509,6 +512,7 @@ export function Pagamento(props: {
           <p class="ajuda" style="margin-top:12px">
             Você paga agora {dinheiro(escolhida.valorEntrada)} e as {escolhida.parcelas - 1} parcelas
             seguintes chegam mês a mês, pelo canal que você usa.
+            {escolhida.valorEmDia != null && ` Pagando até ${escolhida.pontualidadeAte}, cada uma sai por ${dinheiro(escolhida.valorEmDia)}.`}
           </p>
         )}
         <div class="acoes">

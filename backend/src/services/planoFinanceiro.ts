@@ -50,8 +50,13 @@ export interface RegrasDoPlano {
   /** O que pagar agora: só a entrada (matrícula/1ª parcela) ou o curso inteiro. */
   entrada: { ativo: boolean } & FormasDePagamento
   integral: { ativo: boolean } & FormasDePagamento
-  /** Desconto extra para quem paga a parcela até o dia `diaLimite` do mês. */
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number }
+  /**
+   * Desconto extra para quem paga a parcela até o dia `diaLimite` do mês — ou
+   * até o próprio vencimento (`ateVencimento`). `terminaEm90`: a parcela com
+   * desconto é arredondada para terminar em ,90 (tabela da ineprotec:
+   * R$ 274,90 − 20% = R$ 219,90), e o desconto vai ao gateway em reais.
+   */
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean }
   /** Código da condição de pagamento no SEI (entrada + parcelas / pagamento integral). */
   codigoSei: string
   codigoSeiIntegral: string
@@ -125,6 +130,8 @@ export function lerRegrasDoPlano(bruto: unknown): RegrasDoPlano | null {
       ativo: !!r.pontualidade?.ativo,
       descontoPct: num(r.pontualidade?.descontoPct, 0, 0, 90),
       diaLimite: Math.round(num(r.pontualidade?.diaLimite, 5, 1, 28)),
+      ateVencimento: !!r.pontualidade?.ateVencimento,
+      terminaEm90: !!r.pontualidade?.terminaEm90,
     },
     codigoSei: texto(r.codigoSei),
     codigoSeiIntegral: texto(r.codigoSeiIntegral),
@@ -294,23 +301,40 @@ export function parcelasDoPlano(p: PlanoDaOferta, escolha: {
 // ─── Pontualidade ──────────────────────────────────────────────────────────
 
 /**
+ * A parcela paga em dia: com o desconto de pontualidade e, se o plano pede,
+ * arredondada para terminar em ,90 (o mais perto). Nunca passa do valor cheio.
+ */
+export function valorEmDia(valor: number, pt: RegrasDoPlano['pontualidade'] | null | undefined): number {
+  if (!pt?.ativo || pt.descontoPct <= 0 || valor <= 0) return valor
+  const comDesc = valor * (1 - pt.descontoPct / 100)
+  const v = pt.terminaEm90 ? Math.round(comDesc - 0.9) + 0.9 : comDesc
+  return Math.min(valor, Math.max(0, Math.round(v * 100) / 100))
+}
+
+/**
  * Desconto de pontualidade para uma fatura que vence em `vencimento`: quantos
- * dias antes do vencimento ele vale (até o dia-limite do mesmo mês). null =
- * não se aplica (plano sem desconto, dia-limite já passou, ou o dia-limite
- * não fica antes do vencimento).
+ * dias antes do vencimento ele vale (até o dia-limite do mesmo mês, ou até o
+ * próprio vencimento — dias = 0). null = não se aplica (plano sem desconto,
+ * dia-limite já passou, ou o dia-limite não fica antes do vencimento).
+ * Com `valor` (reais) e `terminaEm90`, `fixo` traz o desconto em reais.
  */
 export function pontualidadeDaFatura(
   regras: RegrasDoPlano | null,
   vencimento: Date,
   hoje = new Date(),
-): { dias: number; pct: number; ate: Date } | null {
+  valor?: number,
+): { dias: number; pct: number; ate: Date; fixo?: number } | null {
   const pt = regras?.pontualidade
   if (!pt?.ativo || pt.descontoPct <= 0) return null
-  const ate = new Date(vencimento.getFullYear(), vencimento.getMonth(), pt.diaLimite)
+  const ate = pt.ateVencimento ? vencimento : new Date(vencimento.getFullYear(), vencimento.getMonth(), pt.diaLimite)
   const dia = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
   const dias = Math.round((dia(vencimento) - dia(ate)) / 86_400_000)
-  if (dias < 1) return null
+  if (dias < (pt.ateVencimento ? 0 : 1)) return null
   if (dia(ate) < dia(hoje)) return null
+  if (pt.terminaEm90 && valor && valor > 0) {
+    const fixo = Math.round((valor - valorEmDia(valor, pt)) * 100) / 100
+    return fixo > 0 ? { dias, pct: pt.descontoPct, ate, fixo } : null
+  }
   return { dias, pct: pt.descontoPct, ate }
 }
 
@@ -422,7 +446,9 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
     const meio = MEIO[String(pp.meio)] ?? String(pp.meio ?? '')
     return {
       plano, opcao, numParcelas: n, valorParcelaCentavos: parcela, valorTotalCentavos: total,
-      descricao: n > 1 ? `Pagamento integral em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})` : `Pagamento integral à vista no ${meio}: ${brl(total)}`,
+      descricao: n > 1
+        ? `Pagamento integral em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})${pp.meio === 'boleto' ? fraseDaPontualidade(plano, parcela / 100) : ''}`
+        : `Pagamento integral à vista no ${meio}: ${brl(total)}`,
     }
   }
   const n = totalDeParcelas(plano)
@@ -443,6 +469,14 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
 
 const brlR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+/** "; pagando até o vencimento, cada parcela sai por R$ 219,90" — vazio sem pontualidade. */
+export function fraseDaPontualidade(p: PlanoDaOferta, parcela: number): string {
+  const pt = p.regras.pontualidade
+  const emDia = valorEmDia(parcela, pt)
+  if (emDia >= parcela) return ''
+  return `; pagando até ${pt.ateVencimento ? 'o vencimento' : `o dia ${pt.diaLimite}`}, cada parcela sai por ${brlR(emDia)}`
+}
+
 /** As condições de uma opção, uma frase por forma ligada. */
 export function condicoesDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): string[] {
   const f = formasDaOpcao(p, o)
@@ -454,7 +488,7 @@ export function condicoesDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): string[
   if (ultC) out.push(ultC.parcelas > 1 ? `Cartão: em até ${ultC.parcelas}x (${ultC.descricao})` : `Cartão: ${ultC.descricao}`)
   const boletos = opcoesDoBoletoParcelado(baseDaForma(p, o, 'boletoParcelado'), f.boletoParcelado, p.diaVencimento)
   const ultB = boletos[boletos.length - 1]
-  if (ultB) out.push(`Boleto parcelado: em até ${ultB.parcelas}x (${ultB.parcelas}x de ${brlR(ultB.valorParcela)}${ultB.acrescimo > 0 ? `, total ${brlR(ultB.valorTotal)}` : ''})`)
+  if (ultB) out.push(`Boleto parcelado: em até ${ultB.parcelas}x (${ultB.parcelas}x de ${brlR(ultB.valorParcela)}${ultB.acrescimo > 0 ? `, total ${brlR(ultB.valorTotal)}` : ''})${fraseDaPontualidade(p, ultB.valorParcela)}`)
   return out
 }
 

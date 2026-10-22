@@ -97,8 +97,11 @@ export interface AsaasPaymentInput {
   externalReference: string   // nosso enrollmentId como string
   billingType?: 'UNDEFINED' | 'PIX' | 'BOLETO' | 'CREDIT_CARD'
   callbackUrl?: string  // URL para onde o Asaas redireciona após pagar pelo checkout
-  /** Desconto de pontualidade: `pct`% para quem paga até `dias` antes do vencimento. */
-  descontoAntecipado?: { dias: number; pct: number }
+  /**
+   * Desconto de pontualidade: `pct`% (ou `fixo` reais) para quem paga até
+   * `dias` antes do vencimento — 0 = até o próprio vencimento.
+   */
+  descontoAntecipado?: { dias: number; pct: number; fixo?: number | undefined }
 }
 
 export interface AsaasPaymentResult {
@@ -126,8 +129,11 @@ export async function createAsaasPayment(config: AsaasConfig, input: AsaasPaymen
   if (config.interest) body.interest = config.interest
   // Desconto de pontualidade: vale até `dias` antes do vencimento; depois, o
   // valor cheio (multa e juros só depois do vencimento).
-  if (input.descontoAntecipado && input.descontoAntecipado.dias >= 1 && input.descontoAntecipado.pct > 0) {
-    body.discount = { value: Math.round(input.descontoAntecipado.pct * 100) / 100, dueDateLimitDays: Math.round(input.descontoAntecipado.dias), type: 'PERCENTAGE' }
+  const da = input.descontoAntecipado
+  if (da && da.dias >= 0 && (da.fixo ?? 0) > 0) {
+    body.discount = { value: Math.round(da.fixo! * 100) / 100, dueDateLimitDays: Math.round(da.dias), type: 'FIXED' }
+  } else if (da && da.dias >= 0 && da.pct > 0) {
+    body.discount = { value: Math.round(da.pct * 100) / 100, dueDateLimitDays: Math.round(da.dias), type: 'PERCENTAGE' }
   }
 
   const p = await asaasFetch(config, '/payments', 'POST', body)

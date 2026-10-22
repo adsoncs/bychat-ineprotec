@@ -31,7 +31,7 @@ interface Regras {
   destinoBoletoIntegral: 'sei' | 'attrae'
   entrada: { ativo: boolean } & Formas
   integral: { ativo: boolean } & Formas
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number }
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento?: boolean; terminaEm90?: boolean }
   codigoSei: string
   codigoSeiIntegral: string
 }
@@ -168,7 +168,7 @@ export function PlanosPagamentoModal({ offeringId, offeringNome, onClose }: { of
                 <div class="text-fg-muted mt-0.5">
                   Parcelas restantes: <b class="text-fg">{p.regras.destino === 'sei' ? 'enviadas ao SEI' : p.regras.destino === 'attrae' ? 'cobradas aqui (fatura mensal)' : 'nenhuma'}</b>
                   {' · '}Opções: {[p.regras.entrada.ativo && 'entrada', p.regras.integral.ativo && 'curso completo'].filter(Boolean).join(' e ') || '—'}
-                  {p.regras.pontualidade.ativo && p.regras.pontualidade.descontoPct > 0 && ` · pontualidade ${p.regras.pontualidade.descontoPct}% até o dia ${p.regras.pontualidade.diaLimite}`}
+                  {p.regras.pontualidade.ativo && p.regras.pontualidade.descontoPct > 0 && ` · pontualidade ${p.regras.pontualidade.descontoPct}% até ${p.regras.pontualidade.ateVencimento ? 'o vencimento' : `o dia ${p.regras.pontualidade.diaLimite}`}`}
                 </div>
               </div>
               <div class="flex gap-0.5 shrink-0">
@@ -274,10 +274,16 @@ function EditorDoPlano({ plano: p, muda }: { plano: Plano; muda: (p: Plano) => v
             {r.pontualidade.ativo && (
               <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Input label="Desconto (%)" type="number" step="0.01" min={0} max={90} value={String(r.pontualidade.descontoPct || '')} onInput={(e) => setR({ pontualidade: { ...r.pontualidade, descontoPct: num((e.target as HTMLInputElement).value) } })} />
-                <Input label="Pagando até o dia" type="number" min={1} max={27} value={String(r.pontualidade.diaLimite)} onInput={(e) => setR({ pontualidade: { ...r.pontualidade, diaLimite: Math.round(num((e.target as HTMLInputElement).value)) } })} hint={`Antes do vencimento (dia ${p.diaVencimento})`} />
+                {!r.pontualidade.ateVencimento && <Input label="Pagando até o dia" type="number" min={1} max={27} value={String(r.pontualidade.diaLimite)} onInput={(e) => setR({ pontualidade: { ...r.pontualidade, diaLimite: Math.round(num((e.target as HTMLInputElement).value)) } })} hint={`Antes do vencimento (dia ${p.diaVencimento})`} />}
               </div>
             )}
-            {r.pontualidade.ativo && <div class="text-2xs text-fg-muted">A fatura de cada mês sai com {r.pontualidade.descontoPct || 0}% de desconto para pagamento até o dia {r.pontualidade.diaLimite}. Depois desse dia, vale o valor cheio da parcela (com os demais descontos, como bolsa, que já estão nela).</div>}
+            {r.pontualidade.ativo && (
+              <div class="flex flex-col gap-1">
+                <Marca checked={!!r.pontualidade.ateVencimento} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, ateVencimento: v } })}>Vale até o próprio vencimento (dia {p.diaVencimento})</Marca>
+                <Marca checked={!!r.pontualidade.terminaEm90} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, terminaEm90: v } })}>Arredondar a parcela com desconto para terminar em ,90</Marca>
+              </div>
+            )}
+            {r.pontualidade.ativo && <div class="text-2xs text-fg-muted">A fatura de cada mês sai com {r.pontualidade.descontoPct || 0}% de desconto{r.pontualidade.terminaEm90 ? ' (parcela arredondada para terminar em ,90)' : ''} para pagamento até {r.pontualidade.ateVencimento ? 'o vencimento' : `o dia ${r.pontualidade.diaLimite}`}. Depois disso, vale o valor cheio da parcela (com os demais descontos, como bolsa, que já estão nela). No curso completo no boleto, a 1ª parcela, paga na inscrição, já sai com o desconto.</div>}
           </div>
         )}
       </Secao>

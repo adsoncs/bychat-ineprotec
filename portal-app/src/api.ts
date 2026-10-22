@@ -574,6 +574,9 @@ export interface OpcaoBoleto {
   acrescimo: number
   semAcrescimo: boolean
   descricao: string
+  /** Parcela paga até `pontualidadeAte` (desconto de pontualidade do plano). */
+  valorEmDia?: number
+  pontualidadeAte?: string
 }
 
 export interface CupomNaTela {

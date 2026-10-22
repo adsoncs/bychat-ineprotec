@@ -10,7 +10,7 @@ import { planoDeBoleto, type PlanoDeBoleto } from './portalPagamento.js'
 import type { CobrancaDoPortal } from './portalCobranca.js'
 import {
   baseDaForma, descreverOpcao, menorPrecoDaOpcao, escolhaParaGravar, formasDaOpcao, opcoesDoBoletoParcelado, opcoesDoCartao,
-  opcoesDoPlano, planoEscolhido, resumoDoPlano, valorDaOpcao,
+  opcoesDoPlano, planoEscolhido, resumoDoPlano, valorDaOpcao, valorEmDia,
   type FormasDePagamento, type OpcaoDePagamento, type PlanoDaOferta,
 } from './planoFinanceiro.js'
 
@@ -23,6 +23,14 @@ export async function escolhaDoCheckoutPeloPlano(cob: CobrancaDoPortal | null, p
 }
 
 const rotuloDaOpcao = (p: PlanoDaOferta, o: OpcaoDePagamento) => descreverOpcao(p, o).rotulo
+
+/**
+ * Curso completo no boleto parcelado: a 1ª parcela, paga na inscrição, já sai
+ * com o desconto de pontualidade (é paga em dia); as demais ganham o desconto
+ * na fatura de cada mês.
+ */
+const entradaEmDia = (p: PlanoDaOferta, o: OpcaoDePagamento, b: PlanoDeBoleto) =>
+  o === 'integral' && b.parcelas > 1 ? valorEmDia(b.valorEntrada, p.regras.pontualidade) : b.valorEntrada
 
 /** O cupom, revalidado sobre o valor da opção (curso inteiro ≠ matrícula). */
 async function cupomDaOpcao(input: { codigo: string; valor: number; portalId: number; cpf: string | undefined; cob: CobrancaDoPortal; metodo?: Meio }) {
@@ -105,10 +113,18 @@ export async function opcoesDaTelaPeloPlano(input: {
             parcelado: formas.boletoParcelado.ativo,
             parcelasMax: Math.max(...boletos.map((b) => b.parcelas)),
             descontoPct: boletoAVista.descontoAVista > 0 ? formas.boleto.descontoPct : 0,
-            opcoes: boletos.map((p) => ({
-              parcelas: p.parcelas, valorEntrada: p.valorEntrada, valorParcela: p.valorParcela, valorTotal: p.valorTotal,
-              acrescimo: p.acrescimo, semAcrescimo: p.semAcrescimo, descricao: p.descricao,
-            })),
+            opcoes: boletos.map((p) => {
+              const emDia = p.parcelas > 1 && opcao === 'integral' ? valorEmDia(p.valorParcela, plano.regras.pontualidade) : p.valorParcela
+              return {
+                parcelas: p.parcelas, valorEntrada: entradaEmDia(plano, opcao, p), valorParcela: p.valorParcela, valorTotal: p.valorTotal,
+                acrescimo: p.acrescimo, semAcrescimo: p.semAcrescimo, descricao: p.descricao,
+                // Parcela paga até o vencimento (ou o dia-limite) — some quando não há desconto.
+                ...(emDia < p.valorParcela ? {
+                  valorEmDia: emDia,
+                  pontualidadeAte: plano.regras.pontualidade.ateVencimento ? 'o vencimento' : `o dia ${plano.regras.pontualidade.diaLimite}`,
+                } : {}),
+              }
+            }),
           }
         : { ativo: false },
       cartao: cartao.length
@@ -187,7 +203,7 @@ export async function contaPeloPlano(input: {
   } else if (method === 'boleto' && vezes > 1) {
     boleto = opcoesDoBoletoParcelado(preco.valor, formas.boletoParcelado, plano.diaVencimento).find((x) => x.parcelas === vezes) ?? null
     if (!boleto) return { erro: 'Parcelamento indisponível.' }
-    valorCobrado = boleto.valorEntrada
+    valorCobrado = entradaEmDia(plano, opcao, boleto)
     valorTotal = boleto.valorTotal
     valorParcela = boleto.valorParcela
     acrescimo = boleto.acrescimo
@@ -200,6 +216,7 @@ export async function contaPeloPlano(input: {
     valorTabela: baseForma,
     acrescimo,
     ...(preco.descontoAVista > 0 ? { descontoAVista: preco.descontoAVista } : {}),
+    ...(boleto && valorCobrado < boleto.valorEntrada ? { descontoPontualidade: Math.round((boleto.valorEntrada - valorCobrado) * 100) / 100 } : {}),
     ...(cupomAplicado ? {
       cupom: cupomAplicado.code,
       valorCheio: cupomAplicado.valorCheio,

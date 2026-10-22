@@ -450,12 +450,12 @@ export async function criarCobrancaAsaas(parcelaId: number, regras: RegrasDoPlan
     // 2) cria a cobrança — valor já com multa+juros se vencida (Fin-2)
     const enc = calcularEncargos(parcela, await getEncargosConfig())
     // Desconto de pontualidade do plano: só na parcela em dia, até o dia-limite.
-    const pontual = !enc.vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento) : null
+    const pontual = !enc.vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento, new Date(), enc.valorCobranca / 100) : null
     const pay = await createAsaasPayment(config, {
       customerId, value: enc.valorCobranca / 100, dueDate: parcela.dataVencimento,
-      description: `${parcela.tipo} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (atualizado)' : ''}${pontual ? ` · ${pontual.pct}% de desconto pagando até ${pontual.ate.toLocaleDateString('pt-BR')}` : ''}`,
+      description: `${parcela.tipo} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (atualizado)' : ''}${pontual ? ` · ${textoDaPontualidade(pontual)}` : ''}`,
       externalReference: `aca-parcela:${parcelaId}`,
-      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct } } : {}),
+      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct, fixo: pontual.fixo } } : {}),
     })
     // 3) PIX copia-e-cola (best-effort)
     let pix: string | null = null
@@ -466,6 +466,12 @@ export async function criarCobrancaAsaas(parcelaId: number, regras: RegrasDoPlan
   } catch (e: any) {
     return { ok: false, error: e.message || 'Falha ao criar cobrança no Asaas' }
   }
+}
+
+/** "20% de desconto pagando até 10/11/2026" ou "R$ 55,00 de desconto pagando até…". */
+function textoDaPontualidade(p: { pct: number; ate: Date; fixo?: number }): string {
+  const quanto = p.fixo ? p.fixo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : `${p.pct}%`
+  return `${quanto} de desconto pagando até ${p.ate.toLocaleDateString('pt-BR')}`
 }
 
 /** URL do gatilho da iugu para esta conexão — a mesma que aparece em Configurações › Pagamentos. */
@@ -521,19 +527,19 @@ async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: 
     const vencida = dataIugu(parcela.dataVencimento) < dataIugu(hoje)
     const vencimento = vencida ? new Date(hoje.getTime() + 2 * 86400_000) : parcela.dataVencimento
     // Desconto de pontualidade do plano: só na parcela em dia, até o dia-limite.
-    const pontual = !vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento, hoje) : null
+    const pontual = !vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento, hoje, enc.valorCobranca / 100) : null
     const fatura = await criarFaturaIugu(cfg, {
       metodos: ['boleto', 'pix'],
       valor: enc.valorCobranca / 100,
       vencimento,
-      descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}${pontual ? ` · ${pontual.pct}% de desconto pagando até ${pontual.ate.toLocaleDateString('pt-BR')}` : ''}`,
+      descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}${pontual ? ` · ${textoDaPontualidade(pontual)}` : ''}`,
       email,
       pagador: { nome: aluno.lead?.nome || 'Aluno', cpfCnpj: cpf, telefone: aluno.lead?.whatsapp || undefined, email },
       referencia: `aca-parcela:${parcelaId}`,
       // Mesma parcela, mesmo valor, mesmo vencimento: clique duplo não gera
       // duas faturas. Valor ou data diferentes são outra cobrança de verdade.
-      chaveIdempotencia: `aca-parcela-${parcelaId}-${enc.valorCobranca}-${dataIugu(vencimento)}${pontual ? `-p${pontual.pct}` : ''}`,
-      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct } } : {}),
+      chaveIdempotencia: `aca-parcela-${parcelaId}-${enc.valorCobranca}-${dataIugu(vencimento)}${pontual ? `-p${pontual.fixo ?? pontual.pct}` : ''}`,
+      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct, fixo: pontual.fixo } } : {}),
       urlNotificacao: urlGatilhoIugu(conn.webhookToken),
       multaPct: encCfg.multaPct,
       jurosMesPct: encCfg.jurosMesPct,
