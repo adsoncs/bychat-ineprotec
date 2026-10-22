@@ -42,6 +42,7 @@ import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
 import { AvisoDuplicidade, DuplicidadesModal } from './enrollmentPortal/DuplicidadesPanel'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
+import { PortalComercialTab } from '@/components/enrollmentPortal/PortalComercialTab'
 import { cn } from '@/lib/cn'
 import { env } from '@/lib/env'
 import { formatRelative } from '@/lib/format'
@@ -49,7 +50,7 @@ import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { Pode } from '@/components/auth/Pode'
 
-type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics'
+type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics' | 'comercial'
 
 const STATUS_LABELS: Record<RegistrationStatus, string> = {
   draft: 'Rascunho',
@@ -131,6 +132,7 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
           {tab === 'etapas' && <SomenteLeitura tela="enrollment_portals"><PortalEtapasTab portal={portal} /></SomenteLeitura>}
           {tab === 'config' && <SomenteLeitura tela="enrollment_portals"><PortalConfigTab portal={portal} /></SomenteLeitura>}
           {tab === 'analytics' && <PortalAnalyticsTab portal={portal} />}
+          {tab === 'comercial' && <SomenteLeitura tela="enrollment_portals"><PortalComercialTab portal={portal} /></SomenteLeitura>}
         </>
       )}
     </Page>
@@ -148,6 +150,7 @@ function PortalTabs({ tab, onChange, interesse }: { tab: Tab; onChange: (t: Tab)
     { id: 'etapas',        label: 'Etapas',       icon: <ListOrdered size={14} /> },
     { id: 'config',        label: 'Configuração', icon: <Settings size={14} /> },
     { id: 'analytics',     label: 'Analytics',    icon: <BarChart3 size={14} /> },
+    ...(interesse ? [] : [{ id: 'comercial' as Tab, label: 'Comercial', icon: <CreditCard size={14} /> }]),
   ]
   return (
     <div class="border-b border-border flex gap-1">

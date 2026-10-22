@@ -128,6 +128,7 @@ import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
 import { meetingsRoutes } from './routes/meetings.js'
 import { negotiationsRoutes } from './routes/negotiations.js'
+import { portalComercialRoutes } from './routes/portalComercial.js'
 import { goalsCommissionsRoutes } from './routes/goalsCommissions.js'
 import { catalogRoutes } from './routes/catalog.js'
 import { waCallsRoutes } from './routes/waCalls.js'
@@ -175,6 +176,7 @@ import { startTransferExpireScheduler } from './services/routing/transferExpire.
 import { startShiftHandoverScheduler } from './services/routing/shiftHandover.js'
 import { startWorkflowEngine } from './services/workflowEngine.js'
 import { ligarFunilDaJornada } from './services/funilDaJornada.js'
+import { ligarPropostaDaInscricao } from './services/propostaDaInscricao.js'
 import { startWorkers } from './services/workers.js'
 import { startCadenceScheduler } from './services/cadenceScheduler.js'
 import { startPriorityScoreScheduler } from './services/priorityScoreService.js'
@@ -902,6 +904,7 @@ await app.register(utmsRoutes)
 await app.register(voipRoutes)
 await app.register(meetingsRoutes)
 await app.register(negotiationsRoutes)
+await app.register(portalComercialRoutes)
 await app.register(goalsCommissionsRoutes)
 await app.register(catalogRoutes)
 await app.register(waCallsRoutes)
@@ -1541,6 +1544,8 @@ try {
   startWorkflowEngine()
   // Portais › Etapas › "No funil": o lead acompanha a etapa da inscrição.
   ligarFunilDaJornada()
+  // Inscrição → proposta (Negociações/Metas/Comissões), por portal ligado em Comercial.
+  ligarPropostaDaInscricao()
   startWorkers()
   startCadenceScheduler().catch(err => console.error('[cadenceScheduler] init falhou:', err))
 import('./services/scheduledMessageScheduler.js')
