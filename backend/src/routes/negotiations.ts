@@ -510,6 +510,8 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     }).catch(() => null)
     await prisma.negotiation.delete({ where: { id } }).catch(() => {})
     if (entry?.userId) await recalcAgentMonth(entry.userId, entry.competencia).catch(() => {})
+    const { sincronizarValorDeVenda } = await import('../services/receitaUnica.js')
+    await sincronizarValorDeVenda(alvo.leadId, { origem: 'proposta_apagada' }).catch(() => null)
     return { ok: true }
   })
 

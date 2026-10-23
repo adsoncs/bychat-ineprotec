@@ -1728,13 +1728,24 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.status === 'matriculado' && existing.status !== 'matriculado') {
       try {
         const off = existing.offering
-        // Valor da venda = mensalidade × duração do curso + matrícula
-        // Se não tiver dados suficientes, usa só o valor da matrícula ou 0
-        const course = await prisma.course.findUnique({ where: { id: off.courseId } })
-        const mensalidade = off.valorMensalidade ? Number(off.valorMensalidade) : 0
-        const duracao = course?.duracaoMeses || 0
-        const matricula = off.valorMatricula ? Number(off.valorMatricula) : 0
-        const saleValue = (mensalidade * duracao) + matricula
+        // Receita única (Fase 4) ligada: o valor é o das propostas/inscrições
+        // pagas; sem nenhuma delas, o valor pago informado nesta matrícula. A
+        // fórmula antiga (mensalidade × duração) inventava uma receita que
+        // nenhum outro relatório tinha.
+        const { fonteUnicaLigada, receitaDoLead } = await import('../services/receitaUnica.js')
+        let saleValue: number
+        if (await fonteUnicaLigada()) {
+          const r = await receitaDoLead(existing.leadId)
+          saleValue = r.gerenciado ? (r.valor ?? 0) : Number(updated.valorPago ?? 0)
+        } else {
+          // Valor da venda = mensalidade × duração do curso + matrícula
+          // Se não tiver dados suficientes, usa só o valor da matrícula ou 0
+          const course = await prisma.course.findUnique({ where: { id: off.courseId } })
+          const mensalidade = off.valorMensalidade ? Number(off.valorMensalidade) : 0
+          const duracao = course?.duracaoMeses || 0
+          const matricula = off.valorMatricula ? Number(off.valorMatricula) : 0
+          saleValue = (mensalidade * duracao) + matricula
+        }
 
         await prisma.lead.update({
           where: { id: existing.leadId },

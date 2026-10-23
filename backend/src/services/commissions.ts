@@ -508,6 +508,12 @@ export async function onNegotiationChanged(negotiationId: number): Promise<void>
   } catch (err) {
     console.error('[Commissions] falha ao sincronizar a negociação', negotiationId, (err as Error).message)
   }
+  // Receita única (Fase 4): o valor de venda do lead acompanha as propostas.
+  const n = await prisma.negotiation.findUnique({ where: { id: negotiationId }, select: { leadId: true } }).catch(() => null)
+  if (n?.leadId) {
+    const { sincronizarValorDeVenda } = await import('./receitaUnica.js')
+    await sincronizarValorDeVenda(n.leadId, { origem: 'proposta' }).catch(() => null)
+  }
 }
 
 /** Recálculo em massa de um período (todos os agentes ou um só). */

@@ -42,6 +42,9 @@ export async function syncNegotiationsWithLeadOutcome(
     quando?: Date
     /** Proposta escolhida pelo operador no momento de marcar o ganho. */
     negotiationId?: number | null
+    /** Valor digitado no Ganho. Com a receita única ligada, vira o valor de
+     *  fechamento da proposta (como no /close) quando fecha UMA só. */
+    valor?: number | null
   } = {},
 ): Promise<SyncResult> {
   const abertas = await prisma.negotiation.findMany({
@@ -94,6 +97,9 @@ export async function syncNegotiationsWithLeadOutcome(
   // `fechadaEm` é o que vira competência da comissão e período nos KPIs: num
   // ganho retroativo ela tem de ser a data do negócio, não a do clique.
   const agora = opts.quando ?? new Date()
+  const { fonteUnicaLigada } = await import('./receitaUnica.js')
+  const valorDoGanho = outcome === 'won' && alvos.length === 1 && opts.valor != null && Number.isFinite(opts.valor) && opts.valor >= 0
+    && (await fonteUnicaLigada()) ? opts.valor : null
   let fechadas = 0
   for (const n of alvos) {
     await prisma.negotiation.update({
@@ -103,6 +109,7 @@ export async function syncNegotiationsWithLeadOutcome(
         status: outcome === 'won' ? 'aceita' : 'recusada',
         fechadaEm: agora,
         fechadaPor: opts.userId ?? null,
+        ...(valorDoGanho != null ? { valorFinal: valorDoGanho } : {}),
         ...(outcome === 'lost' && opts.lostReasonId ? { lostReasonId: opts.lostReasonId } : {}),
       },
     })

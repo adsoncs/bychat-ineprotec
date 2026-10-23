@@ -341,3 +341,42 @@ export function useCommissionPreview(negotiationId: number | null, enabled: bool
     staleTime: 10_000,
   })
 }
+
+// ── Receita única (Fase 4) ────────────────────────────────────────────────
+
+export interface ConfigReceita { ligado: boolean; ligadoEm: string | null; ligadoPor: string | null }
+export interface DivergenciaReceita {
+  leadId: number
+  nome: string | null
+  outcome: string | null
+  atual: number | null
+  novo: number | null
+  diferenca: number
+  propostasGanhas: number
+  inscricoesPagas: number
+}
+
+export function useReceitaConfig() {
+  return useQuery({ queryKey: ['receita-config'], queryFn: () => api.get<ConfigReceita>('/admin/receita/config') })
+}
+export function useSalvarReceitaConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ligado: boolean) => api.put<ConfigReceita>('/admin/receita/config', { ligado }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['receita-config'] }) },
+  })
+}
+export function useReceitaConciliacao() {
+  return useQuery({
+    queryKey: ['receita-conciliacao'],
+    queryFn: () => api.get<{ divergencias: DivergenciaReceita[]; total: number; analisados: number; somaAtual: number; somaNova: number }>('/admin/receita/conciliacao'),
+    staleTime: 30_000,
+  })
+}
+export function useAplicarConciliacao() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadIds?: number[]) => api.post<{ corrigidos: number }>('/admin/receita/conciliacao/aplicar', leadIds ? { leadIds } : {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['receita-conciliacao'] }) },
+  })
+}

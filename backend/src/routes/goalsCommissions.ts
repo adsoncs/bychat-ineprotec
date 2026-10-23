@@ -472,6 +472,44 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     return { ok: true, ...r }
   })
 
+  // ── Receita única (Fase 4) ───────────────────────────────────────────────
+  // Chave que torna o valor de venda do lead derivado das propostas ganhas +
+  // inscrições pagas, e a conciliação das divergências antigas.
+  app.get('/api/admin/receita/config', { preHandler: [authMiddleware, adminOnly] }, async () => {
+    const { configReceita } = await import('../services/receitaUnica.js')
+    return configReceita()
+  })
+  app.put('/api/admin/receita/config', { preHandler: [authMiddleware, adminOnly] }, async (req) => {
+    const { salvarConfigReceita } = await import('../services/receitaUnica.js')
+    const ligado = (req.body as any)?.ligado === true
+    const quem = auditActor(req)
+    const c = await salvarConfigReceita(ligado, quem.actorName ?? null)
+    void logUserAudit({ action: 'receita.fonte_unica', targetType: 'setting', targetLabel: `Receita única ${ligado ? 'ligada' : 'desligada'}`, changes: { ligado }, ...quem })
+    return c
+  })
+  app.get('/api/admin/receita/conciliacao', { preHandler: [authMiddleware, adminOnly] }, async () => {
+    const { conciliacao } = await import('../services/receitaUnica.js')
+    const r = await conciliacao()
+    const soma = (k: 'atual' | 'novo') => Math.round(r.divergencias.reduce((s, d) => s + (d[k] ?? 0), 0) * 100) / 100
+    return { ...r, total: r.divergencias.length, somaAtual: soma('atual'), somaNova: soma('novo') }
+  })
+  /** Corrige o valor de venda dos leads escolhidos (ou de todos os divergentes). */
+  app.post('/api/admin/receita/conciliacao/aplicar', { preHandler: [authMiddleware, adminOnly] }, async (req) => {
+    const { conciliacao, sincronizarValorDeVenda } = await import('../services/receitaUnica.js')
+    const pedidos = Array.isArray((req.body as any)?.leadIds)
+      ? ((req.body as any).leadIds as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      : (await conciliacao()).divergencias.map((d) => d.leadId)
+    const quem = auditActor(req)
+    const mudancas: { leadId: number; antes: number | null; depois: number | null }[] = []
+    for (const leadId of pedidos) {
+      const m = await sincronizarValorDeVenda(leadId, { forcar: true, origem: 'conciliacao', userId: quem.actorId ?? null, userName: quem.actorName ?? null })
+      if (m) mudancas.push({ leadId, ...m })
+    }
+    // O antes de cada lead fica na auditoria: é o que permite desfazer.
+    void logUserAudit({ action: 'receita.conciliacao_aplicada', targetType: 'setting', targetLabel: `Conciliação de receita: ${mudancas.length} lead(s)`, changes: { mudancas }, ...quem })
+    return { corrigidos: mudancas.length }
+  })
+
   app.get('/api/admin/commissions/reconcile', { preHandler: [authMiddleware, adminOnly] }, async (req) => {
     const { start, end } = periodOf(req.query as any)
     const divergencias = await reconcile(start, end)

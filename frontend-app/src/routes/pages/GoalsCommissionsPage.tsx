@@ -34,6 +34,7 @@ import {
   useCommissionRules, useDeleteCommissionRule,
   useCommissionEntries, usePayCommission, usePayCommissionBatch,
   useRecalcCommissions, useCommissionReconcile,
+  useReceitaConfig, useSalvarReceitaConfig, useReceitaConciliacao, useAplicarConciliacao,
   type CommissionRule, type GoalInput, type GoalMetric, type MetricProgress, type RateType,
 } from '@/hooks/useGoalsCommissions'
 import { downloadFile } from '@/lib/download'
@@ -101,7 +102,7 @@ const rateLabel = (tipo: RateType | null, taxa: unknown, meses = 1) => {
 
 // ── Página ────────────────────────────────────────────────────────────────
 
-type Tab = 'painel' | 'metas' | 'regras' | 'lancamentos'
+type Tab = 'painel' | 'metas' | 'regras' | 'lancamentos' | 'receita'
 
 export function GoalsCommissionsPage() {
   const [, navigate] = useLocation()
@@ -134,6 +135,7 @@ export function GoalsCommissionsPage() {
     { id: 'metas', label: 'Metas', adminOnly: true },
     { id: 'regras', label: 'Regras de comissão', adminOnly: true },
     { id: 'lancamentos', label: 'Lançamentos' },
+    { id: 'receita', label: 'Receita única', adminOnly: true },
   ]
 
   return (
@@ -193,6 +195,7 @@ export function GoalsCommissionsPage() {
       {tab === 'painel' ? <PainelTab period={period} funnelId={funnelId} /> : null}
       {tab === 'metas' && isManager ? <MetasTab period={period} funnelId={funnelId} users={userOptions} /> : null}
       {tab === 'regras' && isManager ? <RegrasTab funnels={funnelOptions} users={userOptions} /> : null}
+      {tab === 'receita' && isManager ? <ReceitaTab onOpenLead={(id) => navigate(`/leads/${id}`)} /> : null}
       {tab === 'lancamentos' ? <LancamentosTab period={period} funnelId={funnelId} users={userOptions} isManager={isManager} onOpenLead={(id) => navigate(`/leads/${id}`)} /> : null}
 
       <HowItWorksModal
@@ -715,6 +718,142 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
           </div>
         </Card>
       )}
+    </div>
+  )
+}
+
+// ── Receita única (Fase 4) ────────────────────────────────────────────────
+//
+// O valor de venda do lead (o que placar, Meta, Google Ads e ROAS leem) passa a
+// ser a soma das propostas ganhas + inscrições pagas sem proposta. A aba liga a
+// regra e mostra os leads antigos cujo valor não bate com essa conta.
+
+function ReceitaTab({ onOpenLead }: { onOpenLead: (id: number) => void }) {
+  const cfg = useReceitaConfig()
+  const salvar = useSalvarReceitaConfig()
+  const conc = useReceitaConciliacao()
+  const aplicar = useAplicarConciliacao()
+  const [confirmar, setConfirmar] = useState<null | 'ligar' | 'desligar' | 'todos'>(null)
+
+  const ligado = !!cfg.data?.ligado
+  const divs = conc.data?.divergencias ?? []
+
+  async function corrigir(leadIds?: number[]) {
+    const r = await aplicar.mutateAsync(leadIds)
+    toast(`${r.corrigidos} lead(s) corrigido(s)`, 'success')
+  }
+
+  return (
+    <div class="space-y-3">
+      <Card>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="space-y-1 max-w-2xl">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-fg">Valor de venda pela proposta</span>
+              {ligado ? <Badge tone="success">Ligado</Badge> : <Badge tone="neutral">Desligado</Badge>}
+            </div>
+            <p class="text-xs text-fg-muted">
+              Ligado, o valor de venda de cada lead passa a ser a <strong>soma das propostas ganhas</strong> mais as
+              <strong> inscrições pagas</strong> que ainda não viraram proposta, recalculado a cada mudança. É esse valor que
+              o placar de agentes, a Meta, o Google Ads, o ROAS e os painéis leem — com isso todos batem com Negociações.
+              Lead sem proposta e sem inscrição fica com o valor digitado no Ganho.
+            </p>
+            {ligado && cfg.data?.ligadoEm ? (
+              <p class="text-2xs text-fg-muted">Ligado em {new Date(cfg.data.ligadoEm).toLocaleString('pt-BR')}{cfg.data.ligadoPor ? ` por ${cfg.data.ligadoPor}` : ''}.</p>
+            ) : null}
+          </div>
+          <Button size="sm" variant={ligado ? 'secondary' : 'primary'} onClick={() => setConfirmar(ligado ? 'desligar' : 'ligar')} disabled={cfg.isLoading || salvar.isPending}>
+            {ligado ? 'Desligar' : 'Ligar'}
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <div class="text-sm font-semibold text-fg">Conciliação</div>
+            <p class="text-xs text-fg-muted">Leads cujo valor de venda hoje é diferente da conta das propostas e inscrições. Nada muda até você corrigir.</p>
+          </div>
+          <div class="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => conc.refetch()} disabled={conc.isFetching}>
+              <RefreshCw size={14} class={conc.isFetching ? 'animate-spin' : ''} /> Atualizar
+            </Button>
+            <Button size="sm" onClick={() => setConfirmar('todos')} disabled={!divs.length || aplicar.isPending}>
+              <Check size={14} /> Corrigir todos
+            </Button>
+          </div>
+        </div>
+        {conc.isLoading ? <Skeleton class="h-40 w-full" /> : (
+          <>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+              <KpiCard label="Leads analisados" value={String(conc.data?.analisados ?? 0)} hint="com proposta ou inscrição" />
+              <KpiCard label="Com divergência" value={String(conc.data?.total ?? 0)} hint="valor atual ≠ conta" />
+              <KpiCard label="Soma atual" value={money(conc.data?.somaAtual ?? 0)} hint="nos leads divergentes" />
+              <KpiCard label="Soma pela conta" value={money(conc.data?.somaNova ?? 0)} hint="depois de corrigir" />
+            </div>
+            {divs.length === 0 ? (
+              <EmptyState icon={<ShieldCheck size={22} />} title="Tudo batendo" description="O valor de venda de todos os leads com proposta ou inscrição já é a soma das propostas ganhas e inscrições pagas." />
+            ) : (
+              <div class="overflow-x-auto rounded-md border border-border">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
+                      <th class="text-left font-medium px-3 py-2">Lead</th>
+                      <th class="text-left font-medium px-3 py-2">Origem da conta</th>
+                      <th class="text-right font-medium px-3 py-2">Valor atual</th>
+                      <th class="text-right font-medium px-3 py-2">Pela conta</th>
+                      <th class="text-right font-medium px-3 py-2">Diferença</th>
+                      <th class="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {divs.slice(0, 300).map((d) => (
+                      <tr key={d.leadId} class="border-b border-border/60 last:border-0">
+                        <td class="px-3 py-2">
+                          <button type="button" class="text-left text-fg hover:text-accent inline-flex items-center gap-1" onClick={() => onOpenLead(d.leadId)}>
+                            {d.nome || `Lead #${d.leadId}`} <ExternalLink size={12} />
+                          </button>
+                          {d.outcome === 'won' ? <span class="ml-2 text-2xs text-fg-muted">ganho</span> : null}
+                        </td>
+                        <td class="px-3 py-2 text-xs text-fg-muted">
+                          {[d.propostasGanhas ? `${d.propostasGanhas} proposta(s) ganha(s)` : null, d.inscricoesPagas ? `${d.inscricoesPagas} inscrição(ões) paga(s)` : null].filter(Boolean).join(' + ') || 'nenhuma venda'}
+                        </td>
+                        <td class="px-3 py-2 text-right">{d.atual == null ? '—' : moneyExact(d.atual)}</td>
+                        <td class="px-3 py-2 text-right">{d.novo == null ? '—' : moneyExact(d.novo)}</td>
+                        <td class={cn('px-3 py-2 text-right', d.diferenca < 0 ? 'text-danger' : 'text-success')}>{d.diferenca > 0 ? '+' : ''}{moneyExact(d.diferenca)}</td>
+                        <td class="px-3 py-2 text-right">
+                          <Button size="sm" variant="ghost" onClick={() => corrigir([d.leadId])} disabled={aplicar.isPending}>Corrigir</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {divs.length > 300 ? <p class="text-2xs text-fg-muted px-3 py-2">Mostrando as 300 maiores diferenças de {divs.length}. "Corrigir todos" corrige todas.</p> : null}
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
+      <ConfirmDialog
+        open={confirmar != null}
+        onOpenChange={(v) => { if (!v) setConfirmar(null) }}
+        title={confirmar === 'ligar' ? 'Ligar a receita única?' : confirmar === 'desligar' ? 'Desligar a receita única?' : `Corrigir ${divs.length} lead(s)?`}
+        description={
+          confirmar === 'ligar'
+            ? 'A partir de agora, toda mudança de proposta ou inscrição recalcula o valor de venda do lead. Os valores antigos só mudam quando você corrigir na conciliação.'
+            : confirmar === 'desligar'
+              ? 'O valor de venda volta a ser gravado só pelo Ganho e pelo fechamento da proposta, como antes. Nada do que já foi gravado é desfeito.'
+              : 'O valor de venda desses leads passa a ser a conta das propostas e inscrições. Isso muda placar, ROAS e relatórios dos meses em que eles foram ganhos. O valor anterior de cada um fica na auditoria e na linha do tempo do lead.'
+        }
+        confirmLabel={confirmar === 'ligar' ? 'Ligar' : confirmar === 'desligar' ? 'Desligar' : 'Corrigir'}
+        loading={salvar.isPending || aplicar.isPending}
+        onConfirm={async () => {
+          if (confirmar === 'todos') await corrigir()
+          else { await salvar.mutateAsync(confirmar === 'ligar'); toast(confirmar === 'ligar' ? 'Receita única ligada' : 'Receita única desligada', 'success') }
+          setConfirmar(null)
+        }}
+      />
     </div>
   )
 }

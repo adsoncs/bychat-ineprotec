@@ -192,8 +192,13 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   const { syncNegotiationsWithLeadOutcome } = await import('./negotiationOutcomeSync.js')
   const negs = skipNegotiationSync
     ? { fechadas: 0, ambiguas: 0 }
-    : await syncNegotiationsWithLeadOutcome(leadId, 'won', { userId, nota: note ?? undefined, quando, negotiationId: negotiationId ?? null })
+    : await syncNegotiationsWithLeadOutcome(leadId, 'won', { userId, nota: note ?? undefined, quando, negotiationId: negotiationId ?? null, valor: value ?? null })
         .catch((e) => { console.warn('[leadOutcome] negociação:', (e as Error).message); return { fechadas: 0, ambiguas: 0 } })
+  // Receita única (Fase 4): com a chave ligada, o valor de venda é a soma das
+  // propostas ganhas + inscrições pagas — recalculado aqui, ANTES dos eventos
+  // de domínio, porque a CAPI e o Google Ads leem o saleValue na hora.
+  const { sincronizarValorDeVenda } = await import('./receitaUnica.js')
+  await sincronizarValorDeVenda(leadId, { origem: 'ganho', userId, userName }).catch(() => null)
 
   const dataBr = quando.toLocaleDateString('pt-BR')
   const tituloBase = eventTitle ?? (value != null ? `Marcado como Ganho — R$ ${value.toFixed(2)}` : 'Marcado como Ganho')
