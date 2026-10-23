@@ -70,7 +70,7 @@
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand">Painel Gerencial<small>INEPROTEC · Fechamento</small></div>
+    <div class="brand">Painel Gerencial<small id="brandSub">INEPROTEC · Fechamento</small></div>
     <nav id="nav"></nav>
   </aside>
   <main class="main">
@@ -80,6 +80,7 @@
         <div class="sub" id="pageSub"></div>
       </div>
       <div class="controls">
+        <select id="empSel" title="Empresa"><option value="ine">INEPROTEC</option><option value="mat">MATRÍCULA EAD</option></select>
         <select id="monthSel" title="Mês"></select>
         <input type="date" id="fromD" title="De" />
         <input type="date" id="toD" title="Até" />
@@ -95,7 +96,7 @@
   "use strict";
   var qs = new URLSearchParams(location.search);
   var TOKEN = qs.get('token') || '';
-  var state = { page:'exec', from:null, to:null, data:null, loading:false, err:null };
+  var state = { page:'exec', from:null, to:null, data:null, loading:false, err:null, empresa:(qs.get('empresa')==='mat'?'mat':'ine') };
 
   // ---------- estrutura de navegação ----------
   var NAV = [
@@ -138,9 +139,8 @@
       o.textContent=d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); sel.appendChild(o);
     }
     sel.appendChild(opt);
-    // default: mês anterior completo
-    var prev=new Date(now.getFullYear(),now.getMonth()-1,1);
-    sel.value=ym(prev); applyMonth(ym(prev));
+    // default: mês corrente (o que está acontecendo agora, atualiza ao vivo)
+    sel.value=ym(now); applyMonth(ym(now));
     sel.onchange=function(){ if(sel.value==='custom'){ return; } applyMonth(sel.value); load(); };
   }
   function applyMonth(v){
@@ -151,15 +151,35 @@
   }
 
   // ---------- fetch ----------
-  function load(){
+  // silent=true: recarga automática — mantém os números na tela enquanto busca
+  // (sem "Carregando…") e não troca a tela por erro se uma recarga falhar.
+  function load(silent){
     if(!TOKEN){ state.err='token'; render(); return; }
-    state.loading=true; render();
-    var p='token='+encodeURIComponent(TOKEN)+'&from='+state.from+'&to='+state.to;
-    var get=function(path){ return fetch('/api/painel/'+path+'?'+p).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }); };
+    if(state.busy) return; state.busy=true;
+    if(!silent){ state.loading=true; render(); }
+    var p='token='+encodeURIComponent(TOKEN)+'&from='+state.from+'&to='+state.to+'&empresa='+state.empresa;
+    var get=function(path){ return fetch('/api/painel/'+path+'?'+p,{cache:'no-store'}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }); };
     Promise.all([get('comercial'), get('marketing').catch(function(){return null;})])
-      .then(function(res){ state.data=res[0]; state.mkt=res[1]; state.err=null; state.loading=false; render(); })
-      .catch(function(e){ state.err=String(e.message||e); state.loading=false; render(); });
+      .then(function(res){ state.data=res[0]; state.mkt=res[1]; state.err=null; state.loading=false; state.busy=false; state.at=new Date(); render(); })
+      .catch(function(e){ state.busy=false; state.loading=false; if(!silent||!state.data){ state.err=String(e.message||e); } render(); });
   }
+  // Atualização automática: a cada 20s pergunta a "versão" dos dados (consulta
+  // leve); se mudou (lead novo, card movido, campo editado), recarrega. A cada
+  // 5 min recarrega de qualquer jeito. Pausa com a aba oculta e retoma ao voltar.
+  var POLL_MS=20000, FULL_MS=300000;
+  function checkVersion(force){
+    if(!TOKEN || document.hidden) return;
+    fetch('/api/painel/versao?token='+encodeURIComponent(TOKEN)+'&empresa='+state.empresa,{cache:'no-store'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var v=j&&j.v; var stale=!state.at || (Date.now()-state.at.getTime())>FULL_MS;
+        if(v && state.ver && v!==state.ver) load(true);
+        else if(force || stale) load(true);
+        if(v) state.ver=v;
+      }).catch(function(){});
+  }
+  setInterval(checkVersion, POLL_MS);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkVersion(); });
 
   // ---------- formatação ----------
   var fBRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
@@ -205,6 +225,20 @@
       '<path d="'+path('matriculas')+'" fill="none" stroke="var(--green)" stroke-width="2"/>'+
       '</svg><div class="muted" style="font-size:12px;margin-top:4px"><span style="color:var(--brand)">●</span> Leads &nbsp; <span style="color:var(--green)">●</span> Matrículas</div>';
   }
+  // Conferência com a Visão Geral do Attrae (que conta leads pelo clique em Ganho).
+  function conferencia(c,total){
+    if(!c) return '';
+    var porEmp=(c.visao_geral_por_empresa||[]).map(function(e){return e.empresa+' '+num(e.q)}).join(' · ');
+    var li=function(arr,fmt){ return arr.length? '<ul style="margin:6px 0 0 18px;padding:0">'+arr.map(fmt).join('')+'</ul>':''; };
+    var h='<div class="section-h">Conferência com a Visão Geral do Attrae</div><div class="card"><table><tbody>'+
+      '<tr><td>Negócios ganhos na Visão Geral (clique em Ganho, desta empresa)</td><td class="num"><b>'+num(c.visao_geral_empresa)+'</b></td></tr>'+
+      (c.cursos_extras?'<tr><td>+ 2º curso no mesmo lead (negociação aceita a mais)</td><td class="num">+'+num(c.cursos_extras)+'</td></tr>':'')+
+      (c.pago_fora.length?'<tr><td>+ fechadas neste período com Ganho em outra data'+li(c.pago_fora,function(x){return '<li>'+x.nome+' <span class="muted">('+x.vendedor+' · '+x.motivo+')</span></li>'})+'</td><td class="num">+'+num(c.pago_fora.reduce(function(a,b){return a+b.q},0))+'</td></tr>':'')+
+      (c.ganho_fora.length?'<tr><td>− ganhos neste período que não fecham neste período'+li(c.ganho_fora,function(x){return '<li>'+x.nome+' <span class="muted">('+x.vendedor+' · '+x.motivo+')</span></li>'})+'</td><td class="num">−'+num(c.ganho_fora.length)+'</td></tr>':'')+
+      '<tr><td><b>= Matrículas fechadas no painel</b></td><td class="num"><b>'+num(total)+'</b></td></tr>'+
+      '</tbody></table><div class="k-sub" style="margin-top:8px">Visão Geral do Attrae com todos os funis: <b>'+num(c.visao_geral_todos)+'</b> ('+porEmp+').</div></div>';
+    return h;
+  }
   function tbl(cols,rows,render){
     if(!rows||!rows.length) return '<div class="empty">Sem dados no período</div>';
     var h='<table><thead><tr>'+cols.map(function(c){return '<th class="'+(c.num?'num':'')+'">'+c.t+'</th>'}).join('')+'</tr></thead><tbody>';
@@ -218,7 +252,7 @@
     if(state.err==='token'){ v.innerHTML='<div class="empty">🔒 Link sem token de acesso.<br>Use o link completo: <code>/painel?token=…</code></div>'; setSub(''); return; }
     if(state.err){ v.innerHTML='<div class="empty">Não foi possível carregar ('+state.err+'). Tente novamente.</div>'; return; }
     if(state.loading || !state.data){ v.innerHTML='<div class="empty loading">Carregando dados…</div>'; return; }
-    var d=state.data; setSub(periodLabel(d));
+    var d=state.data; setSub(periodLabel(d)+(state.at?' · <span title="Atualiza sozinho a cada movimentação do sistema">● atualizado às '+state.at.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</span>':''));
     var fn = PAGES[state.page] || pageSoon;
     var arg = (state.page.indexOf('mkt_')===0) ? state.mkt : d;
     v.innerHTML = fn(arg);
@@ -226,21 +260,22 @@
   function setSub(t){ document.getElementById('pageSub').innerHTML=t; }
   function periodLabel(d){
     var f=new Date(d.periodo.from), t=new Date(d.periodo.to);
-    return 'Período: '+f.toLocaleDateString('pt-BR')+' – '+t.toLocaleDateString('pt-BR')+' · funil INE';
+    var o={timeZone:'UTC'};
+    return 'Período: '+f.toLocaleDateString('pt-BR',o)+' – '+t.toLocaleDateString('pt-BR',o)+' · <b>'+((d.empresa&&d.empresa.nome)||'INEPROTEC')+'</b>';
   }
 
   var PAGES = {
     exec:function(d){ var g=d.visao_geral,a=d.visao_ant;
       return '<div class="grid kpis">'+
         kpiD('Leads recebidos',num(g.leads),g.leads,a.leads)+
-        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas)+
-        kpiD('Conversão',pct(g.conversao),g.conversao,a.conversao)+
+        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas,false,'<br><span class="muted">fechadas no período</span>')+
+        kpiD('Conversão',pct(g.conversao),g.conversao,a.conversao,false,'<br><span class="muted">matrículas ÷ leads</span>')+
         kpiD('Faturamento',brl(g.faturamento),g.faturamento,a.faturamento)+
         kpiD('Ticket médio',brl(g.ticket_medio),g.ticket_medio,a.ticket_medio)+
         kpiD('Em aberto',num(g.em_aberto),g.em_aberto,a.em_aberto)+
         kpiD('Perdas',num(g.perdas),g.perdas,a.perdas,true)+
       '</div>'+
-      '<div class="section-h">Entrada de leads × matrículas por dia</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
+      '<div class="section-h">Leads por dia de entrada × matrículas por dia de fechamento</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
       '<div class="grid two" style="margin-top:14px">'+
         '<div class="card"><div class="section-h" style="margin-top:0">Top cursos (matrículas)</div>'+bars(d.cursos.slice(0,6),function(r){return r.curso},function(r){return r.matriculas})+'</div>'+
         '<div class="card"><div class="section-h" style="margin-top:0">Motivos de perda</div>'+bars(d.motivos_perda.slice(0,6),function(r){return r.motivo},function(r){return r.qtd},'lost')+'</div>'+
@@ -249,12 +284,12 @@
     com_vg:function(d){ var g=d.visao_geral,a=d.visao_ant;
       return '<div class="grid kpis">'+
         kpiD('Leads',num(g.leads),g.leads,a.leads)+kpiD('Em aberto',num(g.em_aberto),g.em_aberto,a.em_aberto)+
-        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas)+kpiD('Perdas',num(g.perdas),g.perdas,a.perdas,true)+
+        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas,false,'<br><span class="muted">fechadas no período</span>')+kpiD('Perdas',num(g.perdas),g.perdas,a.perdas,true)+
         kpiD('Faturamento',brl(g.faturamento),g.faturamento,a.faturamento)+kpiD('Conversão',pct(g.conversao),g.conversao,a.conversao)+
       '</div>'+
       '<div class="section-h">Funil dos leads criados no período</div><div class="card">'+
         bars(d.funil.filter(function(s){return s.qtd>0}),function(r){return r.name},function(r){return r.qtd},function(r){return r.tipo==='won'?'won':(r.tipo==='lost'?'lost':'')})+'</div>'+
-      '<div class="section-h">Entrada de leads × matrículas por dia</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
+      '<div class="section-h">Leads por dia de entrada × matrículas por dia de fechamento</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
       '<div class="grid two" style="margin-top:14px">'+
         '<div class="card"><div class="section-h" style="margin-top:0">Vendedores</div>'+tbl(
           [{t:'Vendedor'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'Fatur.',num:1}], d.vendedores,
@@ -305,18 +340,20 @@
     },
     com_mat:function(d){ var m=d.matriculas||{pendencias:{},por_forma:[],lista:[]}; var pe=m.pendencias||{};
       return '<div class="grid kpis">'+
-        kpi('Matrículas fechadas no mês',num(m.efetivadas_evento),'por data de pagamento')+kpi('Faturamento',brl(m.faturamento_pago))+
-        kpi('Ganhos sem data',num(pe.sem_data),'não entram até lançar a data')+kpi('Sem forma',num(pe.sem_forma))+kpi('Entraram no mês (coorte)',num(m.coorte),'por data de entrada')+'</div>'+
+        kpi('Matrículas fechadas no mês',num(m.efetivadas_evento),num(m.alunos)+' alunos · por data de pagamento (ou do ganho)')+kpi('Faturamento',brl(m.faturamento_pago))+
+        kpi('Sem data de pgto lançada',num(pe.sem_data),'contando pela data do ganho')+kpi('Sem forma',num(pe.sem_forma))+kpi('Entraram no mês (coorte)',num(m.coorte),'por data de entrada')+'</div>'+
       '<div class="grid two" style="margin-top:14px">'+
         '<div class="card"><div class="section-h" style="margin-top:0">Por forma de pagamento</div>'+tbl([{t:'Forma'},{t:'Qtd',num:1},{t:'Valor',num:1}],m.por_forma,function(r){return '<tr><td>'+(r.forma||'—')+'</td><td class="num">'+num(r.qtd)+'</td><td class="num">'+brl(r.valor)+'</td></tr>'})+'</div>'+
-        '<div class="card"><div class="section-h" style="margin-top:0">Auditoria de pendências</div><div class="k-sub">'+num(pe.total)+' matrículas fechadas no mês · '+num(pe.sem_data)+' ganhos sem data de pgto (fora da conta) · '+num(pe.sem_forma)+' sem forma · '+num(pe.sem_registro)+' sem registro de atendimento.</div></div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Auditoria de pendências</div><div class="k-sub">'+num(pe.total)+' matrículas fechadas no mês · '+num(pe.sem_data)+' sem data de pgto lançada (contam pela data do ganho) · '+num(pe.sem_forma)+' sem forma · '+num(pe.sem_registro)+' sem registro de atendimento.</div></div>'+
       '</div>'+
+      conferencia(m.conferencia, m.efetivadas_evento)+
       '<div class="section-h">Relatório nominal — matrículas fechadas no mês</div><div class="card" style="overflow:auto;max-height:520px">'+tbl(
         [{t:'Nome'},{t:'Curso'},{t:'Vendedor'},{t:'Valor',num:1},{t:'Forma'},{t:'Ganho'},{t:'Pgto'}],m.lista,
-        function(r){return '<tr><td>'+(r.nome||'')+'</td><td>'+(r.curso||'—')+'</td><td>'+(r.vendedor||'—')+'</td><td class="num">'+brl(r.valor)+'</td><td>'+(r.forma||'—')+'</td><td>'+(r.data_ganho||'—')+'</td><td>'+(r.data_pgto||'—')+'</td></tr>'})+'</div>';
+        function(r){return '<tr><td>'+(r.nome||'')+(r.multi?' <span class="pill" title="Aluno com mais de uma matrícula (negociação) no mesmo lead">2+ cursos</span>':'')+'</td><td>'+(r.curso||'—')+'</td><td>'+(r.vendedor||'—')+'</td><td class="num">'+brl(r.valor)+'</td><td>'+(r.forma||'—')+'</td><td>'+(r.data_ganho||'—')+'</td><td>'+(r.data_pgto||'—')+(r.pgto_pelo_ganho?' <span class="muted" title="Data de pagamento não lançada — usando a data do ganho">*</span>':'')+'</td></tr>'})+'</div>'+
+      '<div class="muted" style="font-size:12px;margin-top:6px">* data de pagamento não lançada no lead — contando pela data do clique em Ganho.</div>';
     },
     com_met:function(d){ var m=d.metas||{};
-      if(!m.disponivel) return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">Metas e comissões não configuradas.</div></div>';
+      if(!m.disponivel) return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">'+(m.nota||'Metas e comissões não configuradas.')+'</div></div>';
       var t=m.totais||{};
       var kpis='<div class="grid kpis">'+kpi('Matrículas no período',num(t.matriculas))+kpi('Comissão total',brl(t.comissao))+
         (t.sem_forma?kpi('Sem forma classificada',num(t.sem_forma),'não comissionadas'):'')+'</div>';
@@ -326,13 +363,13 @@
       var fx='<div class="section-h">Tabela de faixas (comissão por matrícula)</div><div class="card">'+tbl(
         [{t:'Faixa'},{t:'A partir de',num:1},{t:'Boleto',num:1},{t:'Cartão',num:1},{t:'PIX',num:1}],
         m.faixas, function(f){ return '<tr><td>'+f.nome+'</td><td class="num">'+num(f.min)+'</td><td class="num">'+brl(f.boleto)+'</td><td class="num">'+brl(f.cartao)+'</td><td class="num">'+brl(f.pix)+'</td></tr>'; })+'</div>';
-      return kpis+tv+fx+'<div class="muted" style="font-size:12px;margin-top:8px">Base: matrículas efetivadas por <b>data de pagamento</b>. A faixa é definida pela quantidade total de matrículas do vendedor no período; a comissão aplica a taxa da faixa por forma de pagamento. Matrículas sem forma preenchida entram na contagem da faixa, mas não geram comissão até a forma ser lançada.</div>';
+      return kpis+tv+fx+'<div class="muted" style="font-size:12px;margin-top:8px">Base: matrículas (negociações aceitas — um aluno com 2 cursos conta 2) fechadas por <b>data de pagamento</b> (sem a data lançada, vale a data do clique em Ganho). Sem forma no lead, vale a forma da negociação. A faixa é definida pela quantidade total de matrículas do vendedor no período; a comissão aplica a taxa da faixa por forma de pagamento. Matrículas sem forma preenchida entram na contagem da faixa, mas não geram comissão até a forma ser lançada.</div>';
     },
     mkt_vg:function(k){ if(!k) return '<div class="empty">Sem dados de marketing.</div>'; var m=k.meta;
       return '<div class="grid kpis">'+
         kpi('Investimento (Meta)',brl(m.investimento))+kpi('Impressões',num(m.impressoes))+kpi('Cliques',num(m.cliques))+
         kpi('CTR',pct(m.ctr))+kpi('CPC',brl(m.cpc))+kpi('Leads de mídia',num(k.leads_midia),num(k.matriculas_midia)+' matrículas')+'</div>'+
-      '<div class="card" style="margin-top:12px"><div class="k-sub">⚠ '+k.cpl_cac_nota+'</div></div>'+
+      '<div class="card" style="margin-top:12px"><div class="k-sub">⚠ '+k.cpl_cac_nota+'<br>⚠ A conta Meta conectada não separa as empresas: o investimento mostrado é o <b>total da conta</b>, igual nas duas.</div></div>'+
       '<div class="section-h">Leads de mídia por canal</div><div class="card">'+bars(k.por_canal,function(r){return r.canal||'(sem canal)'},function(r){return r.leads})+'</div>';
     },
     mkt_meta:function(k){ if(!k||!k.meta) return '<div class="empty">Sem dados.</div>'; var m=k.meta;
@@ -367,6 +404,14 @@
     if(f&&t){ state.from=f; state.to=t; document.getElementById('monthSel').value='custom'; load(); }
   };
   if(location.hash && TITLES[location.hash.slice(1)]) state.page=location.hash.slice(1);
+  var empSel=document.getElementById('empSel'); empSel.value=state.empresa;
+  function setEmpLabel(){ document.getElementById('brandSub').textContent=(state.empresa==='mat'?'MATRÍCULA EAD':'INEPROTEC')+' · Fechamento'; }
+  setEmpLabel();
+  empSel.onchange=function(){
+    state.empresa=empSel.value; state.ver=null; setEmpLabel();
+    var u=new URL(location.href); u.searchParams.set('empresa',state.empresa); history.replaceState(null,'',u.toString());
+    load();
+  };
   buildNav(); fillMonths(); render(); load();
 })();
 </script>

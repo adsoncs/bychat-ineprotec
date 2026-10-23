@@ -12,7 +12,7 @@ import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolvePeriod } from '../lib/period.js'
-import { painelComercial, painelMarketing } from '../services/painelGerencial.js'
+import { painelComercial, painelMarketing, painelVersao, empresaDe } from '../services/painelGerencial.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PAGE = join(__dirname, '../../painel/index.html')
@@ -44,7 +44,7 @@ export async function painelGerencialRoutes(app: FastifyInstance) {
     const q: any = req.query || {}
     const periodo = resolvePeriod(q, 30)
     const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : undefined
-    return painelComercial(periodo, funnelId)
+    return painelComercial(periodo, funnelId, empresaDe(q.empresa))
   })
 
   // API marketing — gate por token.
@@ -53,6 +53,16 @@ export async function painelGerencialRoutes(app: FastifyInstance) {
     const q: any = req.query || {}
     const periodo = resolvePeriod(q, 30)
     const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : undefined
-    return painelMarketing(periodo, funnelId)
+    return painelMarketing(periodo, funnelId, empresaDe(q.empresa))
+  })
+
+  // Versão dos dados — a página faz polling barato aqui e só recarrega os
+  // números quando algo mudou no sistema (lead novo/editado, card movido).
+  app.get('/api/painel/versao', async (req, reply) => {
+    if (!tokenOk(req)) return reply.code(401).send({ error: 'token inválido' })
+    const q: any = req.query || {}
+    const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : undefined
+    reply.header('Cache-Control', 'no-store')
+    return { v: await painelVersao(funnelId, empresaDe(q.empresa)) }
   })
 }
