@@ -23,7 +23,29 @@ interface Props {
   wabaId?: string | null | undefined
   /** Nome/número do canal, para a tela dizer de quem são os modelos listados. */
   numero?: string | null | undefined
+  /** Nome do lead: preenche a variável de nome do modelo ("Olá, {{1}}!"). */
+  nomeDoContato?: string | null | undefined
 }
+
+/** Primeiro nome legível: sem emoji nem pontuação, com a 1ª letra maiúscula.
+ *  "GENEZIO \"NETO\" DURANS" → "Genezio"; "👊🏻" → "" (fica para o atendente). */
+export function primeiroNome(nome: string | null | undefined): string {
+  const palavra = String(nome ?? '').match(/\p{L}[\p{L}'’-]*/u)?.[0] ?? ''
+  if (palavra.length < 2) return ''
+  return palavra.charAt(0).toLocaleUpperCase('pt-BR') + palavra.slice(1).toLocaleLowerCase('pt-BR')
+}
+
+/** A variável é o nome do contato? Nomeada ({{nome}}, {{aluno}}…) ou logo
+ *  depois de uma saudação ("Olá, {{1}}", "Oi {{1}}", "Bom dia, {{1}}"). */
+function ehVariavelDeNome(variavel: string, corpo: string): boolean {
+  const chave = variavel.replace(/^\{\{\s*|\s*\}\}$/g, '')
+  if (/^(nome|primeiro_?nome|first_?name|name|aluno|cliente|contato|lead)$/i.test(chave)) return true
+  const token = chave.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<!\\p{L})(ol[aá]|oi|bom dia|boa tarde|boa noite|prezad[oa]|car[oa])[\\s,!]*\\{\\{\\s*${token}\\s*\\}\\}`, 'iu').test(corpo)
+}
+
+/** Valor que não diz nada (".", "-", "  "): a Meta aceita, o contato estranha. */
+const semConteudo = (v: string) => !/[\p{L}\p{N}]/u.test(v)
 
 /** Substitui {{1}}, {{2}}… ou {{nome}}, {{aluno}}… pelos valores digitados,
  *  para o preview e para o corpo que fica registrado no histórico da conversa. */
@@ -41,7 +63,7 @@ function interpolar(texto: string, variables: string[], vars: string[]): string 
  * envia mensagem interativa (o provider lança erro explícito). Por isso o botão
  * que abre este seletor só aparece quando a conversa sai por um número Cloud API.
  */
-export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId, numero }: Props) {
+export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId, numero, nomeDoContato }: Props) {
   // Pede ao backend só os modelos da conta deste número; o filtro repetido
   // abaixo cobre a lista que já estava em cache de outro número.
   const { data, isLoading } = useCloudApiTemplates(wabaId ? { wabaId } : undefined)
@@ -61,13 +83,20 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId
   function escolher(t: CloudApiTemplate) {
     setEscolhido(t)
     const p = parseTemplateComponents(t.components)
-    setVars(p.variables.map(() => ''))
+    // O nome já vem do lead: sem isso o atendente digitava "." para passar.
+    const nome = primeiroNome(nomeDoContato)
+    setVars(p.variables.map((v) => (nome && ehVariavelDeNome(v, p.body) ? nome : '')))
   }
 
   function enviar() {
     if (!escolhido || !parsed) return
     if (parsed.variables.length && vars.some((v) => !v.trim())) {
       toast('Preencha todas as variáveis do modelo', 'warning')
+      return
+    }
+    const vazia = parsed.variables.find((_, i) => semConteudo(vars[i] ?? ''))
+    if (vazia) {
+      toast(`${vazia} está sem conteúdo. Escreva o nome do contato ou o texto certo — "." chega como "Olá ., tudo bem?".`, 'warning')
       return
     }
     const components = parsed.variables.length
@@ -183,6 +212,8 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId
                     label={v}
                     value={vars[i] ?? ''}
                     placeholder={`Valor de ${v}`}
+                    hint={parsed && ehVariavelDeNome(v, parsed.body) ? 'Nome do contato — confira antes de enviar' : undefined}
+                    error={vars[i] && semConteudo(vars[i]!) ? 'Sem conteúdo: escreva o nome ou o texto' : undefined}
                     onInput={(e) => {
                       const next = [...vars]
                       next[i] = (e.target as HTMLInputElement).value

@@ -3831,6 +3831,7 @@ function ChatPanel({
         enviando={send.isPending}
         wabaId={canalDosModelos?.wabaId ?? null}
         numero={canalDosModelos ? (canalDosModelos.label || canalDosModelos.number) : null}
+        nomeDoContato={lead?.nome ?? ticket?.nome ?? null}
         onSend={({ name, language, components, preview }) => {
           if (envioBloqueado()) return
           send.mutate(

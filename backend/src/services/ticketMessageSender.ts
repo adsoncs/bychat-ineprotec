@@ -370,6 +370,14 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
           if (!template?.name || !template?.language) {
             return { ok: false, status: 400, error: 'Template inválido (name e language obrigatórios).' }
           }
+          // Variável só com pontuação ("." no lugar do nome) chega ao contato como
+          // "Olá ., tudo bem?" — cara de robô, e é o que o contato bloqueia. Caso
+          // real: ineprotec, 688 de 1.308 modelos de outubro saíram assim.
+          const parametros = ((template as any).components ?? []).flatMap((c: any) => Array.isArray(c?.parameters) ? c.parameters : [])
+          const vazio = parametros.find((p: any) => p?.type === 'text' && !/[\p{L}\p{N}]/u.test(String(p.text ?? '')))
+          if (vazio) {
+            return { ok: false, status: 400, error: `Variável do modelo sem conteúdo ("${String(vazio.text ?? '').trim()}"). Escreva o nome do contato ou o texto certo.` }
+          }
           // O modelo é da CONTA (WABA) do número, não do painel. Com números de
           // empresas diferentes, mandar o modelo de uma pelo número da outra
           // volta da Meta como 132001 ("template não existe") — erro que não diz
