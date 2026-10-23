@@ -353,6 +353,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       let tokenStatus = 'unknown'
       let tokenError = ''
       let businessProfile: any = null
+      let qualidadeAoVivo: string | null = null
 
       // Para onde a Meta entrega as mensagens desta conta. O app é compartilhado
       // entre os tenants e tem UMA callback global, então cada WABA precisa do
@@ -376,8 +377,15 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         try {
           const token = decryptToken(conn.systemUserToken)
           // Testar token fazendo chamada simples
-          await cloudApiFetch(`/${conn.phoneNumberId}?fields=id`, token)
+          const numero = await cloudApiFetch(`/${conn.phoneNumberId}?fields=id,quality_rating`, token)
           tokenStatus = 'valid'
+          // Mesma ida à Meta já traz a qualidade: grava para a tela não ficar
+          // presa no valor do dia em que o número foi conectado.
+          if (numero?.quality_rating) {
+            qualidadeAoVivo = String(numero.quality_rating).toUpperCase()
+            const { gravarQualidadeDoNumero } = await import('../services/cloudApiQualidade.js')
+            await gravarQualidadeDoNumero(conn.id, qualidadeAoVivo)
+          }
 
           // Obter business profile
           try {
@@ -417,7 +425,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         displayPhone: conn.displayPhone,
         displayName: conn.displayName,
         color: conn.color,
-        qualityRating: conn.qualityRating,
+        qualityRating: qualidadeAoVivo ?? conn.qualityRating,
         messagingLimit: conn.messagingLimit,
         chatbotId: conn.chatbotId,
         defaultTeamId: conn.defaultTeamId,

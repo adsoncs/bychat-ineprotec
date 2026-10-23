@@ -15,6 +15,7 @@ import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/orig
 import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
+import { handlePhoneQualityWebhook } from '../services/cloudApiQualidade.js'
 import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
 import { handleMessageEchoes, handleAppStateSync, handleHistory } from '../services/cloudApiCoexistence.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
@@ -113,6 +114,13 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
           if (change.field === 'message_template_status_update') {
             await handleTemplateStatusWebhook(wabaId, value).catch(err =>
               app.log.error(`[CloudAPI] template status update error: ${err.message}`))
+            continue
+          }
+          // ── Qualidade do NÚMERO mudou (subiu/caiu/sinalizado) ──
+          // Requer o campo `phone_number_quality_update` habilitado no Webhook do App Meta.
+          if (change.field === 'phone_number_quality_update') {
+            await handlePhoneQualityWebhook(wabaId, value).catch(err =>
+              app.log.error(`[CloudAPI] phone quality update error: ${err.message}`))
             continue
           }
           if (change.field === 'message_template_quality_update') {

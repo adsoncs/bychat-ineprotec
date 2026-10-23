@@ -269,7 +269,12 @@ async function lerCloudApi(): Promise<Leitura> {
           signal: AbortSignal.timeout(15_000),
         })
         const corpo = await r.json().catch(() => ({})) as any
-        if (r.ok) return { ok: true, status: corpo.status as string | undefined, quality: corpo.quality_rating as string | undefined }
+        if (r.ok) {
+          // A tela do canal lê a qualidade gravada: mantém as duas iguais.
+          const { gravarQualidadeDoNumero } = await import('./cloudApiQualidade.js')
+          await gravarQualidadeDoNumero(c.id, corpo.quality_rating)
+          return { ok: true, status: corpo.status as string | undefined, quality: corpo.quality_rating as string | undefined }
+        }
         return { ok: false, code: corpo?.error?.code as number | undefined, texto: curto(corpo?.error?.message ?? `HTTP ${r.status}`) }
       } catch (e) {
         return { ok: false, rede: true, texto: curto(e) }
