@@ -122,6 +122,12 @@ const FORMA_NEG = `CASE n.pagamentoForma WHEN 'boleto' THEN 'BOLETO' WHEN 'carta
 const FORMA_LEAD = `NULLIF(${J('forma_pagamento')},'')`
 // Curso pelo título da negociação ("Proposta – AGRIMENSURA" → "AGRIMENSURA"; "Proposta" sozinho = sem curso).
 const CURSO_NEG = `NULLIF(TRIM(REGEXP_REPLACE(n.titulo, '^Proposta[[:space:]]*[–—-]?[[:space:]]*', '')), '')`
+// Fase 5 (23/10/2026): curso pela OFERTA ligada à negociação — nome do portal,
+// com a frente quando é consultoria (o mesmo curso existe na escola e na
+// consultoria). Sem ligação, cai no título/curso de interesse, como antes.
+const CURSO_OFERTA = `(SELECT CONCAT(o.nome, CASE WHEN pr.categoria LIKE '%Consultoria%' THEN ' (consultoria)' ELSE '' END)
+    FROM bychat_edu_offerings o LEFT JOIN bychat_products pr ON pr.sku = CONCAT('oferta-', o.id)
+   WHERE o.id = n.offeringId LIMIT 1)`
 
 /**
  * Subconsulta `u`: uma linha por matrícula (negociação aceita). Leads do funil de
@@ -136,7 +142,7 @@ function unidadesSql(FN: string, WON: string, POS = '0'): string {
         CASE WHEN k.qtd > 1 THEN COALESCE(DATE(DATE_SUB(n.fechadaEm, INTERVAL 3 HOUR)), ${PAG}) ELSE ${PAG} END AS dt,
         (${PAG_LANCADA} IS NULL) AS pelo_ganho,
         CASE WHEN k.qtd > 1 THEN COALESCE(${FORMA_NEG}, ${FORMA_LEAD}) ELSE COALESCE(${FORMA_LEAD}, ${FORMA_NEG}) END AS forma,
-        CASE WHEN k.qtd > 1 THEN COALESCE(${CURSO_NEG}, '(sem curso)') ELSE COALESCE(${J('curso_de_interesse_1')}, ${CURSO_NEG}, '(sem curso)') END AS curso,
+        CASE WHEN k.qtd > 1 THEN COALESCE(${CURSO_OFERTA}, ${CURSO_NEG}, '(sem curso)') ELSE COALESCE(${CURSO_OFERTA}, ${J('curso_de_interesse_1')}, ${CURSO_NEG}, '(sem curso)') END AS curso,
         ${J('registro_atendimento')} AS registro,
         DATE_FORMAT(DATE_SUB(l.outcomeAt, INTERVAL 3 HOUR),'%d/%m/%Y') AS data_ganho
       FROM bychat_leads l
