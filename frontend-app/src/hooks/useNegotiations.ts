@@ -279,3 +279,40 @@ export function useSetNegotiationStatus() {
     },
   })
 }
+
+// ── Fase 5 (temporário): escolher a oferta das propostas antigas ──────────
+
+export interface OpcaoDeOferta { id: number; nome: string; portal: string }
+export interface PendenciaDeOferta {
+  negotiationId: number; leadId: number; leadNome: string | null; titulo: string
+  resultado: 'won' | 'lost' | null; valorFinal: number | null; createdAt: string
+  responsavelUserId: number | null; responsavel: string | null
+  pista: string; candidatos: OpcaoDeOferta[]; prioridade: 'alta' | 'baixa'
+}
+
+export function usePendenciasDeOferta() {
+  return useQuery({
+    queryKey: ['pendencias-oferta'],
+    queryFn: () => api.get<{ ligado: boolean; itens: PendenciaDeOferta[]; totalGeral: number; opcoes: OpcaoDeOferta[] }>('/admin/negotiations/pendencias-de-oferta'),
+    staleTime: 60_000,
+  })
+}
+export function usePendenciaDaProposta(id: number | null) {
+  return useQuery({
+    queryKey: ['pendencia-oferta', id],
+    queryFn: () => api.get<{ pendencia: PendenciaDeOferta | null; opcoes: OpcaoDeOferta[] }>(`/admin/negotiations/${id}/pendencia-de-oferta`),
+    enabled: !!id,
+    staleTime: 60_000,
+  })
+}
+export function useEscolherOferta() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, offeringId, semCurso }: { id: number; offeringId?: number | null; semCurso?: boolean }) =>
+      api.post<{ ok: true }>(`/admin/negotiations/${id}/oferta`, { offeringId: offeringId ?? null, semCurso: !!semCurso }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pendencias-oferta'] })
+      qc.invalidateQueries({ queryKey: ['pendencia-oferta', v.id] })
+    },
+  })
+}

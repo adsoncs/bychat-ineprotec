@@ -169,6 +169,24 @@ async function funilDaNegociacao(
 // a comissão (Fase 0 da integração com o Educacional, 22/10/2026).
 const GESTAO = ['SUPERADMIN', 'ADMIN', 'MANAGER']
 
+/**
+ * Fase 5: item do Catálogo que é espelho de uma oferta de portal liga a
+ * proposta à oferta (todos os itens na MESMA oferta; senão não adivinha).
+ * Nunca desfaz uma oferta já escolhida.
+ */
+async function ligarOfertaPelosItens(negotiationId: number, productIds: (number | null)[]): Promise<void> {
+  try {
+    const { ofertaPelosItens } = await import('../services/catalogoDosPortais.js')
+    const oferta = await ofertaPelosItens(productIds)
+    if (!oferta) return
+    await prisma.negotiation.updateMany({ where: { id: negotiationId }, data: { offeringId: oferta } })
+    const { resolverSeLigada } = await import('../services/escolhaDeOferta.js')
+    await resolverSeLigada(negotiationId)
+  } catch (e) {
+    console.warn('[negotiations] oferta pelos itens:', (e as Error).message)
+  }
+}
+
 async function podeNoLead(req: any, reply: any, leadId: number | null | undefined): Promise<boolean> {
   const user = req.user as { userId: number; role: string } | undefined
   if (!user) { reply.code(401).send({ error: 'Não autenticado' }); return false }
@@ -188,6 +206,31 @@ async function negociacaoComAcesso(req: any, reply: any, id: number) {
 }
 
 export async function negotiationsRoutes(app: FastifyInstance) {
+  // ── Fase 5 (temporário): propostas antigas sem oferta — quem vendeu escolhe ──
+  app.get('/api/admin/negotiations/pendencias-de-oferta', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user as { userId: number; role: string }
+    const { listarPendencias, opcoesDeOferta } = await import('../services/escolhaDeOferta.js')
+    const r = await listarPendencias({ userId: GESTAO.includes(user.role) ? null : user.userId })
+    return { ...r, opcoes: r.ligado ? await opcoesDeOferta() : [] }
+  })
+  app.get('/api/admin/negotiations/:id/pendencia-de-oferta', { preHandler: authMiddleware }, async (req, reply) => {
+    const alvo = await negociacaoComAcesso(req, reply, Number((req.params as any).id))
+    if (!alvo) return
+    const { pendenciaDaProposta, opcoesDeOferta } = await import('../services/escolhaDeOferta.js')
+    const p = await pendenciaDaProposta(alvo.id)
+    return { pendencia: p, opcoes: p ? await opcoesDeOferta() : [] }
+  })
+  app.post('/api/admin/negotiations/:id/oferta', { preHandler: authMiddleware }, async (req, reply) => {
+    const alvo = await negociacaoComAcesso(req, reply, Number((req.params as any).id))
+    if (!alvo) return
+    const b = (req.body as any) || {}
+    const { escolherOferta } = await import('../services/escolhaDeOferta.js')
+    const quem = auditActor(req)
+    const r = await escolherOferta(alvo.id, { offeringId: b.semCurso ? null : Number(b.offeringId) || null, semCurso: b.semCurso === true }, { userId: quem.actorId, nome: quem.actorName })
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    return { ok: true }
+  })
+
   // Lista de negociações de um lead.
   app.get('/api/admin/negotiations', { preHandler: authMiddleware }, async (req, reply) => {
     const leadId = Number((req.query as any)?.leadId)
@@ -442,6 +485,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       },
       include: { items: true },
     })
+    await ligarOfertaPelosItens(n.id, items.map((i) => i.productId))
     void logUserAudit({ action: 'negotiation.created', targetType: 'lead', targetUserId: null, targetLabel: `Negociação ${n.titulo}`, changes: { leadId: n.leadId, valorFinal, valorUnico, valorRecorrente }, ...actor })
     return { negotiation: n }
   })
@@ -487,7 +531,8 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       data.funnelId = await funilDaNegociacao(cur.leadId, b.funnelId, lead?.funnelId ?? null)
     }
 
-    const n = await prisma.negotiation.update({ where: { id }, data, include: { items: true } }) // Editar uma proposta JÁ FECHADA muda a base de cálculo da comissão (ajuste de
+    const n = await prisma.negotiation.update({ where: { id }, data, include: { items: true } })
+    if (items) await ligarOfertaPelosItens(id, items.map((i) => i.productId)) // Editar uma proposta JÁ FECHADA muda a base de cálculo da comissão (ajuste de
     // valor, item corrigido). Proposta ainda aberta não gera lançamento nenhum.
     if (cur.resultado || n.resultado) await onNegotiationChanged(id)
     return { negotiation: n }

@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
+import { AvisoDeOfertaDaProposta } from '@/components/EscolhaDeOferta'
 
 type Tone = 'info' | 'success' | 'danger' | 'warning' | 'neutral'
 const STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -429,6 +430,8 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
           </Badge>
         ) : null}
       </div>
+
+      {!isNew ? <AvisoDeOfertaDaProposta negotiationId={id as number} /> : null}
 
       {/* Rascunho pré-preenchido com o que o lead trouxe do CRM de origem */}
       {isNew && prefilled ? (

@@ -63,6 +63,23 @@ export async function catalogRoutes(app: FastifyInstance) {
   // comissões não sabem qual curso foi vendido (o Painel Gerencial lia o curso
   // do título da proposta). A tela sugere o curso pelo nome; quem decide é o
   // admin.
+  // Fase 5: Catálogo espelho das ofertas dos portais (chave + simulação + cópia).
+  app.get('/api/admin/catalog/espelho-portais', { preHandler: adminOnly }, async () => {
+    const { espelhoLigado, sincronizarCatalogo } = await import('../services/catalogoDosPortais.js')
+    return { ligado: await espelhoLigado(), simulacao: await sincronizarCatalogo({ gravar: false }) }
+  })
+  app.put('/api/admin/catalog/espelho-portais', { preHandler: adminOnly }, async (req) => {
+    const { salvarEspelho, sincronizarCatalogo } = await import('../services/catalogoDosPortais.js')
+    const ligado = (req.body as any)?.ligado === true
+    await salvarEspelho(ligado)
+    // Ligar já copia: quem liga quer ver o Catálogo igual aos portais agora.
+    return { ligado, resultado: ligado ? await sincronizarCatalogo({ gravar: true }) : null }
+  })
+  app.post('/api/admin/catalog/espelho-portais/sincronizar', { preHandler: adminOnly }, async () => {
+    const { sincronizarCatalogo } = await import('../services/catalogoDosPortais.js')
+    return { resultado: await sincronizarCatalogo({ gravar: true }) }
+  })
+
   app.get('/api/admin/catalog/vinculo-cursos', { preHandler: adminOnly }, async () => {
     const { sugerirCurso } = await import('../services/vinculoEducacional.js')
     const [produtos, cursos] = await Promise.all([

@@ -18,6 +18,7 @@ import {
   type NegotiationRow, type NegotiationsOverviewParams,
 } from '@/hooks/useNegotiations'
 import { NegotiationEditor } from '@/components/LeadNegotiationTab'
+import { PendenciasDeOferta } from '@/components/EscolhaDeOferta'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useUsers } from '@/hooks/useUsers'
 import { Page } from '@/components/ui/Page'
@@ -261,6 +262,8 @@ export function NegotiationsPage() {
         </div>
       }
     >
+      <PendenciasDeOferta onAbrirLead={(id) => navigate(`/leads/${id}`)} />
+
       {/* KPIs — recorrência e pagamento único lado a lado, nunca somados */}
       <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <KpiCard

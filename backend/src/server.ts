@@ -178,6 +178,7 @@ import { startWorkflowEngine } from './services/workflowEngine.js'
 import { ligarFunilDaJornada } from './services/funilDaJornada.js'
 import { ligarPropostaDaInscricao } from './services/propostaDaInscricao.js'
 import { ligarReceitaUnica } from './services/receitaUnica.js'
+import { ligarEspelhoDoCatalogo } from './services/catalogoDosPortais.js'
 import { startWorkers } from './services/workers.js'
 import { startCadenceScheduler } from './services/cadenceScheduler.js'
 import { startPriorityScoreScheduler } from './services/priorityScoreService.js'
@@ -1549,6 +1550,7 @@ try {
   // Inscrição → proposta (Negociações/Metas/Comissões), por portal ligado em Comercial.
   ligarPropostaDaInscricao()
   ligarReceitaUnica()
+  ligarEspelhoDoCatalogo()
   startWorkers()
   startCadenceScheduler().catch(err => console.error('[cadenceScheduler] init falhou:', err))
 import('./services/scheduledMessageScheduler.js')

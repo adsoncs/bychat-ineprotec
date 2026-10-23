@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { toast } from '@/lib/toast'
 import { VinculoEducacionalModal } from '@/components/VinculoEducacionalModal'
+import { EspelhoPortaisModal } from '@/components/EspelhoPortaisModal'
 
 function fmtPreco(v: unknown): string {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
@@ -72,6 +73,7 @@ export function CatalogPage() {
   const [cat, setCat] = useState('')
   const [editing, setEditing] = useState<ProductInput | null>(null)
   const [vinculo, setVinculo] = useState(false)
+  const [espelho, setEspelho] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const { data, isLoading } = useCatalog(q, cat)
   const cats = useCatalogCategories()
@@ -104,6 +106,7 @@ export function CatalogPage() {
         <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} disabled={imp.isPending}><Upload size={14} /> {imp.isPending ? 'Importando…' : 'Importar planilha'}</Button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" class="hidden" onChange={onImport} />
         <Button variant="ghost" size="sm" onClick={() => setVinculo(true)}><Boxes size={14} /> Ligar ao Educacional</Button>
+        <Button variant="ghost" size="sm" onClick={() => setEspelho(true)}><Boxes size={14} /> Espelho dos portais</Button>
         <div class="flex-1" />
         <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Buscar no catálogo…" class="px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg w-48" />
         <Select value={cat} onChange={(e) => setCat((e.target as HTMLSelectElement).value)} class="w-44">
@@ -113,6 +116,7 @@ export function CatalogPage() {
       </div>
 
       {vinculo && <VinculoEducacionalModal onClose={() => setVinculo(false)} />}
+      {espelho && <EspelhoPortaisModal onClose={() => setEspelho(false)} />}
       {editing ? <div class="mb-4"><ProductForm initial={editing} onDone={() => setEditing(null)} /></div> : null}
 
       {isLoading ? (
