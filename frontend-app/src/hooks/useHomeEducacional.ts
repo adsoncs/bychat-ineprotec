@@ -17,7 +17,10 @@ export interface PanoramaAcademico {
 }
 
 export interface PainelEducacional {
-  panorama: PanoramaAcademico
+  /** null para quem não vê todos os portais: o panorama não tem recorte por portal. */
+  panorama: PanoramaAcademico | null
+  /** true quando os números foram limitados aos portais que a pessoa enxerga. */
+  recortadoPorPortal?: boolean
   kpis: {
     inscricoes: unknown
     pagas: unknown

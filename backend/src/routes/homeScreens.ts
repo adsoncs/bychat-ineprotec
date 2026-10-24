@@ -195,9 +195,15 @@ export async function homeScreensRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'Esta tela não está atribuída a você.' })
     }
 
-    const cfg = { dateFrom: q.dateFrom, dateTo: q.dateTo, groupBy: q.groupBy }
+    // Acesso por portal: quem não vê todos os portais recebe os números SÓ dos
+    // portais que enxerga (antes levava 403 "só para quem vê todos" e a tela
+    // inteira virava erro). O panorama de processos seletivos não tem portal,
+    // então não vai para quem é recortado.
+    const { alcanceDePortais, whereInscricoes } = await import('../lib/portalAccess.js')
+    const recorteInscricoes = whereInscricoes(await alcanceDePortais(user.userId, user.role))
+    const cfg = { dateFrom: q.dateFrom, dateTo: q.dateTo, groupBy: q.groupBy, recorteInscricoes }
     const [panorama, inscricoes, pagas, receita, conversao, porDia, porPortal] = await Promise.all([
-      edu.panoramaAcademico(),
+      recorteInscricoes ? Promise.resolve(null) : edu.panoramaAcademico(),
       edu.inscricoesTotal(cfg),
       edu.inscricoesPagas(cfg),
       edu.receitaDoPeriodo(cfg),
@@ -208,6 +214,7 @@ export async function homeScreensRoutes(app: FastifyInstance) {
 
     return {
       panorama,
+      recortadoPorPortal: !!recorteInscricoes,
       kpis: { inscricoes, pagas, receita, conversao },
       graficos: { porDia: porDia.data, porPortal: porPortal.data },
     }

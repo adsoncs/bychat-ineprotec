@@ -136,7 +136,8 @@ export const TABELA: Array<[RegExp, string, Regra]> = [
   [/^\/api\/admin\/leads\/export\/sections$/, 'GET', S],
   [/^\/api\/admin\/leads\/export$/, 'POST', { t: 'lista', corpoLivre: true }],
   [/^\/api\/admin\/widget-data$/, 'POST', { t: 'lista', corpoLivre: true }],
-  [/^\/api\/home-screen\/educacional$/, 'GET', T],
+  // A rota recorta pelos portais de quem olha (whereInscricoes).
+  [/^\/api\/home-screen\/educacional$/, 'GET', L],
 
   // ── ERP: o que é de um aluno/matrícula ──────────────────────────────────
   [/^\/api\/admin\/aca\/inscricoes-portal$/, 'GET', L],

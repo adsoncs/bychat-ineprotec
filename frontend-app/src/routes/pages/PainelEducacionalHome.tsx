@@ -59,6 +59,15 @@ export function PainelEducacionalHome({ titulo }: { titulo?: string }) {
         </Card>
       )}
 
+      {data?.recortadoPorPortal && (
+        <Card>
+          <div class="text-xs text-fg-muted">
+            Números dos portais que a sua equipe acompanha.
+          </div>
+        </Card>
+      )}
+
+      {(isLoading || p) && (
       <Card>
         <div class="flex items-center gap-4 flex-wrap">
           <div class="text-3xl">📊</div>
@@ -82,6 +91,7 @@ export function PainelEducacionalHome({ titulo }: { titulo?: string }) {
           </div>
         </div>
       </Card>
+      )}
 
       <section aria-label="Desempenho do período">
         <div class="flex items-center justify-between mb-2">
