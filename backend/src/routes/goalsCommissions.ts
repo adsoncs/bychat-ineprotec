@@ -7,6 +7,7 @@
 // — não vaza por um filtro que alguém esqueceu de aplicar na tela.
 
 import { FastifyInstance, FastifyRequest } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -15,6 +16,7 @@ import {
   competenciaOf, monthRange, parseCompetencia, janelaDeFechamento,
   realizadoDoAgente, metaDoAgente, resolveRule, previewNegotiation,
   recalcPeriod, reconcile, type GoalMetric,
+  faixasDeBonus, recalcularBonusDaRegra,
 } from '../services/commissions.js'
 
 const dec = (v: unknown): number => {
@@ -106,7 +108,13 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       aceleradorAtivo: !!b.aceleradorAtivo,
       aceleradorMetrica: isMetric(b.aceleradorMetrica) ? b.aceleradorMetrica : null,
       observacoes: b.observacoes ? String(b.observacoes).slice(0, 2000) : null,
+      // Bônus por faixa: lista vazia grava NULL (regra sem bônus).
+      bonusFaixas: (() => { const f = faixasDeBonus(b.bonusFaixas); return f.length ? (f as any) : Prisma.DbNull })(),
     }
+  }
+  /** Mudou a regra: o bônus do mês corrente acompanha (os meses fechados, só no Recalcular). */
+  function refazerBonus(ruleId: number) {
+    void recalcularBonusDaRegra(ruleId, competenciaOf(new Date())).catch((e) => console.warn('[Commissions] bônus', (e as Error).message))
   }
   function tierRows(b: any) {
     return (Array.isArray(b.tiers) ? b.tiers : []).map((t: any) => ({
@@ -130,6 +138,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       include: { tiers: true, agents: true },
     })
     void logUserAudit({ action: 'commission_rule.created', targetType: 'setting', targetLabel: `Regra de comissão ${rule.nome}`, changes: { id: rule.id }, ...auditActor(req) })
+    refazerBonus(rule.id)
     return { rule }
   })
 
@@ -153,6 +162,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       include: { tiers: true, agents: true },
     })
     void logUserAudit({ action: 'commission_rule.updated', targetType: 'setting', targetLabel: `Regra de comissão ${rule.nome}`, changes: { id }, ...auditActor(req) })
+    refazerBonus(rule.id)
     return { rule }
   })
 
@@ -288,6 +298,19 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       where: { competencia, ...(funnelId ? { funnelId } : {}), ...(scoped ? { userId: scoped } : {}) },
       select: { userId: true, valorTotal: true, status: true, negotiationId: true },
     })
+    // Bônus por faixa do mês (filtrado pelo funil da REGRA quando há filtro de funil).
+    const bonusRows = await prisma.commissionBonus.findMany({
+      where: { competencia, ...(scoped ? { userId: scoped } : {}), ...(funnelId ? { rule: { funnelId } } : {}) },
+      include: { rule: { select: { nome: true } } },
+    })
+    const bonusDe = (uid: number | null) => {
+      const rows = uid == null ? bonusRows : bonusRows.filter((b) => b.userId === uid)
+      return {
+        prevista: Math.round(rows.filter((b) => b.status === 'prevista').reduce((s, b) => s + dec(b.valor), 0) * 100) / 100,
+        paga: Math.round(rows.filter((b) => b.status === 'paga').reduce((s, b) => s + dec(b.valor), 0) * 100) / 100,
+        itens: rows.map((b) => ({ id: b.id, regra: b.rule?.nome ?? null, quantidade: b.quantidade, faixaMin: b.faixaMin, valor: dec(b.valor), status: b.status, observacoes: b.observacoes })),
+      }
+    }
 
     const linhas = []
     for (const u of agentes) {
@@ -303,16 +326,19 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
         }
       }
       const meus = entries.filter((e) => e.userId === u.id)
+      const bonus = bonusDe(u.id)
       const rule = await resolveRule(u.id, funnelId)
       linhas.push({
         userId: u.id, nome: u.name, email: u.email, active: u.active, role: u.role,
         realizado: real,
         metas,
         regra: rule ? { id: rule.id, nome: rule.nome, aceleradorAtivo: rule.aceleradorAtivo, aceleradorMetrica: rule.aceleradorMetrica } : null,
+        // prevista/paga já somam o bônus; `bonus` detalha para a tela explicar.
         comissao: {
-          prevista: Math.round(meus.filter((e) => e.status === 'prevista').reduce((s, e) => s + dec(e.valorTotal), 0) * 100) / 100,
-          paga: Math.round(meus.filter((e) => e.status === 'paga').reduce((s, e) => s + dec(e.valorTotal), 0) * 100) / 100,
+          prevista: Math.round((meus.filter((e) => e.status === 'prevista').reduce((s, e) => s + dec(e.valorTotal), 0) + bonus.prevista) * 100) / 100,
+          paga: Math.round((meus.filter((e) => e.status === 'paga').reduce((s, e) => s + dec(e.valorTotal), 0) + bonus.paga) * 100) / 100,
           lancamentos: meus.filter((e) => e.status !== 'cancelada').length,
+          bonus,
         },
       })
     }
@@ -341,9 +367,10 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
         realizado: totalReal,
         metas: totalMetas,
         comissao: {
-          prevista: Math.round(entries.filter((e) => e.status === 'prevista').reduce((s, e) => s + dec(e.valorTotal), 0) * 100) / 100,
-          paga: Math.round(entries.filter((e) => e.status === 'paga').reduce((s, e) => s + dec(e.valorTotal), 0) * 100) / 100,
+          prevista: Math.round((entries.filter((e) => e.status === 'prevista').reduce((s, e) => s + dec(e.valorTotal), 0) + bonusDe(null).prevista) * 100) / 100,
+          paga: Math.round((entries.filter((e) => e.status === 'paga').reduce((s, e) => s + dec(e.valorTotal), 0) + bonusDe(null).paga) * 100) / 100,
           lancamentos: entries.filter((e) => e.status !== 'cancelada').length,
+          bonus: bonusDe(null),
         },
       },
       metrics: GOAL_METRICS.map((m) => ({ id: m, label: METRIC_LABEL[m] })),
@@ -418,9 +445,25 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       const row = somas.find((s) => s.status === status)
       return { valor: dec(row?._sum.valorTotal), count: row?._count._all ?? 0 }
     }
+    // Bônus por faixa do mesmo recorte (agente/período/status). Lista curta —
+    // um por vendedor e regra no mês —, então vem inteira, fora da paginação.
+    const bonusWhere: any = {}
+    if (where.competencia) bonusWhere.competencia = where.competencia
+    if (where.userId) bonusWhere.userId = where.userId
+    if (where.status && where.status !== 'cancelada') bonusWhere.status = where.status
+    const bonusRows = where.status === 'cancelada' ? [] : await prisma.commissionBonus.findMany({
+      where: bonusWhere, orderBy: [{ competencia: 'desc' }, { valor: 'desc' }], include: { rule: { select: { nome: true } } },
+    })
+    const bUsers = await prisma.user.findMany({ where: { id: { in: [...new Set(bonusRows.map((b) => b.userId))] } }, select: { id: true, name: true } })
+    const bonus = bonusRows.map((b) => ({
+      id: b.id, competencia: b.competencia, userId: b.userId, agenteNome: bUsers.find((u) => u.id === b.userId)?.name ?? `#${b.userId}`,
+      regraNome: b.rule?.nome ?? null, quantidade: b.quantidade, faixaMin: b.faixaMin, valor: dec(b.valor),
+      status: b.status, pagaEm: b.pagaEm, observacoes: b.observacoes,
+    }))
     return {
       entries: enriched, total, page, limit,
       kpis: { prevista: somaDe('prevista'), paga: somaDe('paga'), cancelada: somaDe('cancelada') },
+      bonus,
     }
   })
 
@@ -443,6 +486,32 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       changes: { valorTotal: entry.valorTotal, negotiationId: entry.negotiationId }, ...actor,
     })
     return { entry: updated }
+  })
+
+  app.post('/api/admin/commissions/bonus/:id/pay', { preHandler: [authMiddleware, adminOnly] }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const b = (req.body as any) || {}
+    const actor = auditActor(req)
+    const bonus = await prisma.commissionBonus.findUnique({ where: { id } })
+    if (!bonus) return reply.code(404).send({ error: 'Bônus não encontrado' })
+    const pagar = b.paga !== false
+    const updated = await prisma.commissionBonus.update({
+      where: { id },
+      data: pagar
+        ? { status: 'paga', pagaEm: b.pagaEm ? new Date(b.pagaEm) : new Date(), pagaPor: actor.actorId }
+        : { status: 'prevista', pagaEm: null, pagaPor: null },
+    })
+    // Voltou para prevista: a contagem atual pode ter mudado desde o pagamento.
+    if (!pagar) {
+      const { recalcularBonusDoMes } = await import('../services/commissions.js')
+      await recalcularBonusDoMes(bonus.userId, bonus.competencia)
+    }
+    void logUserAudit({
+      action: pagar ? 'commission.bonus_paid' : 'commission.bonus_unpaid', targetType: 'user',
+      targetUserId: bonus.userId, targetLabel: `Bônus por faixa #${id}`,
+      changes: { valor: bonus.valor, quantidade: bonus.quantidade, faixaMin: bonus.faixaMin }, ...actor,
+    })
+    return { bonus: updated }
   })
 
   /** Marca em lote — fechamento do mês é uma ação só, não uma por linha. */

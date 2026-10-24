@@ -9475,6 +9475,10 @@ model CommissionRule {
   // Sem faixa aplicável, valem as taxas acima.
   aceleradorAtivo   Boolean @default(false)
   aceleradorMetrica String? @db.VarChar(20) // revenue | mrr | count | conversion
+  // Bônus por faixa (por vendedor, por mês): [{ apartirDe: nº de vendas, valor: R$ }].
+  // Conta as vendas que ESTA regra comissionou no mês; vale só a faixa mais alta
+  // alcançada. null/[] = sem bônus.
+  bonusFaixas Json? @db.Json
 
   observacoes String? @db.Text
 
@@ -9484,6 +9488,7 @@ model CommissionRule {
   tiers   CommissionTier[]
   agents  CommissionRuleUser[]
   entries CommissionEntry[]
+  bonuses CommissionBonus[]
 
   @@index([active, funnelId])
   @@map("bychat_commission_rules")
@@ -9494,6 +9499,33 @@ model CommissionRule {
 // faixa SUBSTITUI a da regra e vale para tudo o que o agente fechou no período
 // (foi a decisão: bater a meta melhora a comissão do mês inteiro, não só da venda
 // que passou do alvo).
+/// Bônus por faixa de UMA regra, para UM vendedor, num mês. Recalculado junto
+/// com o mês do vendedor (recalcAgentMonth). Pago = congelado.
+model CommissionBonus {
+  id          Int      @id @default(autoincrement())
+  ruleId      Int?
+  userId      Int
+  competencia DateTime @db.Date
+  /// Vendas da regra no mês (lançamentos não cancelados).
+  quantidade  Int      @default(0)
+  /// Faixa alcançada ("a partir de N vendas").
+  faixaMin    Int      @default(0)
+  valor       Decimal  @default(0) @db.Decimal(12, 2)
+  status      String   @default("prevista") @db.VarChar(12)
+  pagaEm      DateTime?
+  pagaPor     Int?
+  observacoes String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rule CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@unique([ruleId, userId, competencia])
+  @@index([userId, competencia])
+  @@index([competencia])
+  @@map("bychat_commission_bonuses")
+}
+
 model CommissionTier {
   id     Int @id @default(autoincrement())
   ruleId Int

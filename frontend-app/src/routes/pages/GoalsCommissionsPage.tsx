@@ -32,7 +32,7 @@ import {
   METRICS, METRIC_LABEL, METRIC_UNIT,
   useCommissionPanel, useGoals, useSaveGoals, useCopyGoals,
   useCommissionRules, useDeleteCommissionRule,
-  useCommissionEntries, usePayCommission, usePayCommissionBatch,
+  useCommissionEntries, usePayCommission, usePayBonus, usePayCommissionBatch,
   useRecalcCommissions, useCommissionReconcile,
   useReceitaConfig, useSalvarReceitaConfig, useReceitaConciliacao, useAplicarConciliacao,
   type CommissionRule, type GoalInput, type GoalMetric, type MetricProgress, type RateType,
@@ -289,6 +289,11 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
                   <td class="px-3 py-2 text-right tabular-nums">
                     <div class="text-fg">{moneyExact(a.comissao.prevista)}</div>
                     {a.comissao.paga > 0 ? <div class="text-2xs text-success">{moneyExact(a.comissao.paga)} paga</div> : null}
+                    {(a.comissao.bonus?.itens ?? []).map((b) => (
+                      <div key={b.id} class="text-2xs text-accent" title={`${b.regra ?? 'Regra'}: ${b.quantidade} venda(s) no mês, faixa a partir de ${b.faixaMin}`}>
+                        inclui bônus {moneyExact(b.valor)} ({b.quantidade} vendas)
+                      </div>
+                    ))}
                   </td>
                 </tr>
               ))}
@@ -485,7 +490,10 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
                     <td class="px-3 py-2 text-xs">
                       {r.aceleradorAtivo && r.aceleradorMetrica
                         ? <span class="text-fg-muted">{METRIC_LABEL[r.aceleradorMetrica]} · {r.tiers.length} faixa(s)</span>
-                        : <span class="text-fg-muted">—</span>}
+                        : !(r.bonusFaixas ?? []).length ? <span class="text-fg-muted">—</span> : null}
+                      {(r.bonusFaixas ?? []).length ? (
+                        <div class="text-2xs text-accent">Bônus: {(r.bonusFaixas ?? []).map((f) => `${f.apartirDe} → ${moneyExact(f.valor)}`).join(' · ')}</div>
+                      ) : null}
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
                       <button type="button" class="text-fg-muted hover:text-fg mr-2" title="Editar" onClick={() => { setCreating(false); setEditing(r) }}><Pencil size={14} /></button>
@@ -547,6 +555,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
   const params = { period, funnelId, status: status || undefined, userId: userId || undefined, page, limit: 50 }
   const { data, isLoading } = useCommissionEntries(params)
   const pay = usePayCommission()
+  const payBonus = usePayBonus()
   const payBatch = usePayCommissionBatch()
   const check = useCommissionReconcile(period, showCheck && isManager)
 
@@ -631,6 +640,51 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
               ))}
             </ul>
           )}
+        </Card>
+      ) : null}
+
+      {(data?.bonus ?? []).length > 0 ? (
+        <Card>
+          <h3 class="text-sm font-medium text-fg mb-2">Bônus por faixa</h3>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
+                <th class="text-left font-medium px-2 py-1.5">Mês</th>
+                <th class="text-left font-medium px-2 py-1.5">Agente</th>
+                <th class="text-left font-medium px-2 py-1.5">Regra</th>
+                <th class="text-right font-medium px-2 py-1.5">Vendas</th>
+                <th class="text-right font-medium px-2 py-1.5">Faixa</th>
+                <th class="text-right font-medium px-2 py-1.5">Bônus</th>
+                <th class="text-left font-medium px-2 py-1.5">Status</th>
+                <th class="px-2 py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.bonus ?? []).map((b) => (
+                <tr key={b.id} class="border-b border-border/60 last:border-0">
+                  <td class="px-2 py-1.5 text-fg-muted">{b.competencia.slice(0, 7).split('-').reverse().join('/')}</td>
+                  <td class="px-2 py-1.5 text-fg">{b.agenteNome}</td>
+                  <td class="px-2 py-1.5 text-fg-muted">{b.regraNome ?? '—'}</td>
+                  <td class="px-2 py-1.5 text-right tabular-nums">{b.quantidade}</td>
+                  <td class="px-2 py-1.5 text-right tabular-nums text-fg-muted">a partir de {b.faixaMin}</td>
+                  <td class="px-2 py-1.5 text-right tabular-nums font-medium">
+                    {moneyExact(b.valor)}
+                    {b.observacoes ? <div class="text-3xs text-warning" title={b.observacoes}>contagem mudou após o pagamento</div> : null}
+                  </td>
+                  <td class="px-2 py-1.5"><Badge tone={b.status === 'paga' ? 'success' : 'neutral'}>{b.status === 'paga' ? 'Paga' : 'Prevista'}</Badge></td>
+                  <td class="px-2 py-1.5 text-right">
+                    {isManager ? (
+                      <button type="button" class="text-xs text-info hover:underline"
+                        onClick={() => payBonus.mutate({ id: b.id, paga: b.status !== 'paga' }, {
+                          onSuccess: () => toast(b.status === 'paga' ? 'Bônus voltou para previsto' : 'Bônus marcado como pago', 'success'),
+                          onError: () => toast('Falha ao atualizar', 'danger'),
+                        })}>{b.status === 'paga' ? 'Desfazer' : 'Marcar pago'}</button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       ) : null}
 

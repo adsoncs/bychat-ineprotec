@@ -9,6 +9,7 @@
 // Consequência disso, e é de propósito: mudar uma regra não reescreve sozinha a
 // comissão de um mês passado. Quem quer isso pede o recálculo do período.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 
 // ── Indicadores ──────────────────────────────────────────────────────────────
@@ -475,7 +476,83 @@ export async function recalcAgentMonth(userId: number | null, competencia: Date)
     select: { id: true },
   })
   for (const n of negs) await syncNegotiationCommission(n.id)
+  await recalcularBonusDoMes(userId, competencia)
   return negs.length
+}
+
+// ── Bônus por faixa ──────────────────────────────────────────────────────────
+//
+// "Bateu 10 matrículas no mês, ganha R$ 100; 15, R$ 150; 20, R$ 200." Não é taxa
+// por venda (isso é o acelerador): é um valor único por vendedor e mês, e vale
+// só a faixa MAIS ALTA alcançada. A contagem é das vendas que a própria regra
+// comissionou — uma regra do portal Pós conta só as vendas da Pós, mesmo com
+// Graduação e Extensão no mesmo funil.
+
+export interface FaixaDeBonus { apartirDe: number; valor: number }
+
+/** Lê e limpa as faixas gravadas na regra (ordem crescente, sem repetição). */
+export function faixasDeBonus(v: unknown): FaixaDeBonus[] {
+  const lista = Array.isArray(v) ? v : []
+  const porQtd = new Map<number, number>()
+  for (const f of lista) {
+    const q = Math.round(Number((f as any)?.apartirDe))
+    const r = Math.round(Number((f as any)?.valor) * 100) / 100
+    if (Number.isFinite(q) && q > 0 && Number.isFinite(r) && r >= 0) porQtd.set(q, r)
+  }
+  return [...porQtd.entries()].map(([apartirDe, valor]) => ({ apartirDe, valor })).sort((a, b) => a.apartirDe - b.apartirDe)
+}
+
+/**
+ * Recalcula o bônus de cada regra com faixas para (vendedor, mês).
+ * Bônus já pago não muda — dinheiro que saiu não é reescrito; se a contagem
+ * mudar depois, a diferença fica anotada para a gestão decidir.
+ */
+export async function recalcularBonusDoMes(userId: number, competencia: Date): Promise<void> {
+  // `competencia` já é o dia 1 do mês (como gravado no lançamento) — passar por
+  // competenciaOf de novo voltaria 3 h e cairia no mês anterior.
+  const comp = competencia
+  const [regras, existentes] = await Promise.all([
+    prisma.commissionRule.findMany({ where: { bonusFaixas: { not: Prisma.DbNull } }, select: { id: true, bonusFaixas: true, active: true } }),
+    prisma.commissionBonus.findMany({ where: { userId, competencia: comp } }),
+  ])
+  const ids = new Set([...regras.map((r) => r.id), ...existentes.map((b) => b.ruleId).filter((x): x is number => x != null)])
+  for (const ruleId of ids) {
+    const regra = regras.find((r) => r.id === ruleId)
+    const faixas = regra ? faixasDeBonus(regra.bonusFaixas) : []
+    const quantidade = faixas.length
+      ? await prisma.commissionEntry.count({ where: { ruleId, userId, competencia: comp, status: { not: 'cancelada' } } })
+      : 0
+    const faixa = [...faixas].reverse().find((f) => quantidade >= f.apartirDe) ?? null
+    const atual = existentes.find((b) => b.ruleId === ruleId)
+    if (atual?.status === 'paga') {
+      const devido = faixa?.valor ?? 0
+      const nota = Math.abs(dec(atual.valor) - devido) > 0.004
+        ? `Pago R$ ${dec(atual.valor).toFixed(2)}; pela contagem atual (${quantidade}) seria R$ ${devido.toFixed(2)}.`
+        : null
+      if (atual.quantidade !== quantidade || atual.observacoes !== nota) {
+        await prisma.commissionBonus.update({ where: { id: atual.id }, data: { quantidade, observacoes: nota } })
+      }
+      continue
+    }
+    if (!faixa) {
+      if (atual) await prisma.commissionBonus.delete({ where: { id: atual.id } })
+      continue
+    }
+    const data = { quantidade, faixaMin: faixa.apartirDe, valor: faixa.valor, status: 'prevista', observacoes: null }
+    if (atual) await prisma.commissionBonus.update({ where: { id: atual.id }, data })
+    else await prisma.commissionBonus.create({ data: { ruleId, userId, competencia: comp, ...data } })
+  }
+}
+
+/** Depois de mudar as faixas de uma regra: refaz o bônus de quem vendeu por ela no mês. */
+export async function recalcularBonusDaRegra(ruleId: number, competencia: Date): Promise<void> {
+  const comp = competencia
+  const [vendedores, comBonus] = await Promise.all([
+    prisma.commissionEntry.findMany({ where: { ruleId, competencia: comp, userId: { not: null } }, distinct: ['userId'], select: { userId: true } }),
+    prisma.commissionBonus.findMany({ where: { ruleId, competencia: comp }, select: { userId: true } }),
+  ])
+  const ids = new Set([...vendedores.map((v) => v.userId!), ...comBonus.map((b) => b.userId)])
+  for (const u of ids) await recalcularBonusDoMes(u, comp)
 }
 
 /**

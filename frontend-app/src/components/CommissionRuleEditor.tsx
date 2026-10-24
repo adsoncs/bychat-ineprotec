@@ -42,6 +42,7 @@ type Draft = {
   observacoes: string
   agentIds: number[]
   tiers: (Omit<CommissionTier, 'taxaUnico' | 'taxaRecorrente'> & { taxaUnico: string; taxaRecorrente: string })[]
+  bonusFaixas: { apartirDe: string; valor: string }[]
 }
 
 const str = (v: unknown) => (v === null || v === undefined ? '' : String(v))
@@ -51,7 +52,7 @@ function emptyDraft(): Draft {
     nome: '', active: true, funnelId: null, portalId: null, courseId: null, prioridade: 0, base: 'liquido',
     tipoUnico: 'percent', taxaUnico: '', tipoRecorrente: 'percent', taxaRecorrente: '',
     mesesRecorrente: 1, aceleradorAtivo: false, aceleradorMetrica: null, observacoes: '',
-    agentIds: [], tiers: [],
+    agentIds: [], tiers: [], bonusFaixas: [],
   }
 }
 
@@ -64,6 +65,7 @@ function toDraft(r: CommissionRule): Draft {
     aceleradorMetrica: r.aceleradorMetrica, observacoes: r.observacoes ?? '',
     agentIds: r.agentIds ?? [],
     tiers: (r.tiers ?? []).map((t) => ({ ...t, taxaUnico: str(t.taxaUnico), taxaRecorrente: str(t.taxaRecorrente) })),
+    bonusFaixas: (r.bonusFaixas ?? []).map((f) => ({ apartirDe: str(f.apartirDe), valor: str(f.valor) })),
   }
 }
 
@@ -151,8 +153,13 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
     if (!d.nome.trim()) { toast('Dê um nome à regra', 'danger'); return }
     if (d.aceleradorAtivo && !d.aceleradorMetrica) { toast('Escolha o indicador que mede o atingimento', 'danger'); return }
     if (d.aceleradorAtivo && !d.tiers.length) { toast('Adicione ao menos uma faixa ou desligue o acelerador', 'danger'); return }
+    const faixas = d.bonusFaixas
+      .map((f) => ({ apartirDe: Math.round(Number(f.apartirDe)), valor: Number(String(f.valor).replace(',', '.')) }))
+      .filter((f) => f.apartirDe > 0 && Number.isFinite(f.valor) && f.valor >= 0)
+    if (faixas.length !== d.bonusFaixas.length) { toast('Preencha cada faixa de bônus com a quantidade e o valor', 'danger'); return }
     save.mutate({
       ...d,
+      bonusFaixas: faixas,
       taxaUnico: d.taxaUnico === '' ? null : Number(d.taxaUnico),
       taxaRecorrente: d.taxaRecorrente === '' ? null : Number(d.taxaRecorrente),
       tiers: d.tiers.map((t) => ({
@@ -330,6 +337,31 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
               </div>
             </div>
           ) : null}
+        </div>
+
+        {/* Bônus por faixa */}
+        <div class="rounded-lg border border-border p-3 space-y-3">
+          <div>
+            <span class="text-sm font-medium text-fg">Bônus por faixa (por vendedor, no mês)</span>
+            <span class="block text-2xs text-fg-muted">
+              Valor único pago ao vendedor que alcançar a quantidade de vendas <strong>desta regra</strong> no mês.
+              Vale só a faixa mais alta (ex.: 10 vendas → R$ 100; 15 → R$ 150; 20 → R$ 200). Soma-se à comissão por venda acima.
+            </span>
+          </div>
+          {d.bonusFaixas.map((f, i) => (
+            <div key={i} class="flex flex-wrap items-end gap-2">
+              <Input label="A partir de (vendas no mês)" type="number" min="1" step="1" value={f.apartirDe} class="w-48"
+                onInput={(e) => setD((cur) => ({ ...cur, bonusFaixas: cur.bonusFaixas.map((x, k) => (k === i ? { ...x, apartirDe: (e.target as HTMLInputElement).value } : x)) }))} />
+              <Input label="Bônus (R$)" type="number" min="0" step="0.01" value={f.valor} class="w-32"
+                onInput={(e) => setD((cur) => ({ ...cur, bonusFaixas: cur.bonusFaixas.map((x, k) => (k === i ? { ...x, valor: (e.target as HTMLInputElement).value } : x)) }))} />
+              <Button variant="ghost" size="sm" title="Remover faixa"
+                onClick={() => setD((cur) => ({ ...cur, bonusFaixas: cur.bonusFaixas.filter((_, k) => k !== i) }))}><Trash2 size={14} /></Button>
+            </div>
+          ))}
+          <Button variant="ghost" size="sm" onClick={() => setD((cur) => {
+            const ult = Number(cur.bonusFaixas[cur.bonusFaixas.length - 1]?.apartirDe) || 0
+            return { ...cur, bonusFaixas: [...cur.bonusFaixas, { apartirDe: String(ult ? ult + 5 : 10), valor: '' }] }
+          })}><Plus size={14} /> Adicionar faixa de bônus</Button>
         </div>
 
         <Textarea

@@ -32,6 +32,28 @@ export interface CommissionTier {
   taxaRecorrente: number | string | null
 }
 
+export interface FaixaDeBonus { apartirDe: number; valor: number }
+
+export interface BonusDoMes {
+  prevista: number
+  paga: number
+  itens: { id: number; regra: string | null; quantidade: number; faixaMin: number; valor: number; status: string; observacoes: string | null }[]
+}
+
+export interface BonusLancamento {
+  id: number
+  competencia: string
+  userId: number
+  agenteNome: string
+  regraNome: string | null
+  quantidade: number
+  faixaMin: number
+  valor: number
+  status: 'prevista' | 'paga' | string
+  pagaEm: string | null
+  observacoes: string | null
+}
+
 export interface CommissionRule {
   id: number
   nome: string
@@ -54,6 +76,8 @@ export interface CommissionRule {
   aceleradorMetrica: GoalMetric | null
   observacoes: string | null
   tiers: CommissionTier[]
+  /** Bônus por faixa (por vendedor, por mês): vale só a faixa mais alta alcançada. */
+  bonusFaixas?: FaixaDeBonus[] | null
   agentIds: number[]
   agentNames: string[]
 }
@@ -161,7 +185,8 @@ export interface PanelAgent {
   realizado: { revenue: number; mrr: number; count: number; conversion: number | null; wonCount: number; lostCount: number }
   metas: Record<GoalMetric, MetricProgress>
   regra: { id: number; nome: string; aceleradorAtivo: boolean; aceleradorMetrica: GoalMetric | null } | null
-  comissao: { prevista: number; paga: number; lancamentos: number }
+  /** prevista/paga já incluem o bônus por faixa; `bonus` detalha. */
+  comissao: { prevista: number; paga: number; lancamentos: number; bonus?: BonusDoMes }
 }
 
 export interface CommissionPanel {
@@ -247,6 +272,7 @@ export function useCommissionEntries(p: EntriesParams) {
       page: number
       limit: number
       kpis: Record<'prevista' | 'paga' | 'cancelada', { valor: number; count: number }>
+      bonus?: BonusLancamento[]
     }>(`/admin/commissions/entries?${entriesQuery(p)}`),
     staleTime: 15_000,
   })
@@ -257,6 +283,18 @@ export function usePayCommission() {
   return useMutation({
     mutationFn: ({ id, paga }: { id: number; paga: boolean }) =>
       api.post(`/admin/commissions/entries/${id}/pay`, { paga }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['commission-entries'] })
+      qc.invalidateQueries({ queryKey: ['commission-panel'] })
+    },
+  })
+}
+
+export function usePayBonus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, paga }: { id: number; paga: boolean }) =>
+      api.post(`/admin/commissions/bonus/${id}/pay`, { paga }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['commission-entries'] })
       qc.invalidateQueries({ queryKey: ['commission-panel'] })
