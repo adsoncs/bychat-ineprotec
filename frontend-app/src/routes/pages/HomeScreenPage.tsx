@@ -8,6 +8,7 @@ import { findWidget } from '@/components/widgets/WidgetCatalog'
 import { useMyHomeScreen, useMyDay, useLeaderboard, type HomeBlock, type HomeLink } from '@/hooks/useHomeScreen'
 import { OverviewPage } from './OverviewPage'
 import { PainelEducacionalHome } from './PainelEducacionalHome'
+import { PainelComercialHome } from './PainelComercialHome'
 import type { Widget } from '@/hooks/useWidgets'
 import { cn } from '@/lib/cn'
 
@@ -269,6 +270,9 @@ export function HomeScreenPage() {
   // passa por HomeBlockRenderer porque não há blocos — o conteúdo e os dados
   // são do próprio painel.
   if (data.screen.builtin === 'educacional') return <PainelEducacionalHome titulo={TITULO} />
+  if (data.screen.builtin === 'comercial_diretoria') return <PainelComercialHome visao="diretoria" />
+  if (data.screen.builtin === 'comercial_gerente') return <PainelComercialHome visao="gerente" />
+  if (data.screen.builtin === 'comercial_agente') return <PainelComercialHome visao="agente" />
 
   return (
     <Page title={TITULO} {...(data.screen.description ? { description: data.screen.description } : {})}>

@@ -12,10 +12,11 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
+import { authMiddleware, adminOnly, adminStrict, type JwtPayload } from '../lib/auth.js'
 import { resolvePermissions } from '../lib/permissions.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import * as edu from '../services/educationalMetrics.js'
+import { painelComercial, lerConfig, salvarConfig, funisDoPainel, PONTOS_PADRAO, type Visao } from '../services/painelComercial.js'
 
 const ROLES = ['SUPERADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER'] as const
 
@@ -34,6 +35,24 @@ const TELAS_NATIVAS = [
     nome: 'Visão Geral Educacional',
     descricao: 'Matrículas, inscrições, receita e conversão do período, com gráficos por dia e por portal.',
     abreDado: 'Quem receber esta tela vê matrículas, receita e conversão mesmo sem permissão no módulo Educacional.',
+  },
+  {
+    key: 'comercial_diretoria',
+    nome: 'Comercial · Diretoria',
+    descricao: 'KPIs gerais de vendas: leads, atendimento, matrículas, pagamentos, funil etapa a etapa, origens, cursos, perdas e o time inteiro, com filtros por funil, equipe e agente.',
+    abreDado: 'Quem receber esta tela vê os números de TODO o comercial, inclusive receita, mesmo sem permissão nos módulos.',
+  },
+  {
+    key: 'comercial_gerente',
+    nome: 'Comercial · Gerente',
+    descricao: 'A equipe do gerente: agente a agente, fila parada, sem resposta, atrasos, metas e onde cada um perde no funil.',
+    abreDado: 'Quem receber esta tela vê os números das equipes de que participa, inclusive receita. Administradores veem todas.',
+  },
+  {
+    key: 'comercial_agente',
+    nome: 'Comercial · Agente',
+    descricao: 'Os números do próprio agente, a meta, o dia de trabalho e o placar do time com pontos e conquistas (sem valores em R$ dos colegas).',
+    abreDado: 'O agente vê o placar de todos os colegas — leads, matrículas, conversão, pontos e % da meta —, mas nenhum valor em R$ deles.',
   },
 ] as const
 
@@ -194,6 +213,57 @@ export async function homeScreensRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── Dados das telas nativas do comercial ─────────────────────────────
+  //
+  // Mesma regra da Visão Geral Educacional: só responde a quem tem a tela
+  // atribuída. A visão vem da TELA, não do pedido — um agente não troca para
+  // "diretoria" mudando a URL. Administrador pode pedir qualquer visão (é o
+  // que o editor usa na pré-visualização).
+  app.get('/api/home-screen/comercial', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const q = req.query as Record<string, string | undefined>
+    const admin = user.role === 'SUPERADMIN' || user.role === 'ADMIN'
+    const minha = await atribuicaoDoUsuario(user)
+    const daTela = minha?.screen?.builtin?.startsWith('comercial_') ? (minha.screen.builtin.slice('comercial_'.length) as Visao) : null
+    const pedida = (['diretoria', 'gerente', 'agente'] as const).find((v) => v === q.visao) ?? null
+    const visao = admin ? pedida ?? daTela ?? 'diretoria' : daTela
+    if (!visao) return reply.code(403).send({ error: 'Esta tela não está atribuída a você.' })
+
+    const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
+    const ehData = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const dateTo = ehData(q.dateTo) ? q.dateTo! : hoje
+    const dateFrom = ehData(q.dateFrom) ? q.dateFrom! : `${hoje.slice(0, 8)}01`
+    const id = (v?: string) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null }
+    return painelComercial(visao, { userId: user.userId, role: user.role }, {
+      dateFrom, dateTo,
+      funis: (q.funis || '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0),
+      teamId: id(q.teamId), userId: id(q.userId), origem: q.origem ? String(q.origem).slice(0, 60) : null,
+    })
+  })
+
+  app.get('/api/admin/painel-comercial/config', { preHandler: adminStrict }, async () => {
+    const config = await lerConfig()
+    const { funis } = await funisDoPainel(config)
+    return { config, funis, pontosPadrao: PONTOS_PADRAO }
+  })
+
+  app.put('/api/admin/painel-comercial/config', { preHandler: adminStrict }, async (req) => {
+    const b = (req.body ?? {}) as any
+    const atual = await lerConfig()
+    const porFunil = (o: any) => {
+      const out: Record<string, string[]> = {}
+      if (o && typeof o === 'object') for (const [f, ks] of Object.entries(o)) if (Array.isArray(ks)) out[String(Number(f))] = (ks as unknown[]).map(String).slice(0, 10)
+      return out
+    }
+    const pontos = { ...atual.pontos }
+    for (const k of Object.keys(PONTOS_PADRAO) as (keyof typeof PONTOS_PADRAO)[]) {
+      const n = Number(b.pontos?.[k]); if (Number.isFinite(n) && n >= 0 && n <= 1000) pontos[k] = n
+    }
+    const funis = Array.isArray(b.funis) ? b.funis.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : null
+    await salvarConfig({ funis: funis && funis.length ? funis : null, etapasMatricula: porFunil(b.etapasMatricula), etapasPerda: porFunil(b.etapasPerda), pontos })
+    return { ok: true }
+  })
+
   // ── Dados do bloco "Meu dia" ──────────────────────────────────────────
   // Sempre do próprio usuário: é a fila de trabalho dele, não um relatório.
   app.get('/api/home-screen/my-day', { preHandler: authMiddleware }, async (req) => {
@@ -219,6 +289,9 @@ export async function homeScreensRoutes(app: FastifyInstance) {
         where: {
           assignedUserId: user.userId,
           outcome: null,
+          // Conversa que não é lead (contato) não é fila de venda.
+          qualifiedAt: { not: null },
+          isGroup: false,
           OR: [
             { lastMessageAt: { lt: new Date(now.getTime() - staleHours * 3600_000) } },
             { lastMessageAt: null },
@@ -250,7 +323,8 @@ export async function homeScreensRoutes(app: FastifyInstance) {
     const since = new Date(Date.now() - days * 86400_000)
 
     const access = await buildLeadAccessWhere(user.userId, user.role)
-    const where: any = { outcome: 'won', outcomeAt: { gte: since } }
+    // Só lead conta no placar: contato (sem qualifiedAt) e grupo ficam de fora.
+    const where: any = { outcome: 'won', outcomeAt: { gte: since }, qualifiedAt: { not: null }, isGroup: false }
     if (Object.keys(access).length > 0) where.AND = [access]
 
     const rows = await prisma.lead.groupBy({
