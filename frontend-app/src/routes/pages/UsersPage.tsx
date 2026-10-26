@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock } from '@/components/ui/icon-set'
+import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock, KeyRound } from '@/components/ui/icon-set'
 import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -23,6 +23,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { api } from '@/lib/apiClient'
 
 const ALL_ROLES: UserRole[] = ['SUPERADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER']
 
@@ -254,6 +255,20 @@ export function UsersPage() {
   )
 }
 
+/**
+ * O admin manda o link de redefinição: o próprio usuário cria a nova senha,
+ * e ninguém da equipe fica sabendo dela (melhor que digitar uma senha por ele).
+ */
+async function enviarRedefinicao(user: AdminUser) {
+  if (!confirm(`Enviar para ${user.email} um link para criar uma nova senha? A senha atual continua valendo até o link ser usado.`)) return
+  try {
+    const r = await api.post<{ expiraMinutos: number }>(`/admin/users/${user.id}/send-password-reset`)
+    toast(`Link enviado para ${user.email} (vale ${r.expiraMinutos} minutos)`, 'success')
+  } catch (e) {
+    toast((e as Error).message, 'danger')
+  }
+}
+
 function UserActionsMenu({
   user, canDelete, canManageAvailability, onEdit, onTeams, onAvailability, onAudit, onDelete,
 }: {
@@ -302,6 +317,14 @@ function UserActionsMenu({
               onSelect={onAvailability}
             >
               <CalendarClock size={14} /> Disponibilidade
+            </DropdownMenu.Item>
+          )}
+          {user.active && (
+            <DropdownMenu.Item
+              class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
+              onSelect={() => void enviarRedefinicao(user)}
+            >
+              <KeyRound size={14} /> Enviar link de redefinição de senha
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Item
@@ -607,6 +630,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   'auth.login': 'Login',
   'auth.logout': 'Logout',
   'auth.password_reset': 'Senha redefinida',
+  'auth.password_reset_sent': 'Link de redefinição enviado',
   // Permissões e módulos
   'permission.role_changed': 'Permissões por perfil',
   'permission.user_override_changed': 'Permissões do usuário',

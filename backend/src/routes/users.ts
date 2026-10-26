@@ -7,7 +7,7 @@ import { signToken, authMiddleware, adminOnly, adminStrict, superadminOnly, type
 import { verificarTotp, consumirCodigoRecuperacao } from '../services/twoFactor.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
-import { sendPasswordResetEmail } from '../services/notify.js'
+import { sendPasswordResetEmail, RESET_EXPIRA_MINUTOS } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
 import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole, ESCOPO_EDITAVEL } from '../lib/permissions.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -672,6 +672,25 @@ export async function usersRoutes(app: FastifyInstance) {
     return { data, total, limit, offset, targetTypes: targetTypes.map((t) => t.targetType).filter(Boolean) }
   })
 
+  // ── POST /api/admin/users/:id/send-password-reset — o admin manda o link ──
+  // Para quem esqueceu a senha e pediu ajuda: o próprio usuário cria a nova
+  // senha pelo link, e ninguém da equipe fica sabendo dela.
+  app.post('/api/admin/users/:id/send-password-reset', { preHandler: adminStrict }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    const user = await prisma.user.findUnique({ where: { id } })
+    if (!user) return reply.code(404).send({ error: 'Usuário não encontrado' })
+    if (!user.active) return reply.code(400).send({ error: 'Usuário inativo — reative antes de enviar o link' })
+    const r = await enviarLinkDeRedefinicao(user)
+    if (!r.ok) return reply.code(502).send({ error: r.erro })
+    const op = (req as any).user as JwtPayload | undefined
+    void logUserAudit({
+      action: 'auth.password_reset_sent', actorId: op?.userId ?? null, actorName: op?.name ?? null,
+      targetUserId: user.id, targetType: 'auth', ipAddress: req.ip,
+      targetLabel: `Link de redefinição de senha enviado para ${user.email}`,
+    })
+    return { ok: true, email: user.email, expiraMinutos: RESET_EXPIRA_MINUTOS }
+  })
+
   // ── POST /api/admin/forgot-password — Solicitar redefinição de senha ──
   app.post('/api/admin/forgot-password', async (req, reply) => {
     const startTime = Date.now()
@@ -694,37 +713,11 @@ export async function usersRoutes(app: FastifyInstance) {
       return { ok: true }
     }
 
-    // Invalida tokens anteriores do mesmo usuário
-    await prisma.passwordReset.updateMany({
-      where: { userId: user.id, used: false },
-      data: { used: true }
-    })
-
-    const token = crypto.randomBytes(32).toString('hex')
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000) // 30 minutos
-
-    await prisma.passwordReset.create({
-      data: { userId: user.id, token: tokenHash, expiresAt }
-    })
-
-    // Este link vai por e-mail para quem perdeu a senha. Sem APP_URL o fallback
-    // que estava aqui mandava o usuário para o domínio anterior à migração —
-    // melhor falhar de forma visível do que entregar um link morto na caixa
-    // de entrada de quem está trancado do lado de fora.
-    const appUrl = process.env.APP_URL
-    if (!appUrl) {
-      req.log.error('[users] APP_URL não configurada — link de redefinição não pôde ser montado.')
-      return reply.code(500).send({ error: 'Não foi possível montar o link de redefinição. Avise o suporte técnico.' })
-    }
-    const resetLink = `${appUrl.replace(/\/$/, '')}/app/reset-password?token=${token}`
-
-    try {
-      await sendPasswordResetEmail(user.email, user.name, resetLink)
-    } catch (e) {
-      console.error('Erro ao enviar email de redefinição:', e)
+    const r = await enviarLinkDeRedefinicao(user)
+    if (!r.ok) {
+      req.log.error(`[users] redefinição de senha para ${user.email} não saiu: ${r.erro}`)
       await minDelay(startTime, 800)
-      return reply.code(500).send({ error: 'Erro ao enviar email' })
+      return reply.code(500).send({ error: 'Não foi possível enviar o e-mail agora. Tente de novo em alguns minutos ou fale com o administrador.' })
     }
 
     await minDelay(startTime, 800)
@@ -917,4 +910,24 @@ export async function usersRoutes(app: FastifyInstance) {
 
     return { ok: true }
   })
+}
+
+/**
+ * Gera o link de redefinição (anula os anteriores do usuário) e manda o
+ * e-mail. Sem APP_URL não monta link: o fallback antigo mandava para o domínio
+ * de antes da migração — link morto na caixa de quem está trancado do lado de fora.
+ */
+async function enviarLinkDeRedefinicao(user: { id: number; email: string; name: string | null }): Promise<{ ok: true } | { ok: false; erro: string }> {
+  const appUrl = process.env.APP_URL
+  if (!appUrl) return { ok: false, erro: 'APP_URL não configurada — avise o suporte técnico' }
+  await prisma.passwordReset.updateMany({ where: { userId: user.id, used: false }, data: { used: true } })
+  const token = crypto.randomBytes(32).toString('hex')
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+  await prisma.passwordReset.create({ data: { userId: user.id, token: tokenHash, expiresAt: new Date(Date.now() + RESET_EXPIRA_MINUTOS * 60 * 1000) } })
+  try {
+    await sendPasswordResetEmail(user.email, user.name ?? user.email, `${appUrl.replace(/\/$/, '')}/app/reset-password?token=${token}`)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, erro: (e as Error).message }
+  }
 }

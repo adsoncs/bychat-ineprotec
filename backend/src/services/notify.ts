@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import nodemailer from 'nodemailer'
 import { prisma } from '../lib/prisma.js'
 import { getBranding } from '../lib/branding.js'
-import { renderSystemEmail, nowVars } from './systemEmailTemplates.js'
+import { renderSystemEmail, nowVars, renderString, SYSTEM_EMAIL_TEMPLATES } from './systemEmailTemplates.js'
 import { linhaDoLink } from '../lib/appUrl.js'
 import { trackedSend } from './outboundSendTracking.js'
 import { motivoDeBloqueio, extrasDoEnvio } from './emailEventos.js'
@@ -433,45 +433,67 @@ export async function sendReportToLead(lead: any): Promise<void> {
   })
 }
 
+/** Validade do link de redefinição (routes/users.ts grava o mesmo prazo). */
+export const RESET_EXPIRA_MINUTOS = 30
+
+const escaparHtml = (t: string) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+
+/**
+ * Logo e cor da marca para os e-mails do sistema (Configurações › Aparência).
+ * Logo relativo vira URL absoluta pelo APP_URL — e-mail não resolve caminho.
+ * Sem logo, o nome da marca em texto, na cor dela.
+ */
+/** Luminância relativa (WCAG) de um #hex — para decidir texto claro ou escuro sobre a cor. */
+function luminancia(hex: string): number {
+  const h = hex.replace('#', '')
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+
+export async function marcaParaEmail(): Promise<{ brandName: string; color: string; textOnColor: string; linkColor: string; logoHtml: string }> {
+  const brand = await getBranding()
+  const rows = await prisma.setting.findMany({ where: { key: { in: ['appearance.primary_color', 'appearance.admin_logo_url'] } } })
+  const val = (k: string) => String(rows.find((r) => r.key === k)?.value ?? '').replace(/^"|"$/g, '').trim()
+  const cor = /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(val('appearance.primary_color')) ? val('appearance.primary_color') : '#1a73e8'
+  let logo = val('appearance.admin_logo_url')
+  if (logo && logo.startsWith('/')) logo = process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}${logo}` : ''
+  const nome = escaparHtml(brand.brandName)
+  const logoHtml = /^https?:\/\//.test(logo)
+    ? `<img src="${escaparHtml(logo)}" alt="${nome}" height="40" style="display:block;height:40px;max-width:220px;border:0;outline:none;font-size:20px;font-weight:700;color:${cor}">`
+    : `<span style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;color:${cor}">${nome}</span>`
+  // Cor clara (ex.: verde-limão) com texto branco não se lê: contraste < 4,5.
+  const lum = luminancia(cor)
+  const textOnColor = (lum + 0.05) / 0.05 > 1.05 / (lum + 0.05) ? '#111827' : '#ffffff'
+  const linkColor = 1.05 / (lum + 0.05) >= 4.5 ? cor : '#1f2937'
+  return { brandName: brand.brandName, color: cor, textOnColor, linkColor, logoHtml }
+}
+
+/**
+ * E-mail de redefinição de senha. Lança erro quando não sai (e-mail não
+ * configurado ou endereço bloqueado): quem chama precisa saber — dizer "enviado"
+ * para quem está trancado do lado de fora é o pior caso.
+ */
 export async function sendPasswordResetEmail(email: string, name: string, resetLink: string): Promise<void> {
   const cfg = await getEmailConfig()
-  const brand = await getBranding()
-
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e0e0e0">
-      <div style="background:#1a73e8;padding:28px;text-align:center">
-        <h1 style="margin:0;font-size:20px;color:#fff;font-weight:500">Redefinição de Senha</h1>
-      </div>
-      <div style="padding:32px">
-        <p style="font-size:14px;color:#202124;line-height:1.6;margin:0 0 16px">Olá <strong>${name}</strong>,</p>
-        <p style="font-size:14px;color:#5f6368;line-height:1.6;margin:0 0 24px">Recebemos uma solicitação para redefinir a senha da sua conta no ${brand.brandName}. Clique no botão abaixo para criar uma nova senha:</p>
-        <div style="text-align:center;margin:28px 0">
-          <a href="${resetLink}" style="background:#1a73e8;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:500;font-size:14px;display:inline-block">Redefinir minha senha</a>
-        </div>
-        <p style="font-size:12px;color:#5f6368;line-height:1.6;margin:0 0 8px">Este link expira em <strong>30 minutos</strong>.</p>
-        <p style="font-size:12px;color:#5f6368;line-height:1.6;margin:0">Se você não solicitou essa alteração, ignore este email.</p>
-        <hr style="border:none;border-top:1px solid #e0e0e0;margin:24px 0">
-        <p style="font-size:11px;color:#9aa0a6;margin:0;text-align:center">${brand.brandName}</p>
-      </div>
-    </div>`
-
+  const marca = await marcaParaEmail()
+  const vars = {
+    user: { name: escaparHtml(name || email), email: escaparHtml(email) },
+    resetLink, expiraMinutos: RESET_EXPIRA_MINUTOS,
+    brand: { brandName: escaparHtml(marca.brandName), color: marca.color, textOnColor: marca.textOnColor, linkColor: marca.linkColor, logoHtml: marca.logoHtml },
+    ...nowVars(),
+  }
   // Reset de senha é transacional crítico — sempre dispara, mesmo se admin
   // tentar desativar o template (ignora o flag enabled).
-  const renderedReset = await renderSystemEmail('password_reset', {
-    user: { name, email },
-    resetLink,
-    brand,
-    ...nowVars(),
-  })
-  const finalResetSubject = renderedReset?.subject || `Redefinição de senha — ${brand.brandName}`
-  const finalResetHtml    = renderedReset?.html    || html
+  const salvo = await renderSystemEmail('password_reset', vars)
+  const padrao = SYSTEM_EMAIL_TEMPLATES.find((t) => t.key === 'password_reset')!
+  const subject = salvo?.subject || renderString(padrao.subject, { ...vars, brand: { ...vars.brand, brandName: marca.brandName } })
+  const html = salvo?.html || renderString(padrao.htmlBody, vars)
 
-  await sendEmailGeneric({
-    from: getFromAddress(cfg, 'Sistema'),
-    to: email,
-    subject: finalResetSubject,
-    html: finalResetHtml,
-  })
+  const configurado = cfg['email.provider'] === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
+  if (!configurado) throw new Error('Envio de e-mail não configurado (Configurações › E-mail)')
+  const id = await sendEmailGeneric({ from: getFromAddress(cfg, 'Sistema'), to: email, subject, html, origem: 'system' })
+  if (!id) throw new Error('O e-mail de redefinição não saiu (endereço bloqueado ou recusado)')
 }
 
 function row(label: string, value: string) {

@@ -138,30 +138,50 @@ export const SYSTEM_EMAIL_TEMPLATES: SystemEmailTemplateSeed[] = [
   {
     key: 'password_reset',
     name: 'Reset de senha',
-    description: 'Email transacional de recuperação de senha (link único por 30 min).',
+    description: 'Email transacional de recuperação de senha (link único por 30 min). Usado no "Esqueci minha senha" e no "Enviar link de redefinição" da tela de Usuários.',
     category: 'auth',
     subject: 'Redefinição de senha — {{brand.brandName}}',
-    htmlBody: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e0e3e7">
-  <div style="background:#1a73e8;padding:28px;text-align:center">
-    <h1 style="margin:0;font-size:20px;color:#fff;font-weight:500">Redefinição de Senha</h1>
-  </div>
-  <div style="padding:32px">
-    <p style="font-size:14px;color:#202124;line-height:1.6;margin:0 0 16px">Olá <strong>{{user.name}}</strong>,</p>
-    <p style="font-size:14px;color:#5f6368;line-height:1.6;margin:0 0 24px">Recebemos uma solicitação para redefinir a senha da sua conta no {{brand.brandName}}. Clique no botão abaixo para criar uma nova senha:</p>
-    <div style="text-align:center;margin:28px 0">
-      <a href="{{resetLink}}" style="background:#1a73e8;color:#fff;padding:12px 32px;border-radius:4px;text-decoration:none;font-weight:500;font-size:14px;display:inline-block">Redefinir minha senha</a>
-    </div>
-    <p style="font-size:12px;color:#5f6368;line-height:1.6;margin:0 0 8px">Este link expira em <strong>30 minutos</strong>.</p>
-    <p style="font-size:12px;color:#5f6368;line-height:1.6;margin:0">Se você não solicitou essa alteração, ignore este email.</p>
-    <hr style="border:none;border-top:1px solid #e0e0e0;margin:24px 0">
-    <p style="font-size:11px;color:#9aa0a6;margin:0;text-align:center">{{brand.brandName}}</p>
-  </div>
-</div>`,
+    // Tabela + estilo inline: é o que Outlook e Gmail respeitam. O link também
+    // vai em texto, porque há leitor que bloqueia botão ("não funcionou").
+    htmlBody: `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Redefinição de senha</title></head>
+<body style="margin:0;padding:0;background:#f4f5f7">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 12px">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;font-family:Arial,Helvetica,sans-serif">
+      <tr><td align="center" style="padding:0 0 20px">{{brand.logoHtml}}</td></tr>
+      <tr><td style="background:#ffffff;border:1px solid #e3e6ea;border-radius:12px;padding:36px 32px">
+        <h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#111827;font-weight:700">Redefinir sua senha</h1>
+        <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#374151">Olá, <strong>{{user.name}}</strong>.</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151">Recebemos um pedido para redefinir a senha da sua conta em <strong>{{brand.brandName}}</strong> ({{user.email}}). Para criar uma nova senha, clique no botão abaixo:</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px"><tr>
+          <td align="center" bgcolor="{{brand.color}}" style="border-radius:8px">
+            <a href="{{resetLink}}" target="_blank" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:700;color:{{brand.textOnColor}};text-decoration:none;border-radius:8px">Criar nova senha</a>
+          </td>
+        </tr></table>
+        <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#6b7280;text-align:center">O link vale por <strong>{{expiraMinutos}} minutos</strong> e só pode ser usado uma vez.</p>
+        <p style="margin:0 0 6px;font-size:13px;line-height:1.6;color:#6b7280">Se o botão não funcionar, copie e cole este endereço no navegador:</p>
+        <p style="margin:0 0 24px;font-size:12px;line-height:1.5;word-break:break-all"><a href="{{resetLink}}" target="_blank" style="color:{{brand.linkColor}}">{{resetLink}}</a></p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #e5e7eb;padding-top:20px">
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280"><strong style="color:#374151">Não foi você?</strong> Ignore este e-mail: sua senha atual continua valendo. Nunca pedimos sua senha por e-mail, telefone ou WhatsApp.</p>
+        </td></tr></table>
+      </td></tr>
+      <tr><td align="center" style="padding:20px 12px 0;font-size:12px;line-height:1.5;color:#9ca3af">{{brand.brandName}} · e-mail automático enviado em {{now.full}}</td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`,
     variables: [
       { name: 'user.name', description: 'Nome do usuário' },
       { name: 'user.email', description: 'E-mail do usuário' },
       { name: 'resetLink', description: 'Link único de reset (expira em 30 min)' },
+      { name: 'expiraMinutos', description: 'Validade do link, em minutos' },
       { name: 'brand.brandName', description: 'Nome da marca' },
+      { name: 'brand.color', description: 'Cor principal da marca (Aparência), em #hex' },
+      { name: 'brand.textOnColor', description: 'Cor do texto sobre a cor da marca (escuro se a cor for clara)' },
+      { name: 'brand.linkColor', description: 'Cor de link legível no fundo branco' },
+      { name: 'brand.logoHtml', description: 'Logo da marca (imagem) ou, sem logo, o nome em texto' },
+      { name: 'now.full', description: 'Data e hora do envio' },
     ],
   },
   {
@@ -238,7 +258,7 @@ function getPath(obj: any, path: string): unknown {
   return path.split('.').reduce<any>((acc, k) => (acc == null ? acc : acc[k]), obj)
 }
 
-function renderString(tpl: string, vars: Record<string, unknown>): string {
+export function renderString(tpl: string, vars: Record<string, unknown>): string {
   return tpl.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path) => {
     const v = getPath(vars, path)
     if (v === undefined || v === null) return ''
