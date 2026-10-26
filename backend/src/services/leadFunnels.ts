@@ -27,6 +27,11 @@
 //     ser representado. `adicionarAoFunil` nunca toca no principal.
 //
 // Trocar de funil segue sendo trocar, pelas rotas de sempre.
+//
+// Cada funil adicional é uma OPORTUNIDADE da mesma pessoa: tem setor, responsável
+// e desfecho próprios (o aluno ganho em Vendas atendido pela Secretaria). O
+// desfecho do card fica no card — nunca em `Lead.outcome`, que é o da venda e é o
+// que alimenta metas, conversões de anúncio e relatórios de marketing.
 
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -40,6 +45,12 @@ export interface VinculoDeFunil {
   entrouEm: Date
   saiuEm: Date | null
   outcome: string | null
+  /** Setor e responsável DESTE funil (no principal, os da ficha). */
+  teamId: number | null
+  teamName: string | null
+  assignedUserId: number | null
+  assignedUserName: string | null
+  origem: string | null
 }
 
 /**
@@ -55,8 +66,13 @@ export async function adicionarAoFunil(input: {
   origem?: string
   userId?: number | null
   userName?: string | null
+  /** Quem cuida do card neste funil. */
+  teamId?: number | null
+  assignedUserId?: number | null
 }): Promise<{ ok: true; stageKey: string | null } | { ok: false; erro: string }> {
   const { leadId, funnelId, origem = 'manual', userId = null, userName = null } = input
+  const teamId = input.teamId ?? null
+  const assignedUserId = input.assignedUserId ?? null
 
   const [lead, funil] = await Promise.all([
     prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, funnelId: true } }),
@@ -99,9 +115,13 @@ export async function adicionarAoFunil(input: {
 
   await prisma.leadFunnel.upsert({
     where: { leadId_funnelId: { leadId, funnelId } },
-    create: { leadId, funnelId, stageKey, principal: false, origem },
-    update: { stageKey, saiuEm: null, outcome: null, outcomeAt: null, origem },
+    create: { leadId, funnelId, stageKey, principal: false, origem, teamId, assignedUserId },
+    update: { stageKey, saiuEm: null, outcome: null, outcomeAt: null, lostReasonId: null, origem, teamId, assignedUserId, entrouEm: new Date() },
   })
+  // Entrada no funil conta na conversão DESTE funil (relatório lê as movimentações).
+  await prisma.leadStageMovement.create({
+    data: { leadId, fromFunnelId: null, fromStageKey: null, toFunnelId: funnelId, toStageKey: stageKey, movedByUserId: userId, source: origem, reason: 'funil adicional' },
+  }).catch(() => {})
 
   logEvent({
     leadId,
@@ -113,7 +133,7 @@ export async function adicionarAoFunil(input: {
     userId: userId ?? undefined,
     userName: userName ?? undefined,
     newValue: stageKey ?? undefined,
-    metadata: { funnelId, stageKey, adicional: true },
+    metadata: { funnelId, stageKey, adicional: true, teamId, assignedUserId },
   })
 
   return { ok: true, stageKey }
@@ -163,8 +183,11 @@ export async function moverEtapaNoFunil(input: {
   funnelId: number
   stageKey: string
   userId?: number | null
+  /** Ao cair numa etapa de perda: o motivo, se o operador informou. */
+  lostReasonId?: number | null
+  source?: string
 }): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const { leadId, funnelId, stageKey, userId = null } = input
+  const { leadId, funnelId, stageKey, userId = null, source = 'panel' } = input
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true } })
   if (lead?.funnelId === funnelId) {
     return { ok: false, erro: 'Para o funil principal use a movimentação normal do lead.' }
@@ -175,22 +198,36 @@ export async function moverEtapaNoFunil(input: {
     select: { id: true, saiuEm: true, stageKey: true },
   })
   if (!vinculo || vinculo.saiuEm !== null) return { ok: false, erro: 'Este lead não está nesse funil.' }
-  const etapa = await prisma.stage.findFirst({ where: { funnelId, key: stageKey }, select: { key: true } })
+  const etapa = await prisma.stage.findFirst({ where: { funnelId, key: stageKey }, select: { key: true, terminalKind: true } })
   if (!etapa) return { ok: false, erro: 'Essa etapa não existe neste funil.' }
   if (vinculo.stageKey === stageKey) return { ok: true }
 
-  await prisma.leadFunnel.update({ where: { id: vinculo.id }, data: { stageKey } })
+  // Etapa terminal decide o desfecho DESTE card (ganho/perdido aqui não é a
+  // venda da ficha). Sair de uma etapa terminal reabre o card.
+  const desfecho = etapa.terminalKind === 'won' || etapa.terminalKind === 'lost' ? etapa.terminalKind : null
+  await prisma.leadFunnel.update({
+    where: { id: vinculo.id },
+    data: {
+      stageKey,
+      outcome: desfecho,
+      outcomeAt: desfecho ? new Date() : null,
+      lostReasonId: desfecho === 'lost' ? (input.lostReasonId ?? null) : null,
+    },
+  })
+  await prisma.leadStageMovement.create({
+    data: { leadId, fromFunnelId: funnelId, fromStageKey: vinculo.stageKey, toFunnelId: funnelId, toStageKey: stageKey, movedByUserId: userId, source, reason: 'funil adicional' },
+  }).catch(() => {})
   logEvent({
     leadId,
     type: EVENT_TYPES.STATUS_CHANGED,
     category: 'lifecycle',
-    title: 'Etapa alterada em funil adicional',
-    source: 'panel',
+    title: desfecho === 'won' ? 'Ganho em funil adicional' : desfecho === 'lost' ? 'Perdido em funil adicional' : 'Etapa alterada em funil adicional',
+    source,
     actorType: userId ? 'operator' : 'system',
     userId: userId ?? undefined,
     oldValue: vinculo.stageKey ?? undefined,
     newValue: stageKey,
-    metadata: { funnelId, adicional: true },
+    metadata: { funnelId, adicional: true, ...(desfecho ? { outcome: desfecho } : {}) },
   })
   return { ok: true }
 }
@@ -207,7 +244,7 @@ export async function moverEtapaNoFunil(input: {
 export async function funisDoLead(leadId: number, incluirHistorico = false): Promise<VinculoDeFunil[]> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { funnelId: true, status: true, outcome: true, createdAt: true },
+    select: { funnelId: true, status: true, outcome: true, createdAt: true, teamId: true, assignedUserId: true },
   })
   if (!lead) return []
 
@@ -241,6 +278,14 @@ export async function funisDoLead(leadId: number, incluirHistorico = false): Pro
       : Promise.resolve(null),
   ])
   const nomeDaEtapa = new Map(etapas.map((e) => [`${e.funnelId}:${e.key}`, e.name]))
+  const idsEquipes = [lead.teamId, ...adicionais.map((a) => a.teamId)].filter((x): x is number => !!x)
+  const idsUsuarios = [lead.assignedUserId, ...adicionais.map((a) => a.assignedUserId)].filter((x): x is number => !!x)
+  const [equipes, usuarios] = await Promise.all([
+    idsEquipes.length ? prisma.team.findMany({ where: { id: { in: [...new Set(idsEquipes)] } }, select: { id: true, name: true } }) : [],
+    idsUsuarios.length ? prisma.user.findMany({ where: { id: { in: [...new Set(idsUsuarios)] } }, select: { id: true, name: true } }) : [],
+  ])
+  const nomeEquipe = new Map(equipes.map((t) => [t.id, t.name]))
+  const nomeUsuario = new Map(usuarios.map((u) => [u.id, u.name ?? '']))
 
   const lista: VinculoDeFunil[] = []
   if (lead.funnelId && funisPrincipais) {
@@ -253,6 +298,11 @@ export async function funisDoLead(leadId: number, incluirHistorico = false): Pro
       entrouEm: lead.createdAt,
       saiuEm: null,
       outcome: lead.outcome ?? null,
+      teamId: lead.teamId ?? null,
+      teamName: lead.teamId ? (nomeEquipe.get(lead.teamId) ?? null) : null,
+      assignedUserId: lead.assignedUserId ?? null,
+      assignedUserName: lead.assignedUserId ? (nomeUsuario.get(lead.assignedUserId) ?? null) : null,
+      origem: null,
     })
   }
   for (const a of adicionais) {
@@ -265,6 +315,11 @@ export async function funisDoLead(leadId: number, incluirHistorico = false): Pro
       entrouEm: a.entrouEm,
       saiuEm: a.saiuEm,
       outcome: a.outcome,
+      teamId: a.teamId,
+      teamName: a.teamId ? (nomeEquipe.get(a.teamId) ?? null) : null,
+      assignedUserId: a.assignedUserId,
+      assignedUserName: a.assignedUserId ? (nomeUsuario.get(a.assignedUserId) ?? null) : null,
+      origem: a.origem,
     })
   }
   return lista

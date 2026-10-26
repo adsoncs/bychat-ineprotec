@@ -22,6 +22,9 @@ export interface Team {
   conversasPrivadas?: boolean
   /** Funil da equipe: para onde o lead vai junto quando é mandado para ela. */
   funnelId?: number | null
+  /** Abertura automática: lead GANHO que passa para esta equipe ganha card neste funil. */
+  oportunidadeFunnelId?: number | null
+  oportunidadeStageKey?: string | null
   createdAt: string
   updatedAt: string
   memberCount?: number
@@ -39,6 +42,8 @@ export interface TeamInput {
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random' | undefined
   conversasPrivadas?: boolean | undefined
   funnelId?: number | null | undefined
+  oportunidadeFunnelId?: number | null | undefined
+  oportunidadeStageKey?: string | null | undefined
 }
 
 export interface EligibleUser {

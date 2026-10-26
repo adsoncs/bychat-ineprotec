@@ -686,16 +686,29 @@ export interface AssignTicketInput {
   userId?: number | null | undefined
   teamId?: number | null | undefined
   reason?: string | undefined
+  /** Funil na transferência: manter (padrão), mover o principal, ou acompanhar em outro funil. */
+  funilAcao?: 'manter' | 'mover' | 'acompanhar' | undefined
+  funnelId?: number | undefined
+  stageKey?: string | undefined
+}
+
+export interface AssignTicketResult {
+  ok: true
+  funil: { acao: string; funnelId: number; stageKey: string | null; erro?: string } | null
 }
 
 export function useAssignTicket() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ leadId, ...payload }: AssignTicketInput) =>
-      api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/assign`, payload),
+      api.post<AssignTicketResult>(`/atendimento/tickets/${leadId}/assign`, payload),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: ['tickets'] })
       void qc.invalidateQueries({ queryKey: ['ticket-info', vars.leadId] })
+      if (vars.funilAcao && vars.funilAcao !== 'manter') {
+        void qc.invalidateQueries({ queryKey: ['kanban'] })
+        void qc.invalidateQueries({ queryKey: ['ticket-funnel', vars.leadId] })
+      }
     },
   })
 }

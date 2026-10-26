@@ -791,7 +791,11 @@ export async function usersRoutes(app: FastifyInstance) {
     const { alcanceDePortais } = await import('../lib/portalAccess.js')
     const alc = await alcanceDePortais(user.userId, user.role)
     const acessoPortal = { recortado: !alc.todos && alc.restritos.length > 0 }
-    return { permissions, modules, acessoPortal }
+    // Ações sensíveis com nome próprio (ex.: opções da transferência): a tela
+    // esconde o que a pessoa não pode fazer.
+    const { capacidadesNomeadas } = await import('../services/papeisMotor.js')
+    const capacidades = await capacidadesNomeadas(user.userId, user.role).catch(() => [] as string[])
+    return { permissions, modules, acessoPortal, capacidades }
   })
 
   // ── GET /api/admin/module-permissions — Todas as permissões por role ──

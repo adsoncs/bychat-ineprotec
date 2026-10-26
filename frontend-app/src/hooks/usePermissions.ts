@@ -24,6 +24,8 @@ export interface MyPermissionsResponse {
   modules: ModuleDef[]
   /** Acesso por portal: `recortado` = vê só parte dos portais do Educacional. */
   acessoPortal?: { recortado: boolean }
+  /** Ações com nome próprio que o papel/pacotes liberam (ex.: 'transferencia.mover_funil'). */
+  capacidades?: string[]
 }
 
 export type PermAction = 'view' | 'create' | 'edit' | 'delete'
@@ -63,6 +65,18 @@ export function useCan(moduleId: string | undefined, action: PermAction = 'view'
   const perm = data.permissions[moduleId]
   if (!perm) return false
   return !!perm[ACTION_KEY[action]]
+}
+
+/**
+ * Ação com nome próprio (Papéis e acessos › Ações sensíveis). Diferente do
+ * `useCan`, NÃO libera enquanto carrega: são opções extras, que podem aparecer
+ * um instante depois sem atrapalhar — e mostrar e tirar seria pior.
+ */
+export function useCapacidade(id: string): boolean {
+  const role = useUserStore((s) => s.user?.role ?? null)
+  const { data } = useMyPermissions()
+  if (role === 'SUPERADMIN' || role === 'ADMIN') return true
+  return !!data?.capacidades?.includes(id)
 }
 
 /**

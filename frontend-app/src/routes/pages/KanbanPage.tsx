@@ -405,7 +405,8 @@ export function KanbanPage() {
       toast('Sem permissão para retroceder leads', 'danger')
       return
     }
-    move.mutate({ leadId: lead.id, status: targetStageKey }, {
+    const adicionalFunnelId = lead._funilAdicional ? (data.currentFunnelId ?? funnelId) : undefined
+    move.mutate({ leadId: lead.id, status: targetStageKey, ...(adicionalFunnelId ? { adicionalFunnelId } : {}) }, {
       onError: (err: unknown) => toast((err as Error).message, 'danger'),
     })
   }
@@ -450,7 +451,9 @@ export function KanbanPage() {
     })
     add({ id: 'funil', rotulo: 'Mover para outro funil…', icone: <GitFork size={I} />, aoEscolher: () => setMoving(lead) })
     add({ id: 'atividade', rotulo: 'Nova atividade', icone: <ListChecks size={I} />, aoEscolher: () => setActivityFor({ id: lead.id, label: leadLabel(lead), whatsapp: lead.whatsapp, email: lead.email }) })
-    if (!lead.outcome) {
+    // Card adicional: Ganho/Perdido daqui marcaria a FICHA (a venda), não este
+    // processo. O desfecho dele é a etapa terminal deste funil.
+    if (!lead.outcome && !lead._funilAdicional) {
       add({ id: 'ganho', rotulo: 'Marcar como Ganho', icone: <Trophy size={I} />, aoEscolher: () => setMarkWonFor(lead.id) })
       add({ id: 'perdido', rotulo: 'Marcar como Perdido', icone: <XCircle size={I} />, aoEscolher: () => setMarkLostFor(lead.id) })
     }
@@ -1105,7 +1108,9 @@ function LeadCard({
               {lead._funilAdicional && (
                 <span
                   class="shrink-0 text-fg-muted"
-                  title="Também está em outro funil, que é o processo principal deste lead"
+                  title={lead._resultadoDaFicha === 'won'
+                    ? 'Venda já ganha no funil principal — este card é outro atendimento da mesma pessoa'
+                    : 'Também está em outro funil, que é o processo principal deste lead'}
                 >
                   <GitFork size={11} />
                 </span>

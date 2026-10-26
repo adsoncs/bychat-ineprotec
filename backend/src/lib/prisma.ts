@@ -153,6 +153,55 @@ function avisarTrava(ids: number[], novoDono: number | null): void {
   console.warn(`[dono] troca automática barrada — ${ids.length} lead(s) mantêm o responsável (pedido: ${novoDono ?? 'sem dono'}; leads ${ids.slice(0, 10).join(', ')})`)
 }
 
+// ─── Lead: funil de entrada e troca de equipe ───
+// Registrado ANTES do middleware abaixo, então envolve ele: vê a gravação já
+// feita (com a trava de dono aplicada) e só então age.
+//
+// · funnelEntradaId: o funil em que o lead entrou, para os relatórios de
+//   aquisição. Gravado uma vez — mover o lead de funil depois não o tira do
+//   resultado da campanha que o trouxe.
+// · Troca de equipe de lead GANHO pode abrir um card no funil da nova equipe
+//   (services/oportunidadeAutomatica.ts). São 16 caminhos que gravam teamId;
+//   este é o único por onde todos passam.
+prisma.$use(async (params, next) => {
+  if (params.model !== 'Lead') return next(params)
+  const a = params.action
+
+  if (a === 'create' && params.args?.data && params.args.data.funnelId != null && params.args.data.funnelEntradaId == null) {
+    params.args.data.funnelEntradaId = params.args.data.funnelId
+  }
+
+  const data = a === 'update' || a === 'updateMany' ? params.args?.data : null
+  const trocaEquipe = !!data && 'teamId' in data
+  const trocaFunil = !!data && 'funnelId' in data
+  if (!trocaEquipe && !trocaFunil) return next(params)
+
+  const antes = await prisma.lead.findMany({
+    where: params.args?.where ?? {},
+    select: { id: true, teamId: true },
+  }).catch(() => [] as { id: number; teamId: number | null }[])
+  const result = await next(params)
+  if (!antes.length) return result
+  const ids = antes.map((l) => l.id)
+
+  // Fora da transação de quem gravou: ler/gravar por fora esperaria o lock dela.
+  setImmediate(() => {
+    if (trocaFunil) {
+      // SQL direto: ids são inteiros vindos do banco, e um updateMany passaria de
+      // novo por este middleware.
+      prisma.$executeRawUnsafe(
+        `UPDATE bychat_leads SET funnelEntradaId = funnelId WHERE funnelEntradaId IS NULL AND funnelId IS NOT NULL AND id IN (${ids.map(Number).join(',')})`,
+      ).catch(() => {})
+    }
+    if (trocaEquipe) {
+      import('../services/oportunidadeAutomatica.js')
+        .then((m) => m.aoTrocarDeEquipe(antes))
+        .catch((e) => console.error('[oportunidade]', e?.message || e))
+    }
+  })
+  return result
+})
+
 prisma.$use(async (params, next) => {
   if (params.model === 'Message' && (params.action === 'create' || params.action === 'createMany' || params.action === 'upsert')) {
     const d = params.action === 'upsert' ? params.args?.create : params.args?.data

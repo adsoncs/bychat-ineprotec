@@ -55,6 +55,11 @@ interface Adicional {
   etapaKey: string | null
   etapaNome: string | null
   entrouEm: string
+  /** Desfecho, equipe e responsável DESTE card (não os da ficha). */
+  outcome?: string | null
+  equipe?: string | null
+  responsavel?: string | null
+  origem?: string | null
 }
 
 interface Resposta {
@@ -104,6 +109,17 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
       void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
     },
     onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para adicionar', 'danger'),
+  })
+
+  // Etapa do card adicional: anda no próprio vínculo, sem tocar no principal.
+  const moverCard = useMutation({
+    mutationFn: ({ funnelId, stageKey }: { funnelId: number; stageKey: string }) =>
+      api.put<{ ok: true }>(`/atendimento/tickets/${leadId}/funnels/${funnelId}/stage`, { stageKey }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
+      void qc.invalidateQueries({ queryKey: ['kanban'] })
+    },
+    onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para mover', 'danger'),
   })
 
   const tirar = useMutation({
@@ -419,11 +435,39 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
           {adicionais.length > 0 && (
             <ul class="space-y-1">
               {adicionais.map((a) => (
-                <li key={a.funnelId} class="group flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1.5">
-                  <Target size={10} class="shrink-0 text-fg-muted" />
+                <li key={a.funnelId} class="group flex items-start gap-1.5 rounded-md bg-surface-2 px-2 py-1.5">
+                  <Target size={10} class="mt-0.5 shrink-0 text-fg-muted" />
                   <span class="min-w-0 flex-1 text-2xs">
-                    <span class="text-fg">{a.nome}</span>
-                    {a.etapaNome && <span class="text-fg-muted"> · {a.etapaNome}</span>}
+                    <span class="flex items-center gap-1">
+                      <span class="text-fg truncate">{a.nome}</span>
+                      {a.outcome === 'won' && <span class="shrink-0 rounded bg-success/15 px-1 text-3xs text-success">Concluído</span>}
+                      {a.outcome === 'lost' && <span class="shrink-0 rounded bg-danger/15 px-1 text-3xs text-danger">Perdido</span>}
+                    </span>
+                    {(a.equipe || a.responsavel) && (
+                      <span class="block text-fg-muted truncate">{[a.equipe, a.responsavel].filter(Boolean).join(' · ')}</span>
+                    )}
+                    {(() => {
+                      const etapas = funis.find((f) => f.id === a.funnelId)?.stages ?? []
+                      if (!permissoes.podeAvancar || etapas.length === 0) {
+                        return a.etapaNome ? <span class="block text-fg-muted">{a.etapaNome}</span> : null
+                      }
+                      return (
+                        <select
+                          class="mt-0.5 w-full rounded border border-border bg-surface px-1 py-0.5 text-2xs text-fg"
+                          value={a.etapaKey ?? ''}
+                          disabled={moverCard.isPending}
+                          aria-label={`Etapa em ${a.nome}`}
+                          onChange={(e) => {
+                            const stageKey = (e.target as HTMLSelectElement).value
+                            if (stageKey && stageKey !== a.etapaKey) moverCard.mutate({ funnelId: a.funnelId, stageKey })
+                          }}
+                        >
+                          {[...etapas].sort((x, y) => x.position - y.position).map((st) => (
+                            <option key={st.key} value={st.key}>{st.name}</option>
+                          ))}
+                        </select>
+                      )
+                    })()}
                   </span>
                   {permissoes.podeAvancar && (
                     <button

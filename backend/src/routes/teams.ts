@@ -28,6 +28,7 @@ const TEAM_SELECT = {
   id: true, name: true, slug: true, description: true,
   color: true, icon: true, active: true, position: true,
   routingMode: true, workingHoursEnabled: true, conversasPrivadas: true, funnelId: true,
+  oportunidadeFunnelId: true, oportunidadeStageKey: true,
   createdAt: true, updatedAt: true,
 }
 
@@ -153,6 +154,18 @@ export async function teamsRoutes(app: FastifyInstance) {
     if (body.conversasPrivadas !== undefined) data.conversasPrivadas = body.conversasPrivadas === true
     // Funil da equipe: equipe e funil andam juntos (services/encaminharEquipe.ts).
     if (body.funnelId !== undefined) data.funnelId = Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null
+    // Abertura automática: lead GANHO que passa para esta equipe ganha um card
+    // neste funil (services/oportunidadeAutomatica.ts). null = desligada.
+    if (body.oportunidadeFunnelId !== undefined) {
+      const fid = Number(body.oportunidadeFunnelId)
+      data.oportunidadeFunnelId = Number.isInteger(fid) && fid > 0 ? fid : null
+      let etapa = typeof body.oportunidadeStageKey === 'string' && body.oportunidadeStageKey.trim() ? body.oportunidadeStageKey.trim() : null
+      if (data.oportunidadeFunnelId && etapa && !await prisma.stage.findFirst({ where: { funnelId: data.oportunidadeFunnelId, key: etapa }, select: { id: true } })) {
+        return reply.code(400).send({ error: 'A etapa escolhida não pertence ao funil da abertura automática.' })
+      }
+      if (!data.oportunidadeFunnelId) etapa = null
+      data.oportunidadeStageKey = etapa
+    }
 
     try {
       const team = await prisma.team.update({

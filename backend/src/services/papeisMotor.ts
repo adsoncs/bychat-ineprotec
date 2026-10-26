@@ -263,3 +263,29 @@ export async function compararSombra(): Promise<{ pessoas: number; semPapel: num
   }
   return { pessoas: users.length, semPapel, divergencias: div }
 }
+
+/**
+ * Capacidades NOMEADAS do usuário (papel + pacotes). As básicas viram
+ * `ResolvedPerms` em `resolverNovo`; estas não têm onde caber lá e eram
+ * descartadas — por isso nenhuma rota conseguia checá-las.
+ *
+ * Administrador e Superadministrador têm todas: os papéis deles são de sistema,
+ * não editáveis, e ficariam presos sem as opções novas.
+ */
+export async function capacidadesNomeadas(userId: number, role: string): Promise<string[]> {
+  const { NOMEADAS } = await import('../lib/capacidades.js')
+  const nomeadas = NOMEADAS.map((n) => n.id)
+  if (role === 'ADMIN' || role === 'SUPERADMIN') return nomeadas
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { papel: { select: { capacidades: { select: { capacidade: true } } } }, pacotes: { select: { pacote: { select: { capacidades: { select: { capacidade: true } } } } } } },
+  })
+  const tem = new Set<string>()
+  for (const c of u?.papel?.capacidades ?? []) tem.add(c.capacidade)
+  for (const up of u?.pacotes ?? []) for (const c of up.pacote.capacidades) tem.add(c.capacidade)
+  return nomeadas.filter((id) => tem.has(id))
+}
+
+export async function temCapacidade(userId: number, role: string, id: string): Promise<boolean> {
+  return (await capacidadesNomeadas(userId, role)).includes(id)
+}

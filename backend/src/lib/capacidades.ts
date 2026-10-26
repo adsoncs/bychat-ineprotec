@@ -53,6 +53,10 @@ export const NOMEADAS: Array<Omit<Capacidade, 'tipo' | 'area'> & { area?: string
   { id: 'matricula.efetivar', nome: 'Efetivar matrícula no ERP', modulo: 'aca_matriculas', derivaDe: 'aca_matriculas.edit' },
   { id: 'lead.exportar', nome: 'Exportar leads', modulo: 'leads', derivaDe: 'leads.view' },
   { id: 'lead.transferir', nome: 'Transferir lead', modulo: 'leads', derivaDe: 'leads.edit' },
+  // Opções da transferência (cada empresa escolhe quem pode). Sem elas, transferir
+  // troca só equipe/operador e o lead fica no funil e na etapa em que está.
+  { id: 'transferencia.mover_funil', nome: 'Ao transferir, mover o lead de funil e etapa', modulo: 'leads' },
+  { id: 'transferencia.abrir_outro_funil', nome: 'Ao transferir, abrir o lead também em outro funil', modulo: 'leads' },
   { id: 'usuarios.gerenciar', nome: 'Gerenciar usuários', modulo: 'users', derivaDe: 'users.edit' },
   { id: 'papeis.gerenciar', nome: 'Gerenciar papéis, equipes e pacotes', modulo: 'users', derivaDe: 'users.edit' },
   { id: 'integracoes.configurar', nome: 'Configurar integrações', modulo: 'settings', derivaDe: 'settings.edit' },

@@ -173,6 +173,7 @@ import { formatRelative } from '@/lib/format'
 import { formatarTelefone } from '@/lib/telefone'
 import { toast } from '@/lib/toast'
 import { leadSourceLabel, isFormSource, baseLeadSource } from '@/lib/leadSourceLabels'
+import { TransferenciaFunil, type EscolhaFunil } from '@/components/routing/TransferenciaFunil'
 
 // As abas. O rótulo aqui é só o de fábrica: o nome exibido vem de
 // `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
@@ -4994,6 +4995,7 @@ function TransferModal({
   const [teamId, setTeamId] = useState<number | ''>(currentTeamId ?? '')
   const [userId, setUserId] = useState<number | ''>(currentUserId ?? '')
   const [reason, setReason] = useState('')
+  const [funil, setFunil] = useState<EscolhaFunil>({ acao: 'manter', funnelId: null, stageKey: null })
 
   const assign = useAssignTicket()
   const teams = destinosQ.data?.equipes ?? []
@@ -5011,13 +5013,26 @@ function TransferModal({
   }, [teamId, members.length])
 
   function handleSubmit() {
+    if (funil.acao !== 'manter' && !funil.funnelId) {
+      toast('Escolha o funil de destino', 'danger')
+      return
+    }
     assign.mutate({
       leadId,
       teamId: teamId === '' ? null : teamId,
       userId: userId === '' ? null : userId,
       reason: reason.trim() || undefined,
+      ...(funil.acao !== 'manter' && funil.funnelId
+        ? { funilAcao: funil.acao, funnelId: funil.funnelId, ...(funil.stageKey ? { stageKey: funil.stageKey } : {}) }
+        : {}),
     }, {
-      onSuccess: () => { toast('Lead transferido', 'success'); onClose() },
+      onSuccess: (r) => {
+        if (r.funil?.erro) toast(`Lead transferido, mas o funil não foi alterado: ${r.funil.erro}`, 'warning', 6000)
+        else toast(funil.acao === 'mover' ? 'Lead transferido e movido de funil'
+          : funil.acao === 'acompanhar' ? 'Lead transferido e aberto também no outro funil'
+            : 'Lead transferido', 'success')
+        onClose()
+      },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -5072,6 +5087,7 @@ function TransferModal({
             </option>
           ))}
         </Select>
+        <TransferenciaFunil leadId={leadId} valor={funil} onChange={setFunil} />
         <Textarea
           label="Motivo (opcional, fica no histórico)"
           value={reason}

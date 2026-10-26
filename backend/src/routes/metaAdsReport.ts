@@ -260,7 +260,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       campaignId: campaignId ? campaignId : { not: null },
       createdAt: { gte: dateFrom, lte: dateTo },
     }
-    if (funnelId) leadWhere.funnelId = funnelId
+    // Aquisição: o funil em que o lead ENTROU. Mover o lead de funil depois (ex.:
+    // na transferência) não o tira do resultado da campanha que o trouxe.
+    if (funnelId) leadWhere.funnelEntradaId = funnelId
 
     // CampaignCost.date é @db.Date (UTC midnight). Filtrar com limites em fuso
     // Brasil (03:00Z) descartava o 1º dia do período — usar limites em UTC do

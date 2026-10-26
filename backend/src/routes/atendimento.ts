@@ -2174,6 +2174,42 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         }
       }
 
+      // Funil na transferência. Padrão: o lead fica no funil e na etapa em que
+      // está (só troca equipe/operador). 'mover' troca o funil principal;
+      // 'acompanhar' abre um card no outro funil e mantém o principal intacto —
+      // o lead não vira outra ficha e não conta de novo no marketing.
+      // Cada empresa escolhe quem pode (Papéis e acessos).
+      const funilAcao: 'manter' | 'mover' | 'acompanhar' =
+        body.funilAcao === 'mover' || body.funilAcao === 'acompanhar' ? body.funilAcao : 'manter'
+      let funilDestino: { id: number; name: string } | null = null
+      let etapaDestino: string | null = null
+      if (funilAcao !== 'manter') {
+        const { temCapacidade } = await import('../services/papeisMotor.js')
+        const cap = funilAcao === 'mover' ? 'transferencia.mover_funil' : 'transferencia.abrir_outro_funil'
+        if (!await temCapacidade(user.userId, user.role, cap)) {
+          return reply.code(403).send({ error: funilAcao === 'mover'
+            ? 'Seu papel não permite mover o lead de funil na transferência.'
+            : 'Seu papel não permite abrir o lead em outro funil na transferência.' })
+        }
+        const fid = parseInt(body.funnelId)
+        const f = fid ? await prisma.funnel.findUnique({ where: { id: fid }, select: { id: true, name: true, active: true } }) : null
+        if (!f || !f.active) return reply.code(400).send({ error: 'Escolha um funil de destino ativo.' })
+        funilDestino = { id: f.id, name: f.name }
+        etapaDestino = typeof body.stageKey === 'string' && body.stageKey.trim() ? body.stageKey.trim() : null
+        if (etapaDestino && !await prisma.stage.findFirst({ where: { funnelId: f.id, key: etapaDestino }, select: { id: true } })) {
+          return reply.code(400).send({ error: 'A etapa escolhida não pertence a esse funil.' })
+        }
+        if (!etapaDestino) {
+          const primeira = await prisma.stage.findFirst({ where: { funnelId: f.id, active: true }, orderBy: { position: 'asc' }, select: { key: true } })
+          etapaDestino = primeira?.key ?? null
+          if (!etapaDestino) return reply.code(400).send({ error: `O funil "${f.name}" não tem etapas ativas.` })
+        }
+        const atual = await prisma.lead.findUnique({ where: { id: lid }, select: { funnelId: true } })
+        if (funilAcao === 'acompanhar' && atual?.funnelId === f.id) {
+          return reply.code(400).send({ error: `"${f.name}" já é o funil principal deste lead. Para trocar a etapa, use "Mover".` })
+        }
+      }
+
       const oldLabel = describeAssignment(lead.assignedUser, lead.team)
       const newLabel = describeAssignment(newUser, newTeam)
 
@@ -2240,7 +2276,37 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         }).catch(() => {})
       }
 
-      return { ok: true, lead: updated, reassignedCadenceActivities: reassignedCount }
+      let funil: { acao: string; funnelId: number; stageKey: string | null; erro?: string } | null = null
+      if (funilDestino && etapaDestino) {
+        const nomeOperador = getOperator(req).userName
+        if (funilAcao === 'mover') {
+          const { moveLeadStage } = await import('../services/leadStageMove.js')
+          await moveLeadStage({
+            leadId: lid, toFunnelId: funilDestino.id, toStageKey: etapaDestino,
+            source: 'transferencia', userId: user.userId,
+            reason: body.reason ? String(body.reason).slice(0, 255) : 'Transferência',
+          })
+          funil = { acao: 'mover', funnelId: funilDestino.id, stageKey: etapaDestino }
+        } else {
+          // Já tem card aberto nesse funil: passa a ser da equipe/operador destino.
+          const ativo = await prisma.leadFunnel.findFirst({ where: { leadId: lid, funnelId: funilDestino.id, saiuEm: null }, select: { id: true } })
+          if (ativo) {
+            await prisma.leadFunnel.update({ where: { id: ativo.id }, data: { teamId: newTeamId, assignedUserId: newUserId } })
+            funil = { acao: 'acompanhar', funnelId: funilDestino.id, stageKey: etapaDestino }
+          } else {
+            const { adicionarAoFunil } = await import('../services/leadFunnels.js')
+            const r = await adicionarAoFunil({
+              leadId: lid, funnelId: funilDestino.id, stageKey: etapaDestino, origem: 'transferencia',
+              userId: user.userId, userName: nomeOperador ?? null, teamId: newTeamId, assignedUserId: newUserId,
+            })
+            funil = r.ok
+              ? { acao: 'acompanhar', funnelId: funilDestino.id, stageKey: r.stageKey }
+              : { acao: 'acompanhar', funnelId: funilDestino.id, stageKey: null, erro: r.erro }
+          }
+        }
+      }
+
+      return { ok: true, lead: updated, reassignedCadenceActivities: reassignedCount, funil }
     } catch (err: any) {
       app.log.error(`Atendimento assign error: ${err.message}`)
       return reply.code(500).send({ error: err.message })
@@ -2651,6 +2717,11 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         etapaKey: v.stageKey,
         etapaNome: v.stageName,
         entrouEm: v.entrouEm.toISOString(),
+        // O card do outro funil tem dono e desfecho próprios.
+        outcome: v.outcome,
+        equipe: v.teamName,
+        responsavel: v.assignedUserName,
+        origem: v.origem,
       })),
       etapaAtual: lead.status ?? null,
       qualificado: !!lead.qualifiedAt,
@@ -2715,7 +2786,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     if (!stageKey) return reply.code(400).send({ error: 'Informe a etapa.' })
 
     const { moverEtapaNoFunil } = await import('../services/leadFunnels.js')
-    const r = await moverEtapaNoFunil({ leadId: lid, funnelId: parseInt(p.funnelId), stageKey, userId: user.userId })
+    const lostReasonId = Number((req.body as any)?.lostReasonId) || null
+    const r = await moverEtapaNoFunil({ leadId: lid, funnelId: parseInt(p.funnelId), stageKey, userId: user.userId, lostReasonId })
     if (!r.ok) return reply.code(400).send({ error: r.erro })
     return r
   })

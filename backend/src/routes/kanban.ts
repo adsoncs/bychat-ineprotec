@@ -42,6 +42,18 @@ export async function kanbanRoutes(app: FastifyInstance) {
       })
       const stageMap: Record<string, number> = {}
       stageCounts.forEach(sc => { stageMap[sc.status] = sc._count })
+      // Cards de funil adicional contam na coluna deles (mesma régua do quadro).
+      const adicionais = await prisma.leadFunnel.groupBy({
+        by: ['stageKey'],
+        where: { funnelId: f.id, saiuEm: null, lead: { funnelId: { not: f.id } } },
+        _count: true,
+      })
+      let totalAdicionais = 0
+      adicionais.forEach(a => {
+        if (!a.stageKey) return
+        stageMap[a.stageKey] = (stageMap[a.stageKey] || 0) + a._count
+        totalAdicionais += a._count
+      })
 
       return {
         id: f.id,
@@ -50,7 +62,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
         isDefault: f.isDefault,
         createdAt: f.createdAt,
         stageCount: f._count.stages,
-        leadCount: f._count.leads,
+        leadCount: f._count.leads + totalAdicionais,
         stages: f.stages.map(s => ({ ...s, leadCount: stageMap[s.key] || 0 }))
       }
     }))
@@ -98,19 +110,22 @@ export async function kanbanRoutes(app: FastifyInstance) {
       // O quadro de um funil mostra quem está nele — pelo funil principal
       // (`Lead.funnelId`, como sempre) OU por um vínculo adicional ativo. Sem o
       // segundo, colocar o lead "também" num funil não tinha efeito nenhum no
-      // Kanban, que é justamente onde o processo é trabalhado.
-      leadWhere.OR = [
-        { funnelId },
-        { leadFunnels: { some: { funnelId, saiuEm: null } } },
-      ]
+      // Kanban, que é justamente onde o processo é trabalhado. O OR é montado
+      // mais abaixo, com os filtros de cada card.
     }
 
     // Filtros compartilhados com /api/bychat/leads — Kanban respeita os mesmos
     // filtros aplicados pelo operador no SavedFiltersBar (scope='leads').
-    if (q.outcome === 'open') leadWhere.outcome = null
-    else if (q.outcome === 'won') leadWhere.outcome = 'won'
-    else if (q.outcome === 'lost') leadWhere.outcome = 'lost'
-    else if (q.outcome === 'classified') leadWhere.outcome = { in: ['won', 'lost'] }
+    //
+    // Resultado e responsável são do CARD: no funil principal, os da ficha; no
+    // card de funil adicional, os do vínculo (o aluno ganho em Vendas está
+    // "aberto" e com outro dono no card da Secretaria). Por isso entram em
+    // `card` e são aplicados nos dois ramos lá embaixo.
+    const card: { outcome?: any; assignedUserId?: any } = {}
+    if (q.outcome === 'open') card.outcome = null
+    else if (q.outcome === 'won') card.outcome = 'won'
+    else if (q.outcome === 'lost') card.outcome = 'lost'
+    else if (q.outcome === 'classified') card.outcome = { in: ['won', 'lost'] }
 
     if (q.aiScoreLabel && ['hot', 'warm', 'cold'].includes(q.aiScoreLabel)) {
       leadWhere.aiScoreLabel = q.aiScoreLabel
@@ -125,14 +140,14 @@ export async function kanbanRoutes(app: FastifyInstance) {
 
     if (q.assignedUserIds) {
       const ids = String(q.assignedUserIds).split(',').map((s: string) => parseInt(s.trim())).filter(Number.isInteger)
-      if (ids.length > 0) leadWhere.assignedUserId = { in: ids }
+      if (ids.length > 0) card.assignedUserId = { in: ids }
     } else if (q.assignedUserId === 'me') {
-      leadWhere.assignedUserId = user.userId
+      card.assignedUserId = user.userId
     } else if (q.assignedUserId) {
       const id = parseInt(String(q.assignedUserId))
-      if (Number.isInteger(id)) leadWhere.assignedUserId = id
+      if (Number.isInteger(id)) card.assignedUserId = id
     } else if (q.onlyUnassigned === '1') {
-      leadWhere.assignedUserId = null
+      card.assignedUserId = null
     }
 
     if (q.tagIds) {
@@ -146,24 +161,34 @@ export async function kanbanRoutes(app: FastifyInstance) {
       if (q.dateTo) leadWhere.createdAt.lte = new Date(q.dateTo + 'T23:59:59')
     }
 
-    if (q.search) {
-      leadWhere.OR = [
-        { empresa: { contains: q.search } },
-        { nome: { contains: q.search } },
-        { whatsapp: { contains: q.search } },
-        { email: { contains: q.search } },
-      ]
-    }
-
     // Reforma F1: scope efetivo do user no módulo 'leads'.
     const scopeWhere = await buildLeadAccessWhere(user.userId, user.role)
     const andClauses: any[] = []
     if (Object.keys(scopeWhere).length > 0) andClauses.push(scopeWhere)
+    // Busca entra no AND: antes ela SOBRESCREVIA o OR do funil e o quadro
+    // passava a mostrar leads de qualquer funil (e sumia com os adicionais).
+    if (q.search) {
+      andClauses.push({ OR: [
+        { empresa: { contains: q.search } },
+        { nome: { contains: q.search } },
+        { whatsapp: { contains: q.search } },
+        { email: { contains: q.search } },
+      ] })
+    }
     // Toggle "Ocultar perdidos": esconde outcome='lost', mantendo abertos (null) e
     // ganhos. Só aplica quando NÃO há filtro outcome explícito (o filtro vence).
     // OR explícito porque { not: 'lost' } no Prisma exclui linhas NULL.
-    if (q.hideLost === '1' && !q.outcome) {
-      andClauses.push({ OR: [{ outcome: null }, { outcome: { not: 'lost' } }] })
+    const semPerdidos = q.hideLost === '1' && !q.outcome
+    if (funnelId) {
+      // Cada ramo com os filtros do SEU card.
+      const doCard = { ...card, ...(semPerdidos ? { OR: [{ outcome: null }, { outcome: { not: 'lost' } }] } : {}) }
+      leadWhere.OR = [
+        { funnelId, ...doCard },
+        { leadFunnels: { some: { funnelId, saiuEm: null, ...doCard } } },
+      ]
+    } else {
+      Object.assign(leadWhere, card)
+      if (semPerdidos) andClauses.push({ OR: [{ outcome: null }, { outcome: { not: 'lost' } }] })
     }
     if (andClauses.length > 0) leadWhere.AND = andClauses
 
@@ -187,7 +212,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
           // aqui como adicional (o `status` do Lead é a etapa do principal, que
           // é outro funil e outra régua).
           funnelId: true,
-          ...(funnelId ? { leadFunnels: { where: { funnelId, saiuEm: null }, select: { stageKey: true, entrouEm: true } } } : {}),
+          ...(funnelId ? { leadFunnels: { where: { funnelId, saiuEm: null }, select: { stageKey: true, entrouEm: true, outcome: true, outcomeAt: true, assignedUserId: true, teamId: true } } } : {}),
         }
       }),
       prisma.kanbanPermission.findUnique({ where: { role: user.role as any } }),
@@ -257,6 +282,13 @@ export async function kanbanRoutes(app: FastifyInstance) {
       forms.forEach(f => { metaFormNames[f.formId] = f.formName })
     }
 
+    // Nomes dos donos dos cards adicionais (o include traz só o da ficha).
+    const idsDonos = [...new Set(leads.flatMap((l: any) => (l.leadFunnels ?? []).map((v: any) => v.assignedUserId)).filter(Boolean))] as number[]
+    const donos = new Map(
+      (idsDonos.length ? await prisma.user.findMany({ where: { id: { in: idsDonos } }, select: { id: true, name: true } }) : [])
+        .map((u) => [u.id, u.name ?? ''] as [number, string]),
+    )
+
     // Lead classificado (outcome=won/lost) permanece na etapa que o gestor escolheu —
     // o badge/cor no card sinaliza o estado sem o sistema impor uma coluna fixa.
     const grouped: Record<string, any[]> = {}
@@ -267,6 +299,14 @@ export async function kanbanRoutes(app: FastifyInstance) {
       const vinculo = (l as any).leadFunnels?.[0] ?? null
       const adicional = !!vinculo && (l as any).funnelId !== funnelId
       const etapaAqui = adicional ? (vinculo.stageKey ?? l.status) : l.status
+      // No card adicional, dono e resultado são os DESTE funil.
+      const doCard = adicional
+        ? {
+            outcome: vinculo.outcome ?? null, outcomeAt: vinculo.outcomeAt ?? null,
+            assignedUserId: vinculo.assignedUserId ?? null, teamId: vinculo.teamId ?? null,
+            assignedUser: vinculo.assignedUserId ? { id: vinculo.assignedUserId, name: donos.get(vinculo.assignedUserId) ?? '' } : null,
+          }
+        : {}
       // O atalho para Conversas só existe quando houve conversa de verdade, e
       // avisa quando ela está ABERTA (em atendimento ou retorno do contato) —
       // o resto é histórico, que também vale abrir, mas sem chamar atenção.
@@ -285,6 +325,9 @@ export async function kanbanRoutes(app: FastifyInstance) {
         // sem isso o operador cobra aqui um andamento que está sendo tocado em
         // outro funil.
         _funilAdicional: adicional,
+        // A venda (resultado da ficha) continua visível no card adicional.
+        _resultadoDaFicha: adicional ? (l.outcome ?? null) : undefined,
+        ...doCard,
         status: etapaAqui,
       }
       if (grouped[etapaAqui]) grouped[etapaAqui].push(enriched)

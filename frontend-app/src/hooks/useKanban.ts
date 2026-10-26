@@ -92,6 +92,8 @@ export interface KanbanLead {
   _naoLidas?: number
   /** Está neste quadro como funil ADICIONAL — o processo principal dele é outro. */
   _funilAdicional?: boolean
+  /** No card adicional: o resultado da FICHA (a venda), que não é o deste card. */
+  _resultadoDaFicha?: string | null
   // Lead Routing F6
   assignedUserId?: number | null
   assignedAt?: string | null
@@ -168,8 +170,12 @@ export function useMoveLeadStage(funnelId?: number) {
   const queryKey = ['kanban', funnelId ?? 'default']
 
   return useMutation({
-    mutationFn: ({ leadId, status }: { leadId: number; status: string }) =>
-      comJustificativa((justificativa) => api.put<{ ok: true }>(`/bychat/leads/${leadId}/status`, { status, ...(justificativa ? { justificativa } : {}) })),
+    // Card de funil ADICIONAL anda no próprio vínculo: a rota de status move o
+    // funil PRINCIPAL e, com a mesma chave de etapa nos dois, movia o errado.
+    mutationFn: ({ leadId, status, adicionalFunnelId }: { leadId: number; status: string; adicionalFunnelId?: number }) =>
+      adicionalFunnelId
+        ? api.put<{ ok: true }>(`/atendimento/tickets/${leadId}/funnels/${adicionalFunnelId}/stage`, { stageKey: status })
+        : comJustificativa((justificativa) => api.put<{ ok: true }>(`/bychat/leads/${leadId}/status`, { status, ...(justificativa ? { justificativa } : {}) })),
     onMutate: async ({ leadId, status }) => {
       await qc.cancelQueries({ queryKey })
       const prev = qc.getQueryData<KanbanBoardResponse>(queryKey)
@@ -196,8 +202,11 @@ export function useMoveLeadStage(funnelId?: number) {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(queryKey, ctx.prev)
     },
-    onSettled: () => {
+    onSettled: (_d, _e, vars) => {
       void qc.invalidateQueries({ queryKey })
+      // O quadro usa ['kanban', filtros]: o prefixo acima não o alcança.
+      void qc.invalidateQueries({ queryKey: ['kanban'] })
+      if (vars.adicionalFunnelId) void qc.invalidateQueries({ queryKey: ['ticket-funnel', vars.leadId] })
     },
   })
 }
