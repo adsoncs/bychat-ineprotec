@@ -44,6 +44,10 @@ export interface MapaOferta {
   condicoesPorParcelas?: Record<string, string>
   /** Polo do SEI por polo (Campus) do portal: { "<campusId>": "<codigoUnidadeEnsinoPolo>" }. */
   polos?: Record<string, string>
+  /** Turma do SEI por polo (Campus) do portal: { "<campusId>": "<codigoTurma>" }. Sem polo, vale codigoTurma. */
+  turmasPorPolo?: Record<string, string>
+  /** Forma de ingresso do SEI (vestibular, ENEM, portador de diploma…), enviada no NE014. */
+  formaIngresso?: string
   cupomDesconto?: string
 }
 
@@ -238,7 +242,10 @@ export async function previa(registrationId: number): Promise<PreviaSei> {
   const reg = await carregarInscricao(registrationId)
   const offeringId = reg.processRegistration?.offeringId ?? null
   const oferta = offeringId ? await prisma.courseOffering.findUnique({ where: { id: offeringId }, select: { id: true, nome: true } }) : null
-  const mapa = offeringId ? await mapaDaOferta(offeringId) : null
+  const campusId = limpo((reg.formData as any)?.campusId)
+  const mapaBruto = offeringId ? await mapaDaOferta(offeringId) : null
+  // A turma pode variar por polo; daqui em diante o mapa já vem com a turma do polo escolhido.
+  const mapa = mapaBruto && { ...mapaBruto, codigoTurma: limpo(mapaBruto.turmasPorPolo?.[campusId]) || limpo(mapaBruto.codigoTurma) }
   const { pessoa } = await montarPessoa(reg, cfg.camposExtras)
   const pend: string[] = []
   const avisos: string[] = []
@@ -251,7 +258,6 @@ export async function previa(registrationId: number): Promise<PreviaSei> {
       if (!limpo(mapa[k])) pend.push(`De-para da oferta sem ${rot}.`)
     }
     if (!condicaoEscolhida(mapa, reg.paymentPlan)) pend.push('De-para da oferta sem condição de pagamento.')
-    const campusId = limpo((reg.formData as any)?.campusId)
     if (campusId && mapa.polos && Object.keys(mapa.polos).length && !limpo(mapa.polos[campusId])) {
       pend.push(`Polo escolhido (#${campusId}) sem de-para com o polo do SEI.`)
     }
@@ -374,6 +380,7 @@ async function processarSemTrava(envioId: number): Promise<void> {
         ...(limpo(mapa.ano) ? { ano: limpo(mapa.ano) } : {}),
         ...(limpo(mapa.semestre) ? { semestre: limpo(mapa.semestre) } : {}),
         ...(polo ? { codigoUnidadeEnsinoPolo: polo } : {}),
+        ...(limpo(mapa.formaIngresso) ? { formaIngresso: limpo(mapa.formaIngresso) } : {}),
         cupomDesconto: limpo(mapa.cupomDesconto),
         pessoa: { ...(dados?.pessoa ?? {}), ...pv.pessoa, codigo: pessoaCod, codigoCurso: limpo(mapa.codigoCurso) },
       }

@@ -260,7 +260,7 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
     // Só textos curtos (códigos) e os dois dicionários conhecidos.
     const limpo: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(dados)) {
-      if (k === 'condicoesPorParcelas' || k === 'polos') {
+      if (k === 'condicoesPorParcelas' || k === 'polos' || k === 'turmasPorPolo') {
         if (v && typeof v === 'object') {
           limpo[k] = Object.fromEntries(Object.entries(v as any).map(([a, b]) => [String(a), String(b ?? '').trim()]).filter(([, b]) => b))
         }

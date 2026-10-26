@@ -60,6 +60,7 @@ interface MapaOferta {
   codigoGradeCurricular?: string; codigoTurma?: string; numeroPeriodoLetivo?: string
   codigoProcessoMatricula?: string; ano?: string; semestre?: string; codigoCondicaoPagamento?: string
   condicoesPorParcelas?: Record<string, string>; polos?: Record<string, string>; cupomDesconto?: string
+  turmasPorPolo?: Record<string, string>; formaIngresso?: string
 }
 
 interface OfertaRow {
@@ -303,13 +304,14 @@ function DePara() {
 const CAMPOS_OFERTA: Array<[keyof MapaOferta, string, keyof OpcoesSei | null]> = [
   ['codigoUnidadeEnsino', 'Unidade de ensino', 'unidades'],
   ['codigoTurno', 'Turno', 'turnos'],
-  ['codigoTurma', 'Turma', 'turmas'],
+  ['codigoTurma', 'Turma (padrão)', 'turmas'],
   ['codigoProcessoMatricula', 'Processo de matrícula', 'processos'],
   ['codigoCondicaoPagamento', 'Condição de pagamento (padrão)', 'condicoes'],
   ['codigoGradeCurricular', 'Grade curricular (opcional)', null],
   ['numeroPeriodoLetivo', 'Nº do período letivo', null],
   ['ano', 'Ano (semestral/anual)', null],
   ['semestre', 'Semestre (semestral)', null],
+  ['formaIngresso', 'Forma de ingresso (opcional)', null],
   ['cupomDesconto', 'Cupom de desconto (opcional)', null],
 ]
 
@@ -324,7 +326,9 @@ function OfertaDePara({ oferta, aberta, onToggle, catalogo, pessoaTeste, onSalvo
   const [buscando, setBuscando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const set = (k: keyof MapaOferta, v: string) => setM({ ...m, [k]: v })
-  const completa = !!(m.codigoCurso && m.codigoBanner && m.codigoUnidadeEnsino && m.codigoTurno && m.codigoTurma && m.codigoProcessoMatricula && m.codigoCondicaoPagamento)
+  const completa = !!(m.codigoCurso && m.codigoBanner && m.codigoUnidadeEnsino && m.codigoTurno
+    && (m.codigoTurma || (oferta.polos.length > 0 && oferta.polos.every((p) => m.turmasPorPolo?.[String(p.id)])))
+    && m.codigoProcessoMatricula && m.codigoCondicaoPagamento)
 
   async function buscarOpcoes() {
     if (!m.codigoCurso || !m.codigoBanner) { toast('Escolha o curso/banner do SEI primeiro.', 'warning'); return }
@@ -405,11 +409,16 @@ function OfertaDePara({ oferta, aberta, onToggle, catalogo, pessoaTeste, onSalvo
           />
           {oferta.polos.length > 0 && (
             <div class="space-y-2">
-              <div class="text-xs font-medium text-fg">Polos (código da unidade-polo no SEI)</div>
+              <div class="text-xs font-medium text-fg">Polos (código da unidade-polo e turma no SEI)</div>
+              <div class="text-xs text-fg-muted">Turma em branco: vale a turma padrão da oferta.</div>
               <div class="grid gap-3 sm:grid-cols-3">
                 {oferta.polos.map((p) => (
-                  <Input key={p.id} label={p.nome} value={m.polos?.[String(p.id)] ?? ''}
-                    onInput={(e) => setM({ ...m, polos: { ...(m.polos ?? {}), [String(p.id)]: valor(e) } })} />
+                  <div key={p.id} class="space-y-2">
+                    <Input label={p.nome} value={m.polos?.[String(p.id)] ?? ''} placeholder="unidade-polo"
+                      onInput={(e) => setM({ ...m, polos: { ...(m.polos ?? {}), [String(p.id)]: valor(e) } })} />
+                    <Input label={`Turma — ${p.nome}`} value={m.turmasPorPolo?.[String(p.id)] ?? ''} placeholder={m.codigoTurma || 'turma'}
+                      onInput={(e) => setM({ ...m, turmasPorPolo: { ...(m.turmasPorPolo ?? {}), [String(p.id)]: valor(e) } })} />
+                  </div>
                 ))}
               </div>
             </div>
