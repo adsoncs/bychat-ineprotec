@@ -759,7 +759,10 @@ export async function assinarContratoDaInscricao(p: { registrationId: number; no
     userAgent: String(p.userAgent || '').slice(0, 300), em: new Date().toISOString(),
     plano: { valorTotalCentavos: c.valorTotalCentavos, numParcelas: c.numParcelas, valorParcelaCentavos: c.valorParcelaCentavos },
   }
-  const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${p.registrationId} AND contratoAceite IS NULL`
+  // "Sem aceite" é o campo vazio OU um null gravado como JSON (Prisma grava
+  // `contratoAceite: null` assim). Só IS NULL deixava o aceite de quem assinou
+  // de novo sem gravar — fabad, 22/10, contratos reassinados após troca do texto.
+  const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${p.registrationId} AND (contratoAceite IS NULL OR JSON_TYPE(contratoAceite) = 'NULL')`
   if (Number(n) > 0) (await import('./funilDaJornada.js')).sincronizarFunil(p.registrationId)
   return { ok: true, jaAssinado: Number(n) === 0 }
 }

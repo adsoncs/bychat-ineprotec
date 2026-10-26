@@ -578,7 +578,10 @@ export async function aceiteDaInscricaoPeloEnvelope(envelopeId: number): Promise
     via: env.provider, envelopeId: env.id,
     plano: dados?.plano ?? null,
   }
-  const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${env.registrationId} AND contratoAceite IS NULL`
+  // "Sem aceite" é o campo vazio OU um null gravado como JSON (Prisma grava
+  // `contratoAceite: null` assim). Só IS NULL deixava o aceite de quem assinou
+  // de novo sem gravar — fabad, 22/10, contratos reassinados após troca do texto.
+  const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${env.registrationId} AND (contratoAceite IS NULL OR JSON_TYPE(contratoAceite) = 'NULL')`
   if (Number(n) > 0) {
     ;(await import('./funilDaJornada.js')).sincronizarFunil(env.registrationId)
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: env.registrationId }, select: { leadId: true, candidateCode: true } })
