@@ -259,7 +259,7 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
       // O Instagram não formata *negrito*/_itálico_ do WhatsApp: os marcadores
       // (prefixo do operador, assinatura) chegariam crus ao contato.
       const textoDM = finalTextBody.replace(/\*([^*\n]+)\*/g, '$1').replace(/(^|\s)_([^_\n]+)_(?=\s|$)/gm, '$1$2')
-      const r = await sendInstagramDM(igRecipient, textoDM, { withinWindow, attachment })
+      const r = await sendInstagramDM(igRecipient, textoDM, { withinWindow, attachment, lead })
       sentProvider = igChannel
       sentExternalId = r.messageId
       sendError = r.error

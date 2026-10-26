@@ -19,7 +19,11 @@ import {
   useInstagramSendTest,
   useInstagramWebhookInfo,
   useInstagramRecentRecipients,
+  useUpdateInstagramAccount,
+  type InstagramAccount,
 } from '@/hooks/useInstagram'
+import { useTeams } from '@/hooks/useTeams'
+import { useFunnels, useStages } from '@/hooks/useFunnels'
 import { useUserStore } from '@/stores/user'
 import { InstagramSignupModal } from '@/components/InstagramSignupModal'
 import { toast } from '@/lib/toast'
@@ -50,6 +54,8 @@ export function InstagramPage() {
   const [signupOpen, setSignupOpen] = useState(false)
   const [testOpen, setTestOpen] = useState(false)
   const [disconnectOpen, setDisconnectOpen] = useState(false)
+  // Conta a desconectar no fluxo via Facebook (cada empresa tem a sua).
+  const [disconnectPageId, setDisconnectPageId] = useState<string | null>(null)
   const disconnect = useDisconnectInstagram()
   const disconnectV2 = useDisconnectInstagramBusinessLogin()
   const oauthStart = useInstagramOAuthStartUrl()
@@ -95,6 +101,7 @@ export function InstagramPage() {
   }
 
   const isV2 = data?.flow === 'instagram_business_login'
+  const contas = !isV2 ? (data?.connections ?? []) : []
 
   return (
     <Page
@@ -110,9 +117,12 @@ export function InstagramPage() {
               <Button variant="secondary" size="sm" onClick={() => setTestOpen(true)}>
                 <Send size={14} /> Enviar teste
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setDisconnectOpen(true)}>
-                <Trash2 size={14} /> Desconectar
-              </Button>
+              {/* Via Facebook cada conta tem o próprio botão, no cartão dela. */}
+              {isV2 && (
+                <Button variant="ghost" size="sm" onClick={() => setDisconnectOpen(true)}>
+                  <Trash2 size={14} /> Desconectar
+                </Button>
+              )}
             </>
           ) : (
             <Button variant="primary" size="sm" onClick={startBusinessLoginConnect}>
@@ -136,7 +146,26 @@ export function InstagramPage() {
         <OAuthConfigModal onClose={() => setConfigOpen(false)} />
       )}
 
-      {!isLoading && data?.connected && (
+      {!isLoading && data?.connected && !isV2 && contas.length > 0 && (
+        <div class="space-y-3">
+          {contas.length > 1 && (
+            <p class="text-xs text-fg-muted">
+              {contas.length} contas conectadas. Cada uma é de uma empresa: a DM nova entra no setor e no funil
+              da conta que recebeu, e a resposta sai sempre por ela.
+            </p>
+          )}
+          {contas.map((c) => (
+            <ContaInstagramCard
+              key={c.pageId}
+              conta={c}
+              podeEditar={isAdmin}
+              onDisconnect={() => { setDisconnectPageId(c.pageId); setDisconnectOpen(true) }}
+            />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && data?.connected && (isV2 || contas.length === 0) && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -266,28 +295,34 @@ export function InstagramPage() {
       {disconnectOpen && (
         <ConfirmDialog
           open
-          onOpenChange={(o) => !o && setDisconnectOpen(false)}
-          title="Desconectar Instagram?"
+          onOpenChange={(o) => { if (!o) { setDisconnectOpen(false); setDisconnectPageId(null) } }}
+          title={(() => {
+            const c = contas.find((x) => x.pageId === disconnectPageId)
+            return c ? `Desconectar @${c.igUsername}?` : 'Desconectar Instagram?'
+          })()}
           description={
             isV2
               ? 'O token será descartado. Para voltar a receber mensagens, conecte novamente.'
-              : 'O webhook será desinscrito. As conversas existentes ficam preservadas; só não receberemos novas DMs até reconectar.'
+              : 'O webhook desta conta será desinscrito. As conversas existentes ficam preservadas e as outras contas continuam conectadas.'
           }
           destructive
           confirmLabel="Desconectar"
           loading={isV2 ? disconnectV2.isPending : disconnect.isPending}
           onConfirm={() => {
-            const m = isV2 ? disconnectV2 : disconnect
-            m.mutate(undefined, {
+            const fim = {
               onSuccess: () => {
                 toast('Instagram desconectado', 'success')
                 setDisconnectOpen(false)
+                setDisconnectPageId(null)
               },
               onError: (e: unknown) => {
                 toast((e as Error).message, 'danger')
                 setDisconnectOpen(false)
+                setDisconnectPageId(null)
               },
-            })
+            }
+            if (isV2) disconnectV2.mutate(undefined, fim)
+            else disconnect.mutate(disconnectPageId ?? undefined, fim)
           }}
         />
       )}
@@ -334,6 +369,113 @@ export function InstagramPage() {
   )
 }
 
+/** Uma conta (via Facebook) e a empresa dela: setor e funil em que a DM nova entra. */
+function ContaInstagramCard({
+  conta,
+  podeEditar,
+  onDisconnect,
+}: {
+  conta: InstagramAccount
+  podeEditar: boolean
+  onDisconnect: () => void
+}) {
+  const { data: teamsData } = useTeams()
+  const { data: funnelsData } = useFunnels()
+  const salvar = useUpdateInstagramAccount()
+  const [teamId, setTeamId] = useState<number | null>(conta.defaultTeamId)
+  const [funnelId, setFunnelId] = useState<number | null>(conta.funnelId)
+  const [stageKey, setStageKey] = useState<string | null>(conta.stageKey)
+  const { data: stagesData } = useStages(funnelId)
+  const mudou = teamId !== conta.defaultTeamId || funnelId !== conta.funnelId || stageKey !== conta.stageKey
+  const teams = (teamsData?.teams ?? []).filter((t) => t.active !== false)
+  const funnels = (funnelsData?.funnels ?? []).filter((f) => f.active)
+  const stages = funnelId ? (stagesData?.stages ?? []) : []
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <span class="inline-flex items-center gap-2">
+            <InstagramLogo size={16} />
+            @{conta.igUsername || conta.pageName}
+          </span>
+        </CardTitle>
+        <div class="flex items-center gap-2">
+          <Badge tone={conta.active ? 'success' : 'neutral'}>
+            {conta.active ? <><CheckCircle size={10} class="mr-0.5 inline" /> Ativo</> : 'Inativo'}
+          </Badge>
+          {podeEditar && (
+            <Button variant="ghost" size="sm" onClick={onDisconnect}>
+              <Trash2 size={14} /> Desconectar
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <TokenExpiryAlert tokenExpiresAt={conta.tokenExpiresAt} tokenType={conta.tokenType} onReconnect={() => {}} />
+      <div class="grid gap-2 grid-cols-1 sm:grid-cols-2 text-xs">
+        <Field label="Página Facebook" value={conta.pageName || '—'} />
+        <Field label="Page ID" value={conta.pageId} mono />
+      </div>
+
+      <div class="mt-3 pt-3 border-t border-border">
+        <div class="text-3xs uppercase tracking-wider text-fg-muted mb-2">Empresa desta conta (DMs novas)</div>
+        <div class="grid gap-2 grid-cols-1 sm:grid-cols-3">
+          <Select
+            label="Setor"
+            value={teamId ?? ''}
+            disabled={!podeEditar}
+            onChange={(e) => setTeamId(Number((e.target as HTMLSelectElement).value) || null)}
+          >
+            <option value="">Regras gerais de roteamento</option>
+            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </Select>
+          <Select
+            label="Funil"
+            value={funnelId ?? ''}
+            disabled={!podeEditar}
+            onChange={(e) => { setFunnelId(Number((e.target as HTMLSelectElement).value) || null); setStageKey(null) }}
+          >
+            <option value="">Funil padrão</option>
+            {funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+          <Select
+            label="Etapa de entrada"
+            value={stageKey ?? ''}
+            disabled={!podeEditar || !funnelId}
+            onChange={(e) => setStageKey((e.target as HTMLSelectElement).value || null)}
+          >
+            <option value="">{funnelId ? 'Primeira etapa do funil' : '—'}</option>
+            {stages.filter((s) => s.active !== false).map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
+          </Select>
+        </div>
+        <p class="text-2xs text-fg-muted mt-2">
+          Vale para quem escrever pela primeira vez. Quem já tem ficha continua onde está.
+        </p>
+        {podeEditar && mudou && (
+          <div class="flex justify-end mt-2">
+            <Button
+              size="sm"
+              variant="primary"
+              loading={salvar.isPending}
+              onClick={() =>
+                salvar.mutate(
+                  { pageId: conta.pageId, defaultTeamId: teamId, funnelId, stageKey },
+                  {
+                    onSuccess: () => toast(`@${conta.igUsername}: empresa salva`, 'success'),
+                    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                  },
+                )
+              }
+            >
+              Salvar
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
@@ -354,7 +496,7 @@ function TokenExpiryAlert({
 }) {
   // 0 ou null = nunca expira (System User token)
   if (!tokenExpiresAt) {
-    if (tokenType === 'SYSTEM') {
+    if (tokenType === 'SYSTEM' || tokenType === 'system_user') {
       return (
         <div class="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 p-2 text-2xs text-fg-muted my-2">
           <CheckCircle size={12} class="text-success shrink-0" />

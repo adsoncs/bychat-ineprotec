@@ -108,26 +108,86 @@ interface InstagramConnection {
   tokenExpiresAt?: number
   /** "user" | "long_lived" | "system_user" | "page" */
   tokenType?: string
+  /** Empresa da conta: setor que recebe a DM nova (vence as regras gerais). */
+  defaultTeamId?: number | null
+  /** Funil e etapa em que a ficha nova nasce. Etapa vazia = 1ª do funil. */
+  funnelId?: number | null
+  stageKey?: string | null
 }
 
-async function loadConnection(): Promise<InstagramConnection | null> {
-  const row = await prisma.setting.findUnique({ where: { key: SETTING_KEY } })
+// Um tenant pode ter várias contas (uma por empresa — ex.: ineprotec com
+// @ineprotec e @matricula_ead). A lista mora em SETTING_KEY_LISTA; SETTING_KEY
+// continua guardando a primeira, para quem ainda lê a conexão única
+// (statusIntegracoes) e para instalações que nunca tiveram a lista.
+const SETTING_KEY_LISTA = 'instagram.connections'
+
+function lerJson(row: { value: unknown } | null): any {
   if (!row) return null
   try {
-    const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
-    return parsed as InstagramConnection
+    return typeof row.value === 'string' ? JSON.parse(row.value) : row.value
   } catch {
     return null
   }
 }
 
-async function saveConnection(conn: InstagramConnection): Promise<void> {
-  const value = JSON.stringify(conn)
+export async function loadConnections(): Promise<InstagramConnection[]> {
+  const lista = lerJson(await prisma.setting.findUnique({ where: { key: SETTING_KEY_LISTA } }))
+  if (Array.isArray(lista)) return lista.filter((c) => c?.pageId)
+  const unica = lerJson(await prisma.setting.findUnique({ where: { key: SETTING_KEY } }))
+  return unica?.pageId ? [unica] : []
+}
+
+async function saveConnections(lista: InstagramConnection[]): Promise<void> {
+  const value = JSON.stringify(lista)
   await prisma.setting.upsert({
-    where: { key: SETTING_KEY },
+    where: { key: SETTING_KEY_LISTA },
     update: { value },
-    create: { key: SETTING_KEY, value, label: 'Instagram connection', grp: 'channels', fieldType: 'json' },
+    create: { key: SETTING_KEY_LISTA, value, label: 'Instagram connections', grp: 'channels', fieldType: 'json' },
   })
+  if (lista[0]) {
+    const unica = JSON.stringify(lista[0])
+    await prisma.setting.upsert({
+      where: { key: SETTING_KEY },
+      update: { value: unica },
+      create: { key: SETTING_KEY, value: unica, label: 'Instagram connection', grp: 'channels', fieldType: 'json' },
+    })
+  } else {
+    await prisma.setting.delete({ where: { key: SETTING_KEY } }).catch(() => {})
+  }
+}
+
+/** Conecta (ou reconecta) uma conta sem derrubar as outras; mantém setor e funil já escolhidos. */
+async function saveConnection(conn: InstagramConnection): Promise<void> {
+  const lista = await loadConnections()
+  const i = lista.findIndex((c) => c.pageId === conn.pageId)
+  if (i >= 0) {
+    const { defaultTeamId, funnelId, stageKey } = lista[i]
+    lista[i] = { defaultTeamId, funnelId, stageKey, ...conn }
+  } else {
+    lista.push(conn)
+  }
+  await saveConnections(lista)
+}
+
+/** Conta padrão: a primeira ativa. Para quem não sabe de qual conta se trata. */
+async function loadConnection(): Promise<InstagramConnection | null> {
+  return (await loadConnections()).find((c) => c.active) ?? null
+}
+
+/** Conta dona de um evento do webhook: entry.id é a Página (Messenger) ou a conta IG. */
+function contaDoEvento(lista: InstagramConnection[], entryId: string): InstagramConnection | null {
+  return lista.find((c) => c.active && (String(c.pageId) === entryId || String(c.igUserId) === entryId)) ?? null
+}
+
+/**
+ * Conta pela qual a conversa do lead acontece: a que recebeu a 1ª DM (gravada
+ * na ficha). Ficha anterior a existir mais de uma conta não tem a marca: fica
+ * com a conta padrão, que era a única quando ela nasceu.
+ */
+export async function contaDoLead(lead: { formData?: any } | null): Promise<InstagramConnection | null> {
+  const lista = await loadConnections()
+  const pageId = (lead?.formData as any)?.instagramPageId
+  return (pageId && lista.find((c) => c.active && String(c.pageId) === String(pageId))) || lista.find((c) => c.active) || null
 }
 
 /**
@@ -218,7 +278,7 @@ export async function canalSocialDoLead(leadId: number): Promise<CanalSocial | n
     orderBy: { timestamp: 'desc' },
     select: { timestamp: true },
   })
-  const conn = await loadConnection().catch(() => null)
+  const conn = await contaDoLead(lead).catch(() => null)
   const conta = dest.provider === 'instagram'
     ? (conn?.igUsername ? `@${conn.igUsername}` : null)
     : (conn?.pageName || null)
@@ -249,9 +309,11 @@ export async function canalSocialDoLead(leadId: number): Promise<CanalSocial | n
 export async function sendInstagramDM(
   recipientId: string,
   text: string,
-  opts?: { withinWindow?: boolean; attachment?: { type: string; url: string } },
+  opts?: { withinWindow?: boolean; attachment?: { type: string; url: string }; lead?: { formData?: any } | null },
 ): Promise<{ messageId: string | null; error: string | null }> {
-  const conn = await loadConnection()
+  // Sai pela conta que recebeu a conversa: o IGSID/PSID do contato só vale
+  // dentro da conta dele — por outra a Meta nem acha o destinatário.
+  const conn = opts?.lead ? await contaDoLead(opts.lead) : await loadConnection()
   if (!conn) return { messageId: null, error: 'Instagram não conectado' }
   const within = opts?.withinWindow !== false
   // Mídia: a Meta baixa a URL pública (precisa ser absoluta e acessível).
@@ -296,10 +358,11 @@ function lembrarEnvioDoPainel(mid: string): void {
 export async function fetchSenderProfile(
   senderId: string,
   channel: 'instagram' | 'messenger',
+  conta?: InstagramConnection | null,
 ): Promise<{ name: string | null; username: string | null; profilePic: string | null }> {
   const empty = { name: null, username: null, profilePic: null }
   try {
-    const conn = await loadConnection()
+    const conn = conta ?? await loadConnection()
     if (!conn) return empty
     if (channel === 'messenger') {
       const r = await fb(`/${senderId}?fields=first_name,last_name,profile_pic`, conn.pageAccessToken)
@@ -426,20 +489,61 @@ export async function instagramRoutes(app: FastifyInstance) {
         scopes: v2.scopes,
       }
     }
-    const conn = await loadConnection()
+    const lista = await loadConnections()
+    const conn = lista.find((c) => c.active) ?? lista[0]
     if (!conn) return { connected: false }
+    // Nunca devolve token: a tela só precisa saber de quem é a conta e para onde vai.
+    const semToken = (c: InstagramConnection) => ({
+      pageId: c.pageId,
+      pageName: c.pageName,
+      igUserId: c.igUserId,
+      igUsername: c.igUsername,
+      active: c.active,
+      connectedAt: c.connectedAt,
+      tokenExpiresAt: c.tokenExpiresAt ?? null,
+      tokenType: c.tokenType ?? null,
+      defaultTeamId: c.defaultTeamId ?? null,
+      funnelId: c.funnelId ?? null,
+      stageKey: c.stageKey ?? null,
+    })
     return {
       connected: true,
       flow: 'facebook_login' as const,
-      pageId: conn.pageId,
-      pageName: conn.pageName,
-      igUserId: conn.igUserId,
-      igUsername: conn.igUsername,
-      active: conn.active,
-      connectedAt: conn.connectedAt,
-      tokenExpiresAt: conn.tokenExpiresAt ?? null,
-      tokenType: conn.tokenType ?? null,
+      ...semToken(conn),
+      connections: lista.map(semToken),
     }
+  })
+
+  // PATCH /api/instagram/connections/:pageId — empresa da conta: setor e funil
+  // de entrada das DMs novas. Não mexe em token nem em assinatura de webhook.
+  app.patch('/api/instagram/connections/:pageId', { preHandler: adminOnly }, async (req, reply) => {
+    const { pageId } = req.params as { pageId: string }
+    const body = (req.body ?? {}) as { defaultTeamId?: number | null; funnelId?: number | null; stageKey?: string | null }
+    const lista = await loadConnections()
+    const conta = lista.find((c) => String(c.pageId) === String(pageId))
+    if (!conta) return reply.code(404).send({ error: 'Conta não conectada neste ambiente' })
+
+    const teamId = body.defaultTeamId ? Number(body.defaultTeamId) : null
+    if (teamId && !(await prisma.team.findUnique({ where: { id: teamId }, select: { id: true } }))) {
+      return reply.code(400).send({ error: 'Setor não encontrado' })
+    }
+    const funnelId = body.funnelId ? Number(body.funnelId) : null
+    let stageKey = body.stageKey?.trim() || null
+    if (funnelId) {
+      if (!(await prisma.funnel.findUnique({ where: { id: funnelId }, select: { id: true } }))) {
+        return reply.code(400).send({ error: 'Funil não encontrado' })
+      }
+      if (stageKey && !(await prisma.stage.findFirst({ where: { funnelId, key: stageKey }, select: { id: true } }))) {
+        return reply.code(400).send({ error: 'Etapa não pertence ao funil escolhido' })
+      }
+    } else {
+      stageKey = null
+    }
+    conta.defaultTeamId = teamId
+    conta.funnelId = funnelId
+    conta.stageKey = stageKey
+    await saveConnections(lista)
+    return { ok: true }
   })
 
   // GET /api/instagram/oauth-config — devolve estado da config OAuth (sem secret).
@@ -859,16 +963,20 @@ export async function instagramRoutes(app: FastifyInstance) {
   })
 
   // POST /api/instagram/disconnect
-  app.post('/api/instagram/disconnect', { preHandler: adminOnly }, async () => {
-    const conn = await loadConnection()
-    if (conn) {
+  // Com `pageId` desconecta só aquela conta; sem ele, todas (comportamento de
+  // quando só existia uma).
+  app.post('/api/instagram/disconnect', { preHandler: adminOnly }, async (req) => {
+    const pageId = String((req.body as { pageId?: string } | null)?.pageId ?? '').trim()
+    const lista = await loadConnections()
+    const sai = pageId ? lista.filter((c) => String(c.pageId) === pageId) : lista
+    for (const conn of sai) {
       try {
         await fb(`/${conn.pageId}/subscribed_apps`, conn.pageAccessToken, { method: 'DELETE' })
       } catch {
         // ignore
       }
-      await prisma.setting.delete({ where: { key: SETTING_KEY } }).catch(() => {})
     }
+    await saveConnections(lista.filter((c) => !sai.includes(c)))
     return { ok: true }
   })
 
@@ -893,8 +1001,10 @@ export async function instagramRoutes(app: FastifyInstance) {
 
   // POST /api/instagram/send-test
   app.post('/api/instagram/send-test', { preHandler: adminOnly }, async (req, reply) => {
-    const body = req.body as { recipientId?: string; text?: string }
-    const conn = await loadConnection()
+    const body = req.body as { recipientId?: string; text?: string; pageId?: string }
+    const conn = body.pageId
+      ? (await loadConnections()).find((c) => String(c.pageId) === String(body.pageId)) ?? null
+      : await loadConnection()
     if (!conn) return reply.code(400).send({ error: 'Instagram não conectado' })
     if (!body.recipientId) return reply.code(400).send({ error: 'recipientId obrigatório (IGSID)' })
     try {
@@ -957,16 +1067,16 @@ export async function instagramRoutes(app: FastifyInstance) {
     reply.send({ ok: true })
 
     try {
-      const conn = await loadConnection()
+      const contas = (await loadConnections()).filter((c) => c.active)
       const proprios = new Set(
-        conn?.active ? [conn.pageId, conn.igUserId].filter(Boolean).map(String) : [],
+        contas.flatMap((c) => [c.pageId, c.igUserId]).filter(Boolean).map(String),
       )
 
       // Repasse só na primeira mão: o que chega repassado não volta a girar.
       if (!req.headers['x-attrae-repasse'] && appSecret) {
         await repassarParaTenants(body, proprios, appSecret, app)
       }
-      if (!conn?.active) return
+      if (!contas.length) return
 
       // Object 'page' = Messenger (Facebook), 'instagram' = IG Direct. Ambos
       // respondem pelo mesmo /me/messages (token da Página).
@@ -974,8 +1084,9 @@ export async function instagramRoutes(app: FastifyInstance) {
       for (const entry of body.entry ?? []) {
         // entry.id = Página (Messenger) ou conta IG profissional (Instagram).
         // Evento de outra Página não é desta instalação: antes virava lead aqui.
-        if (!proprios.has(String(entry.id))) {
-          app.log.warn(`[Instagram] evento de ${body.object} ${entry.id} ignorado — não é a Página conectada`)
+        const conn = contaDoEvento(contas, String(entry.id))
+        if (!conn) {
+          app.log.warn(`[Instagram] evento de ${body.object} ${entry.id} ignorado — não é uma Página conectada`)
           continue
         }
         for (const evt of entry.messaging ?? []) {
@@ -1083,11 +1194,11 @@ async function repassarParaTenants(body: any, proprios: Set<string>, appSecret: 
 
 /** Lead do contato (IGSID/PSID) — cria com o perfil real se ainda não existe. */
 const ultimaTentativaPerfil = new Map<number, number>()
-async function completarPerfil(leadId: number, contatoId: string, channel: 'instagram' | 'messenger', app: FastifyInstance) {
+async function completarPerfil(leadId: number, contatoId: string, channel: 'instagram' | 'messenger', conn: InstagramConnection, app: FastifyInstance) {
   const agora = Date.now()
   if (agora - (ultimaTentativaPerfil.get(leadId) ?? 0) < 6 * 3600_000) return
   ultimaTentativaPerfil.set(leadId, agora)
-  const prof = await fetchSenderProfile(contatoId, channel)
+  const prof = await fetchSenderProfile(contatoId, channel, conn)
   if (!prof.name && !prof.username) return
   const atual = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, formData: true } })
   if (!atual) return
@@ -1103,14 +1214,16 @@ async function completarPerfil(leadId: number, contatoId: string, channel: 'inst
   if (prof.profilePic) cacheIgAvatar(leadId, prof.profilePic, app).catch(() => {})
 }
 
-async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenger', app: FastifyInstance) {
+async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenger', conn: InstagramConnection, app: FastifyInstance) {
   const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
+  // O IGSID/PSID já é único por conta (a mesma pessoa tem um id em cada Página),
+  // então o uid separa sozinho as fichas de empresas diferentes.
   const uid = `${channel}:${contatoId}`
   const existente = await prisma.lead.findFirst({ where: { uid } })
   if (existente) {
     // Ficha criada sem o perfil (Meta recusou: app sem Acesso Avançado,
     // instabilidade). Tenta de novo a cada mensagem, no máximo 1x a cada 6h.
-    if (existente.nome === `${canalNome} #${contatoId}`) completarPerfil(existente.id, contatoId, channel, app).catch(() => {})
+    if (existente.nome === `${canalNome} #${contatoId}`) completarPerfil(existente.id, contatoId, channel, conn, app).catch(() => {})
     return existente
   }
   // Dois DMs seguidos do mesmo perfil passavam os dois pela busca acima
@@ -1121,27 +1234,43 @@ async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenge
     const jaExiste = await prisma.lead.findFirst({ where: { uid } })
     if (jaExiste) return jaExiste
     // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
-    const prof = await fetchSenderProfile(contatoId, channel)
+    const prof = await fetchSenderProfile(contatoId, channel, conn)
     const formData: Record<string, any> = channel === 'messenger'
       ? { messengerSenderId: contatoId }
       : { instagramSenderId: contatoId }
+    // Conta que recebeu: a resposta tem que sair por ela (ver contaDoLead).
+    formData.instagramPageId = conn.pageId
     if (prof.username) formData.instagramUsername = prof.username
     if (prof.profilePic) formData.profilePicUrl = prof.profilePic
-    // Roteamento igual aos outros canais (regras → equipe padrão → rodízio).
-    // Faltava: lead do Instagram/Messenger nascia sem equipe e sem responsável,
-    // numa fila que ninguém vê (beyond: 5 de 6 em 30 dias).
-    const { resolveRoutingFromContext } = await import('../services/teamRouting.js')
-    const rota = await resolveRoutingFromContext({ source: channel }).catch(() => ({ teamId: null, userId: null }))
+    // Conta com empresa definida (setor): a DM vai para o setor dela — é o que
+    // separa @ineprotec de @matricula_ead. Sem setor na conta, roteamento igual
+    // aos outros canais (regras → equipe padrão → rodízio); antes disso o lead
+    // do Instagram/Messenger nascia sem equipe, numa fila que ninguém via.
+    const { resolveRoutingFromContext, escolherComPlantao } = await import('../services/teamRouting.js')
+    const rota = conn.defaultTeamId
+      ? await escolherComPlantao(conn.defaultTeamId, channel).catch(() => ({ teamId: conn.defaultTeamId ?? null, userId: null }))
+      : await resolveRoutingFromContext({ source: channel }).catch(() => ({ teamId: null, userId: null }))
+    // Funil da conta: etapa escolhida ou, sem ela, a primeira ativa do funil.
+    let funil: { funnelId: number; status: string } | null = null
+    if (conn.funnelId) {
+      const etapa = await prisma.stage.findFirst({
+        where: { funnelId: conn.funnelId, active: true, ...(conn.stageKey ? { key: conn.stageKey } : {}) },
+        orderBy: { position: 'asc' },
+        select: { key: true },
+      })
+      if (etapa) funil = { funnelId: conn.funnelId, status: etapa.key }
+    }
     const novo = await prisma.lead.create({
       data: {
         uid,
         ...(rota.teamId ? { teamId: rota.teamId } : {}),
         ...(rota.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
+        ...(funil ? { funnelId: funil.funnelId } : {}),
         nome: prof.name || `${canalNome} #${contatoId}`,
         empresa: '',
         whatsapp: '',
         email: '',
-        status: 'NOVO',
+        status: funil?.status ?? 'NOVO',
         source: channel,
         originType: channel,
         scores: {},
@@ -1204,7 +1333,7 @@ async function processarEventoDM(
   if (msg.mid) emProcesso.add(msg.mid)
   try {
     if (msg.mid && await prisma.message.findFirst({ where: { externalId: msg.mid }, select: { id: true } })) return
-    await gravarRecebida(evt, msg, senderId, channel, canalNome, app)
+    await gravarRecebida(evt, msg, senderId, channel, canalNome, conn, app)
   } finally {
     if (msg.mid) emProcesso.delete(msg.mid)
   }
@@ -1218,9 +1347,10 @@ async function gravarRecebida(
   senderId: string,
   channel: 'instagram' | 'messenger',
   canalNome: string,
+  conn: InstagramConnection,
   app: FastifyInstance,
 ): Promise<void> {
-  const lead = await leadDoContato(senderId, channel, app)
+  const lead = await leadDoContato(senderId, channel, conn, app)
   // Lista de bloqueio. Um DM não traz e-mail nem telefone, e as regras são por
   // e-mail/domínio/telefone/IP: só casa quando a ficha já tem esses dados.
   const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')
@@ -1311,7 +1441,7 @@ async function gravarEnviadaForaDoPainel(
   app: FastifyInstance,
 ): Promise<void> {
 
-  const lead = await leadDoContato(contatoId, channel, app)
+  const lead = await leadDoContato(contatoId, channel, conn, app)
   const autor = channel === 'messenger' ? conn.pageName : `@${conn.igUsername}`
   const partes = await partesDaMensagem(msg, app)
   for (const [i, p] of partes.entries()) {

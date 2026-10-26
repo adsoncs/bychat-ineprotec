@@ -19,6 +19,32 @@ export interface InstagramConnectionStatus {
   tokenExpiresAt?: number | null
   tokenType?: string | null
   scopes?: string[]
+  /** Fluxo via Facebook: todas as contas do ambiente (uma por empresa). */
+  connections?: InstagramAccount[]
+}
+
+/** Uma conta conectada e a empresa dela (setor + funil de entrada das DMs novas). */
+export interface InstagramAccount {
+  pageId: string
+  pageName: string
+  igUserId: string
+  igUsername: string
+  active: boolean
+  connectedAt: string
+  tokenExpiresAt: number | null
+  tokenType: string | null
+  defaultTeamId: number | null
+  funnelId: number | null
+  stageKey: string | null
+}
+
+export function useUpdateInstagramAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ pageId, ...input }: { pageId: string; defaultTeamId: number | null; funnelId: number | null; stageKey: string | null }) =>
+      api.patch<{ ok: true }>(`/instagram/connections/${pageId}`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['instagram-connection'] }),
+  })
 }
 
 export function useInstagramConnection() {
@@ -54,7 +80,8 @@ export function useConnectInstagram() {
 export function useDisconnectInstagram() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => api.post<{ ok: true }>('/instagram/disconnect'),
+    // Com pageId desconecta só aquela conta; sem ele, todas.
+    mutationFn: (pageId?: string) => api.post<{ ok: true }>('/instagram/disconnect', pageId ? { pageId } : {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['instagram-connection'] }),
   })
 }
