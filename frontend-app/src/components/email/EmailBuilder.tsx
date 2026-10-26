@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import * as Dialog from '@radix-ui/react-dialog'
 import { api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/Button'
@@ -16,6 +17,13 @@ import { Button } from '@/components/ui/Button'
  */
 
 export interface ResultadoDoEditor { html: string; projeto: unknown }
+
+/** O plugin MJML só tem os nomes dos blocos em inglês. */
+const BLOCOS_PT: Record<string, string> = {
+  '1 Column': '1 coluna', '2 Columns': '2 colunas', '3 Columns': '3 colunas', Text: 'Texto', Button: 'Botão',
+  Image: 'Imagem', Divider: 'Divisor', 'Group Social': 'Redes sociais', 'Social Element': 'Rede social',
+  Spacer: 'Espaço', Navbar: 'Menu', 'Navbar Link': 'Item do menu', Hero: 'Destaque', Wrapper: 'Grupo', Raw: 'HTML',
+}
 
 const MJML_INICIAL = `<mjml>
   <mj-body background-color="#f4f5f7">
@@ -87,6 +95,7 @@ export function EmailBuilder({
           },
           ...(projeto ? { projectData: projeto as any } : { components: MJML_INICIAL }),
         })
+        editor.Blocks.getAll().forEach((b: any) => { const pt = BLOCOS_PT[b.get('label')]; if (pt) b.set('label', pt) })
         editor.on('rte:enable', (_v: unknown, rte: unknown) => { rteAtivo.current = rte })
         editor.on('rte:disable', () => { rteAtivo.current = null })
         editorRef.current = editor
@@ -153,8 +162,21 @@ export function EmailBuilder({
     setEnviando(false)
   }
 
+  const pedirFechar = () => { if (confirm('Fechar sem aplicar as alterações?')) onFechar() }
+
+  // Janela Radix própria, aninhada à do modelo: com um portal comum, o
+  // conteúdo ficava preso à caixa do modal (que tem transform) e o clique no
+  // editor contava como "fora" do modal do modelo — que fechava e levava o
+  // trabalho junto. Aninhada, o Radix sabe que a de cima é a ativa.
+  // Clique fora e Esc NÃO fecham: o seletor de cor do GrapesJS abre fora daqui.
   return (
-    <div class="fixed inset-0 z-[60] flex flex-col bg-surface" role="dialog" aria-modal="true" aria-label="Editor de e-mail">
+    <Dialog.Root open onOpenChange={(aberto) => { if (!aberto) pedirFechar() }}>
+    <Dialog.Portal>
+    <Dialog.Content
+      class="fixed inset-0 flex flex-col bg-surface outline-none" style={{ zIndex: 1000 }} aria-describedby={undefined}
+      onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+      <Dialog.Title class="sr-only">Editor de e-mail</Dialog.Title>
+      <div class="flex flex-col h-full" aria-label="Editor de e-mail">
       <div class="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-surface">
         <strong class="text-sm mr-2">Editor de e-mail</strong>
         <div class="inline-flex rounded-md border border-border bg-surface-2 p-0.5" role="group" aria-label="Visualizar como">
@@ -188,7 +210,7 @@ export function EmailBuilder({
           ) : (
             <Button variant="secondary" size="sm" disabled={!pronto} onClick={() => setTesteAberto(true)}>Enviar teste</Button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => { if (confirm('Fechar sem aplicar as alterações?')) onFechar() }}>Cancelar</Button>
+          <Button variant="ghost" size="sm" onClick={pedirFechar}>Cancelar</Button>
           <Button size="sm" disabled={!pronto} onClick={() => void salvar()}>Aplicar ao modelo</Button>
         </div>
       </div>
@@ -198,5 +220,8 @@ export function EmailBuilder({
         <div ref={alvo} class="h-full" />
       </div>
     </div>
+    </Dialog.Content>
+    </Dialog.Portal>
+    </Dialog.Root>
   )
 }
