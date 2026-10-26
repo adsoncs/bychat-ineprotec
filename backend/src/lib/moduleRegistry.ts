@@ -521,6 +521,19 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    // Campanhas de e-mail: público por filtros, modelo do editor de arrastar,
+    // assunto A/B, agendamento, envio em lotes e acompanhamento (entregue,
+    // aberto, clicado, bounce, spam). Nasce só para SUPERADMIN/ADMIN — ver
+    // MODULE_ROLE_PRESETS.
+    id: 'email_marketing', name: 'E-mail Marketing', icon: '✉️', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'uso',
+    description: 'Campanhas de e-mail com público por filtros (funil, etapa, tags, origem), assunto A/B, agendamento, envio em lotes e acompanhamento de entrega, abertura e clique.',
+    pages: ['email-marketing'],
+    routePrefixes: ['/api/email-campanhas'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+  },
+  {
     id: 'smart_broadcast', name: 'Disparos Inteligentes', icon: '🧠', category: 'marketing',
     umbrella: 'marketing_canais', cobranca: 'uso',
     description: 'Campanhas pelos números próprios conectados (Evolution), com ritmo humanizado, simulação de digitação, variações de texto, aquecimento e proteção automática do número.',

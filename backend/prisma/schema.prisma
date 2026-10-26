@@ -10475,3 +10475,57 @@ model UsuarioPacote {
   @@index([pacoteId])
   @@map("bychat_usuario_pacotes")
 }
+
+/// Campanha de e-mail marketing (módulo email_marketing). O público é um
+/// conjunto de FILTROS, avaliado quando o envio começa — quem entrou no funil
+/// entre o agendamento e o disparo também recebe.
+model EmailCampanha {
+  id           Int       @id @default(autoincrement())
+  nome         String    @db.VarChar(191)
+  /// rascunho | agendada | enviando | pausada | concluida | cancelada
+  status       String    @default("rascunho") @db.VarChar(20)
+  templateId   Int?
+  assunto      String    @db.VarChar(191)
+  /// Teste A/B de assunto: metade dos destinatários recebe cada um.
+  assuntoB     String?   @db.VarChar(191)
+  /// HTML congelado quando o envio começa: editar o modelo no meio do envio
+  /// não muda o que o resto da lista recebe.
+  html         String?   @db.LongText
+  /// Filtros do público (ver services/emailCampanhas.ts → Publico).
+  publico      Json      @db.Json
+  agendadaPara DateTime?
+  iniciadaEm   DateTime?
+  concluidaEm  DateTime?
+  total        Int       @default(0)
+  criadoPor    String?   @db.VarChar(191)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  envios EmailCampanhaEnvio[]
+
+  @@index([status, agendadaPara])
+  @@map("bychat_email_campanhas")
+}
+
+/// Um destinatário de uma campanha. O acompanhamento (entregue, aberto,
+/// clicado…) vem do OutboundSend pelo `externalId` da Resend.
+model EmailCampanhaEnvio {
+  id         Int           @id @default(autoincrement())
+  campanhaId Int
+  campanha   EmailCampanha @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
+  leadId     Int
+  email      String        @db.VarChar(191)
+  /// A | B (assunto)
+  variante   String        @default("A") @db.VarChar(1)
+  /// pendente | enviado | falhou | ignorado
+  status     String        @default("pendente") @db.VarChar(20)
+  motivo     String?       @db.VarChar(300)
+  externalId String?       @db.VarChar(191)
+  tentativas Int           @default(0)
+  enviadoEm  DateTime?
+
+  @@unique([campanhaId, leadId])
+  @@index([campanhaId, status])
+  @@index([externalId])
+  @@map("bychat_email_campanha_envios")
+}

@@ -155,6 +155,9 @@ const migratedPages: Record<string, ComponentType> = {
   broadcast: lazy(() =>
     import('./pages/BroadcastPage').then((m) => ({ default: m.BroadcastPage })),
   ),
+  'email-marketing': lazy(() =>
+    import('./pages/EmailMarketingPage').then((m) => ({ default: m.EmailMarketingPage })),
+  ),
   'smart-broadcast': lazy(() =>
     import('./pages/SmartBroadcastPage').then((m) => ({ default: m.SmartBroadcastPage })),
   ),

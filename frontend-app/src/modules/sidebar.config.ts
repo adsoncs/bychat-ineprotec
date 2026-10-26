@@ -196,6 +196,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'whatsapp-dispatch', label: 'Disparos & Custos', href: '/app/whatsapp-dispatch', icon: 'BarChart3', permission: 'whatsapp' },
         { id: 'whatsapp-trafego', label: 'Tráfego WhatsApp', href: '/app/whatsapp-trafego', icon: 'Activity', permission: 'whatsapp' },
         { id: 'broadcast', label: 'Disparos em Massa', href: '/app/broadcast', icon: 'Megaphone', permission: 'broadcast' },
+        { id: 'email-marketing', label: 'E-mail Marketing', href: '/app/email-marketing', icon: 'Mail', permission: 'email_marketing' },
         { id: 'surveys', label: 'Pesquisas', href: '/app/surveys', icon: 'ClipboardList', permission: 'surveys' },
         { id: 'smart-broadcast', label: 'Disparos Inteligentes', href: '/app/smart-broadcast', icon: 'BrainCircuit', permission: 'smart_broadcast' },
         { id: 'telegram', label: 'Telegram', href: '/app/telegram', icon: 'Send', permission: 'telegram' },

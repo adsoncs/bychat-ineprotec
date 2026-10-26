@@ -24,6 +24,8 @@ import { kanbanRoutes } from './routes/kanban.js'
 import { settingsRoutes } from './routes/settings.js'
 import { systemEmailsRoutes } from './routes/systemEmails.js'
 import { emailSupressoesRoutes } from './routes/emailSupressoes.js'
+import { emailCampanhasRoutes } from './routes/emailCampanhas.js'
+import { startEmailCampanhas } from './services/emailCampanhas.js'
 import { chatbotsRoutes } from './routes/chatbots.js'
 import { instancesRoutes } from './routes/instances.js'
 import { funnelsRoutes } from './routes/funnels.js'
@@ -823,6 +825,7 @@ await app.register(kanbanRoutes)
 await app.register(settingsRoutes)
 await app.register(systemEmailsRoutes)
 await app.register(emailSupressoesRoutes)
+await app.register(emailCampanhasRoutes)
 await app.register(chatbotsRoutes)
 await app.register(instancesRoutes)
 await app.register(funnelsRoutes)
@@ -1543,6 +1546,7 @@ try {
   // meetingRetentionPurge e do trash.
   startAlertRetention()
   startActivityScheduler()
+  startEmailCampanhas()
   startSecurityCleanup()
   startMetaLeadPoller()
   startSaleDetectionScheduler().catch(err => console.error('[SaleDetection] Init error:', err))

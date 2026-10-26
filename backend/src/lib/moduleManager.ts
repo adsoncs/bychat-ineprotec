@@ -33,6 +33,11 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   volumetria: {
     MANAGER: { canView: false, canCreate: false, canEdit: false, canDelete: false },
   },
+  // E-mail marketing fala com a base inteira de uma vez: nasce só para
+  // SUPERADMIN/ADMIN; o cliente libera outros papéis em Permissões.
+  email_marketing: {
+    MANAGER: { canView: false, canCreate: false, canEdit: false, canDelete: false },
+  },
   // Barra de status: TODO papel vê (o aviso existe para ninguém deixar de ver).
   // Configurar, ver o detalhe técnico e o botão de resolver: SUPERADMIN e ADMIN.
   status_integracoes: {
