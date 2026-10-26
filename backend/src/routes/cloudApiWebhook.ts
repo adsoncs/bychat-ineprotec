@@ -269,6 +269,47 @@ async function aplicarRevogacaoRecebida(msg: any) {
   })
 }
 
+/** Aviso de sistema da Meta (`type: "system"`). O caso conhecido é a troca de
+ *  número: `from` é o número ANTIGO e o novo vem em `system.wa_id`/`new_wa_id`.
+ *  Nunca cria ficha nem roda chatbot — não é o contato falando. Se já existe
+ *  ficha do número antigo, deixa o aviso nela (nota + mensagem interna) para o
+ *  time conferir; trocar o número sozinho poderia colar em outra pessoa. */
+async function aplicarAvisoDeSistema(msg: any, conn: any, app: FastifyInstance) {
+  const antigo = normalizePhone(msg.from || '')
+  const sys = msg.system || {}
+  const tipo = String(sys.type || '')
+  const novo = normalizePhone(String(sys.new_wa_id || sys.wa_id || ''))
+  app.log.info(`[CloudAPI] Aviso de sistema "${tipo}" de ${antigo}: ${JSON.stringify(msg).slice(0, 2000)}`)
+  if (!antigo) return
+
+  const resolved = await resolveLeadForContact({ phone: antigo }, { cloudApiConnectionId: conn.id })
+  if (!resolved.lead) return
+  const leadId = resolved.lead.id
+
+  const trocouNumero = /changed_number/.test(tipo) && novo && novo !== antigo
+  const texto = trocouNumero
+    ? `⚠ O WhatsApp avisou que este contato TROCOU DE NÚMERO: +${antigo} → +${novo}. O número antigo não recebe mais mensagens. Confirme e atualize o WhatsApp da ficha.`
+    : `ℹ Aviso do WhatsApp sobre este contato${tipo ? ` (${tipo})` : ''}: ${String(sys.body || '').slice(0, 300) || 'sem detalhes'}`
+
+  await prisma.leadNote.create({ data: { leadId, userId: null, userName: 'Sistema', content: texto } }).catch(() => {})
+  const criada = await prisma.message.create({
+    data: { leadId, fromMe: true, isInternal: true, body: texto, senderName: 'Sistema', provider: 'cloud_api', cloudApiConnectionId: conn.id, externalId: msg.id || null, timestamp: new Date() },
+  }).catch(() => null)
+  if (criada) {
+    broadcastRealtimeEvent({ type: 'message:received', payload: { leadId, messageId: criada.id, mediaType: 'text', channel: 'cloud_api' }, scope: { leadId } })
+  }
+  logEvent({
+    leadId,
+    type: EVENT_TYPES.LEAD_EDITED,
+    category: 'system',
+    title: trocouNumero ? 'Contato trocou de número no WhatsApp' : 'Aviso de sistema do WhatsApp',
+    channel: 'whatsapp',
+    source: 'webhook',
+    description: texto.slice(0, 200),
+    metadata: { provider: 'cloud_api', systemType: tipo, oldPhone: antigo, newPhone: novo || null, system: sys },
+  })
+}
+
 // ─── Process Incoming Message ───────────────────────────
 
 async function processIncomingMessage(
@@ -420,8 +461,19 @@ async function processIncomingMessage(
       await aplicarRevogacaoRecebida(msg)
       return
 
+    case 'system':
+      // Aviso da Meta (ex.: o contato trocou de número), não mensagem do
+      // contato. Antes caía no default, virava "[system]" e criava ficha com o
+      // número ANTIGO — sem nome, já sem WhatsApp (todo envio falhava 131026) —
+      // e o número novo, que vem só aqui, era jogado fora.
+      await aplicarAvisoDeSistema(msg, conn, app)
+      return
+
     default:
       text = `[${msgType}]`
+      // Tipo que o sistema não sabe ler: guarda o payload no log para dar para
+      // entender o que a Meta mandou — sem isso só sobrava o "[tipo]".
+      app.log.warn(`[CloudAPI] Tipo não tratado "${msgType}" de ${phone}: ${JSON.stringify(msg).slice(0, 2000)}`)
   }
 
   const msgText = text
