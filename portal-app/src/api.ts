@@ -279,11 +279,26 @@ export const carregarCandidato = (token?: string) => pedir<Candidato>('/api/cand
 
 /** Envio do arquivo. Multipart porque o backend valida os bytes, não só o nome. */
 export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string): Promise<void> {
+  // No Android, o arquivo escolhido direto do Google Drive, de um anexo do
+  // WhatsApp ou movido depois da escolha às vezes não pode ser lido: o envio
+  // falhava antes de sair do aparelho e a pessoa via só "Failed to fetch"
+  // (fabad, 26/10 — nenhuma tentativa chegou ao servidor). Ler o 1º byte antes
+  // separa esse caso de queda de conexão e diz o que fazer em cada um.
+  try {
+    await arquivo.slice(0, 1).arrayBuffer()
+  } catch {
+    throw new Error('Não conseguimos ler este arquivo no seu aparelho. Baixe o arquivo para o celular (pasta Downloads) e escolha-o de novo — se estiver no Google Drive ou veio pelo WhatsApp, salve antes. Se continuar, tente por outro navegador, como o Chrome.')
+  }
   const fd = new FormData()
   fd.append('file', arquivo, arquivo.name)
   fd.append('typeCode', typeCode)
   fd.append('label', label)
-  const r = await fetch('/api/candidate/documents', { method: 'POST', body: fd, credentials: 'same-origin', ...comToken(token) })
+  let r: Response
+  try {
+    r = await fetch('/api/candidate/documents', { method: 'POST', body: fd, credentials: 'same-origin', ...comToken(token) })
+  } catch {
+    throw new Error('O arquivo não chegou até nós. Verifique sua internet e tente de novo; se continuar, baixe o arquivo para o celular e escolha-o outra vez, ou tente por outro navegador.')
+  }
   if (!r.ok) {
     const t = await r.text()
     let msg = `Não foi possível enviar (erro ${r.status}).`
