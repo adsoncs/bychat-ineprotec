@@ -20,6 +20,7 @@ const SMTP_KEYS = [
 
 const RESEND_KEYS = [
   'notification.resend_api_key', 'notification.sender_name', 'notification.email_domain',
+  'notification.email_local', 'notification.reply_to',
 ] as const
 
 const SMTP_TEST_LS_KEY = 'bh_smtp_test_result'
@@ -263,6 +264,23 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
             value={draft['notification.sender_name'] ?? ''}
             onInput={(e) => patch('notification.sender_name', (e.target as HTMLInputElement).value)}
             placeholder="BeyondHub"
+          />
+
+          <Input
+            label="Caixa do remetente"
+            value={draft['notification.email_local'] ?? ''}
+            onInput={(e) => patch('notification.email_local', (e.target as HTMLInputElement).value)}
+            placeholder="ex.: fabad"
+            hint="Para domínio compartilhado (attrae.com.br): todos os e-mails saem desta caixa. Em branco, cada aviso usa a sua (noreply, agendamento…)."
+          />
+
+          <Input
+            label="Responder para"
+            type="email"
+            value={draft['notification.reply_to'] ?? ''}
+            onInput={(e) => patch('notification.reply_to', (e.target as HTMLInputElement).value)}
+            placeholder="contato@seudominio.com.br"
+            hint="Quando o destinatário clicar em Responder, a resposta vai para este e-mail."
           />
 
           {provider === 'resend' && (
@@ -598,7 +616,8 @@ function nonEmpty(value: string | undefined, fallback: string): string {
 function resendFrom(draft: Record<string, string>): string {
   const name = nonEmpty(draft['notification.sender_name'], 'BeyondHub')
   const domain = nonEmpty(draft['notification.email_domain'], 'beyondhub.com.br')
-  return `${name} <noreply@${domain}>`
+  const caixa = (draft['notification.email_local'] ?? '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
+  return `${name} <${caixa || 'noreply'}@${domain}>`
 }
 
 function smtpFrom(draft: Record<string, string>): string {

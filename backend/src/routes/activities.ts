@@ -7,7 +7,7 @@ import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { markFirstResponseIfNeeded } from '../services/routing/helpers.js'
 import { replaceVariables, buildLeadVars } from './templates.js'
-import { getEmailConfig, getFromAddress } from '../services/notify.js'
+import { getEmailConfig, getFromAddress, getReplyTo, registrarEnvioDeEmail } from '../services/notify.js'
 import { getBranding } from '../lib/branding.js'
 import { canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
 
@@ -648,7 +648,8 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
     if (!host || !user || !pass) throw new Error('SMTP não configurado')
 
     const transporter = nodemailer.default.createTransport({ host, port, secure, auth: { user, pass } })
-    const mailOpts: any = { from: fromAddress, to, subject: subject || brand.brandName, html: finalHtml }
+    const replyTo = getReplyTo(cfg)
+    const mailOpts: any = { from: fromAddress, to, subject: subject || brand.brandName, html: finalHtml, ...(replyTo ? { replyTo } : {}) }
 
     if (attachmentUrl) {
       try {
@@ -660,8 +661,9 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
       } catch (e) { console.warn('Erro ao baixar anexo para SMTP:', e) }
     }
 
-    const result = await transporter.sendMail(mailOpts)
-    return result.messageId || 'smtp-sent'
+    const id = await registrarEnvioDeEmail({ to, subject: mailOpts.subject, origem: 'atividade', provider },
+      async () => (await transporter.sendMail(mailOpts)).messageId || null)
+    return id || 'smtp-sent'
   }
 
   // Resend
@@ -676,6 +678,7 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
     to,
     subject: subject || brand.brandName,
     html: finalHtml,
+    ...(getReplyTo(cfg) ? { reply_to: getReplyTo(cfg) } : {}),
   }
 
   // Baixar e anexar arquivo se houver
@@ -694,7 +697,13 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
     }
   }
 
-  await resend.emails.send(emailOpts)
+  // O SDK não lança em falha: devolve `error`. Sem esta checagem a atividade
+  // saía como "enviada" com o e-mail recusado.
+  await registrarEnvioDeEmail({ to, subject: emailOpts.subject, origem: 'atividade', provider }, async () => {
+    const r: any = await resend.emails.send(emailOpts)
+    if (r?.error) throw new Error(`Resend: ${r.error.message || JSON.stringify(r.error)}`)
+    return r?.data?.id || null
+  })
   return `Email enviado para ${to}${attachmentUrl ? ' (com anexo)' : ''}`
 }
 

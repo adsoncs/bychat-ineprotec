@@ -203,7 +203,10 @@ export async function volumetriaDoMes(competencia: string) {
   const ativ = await prisma.activity.groupBy({ by: ['type', 'direction'], where: { type: { in: ['sms', 'email'] }, createdAt: noMes }, _count: { _all: true } })
   const at = (t: string, d?: string) => ativ.filter((a) => a.type === t && (d === undefined || a.direction === d)).reduce((s, a) => s + a._count._all, 0)
   const sms = { pelaFila: fila('sms', true), falhas: fila('sms', false), porAtividade: at('sms') }
-  const email = { pelaFila: fila('email', true), falhas: fila('email', false), atividadesEnviadas: at('email', 'outbound'), atividadesRecebidas: at('email', 'inbound') }
+  // `enviados` é a contagem cobrável: todo envio (fila, atividade, avisos do
+  // sistema) passa por OutboundSend. As atividades seguem à parte só para a tela —
+  // somá-las de novo contaria o mesmo e-mail duas vezes.
+  const email = { enviados: fila('email', true), pelaFila: fila('email', true), falhas: fila('email', false), atividadesEnviadas: at('email', 'outbound'), atividadesRecebidas: at('email', 'inbound') }
 
   // ── Voz ──
   const voz = (await prisma.voipCall.groupBy({ by: ['provider', 'direction'], where: { startedAt: noMes }, _count: { _all: true }, _sum: { durationSec: true } }))

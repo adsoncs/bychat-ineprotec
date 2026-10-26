@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { getBranding } from '../lib/branding.js'
 import { renderSystemEmail, nowVars } from './systemEmailTemplates.js'
 import { linhaDoLink } from '../lib/appUrl.js'
+import { trackedSend } from './outboundSendTracking.js'
 
 const INV_LABELS = [
   'Sem orçamento definido','Até R$1.000/mês','R$1.000–2.500/mês',
@@ -15,7 +16,8 @@ const INV_LABELS = [
 
 export async function getEmailConfig(): Promise<Record<string, string>> {
   const keys = ['email.provider', 'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass', 'smtp.from_name', 'smtp.from_email',
-    'notification.resend_api_key', 'notification.email_domain', 'notification.sender_name']
+    'notification.resend_api_key', 'notification.email_domain', 'notification.sender_name',
+    'notification.email_local', 'notification.reply_to']
   const rows = await prisma.setting.findMany({ where: { key: { in: keys } } })
   const cfg: Record<string, string> = {}
   rows.forEach(r => { cfg[r.key] = typeof r.value === 'string' ? r.value : String(r.value) })
@@ -68,9 +70,13 @@ export async function getNotificationTargets(): Promise<NotificationTargets> {
   return { emails, whatsapps, ccAgents }
 }
 
-export async function sendEmailGeneric(opts: { from: string, to: string, cc?: string, subject: string, html: string }): Promise<void> {
+// Todo e-mail que sai passa por aqui e vira uma linha em OutboundSend (canal
+// email): é essa contagem que a Volumetria mostra e que a loja cobra. Envio
+// fora deste caminho some da conta — use sendEmailGeneric ou registrarEnvioDeEmail.
+export async function sendEmailGeneric(opts: { from: string, to: string, cc?: string, subject: string, html: string, replyTo?: string, origem?: string, leadId?: number | null }): Promise<void> {
   const cfg = await getEmailConfig()
   const provider = cfg['email.provider'] || 'resend'
+  const replyTo = opts.replyTo || cfg['notification.reply_to'] || undefined
 
   if (provider === 'smtp') {
     const host = cfg['smtp.host']
@@ -85,12 +91,16 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
     }
 
     const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } })
-    await transporter.sendMail({
-      from: opts.from,
-      to: opts.to,
-      ...(opts.cc ? { cc: opts.cc } : {}),
-      subject: opts.subject,
-      html: opts.html
+    await registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, leadId: opts.leadId, provider }, async () => {
+      const info = await transporter.sendMail({
+        from: opts.from,
+        to: opts.to,
+        ...(opts.cc ? { cc: opts.cc } : {}),
+        ...(replyTo ? { replyTo } : {}),
+        subject: opts.subject,
+        html: opts.html
+      })
+      return info?.messageId || null
     })
   } else {
     // Resend
@@ -100,19 +110,41 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
       return
     }
     const resend = new Resend(apiKey)
-    const result = await resend.emails.send({
-      from: opts.from,
-      to: opts.to,
-      ...(opts.cc ? { cc: opts.cc } : {}),
-      subject: opts.subject,
-      html: opts.html
+    await registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, leadId: opts.leadId, provider }, async () => {
+      const result = await resend.emails.send({
+        from: opts.from,
+        to: opts.to,
+        ...(opts.cc ? { cc: opts.cc } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        subject: opts.subject,
+        html: opts.html
+      })
+      // SDK do Resend não lança exceção em falha — devolve error no objeto.
+      if (result?.error) {
+        const msg = (result.error as any).message || JSON.stringify(result.error)
+        throw new Error(`Resend: ${msg}`)
+      }
+      return result?.data?.id || null
     })
-    // SDK do Resend não lança exceção em falha — devolve error no objeto.
-    if (result?.error) {
-      const msg = (result.error as any).message || JSON.stringify(result.error)
-      throw new Error(`Resend: ${msg}`)
-    }
   }
+}
+
+/** Grava o envio de e-mail (sucesso ou falha) para a Volumetria. `enviar` devolve o id do provedor. */
+export async function registrarEnvioDeEmail(
+  meta: { to: string, subject?: string | null, origem?: string, leadId?: number | null, provider: string },
+  enviar: () => Promise<string | null>,
+): Promise<string | null> {
+  const r = await trackedSend({
+    channel: 'email', queueName: 'email-direto', jobId: null, leadId: meta.leadId ?? null,
+    recipient: String(meta.to).slice(0, 191), subject: meta.subject ? String(meta.subject).slice(0, 191) : null,
+    attempts: 1, source: meta.origem || 'system',
+  }, async () => ({ externalId: await enviar(), metadata: { provider: meta.provider } }))
+  return r.externalId ?? null
+}
+
+/** Endereço para resposta configurado em Configurações › E-mail (vazio = sem reply-to). */
+export function getReplyTo(cfg: Record<string, string>): string | undefined {
+  return cfg['notification.reply_to'] || undefined
 }
 
 export function getFromAddress(cfg: Record<string, string>, prefix: string): string {
@@ -124,6 +156,10 @@ export function getFromAddress(cfg: Record<string, string>, prefix: string): str
   }
   const name = cfg['notification.sender_name'] || 'BeyondHub'
   const domain = cfg['notification.email_domain'] || process.env.EMAIL_DOMAIN || 'beyondhub.com.br'
+  // Domínio compartilhado entre clientes (attrae.com.br): cada um tem a sua
+  // caixa fixa ("fabad@attrae.com.br"), e o prefixo não entra no nome.
+  const caixa = (cfg['notification.email_local'] || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
+  if (caixa) return `${name} <${caixa}@${domain}>`
   // A caixa local sai do prefixo, e prefixo em português tem acento: "Notificações"
   // virava `notificações@…`, que o Resend recusa ("non-ASCII characters") — o
   // e-mail simplesmente não saía. O nome de exibição continua acentuado; só o

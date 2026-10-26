@@ -19,7 +19,10 @@ interface UsoDaFuncionalidade {
   entrada: number; saida: number; cacheEscrita: number; cacheLeitura: number
 }
 
-interface LinhaDoPlano { codigo: string; nome: string; unidade: string; cobrar: boolean; incluido: number | null }
+interface LinhaDoPlano {
+  codigo: string; nome: string; unidade: string; cobrar: boolean; incluido: number | null
+  valorFixoCentavos?: number | null; precoExcedente?: number | null; contaPropria?: boolean
+}
 interface ItemCobrado { codigo: string; descricao: string; quantidade: number; unidade: string; valorCentavos: number }
 interface Cobranca {
   competencia: string; situacao: string | null; parcial: boolean; calculadoEm: string | null; recebidoEm?: string
@@ -42,7 +45,7 @@ interface Volumetria {
   evolution: { enviadas: number; recebidas: number; leadsUnicos?: number; porNumero: PorNumero[] }
   outrosCanais: Array<{ canal: string; enviadas: number; recebidas: number; leadsUnicos?: number }>
   sms: { pelaFila: number; falhas: number; porAtividade: number }
-  email: { pelaFila: number; falhas: number; atividadesEnviadas: number; atividadesRecebidas: number }
+  email: { enviados?: number; pelaFila: number; falhas: number; atividadesEnviadas: number; atividadesRecebidas: number }
   voz: Array<{ provedor: string; direcao: string; chamadas: number; minutos: number }>
   assinaturas: Array<{ provedor: string; envelopes: number }>
   reunioes: { gravacoes: number }
@@ -291,6 +294,42 @@ function ValorCobrado({ cobranca, codigos }: { cobranca: Cobranca | null; codigo
   )
 }
 
+/** E-mail: o liberado no plano, o usado, o saldo e o excedente do mês. */
+function PlanoDeEmail({ cobranca, enviados }: { cobranca: Cobranca | null; enviados: number }) {
+  const p = cobranca?.plano.find((x) => x.codigo === 'email')
+  if (!p) return null
+  if (p.contaPropria) {
+    return (
+      <Secao titulo="Plano de e-mail">
+        <div class="text-sm text-fg-muted">Os e-mails saem pela sua própria conta de envio — não há limite nem cobrança por aqui.</div>
+      </Secao>
+    )
+  }
+  if (p.incluido == null) return null
+  const saldo = Math.max(0, p.incluido - enviados)
+  const excedente = Math.max(0, enviados - p.incluido)
+  const pct = p.incluido > 0 ? Math.min(100, Math.round((enviados / p.incluido) * 100)) : 100
+  const tom = excedente > 0 ? 'bg-danger' : pct >= 80 ? 'bg-warning' : 'bg-accent'
+  return (
+    <Secao titulo="Plano de e-mail" nota={quandoCalculou(cobranca!)}>
+      <Grade>
+        <Resumo titulo="Liberado no plano" valor={n(p.incluido)} sub="e-mails por mês" />
+        <Resumo titulo="Usado" valor={n(enviados)} sub={`${pct}% do plano`} />
+        <Resumo titulo="Saldo" valor={n(saldo)} />
+        <Resumo titulo="Excedente" valor={n(excedente)} sub={p.precoExcedente != null ? `${centavos(Math.round(p.precoExcedente * 100))} por e-mail` : ''} />
+      </Grade>
+      <div class="h-2 rounded-full bg-surface-2 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Uso do plano de e-mail">
+        <div class={`h-full ${tom}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div class="text-xs text-fg-muted">
+        {p.valorFixoCentavos ? `Pacote mensal ${centavos(p.valorFixoCentavos)}` : 'Pacote incluído'}
+        {excedente > 0 && p.precoExcedente != null ? ` + ${n(excedente)} excedentes × ${centavos(Math.round(p.precoExcedente * 100))}` : ''}
+        . O envio não é interrompido ao passar do plano: o excedente entra na fatura de consumo.
+      </div>
+    </Secao>
+  )
+}
+
 /** Fatura de consumo do mês — o que o cliente recebe (só quantidade e valor). */
 function Fatura({ cobranca }: { cobranca: Cobranca | null }) {
   if (!cobranca) return <ValorCobrado cobranca={null} codigos={[]} />
@@ -412,7 +451,7 @@ export function VolumetriaPage() {
               <Resumo onClick={() => irPara('evolution')} titulo="WhatsApp Evolution" valor={n(d.evolution.enviadas + d.evolution.recebidas)} sub={`${n(d.evolution.leadsUnicos ?? 0)} leads únicos${valorDaAba('evolution')}`} />
               <Resumo onClick={() => irPara('outros')} titulo="Instagram e outros" valor={n(outrosTotal)} sub={`mensagens no mês${valorDaAba('outros')}`} />
               <Resumo onClick={() => irPara('sms')} titulo="SMS" valor={n(d.sms.pelaFila + d.sms.porAtividade)} sub={`${d.sms.falhas ? `${n(d.sms.falhas)} falhas` : 'enviados'}${valorDaAba('sms')}`} />
-              <Resumo onClick={() => irPara('email')} titulo="E-mail" valor={n(d.email.pelaFila + d.email.atividadesEnviadas)} sub={`enviados${valorDaAba('email')}`} />
+              <Resumo onClick={() => irPara('email')} titulo="E-mail" valor={n(d.email.enviados ?? d.email.pelaFila + d.email.atividadesEnviadas)} sub={`enviados${valorDaAba('email')}`} />
               <Resumo onClick={() => irPara('voz')} titulo="Voz" valor={`${n(minutos)} min`} sub={`${n(chamadasVoz)} chamadas${valorDaAba('voz')}`} />
               <Resumo onClick={() => irPara('assinaturas')} titulo="Assinaturas eletrônicas" valor={n(envelopes)} sub={`documentos enviados${valorDaAba('assinaturas')}`} />
               <Resumo onClick={() => irPara('integracoes')} titulo="Integrações" valor={n(d.sei.chamadas + d.reunioes.gravacoes)} sub={`${n(d.reunioes.gravacoes)} reuniões · ${n(d.sei.chamadas)} SEI${valorDaAba('integracoes')}`} />
@@ -506,11 +545,12 @@ export function VolumetriaPage() {
         {aba === 'email' && (
           <>
             <Grade>
-              <Resumo titulo="Pela fila" valor={n(d.email.pelaFila)} sub="workflow e cadência" />
-              <Resumo titulo="Enviados (atividade/Gmail)" valor={n(d.email.atividadesEnviadas)} />
+              <Resumo titulo="Enviados no mês" valor={n(d.email.enviados ?? d.email.pelaFila + d.email.atividadesEnviadas)} sub="avisos, workflows, atividades e portal" />
+              <Resumo titulo="Pelas atividades" valor={n(d.email.atividadesEnviadas)} sub="já somados no total" />
               <Resumo titulo="Recebidos (Gmail)" valor={n(d.email.atividadesRecebidas)} />
-              <Resumo titulo="Falhas" valor={n(d.email.falhas)} />
+              <Resumo titulo="Falhas" valor={n(d.email.falhas)} sub="não contam no plano" />
             </Grade>
+            <PlanoDeEmail cobranca={d.cobranca} enviados={d.email.enviados ?? d.email.pelaFila + d.email.atividadesEnviadas} />
             {cobrado('email')}
           </>
         )}

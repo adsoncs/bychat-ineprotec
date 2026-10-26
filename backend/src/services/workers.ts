@@ -327,7 +327,7 @@ function createEmailWorker() {
     if (!email) throw new Error(`Lead ${leadId} sem email`)
 
     // Importar dinamicamente para evitar dependencia circular
-    const { getEmailConfig } = await import('./notify.js')
+    const { getEmailConfig, getFromAddress, getReplyTo } = await import('./notify.js')
     const cfg = await getEmailConfig()
     const provider = cfg['email.provider'] || 'resend'
 
@@ -375,9 +375,12 @@ function createEmailWorker() {
         const resend = new Resend(apiKey)
         const domain = cfg['notification.email_domain'] || 'agenciabeyond.com.br'
         const senderName = cfg['notification.sender_name'] || 'BeyondHub'
+        const replyTo = getReplyTo(cfg)
         const result = await resend.emails.send({
-          from: `${senderName} <noreply@${domain}>`,
+          // Com caixa fixa (domínio compartilhado) sai dela; sem, o noreply@ de sempre.
+          from: cfg['notification.email_local'] ? getFromAddress(cfg, '') : `${senderName} <noreply@${domain}>`,
           to: email,
+          ...(replyTo ? { reply_to: replyTo } : {}),
           subject,
           html: body,
         })

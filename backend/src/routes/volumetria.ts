@@ -59,10 +59,19 @@ function paraOCliente(v: Awaited<ReturnType<typeof volumetriaDoMes>>, cobranca: 
       impostoPct: c.impostoPct ?? null, subtotalCentavos: c.subtotalCentavos ?? 0, impostosCentavos: c.impostosCentavos ?? 0,
       totalCentavos: c.totalCentavos ?? 0, vencimento: c.vencimento ?? null, linkPagamento: c.linkPagamento ?? null,
       // "Incluído no plano" só existe quando o item tem franquia.
-      plano: (Array.isArray(c.plano) ? c.plano : []).map((p: any) => ({
-        codigo: p.codigo, nome: p.nome, unidade: p.unidade, cobrar: !!p.cobrar,
-        incluido: p.cobrar && p.modo === 'franquia' ? (p.franquia ?? 0) : null,
-      })),
+      // Valor fixo e preço do excedente são o PREÇO do cliente (não custo): podem ir.
+      // E-mail por conta própria: o cliente paga o provedor dele — sem plano aqui.
+      plano: (Array.isArray(c.plano) ? c.plano : []).map((p: any) => {
+        const propria = p.codigo === 'email' && !!c.emailContaPropria
+        const franquia = !propria && p.cobrar && p.modo === 'franquia'
+        return {
+          codigo: p.codigo, nome: p.nome, unidade: p.unidade, cobrar: !propria && !!p.cobrar,
+          incluido: franquia ? (p.franquia ?? 0) : null,
+          valorFixoCentavos: franquia ? (p.valorPacoteCentavos ?? null) : null,
+          precoExcedente: franquia ? (p.precoUnitario ?? null) : null,
+          ...(propria ? { contaPropria: true } : {}),
+        }
+      }),
       itens: (Array.isArray(c.itens) ? c.itens : []).map((i: any) => ({
         codigo: i.codigo, descricao: i.descricao, quantidade: i.quantidade, unidade: i.unidade, valorCentavos: i.valorCentavos ?? 0,
       })),
