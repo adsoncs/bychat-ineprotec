@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Mail, Send, Pause, Play, X as XIcon, Trash2, ArrowLeft, Pencil, Users, Clock } from '@/components/ui/icon-set'
+import { Mail, Send, Pause, Play, X as XIcon, Trash2, ArrowLeft, Pencil, Users, Clock, Download } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
+import { env } from '@/lib/env'
+import { RelatoriosDeEmail } from '@/components/email/RelatoriosDeEmail'
 
 // ── Tipos (espelham routes/emailCampanhas.ts) ──────────────────────────────
 
@@ -58,10 +60,12 @@ export function EmailMarketingPage() {
   const [vista, setVista] = useState<Vista>({ tipo: 'lista' })
   if (vista.tipo === 'editar') return <EditorDeCampanha id={vista.id} onSair={(id) => setVista(id ? { tipo: 'detalhe', id } : { tipo: 'lista' })} />
   if (vista.tipo === 'detalhe') return <DetalheDaCampanha id={vista.id} onVoltar={() => setVista({ tipo: 'lista' })} onEditar={() => setVista({ tipo: 'editar', id: vista.id })} />
-  return <ListaDeCampanhas onNova={() => setVista({ tipo: 'editar', id: null })} onAbrir={(c) => setVista(c.status === 'rascunho' ? { tipo: 'editar', id: c.id } : { tipo: 'detalhe', id: c.id })} />
+  return <ListaDeCampanhas onNova={() => setVista({ tipo: 'editar', id: null })} onAbrir={(c) => setVista(c.status === 'rascunho' ? { tipo: 'editar', id: c.id } : { tipo: 'detalhe', id: c.id })} onAbrirId={(id) => setVista({ tipo: 'detalhe', id })} />
 }
 
-function ListaDeCampanhas({ onNova, onAbrir }: { onNova: () => void; onAbrir: (c: Campanha) => void }) {
+function ListaDeCampanhas({ onNova, onAbrir, onAbrirId }: { onNova: () => void; onAbrir: (c: Campanha) => void; onAbrirId: (id: number) => void }) {
+  const [aba, setAba] = useState<'campanhas' | 'relatorios'>(() => { try { return localStorage.getItem('email-marketing:aba') === 'relatorios' ? 'relatorios' : 'campanhas' } catch { return 'campanhas' } })
+  const trocarAba = (a: 'campanhas' | 'relatorios') => { setAba(a); try { localStorage.setItem('email-marketing:aba', a) } catch { /* sem storage */ } }
   const { data, isLoading } = useQuery({
     queryKey: ['email-campanhas'],
     queryFn: () => api.get<{ campanhas: Campanha[] }>('/email-campanhas'),
@@ -71,7 +75,14 @@ function ListaDeCampanhas({ onNova, onAbrir }: { onNova: () => void; onAbrir: (c
   return (
     <Page title="E-mail Marketing" description="Campanhas de e-mail para a sua base, com acompanhamento de entrega, abertura e clique."
       actions={<Button variant="primary" onClick={onNova}><Mail size={14} /> Nova campanha</Button>}>
-      {isLoading ? <div class="text-sm text-fg-muted">Carregando…</div>
+      <div class="flex gap-1 border-b border-border mb-4" role="tablist">
+        {([['campanhas', 'Campanhas'], ['relatorios', 'Relatórios']] as const).map(([k, r]) => (
+          <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => trocarAba(k)}
+            class={`h-9 px-3 text-sm -mb-px border-b-2 transition-colors ${aba === k ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`}>{r}</button>
+        ))}
+      </div>
+      {aba === 'relatorios' ? <RelatoriosDeEmail onAbrirCampanha={onAbrirId} />
+        : isLoading ? <div class="text-sm text-fg-muted">Carregando…</div>
         : !campanhas.length ? (
           <EmptyState icon={<Mail size={28} />} title="Nenhuma campanha ainda"
             description="Monte o e-mail em Modelos › E-mail (aba Arrastar e soltar) e crie aqui a campanha: escolha o público, o assunto e envie ou agende."
@@ -386,6 +397,7 @@ function DetalheDaCampanha({ id, onVoltar, onEditar }: { id: number; onVoltar: (
       actions={
         <div class="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={onVoltar}><ArrowLeft size={14} /> Campanhas</Button>
+          {c.status !== 'rascunho' && <Button variant="secondary" onClick={() => void baixarDestinatarios(c.id, c.nome)}><Download size={14} /> Exportar</Button>}
           {c.status === 'agendada' && <Button variant="secondary" onClick={onEditar}><Pencil size={14} /> Editar</Button>}
           {['enviando', 'agendada'].includes(c.status) && <Button variant="secondary" onClick={() => acao.mutate('pausar')}><Pause size={14} /> Pausar</Button>}
           {c.status === 'pausada' && <Button variant="primary" onClick={() => acao.mutate('retomar')}><Play size={14} /> Retomar</Button>}
@@ -488,6 +500,20 @@ function DetalheDaCampanha({ id, onVoltar, onEditar }: { id: number; onVoltar: (
         onConfirm={() => { const a = confirmar!; setConfirmar(null); acao.mutate(a) }} />
     </Page>
   )
+}
+
+/** CSV dos destinatários com o acompanhamento de cada um. */
+async function baixarDestinatarios(id: number, nome: string) {
+  try {
+    const token = localStorage.getItem(env.authTokenKey)
+    const res = await fetch(`${env.apiBase}/email-campanhas/${id}/envios.csv`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' })
+    if (!res.ok) throw new Error('Não foi possível gerar o arquivo')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(await res.blob())
+    a.download = `campanha-${id}-${nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 60)}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(a.href)
+  } catch (e) { toast((e as Error).message, 'danger') }
 }
 
 function Kpi({ rotulo, valor, sub, alerta }: { rotulo: string; valor: string; sub: string; alerta?: boolean }) {

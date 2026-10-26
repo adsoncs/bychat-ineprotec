@@ -11,6 +11,7 @@ import { requireModule } from '../lib/permissions.js'
 import { previa, iniciarEnvio, numeros, VARS_EXEMPLO, type Publico } from '../services/emailCampanhas.js'
 import { sendEmailGeneric, getEmailConfig, getFromAddress } from '../services/notify.js'
 import { replaceVariables } from './templates.js'
+import { relatorio, csv, taxa, nomeDaOrigem } from '../services/emailRelatorio.js'
 
 const M = 'email_marketing'
 const pode = (acao: 'view' | 'create' | 'edit' | 'delete') => [authMiddleware, requireModule(M, acao)]
@@ -61,6 +62,42 @@ export async function emailCampanhasRoutes(app: FastifyInstance) {
       origens: origens.map((o) => ({ valor: o.source, leads: o._count._all })).sort((a, b) => b.leads - a.leads),
       modelos: modelos.map((m) => ({ id: m.id, nome: m.name, assunto: m.subject, temConteudo: !!m.bodyHtml?.trim() })),
     }
+  })
+
+  /** Relatório consolidado do período (Fase 4). `origem` filtra: campanha, workflow, atividade… */
+  app.get('/api/email-campanhas/relatorio', { preHandler: pode('view') }, async (req) => {
+    const q = req.query as { de?: string; ate?: string; origem?: string }
+    return relatorio(q.de, q.ate, q.origem || undefined)
+  })
+
+  app.get('/api/email-campanhas/relatorio.csv', { preHandler: pode('view') }, async (req, reply) => {
+    const q = req.query as { de?: string; ate?: string; origem?: string }
+    const r = await relatorio(q.de, q.ate, q.origem || undefined)
+    const metr = (m: any) => [m.enviados, m.entregues, taxa(m.entregues, m.enviados), m.abertos, taxa(m.abertos, m.entregues), m.clicados, taxa(m.clicados, m.entregues), m.bounces, m.spam, m.falhas]
+    const cab = ['Tipo', 'Nome', 'Modelo', 'Enviados', 'Entregues', '% entrega', 'Abertos', '% abertura', 'Cliques', '% clique', 'Devolvidos', 'Spam', 'Falhas']
+    const linhas = [
+      ['Total do período', `${r.periodo.de} a ${r.periodo.ate}`, '', ...metr(r.total)],
+      ...r.porOrigem.map((o) => ['Origem', nomeDaOrigem(o.origem), '', ...metr(o)]),
+      ...r.porCampanha.map((c) => ['Campanha', c.nome, c.modelo ?? '', ...metr(c)]),
+      ...r.porModelo.map((m) => ['Modelo', m.modelo, `${m.campanhas} campanha(s)`, ...metr(m)]),
+    ]
+    reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="email-relatorio-${r.periodo.de}-a-${r.periodo.ate}.csv"`)
+    return csv(cab, linhas)
+  })
+
+  /** Destinatários da campanha com o acompanhamento de cada um. */
+  app.get('/api/email-campanhas/:id/envios.csv', { preHandler: pode('view') }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const c = await prisma.emailCampanha.findUnique({ where: { id }, select: { nome: true } })
+    if (!c) return reply.code(404).send({ error: 'Campanha não encontrada' })
+    const envios = await prisma.emailCampanhaEnvio.findMany({ where: { campanhaId: id }, orderBy: { id: 'asc' } })
+    const ids = envios.map((e) => e.externalId).filter(Boolean) as string[]
+    const acomp = new Map((await prisma.outboundSend.findMany({ where: { externalId: { in: ids } }, select: { externalId: true, status: true, deliveredAt: true, openedAt: true, clickedAt: true, opens: true, clicks: true } })).map((o) => [o.externalId, o]))
+    const iso = (d: Date | null | undefined) => (d ? new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 16).replace('T', ' ') : '')
+    const linhas = envios.map((e) => { const o = e.externalId ? acomp.get(e.externalId) : undefined; return [e.email, e.leadId, e.variante, e.status, e.motivo, iso(e.enviadoEm), o?.status, iso(o?.deliveredAt), iso(o?.openedAt), o?.opens, iso(o?.clickedAt), o?.clicks] })
+    const nome = c.nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 60)
+    reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="campanha-${id}-${nome}.csv"`)
+    return csv(['E-mail', 'Lead', 'Versão', 'Situação', 'Motivo', 'Enviado em', 'Acompanhamento', 'Entregue em', 'Aberto em', 'Aberturas', 'Clicado em', 'Cliques'], linhas)
   })
 
   app.post('/api/email-campanhas/previa', { preHandler: pode('view') }, async (req) => previa(lerPublico((req.body as any)?.publico)))
