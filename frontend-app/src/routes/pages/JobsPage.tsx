@@ -429,14 +429,17 @@ function SendsTab({ onOpenSend }: { onOpenSend: (id: number) => void }) {
   )
 }
 
+/** Cor do status de envio — inclui o que a Resend devolve no e-mail (aberto, clicado, bounce, spam). */
+function tomDoStatus(status: string): 'danger' | 'success' | 'info' | 'warning' {
+  if (status === 'failed' || status === 'bounced' || status === 'complained') return 'danger'
+  if (status === 'sent' || status === 'delivered' || status === 'opened' || status === 'clicked') return 'success'
+  if (status === 'processing') return 'warning'
+  return 'info'
+}
+
 function SendRow({ send, onClick }: { send: OutboundSend; onClick: () => void }) {
   const Icon = CHANNEL_ICONS[send.channel]
-  const tone =
-    send.status === 'failed' ? 'danger' :
-    send.status === 'sent' || send.status === 'delivered' ? 'success' :
-    send.status === 'read' ? 'info' :
-    send.status === 'processing' ? 'warning' :
-    'info'
+  const tone = tomDoStatus(send.status)
   return (
     <tr class="hover:bg-surface-3 cursor-pointer" onClick={onClick}>
       <td class="px-3 py-2">
@@ -890,7 +893,7 @@ function SendDetailDrawer({ sendId, onClose }: { sendId: number; onClose: () => 
             <>
               <div class="flex flex-wrap gap-2 items-center">
                 <Badge tone="info">{send.channel}</Badge>
-                <Badge tone={send.status === 'failed' ? 'danger' : send.status === 'sent' || send.status === 'delivered' ? 'success' : 'warning'}>{send.status}</Badge>
+                <Badge tone={tomDoStatus(send.status)}>{send.status}</Badge>
                 {send.latencyMs != null && <span class="text-xs text-fg-muted"><Clock size={10} class="inline" /> {(send.latencyMs / 1000).toFixed(2)}s</span>}
                 <span class="text-xs text-fg-muted">{send.attempts}/{send.maxAttempts ?? '–'} tentativas</span>
               </div>

@@ -11,6 +11,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { logEvent } from '../services/leadHistory.js'
+import { descadastrarEmail } from '../services/emailEventos.js'
 
 const ALL_CHANNELS = ['whatsapp', 'email', 'sms'] as const
 type PrefChannel = (typeof ALL_CHANNELS)[number]
@@ -108,6 +109,17 @@ function renderPage(opts: {
 }
 
 export async function preferencesRoutes(app: FastifyInstance) {
+  // Descadastro de um clique (RFC 8058, cabeçalho List-Unsubscribe-Post): o
+  // Gmail/Yahoo fazem POST com corpo de formulário "List-Unsubscribe=One-Click".
+  // O parser fica só neste escopo — o corpo nem é lido, o token basta.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, corpo, feito) => feito(null, corpo))
+  app.post<{ Params: { token: string } }>('/api/preferencias/:token/descadastro', async (req, reply) => {
+    const lead = await prisma.lead.findUnique({ where: { optOutToken: String(req.params.token || '') }, select: { id: true } })
+    if (!lead) return reply.code(404).send({ error: 'Link inválido' })
+    await descadastrarEmail(lead.id, 'um_clique')
+    return { ok: true }
+  })
+
   // ── GET /preferencias/:token ── HTML público da central de preferências.
   app.get<{ Params: { token: string } }>('/preferencias/:token', async (req, reply) => {
     const lead = await prisma.lead.findUnique({

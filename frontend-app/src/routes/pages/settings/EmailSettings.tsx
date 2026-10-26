@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import type { Tab } from '../SettingsPage'
+import { EmailBloqueios } from './EmailBloqueios'
 
 const SMTP_KEYS = [
   'smtp.host', 'smtp.port', 'smtp.secure', 'smtp.user', 'smtp.pass',
@@ -426,6 +427,8 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
           />
         </ProviderCard>
       </div>
+
+      <EmailBloqueios />
 
       {testEmailOpen && (
         <TestEmailModal

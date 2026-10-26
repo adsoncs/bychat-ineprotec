@@ -2546,12 +2546,37 @@ model OutboundSend {
   failedAt     DateTime?
   updatedAt    DateTime  @updatedAt
 
+  // E-mail: eventos que a Resend devolve (webhook via loja central).
+  openedAt     DateTime?
+  clickedAt    DateTime?
+  complainedAt DateTime?
+  opens        Int       @default(0)
+  clicks       Int       @default(0)
+
   @@index([leadId, createdAt])
   @@index([channel, status, createdAt])
   @@index([status, createdAt])
   @@index([jobId])
   @@index([source, sourceId])
+  @@index([externalId])
   @@map("bychat_outbound_sends")
+}
+
+/// Endereço que não recebe mais e-mail. O domínio de envio é COMPARTILHADO
+/// entre os clientes (attrae.com.br): insistir em quem devolveu (bounce) ou
+/// marcou como spam derruba a entrega de todos, não só a deste cliente.
+model EmailSupressao {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique @db.VarChar(191)
+  /// bounce (endereço não existe) | spam (destinatário reclamou) | manual
+  motivo    String   @db.VarChar(20)
+  detalhe   String?  @db.VarChar(500)
+  /// O envio que causou o bloqueio (OutboundSend.id), quando houver.
+  envioId   Int?
+  criadoPor String?  @db.VarChar(191)
+  criadoEm  DateTime @default(now())
+
+  @@map("bychat_email_supressoes")
 }
 
 model CampaignCost {

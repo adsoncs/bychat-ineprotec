@@ -661,8 +661,8 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
       } catch (e) { console.warn('Erro ao baixar anexo para SMTP:', e) }
     }
 
-    const id = await registrarEnvioDeEmail({ to, subject: mailOpts.subject, origem: 'atividade', provider },
-      async () => (await transporter.sendMail(mailOpts)).messageId || null)
+    const id = await registrarEnvioDeEmail({ to, subject: mailOpts.subject, origem: 'atividade', provider, lancarSeBloqueado: true },
+      async ({ headers }) => (await transporter.sendMail({ ...mailOpts, headers })).messageId || null)
     return id || 'smtp-sent'
   }
 
@@ -699,8 +699,8 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
 
   // O SDK não lança em falha: devolve `error`. Sem esta checagem a atividade
   // saía como "enviada" com o e-mail recusado.
-  await registrarEnvioDeEmail({ to, subject: emailOpts.subject, origem: 'atividade', provider }, async () => {
-    const r: any = await resend.emails.send(emailOpts)
+  await registrarEnvioDeEmail({ to, subject: emailOpts.subject, origem: 'atividade', provider, lancarSeBloqueado: true }, async ({ headers, tags }) => {
+    const r: any = await resend.emails.send({ ...emailOpts, headers, tags })
     if (r?.error) throw new Error(`Resend: ${r.error.message || JSON.stringify(r.error)}`)
     return r?.data?.id || null
   })

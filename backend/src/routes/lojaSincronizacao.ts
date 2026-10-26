@@ -29,6 +29,7 @@ import {
 import { listModulesWithStatus } from '../lib/moduleManager.js'
 import { volumetriaDoMes } from '../services/volumetria.js'
 import { instantaneo, verificarAgora, lerConfig, INTERVALO_MIN } from '../services/statusIntegracoes.js'
+import { aplicarEventoResend } from '../services/emailEventos.js'
 
 function ehPacote(v: unknown): v is ModuleUmbrella {
   return typeof v === 'string' && (UMBRELLA_ORDER as string[]).includes(v)
@@ -104,6 +105,21 @@ export async function lojaSincronizacaoRoutes(app: FastifyInstance) {
    * franquia, excedente e valor). Fica guardada para o painel do DONO mostrar
    * em cada aba da Volumetria — o preço continua decidido na loja.
    */
+  /**
+   * Evento de e-mail da Resend (entregue, aberto, clicado, bounce, spam),
+   * repassado pela loja — o webhook da conta compartilhada chega lá, e a loja
+   * sabe de quem é pela tag `instalacao`. Repetido não estraga: só conta
+   * abertura/clique a mais.
+   */
+  app.post('/api/loja/email-evento', async (req, reply) => {
+    const cru = (req as unknown as { corpoCru?: string }).corpoCru ?? ''
+    const erro = autenticar(req, reply, cru)
+    if (erro) return erro
+    const b = req.body as { type?: unknown }
+    if (typeof b?.type !== 'string' || !b.type.startsWith('email.')) return reply.code(400).send({ error: 'Evento inválido' })
+    return aplicarEventoResend(b as never)
+  })
+
   app.post('/api/loja/consumo/cobranca', async (req, reply) => {
     const cru = (req as unknown as { corpoCru?: string }).corpoCru ?? ''
     const erro = autenticar(req, reply, cru)

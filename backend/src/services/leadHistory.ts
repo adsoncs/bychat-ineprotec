@@ -47,6 +47,12 @@ export const EVENT_TYPES = {
   MESSAGE_INTERNAL:        'message_internal',
   REPORT_SENT:             'report_sent',
   NOTIFICATION_SENT:       'notification_sent',
+  // E-mail: o que a Resend devolve depois do envio (services/emailEventos.ts)
+  EMAIL_OPENED:            'email_opened',
+  EMAIL_CLICKED:           'email_clicked',
+  EMAIL_BOUNCED:           'email_bounced',
+  EMAIL_COMPLAINED:        'email_complained',
+  EMAIL_UNSUBSCRIBED:      'email_unsubscribed',
 
   // Operator actions
   OPERATOR_VIEWED:         'operator_viewed',

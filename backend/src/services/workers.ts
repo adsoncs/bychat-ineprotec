@@ -328,8 +328,13 @@ function createEmailWorker() {
 
     // Importar dinamicamente para evitar dependencia circular
     const { getEmailConfig, getFromAddress, getReplyTo } = await import('./notify.js')
+    const { motivoDeBloqueio, extrasDoEnvio } = await import('./emailEventos.js')
     const cfg = await getEmailConfig()
     const provider = cfg['email.provider'] || 'resend'
+    // Bounce/spam: não adianta tentar de novo — falha definitiva do passo.
+    const bloqueio = await motivoDeBloqueio(email, true)
+    if (bloqueio) throw new UnrecoverableError(`E-mail não enviado: ${bloqueio}`)
+    const { headers, tags } = await extrasDoEnvio(leadId)
 
     const trackResult = await trackedSend({
       channel: 'email',
@@ -361,6 +366,7 @@ function createEmailWorker() {
         const info = await transporter.sendMail({
           from: `${fromName} <${fromEmail}>`,
           to: email,
+          headers,
           subject,
           html: body,
         })
@@ -381,6 +387,7 @@ function createEmailWorker() {
           from: cfg['notification.email_local'] ? getFromAddress(cfg, '') : `${senderName} <noreply@${domain}>`,
           to: email,
           ...(replyTo ? { reply_to: replyTo } : {}),
+          headers, tags,
           subject,
           html: body,
         })
