@@ -24,6 +24,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RichTextEditor, htmlToText } from '@/components/ui/RichTextEditor'
 import { SmsCounter } from '@/components/ui/SmsCounter'
 import { PhonePreview } from '@/components/ui/PhonePreview'
+import { EmailBuilder } from '@/components/email/EmailBuilder'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 
@@ -278,6 +279,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const [subject, setSubject] = useState(template?.subject ?? '')
   const [body, setBody] = useState(template?.body ?? '')
   const [bodyHtml, setBodyHtml] = useState(decodeHtmlIfEscaped(template?.bodyHtml ?? ''))
+  const [builderJson, setBuilderJson] = useState<unknown | null>(template?.builderJson ?? null)
   // Atalho do Conversas: normaliza p/ minúsculo, sem "/", só [a-z0-9_-].
   const [shortcut, setShortcut] = useState(template?.shortcut ?? '')
   const [header, setHeader] = useState(template?.header ?? '')
@@ -311,6 +313,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       subject: channel === 'email' && subject.trim() ? subject.trim() : null,
       body: finalBody,
       bodyHtml: channel === 'email' && cleanHtml.trim() ? cleanHtml.trim() : null,
+      builderJson: channel === 'email' ? builderJson : null,
       shortcut: shortcut.trim() || null,
       attachmentUrl: anexo?.url ?? null,
       attachmentName: anexo?.name ?? null,
@@ -381,6 +384,8 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
           setBody={setBody}
           bodyHtml={bodyHtml}
           setBodyHtml={setBodyHtml}
+          builderJson={builderJson}
+          setBuilderJson={setBuilderJson}
           varKeys={varKeys}
         />
       ) : channel === 'whatsapp' ? (
@@ -425,6 +430,8 @@ function EmailPanel({
   setBody,
   bodyHtml,
   setBodyHtml,
+  builderJson,
+  setBuilderJson,
   varKeys,
 }: {
   subject: string
@@ -432,13 +439,19 @@ function EmailPanel({
   setBody: (s: string) => void
   bodyHtml: string
   setBodyHtml: (s: string) => void
+  builderJson: unknown | null
+  setBuilderJson: (p: unknown | null) => void
   varKeys: string[]
 }) {
-  const [tab, setTab] = useState<'visual' | 'html'>('visual')
+  const [tab, setTab] = useState<'visual' | 'html' | 'arrastar'>(builderJson ? 'arrastar' : 'visual')
+  const [editorAberto, setEditorAberto] = useState(false)
 
+  // Edição à mão (Visual/HTML) desliga o editor de arrastar: o projeto dele
+  // não acompanha a mudança, e reabri-lo apagaria o que foi editado aqui.
   function handleChange(html: string) {
     setBodyHtml(html)
     setBody(htmlToText(html))
+    if (builderJson) setBuilderJson(null)
   }
 
   return (
@@ -476,10 +489,35 @@ function EmailPanel({
             >
               HTML
             </button>
+            <button
+              type="button"
+              onClick={() => setTab('arrastar')}
+              class={cn(
+                'h-6 px-2.5 text-2xs font-medium rounded transition-colors',
+                tab === 'arrastar' ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+              )}
+            >
+              Arrastar e soltar
+            </button>
           </div>
         </div>
 
-        {tab === 'visual' ? (
+        {builderJson && tab !== 'arrastar' && (
+          <p class="mb-1.5 text-3xs text-warning">Este e-mail foi montado no editor de arrastar. Editar aqui desliga o editor para este modelo.</p>
+        )}
+
+        {tab === 'arrastar' ? (
+          <div class="rounded-md border border-border bg-surface-2 p-4 flex flex-wrap items-center gap-3">
+            <div class="flex-1 min-w-[200px] text-xs text-fg-muted">
+              {builderJson
+                ? 'Montado no editor de arrastar. Abra para continuar editando.'
+                : bodyHtml.trim()
+                  ? 'Abrir o editor de arrastar começa um layout novo — o conteúdo atual é substituído quando você aplicar.'
+                  : 'Monte o e-mail com blocos: textos, imagens, botões, colunas. Já sai responsivo para celular.'}
+            </div>
+            <Button type="button" size="sm" onClick={() => setEditorAberto(true)}>{builderJson ? 'Abrir editor' : 'Criar no editor'}</Button>
+          </div>
+        ) : tab === 'visual' ? (
           <RichTextEditor
             value={bodyHtml || ''}
             onChange={handleChange}
@@ -503,6 +541,21 @@ function EmailPanel({
           </div>
         )}
       </div>
+
+      {editorAberto && (
+        <EmailBuilder
+          projeto={builderJson}
+          assunto={subject}
+          varKeys={varKeys}
+          onFechar={() => setEditorAberto(false)}
+          onSalvar={({ html, projeto }) => {
+            setBodyHtml(html)
+            setBody(htmlToText(html))
+            setBuilderJson(projeto)
+            setEditorAberto(false)
+          }}
+        />
+      )}
 
       <div class="mt-3">
         <span class="text-xs font-medium text-fg-muted block mb-1.5">Pré-visualização</span>

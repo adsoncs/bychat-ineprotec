@@ -1859,6 +1859,9 @@ model MessageTemplate {
   subject        String?  @db.VarChar(191) // assunto (email)
   body           String   @db.LongText // corpo com variaveis {{nome}}, {{empresa}}, etc
   bodyHtml       String?  @db.LongText // versao HTML (email)
+  // Projeto do editor de arrastar (GrapesJS + MJML): é o que permite reabrir e
+  // continuar editando. O e-mail que SAI é sempre o `bodyHtml` já compilado.
+  builderJson    Json?    @db.Json
   attachmentUrl  String?  @db.Text // anexo padrao (URL)
   attachmentName String?  @db.VarChar(191)
   // Tipo do anexo, definido no upload. Antes o Conversas adivinhava pela

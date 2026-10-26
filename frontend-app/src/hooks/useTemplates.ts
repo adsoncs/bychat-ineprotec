@@ -11,6 +11,8 @@ export interface MessageTemplateItem {
   subject: string | null
   body: string
   bodyHtml: string | null
+  /** Projeto do editor de arrastar (GrapesJS + MJML); null = HTML editado à mão. */
+  builderJson?: unknown | null
   attachmentUrl: string | null
   attachmentName: string | null
   attachmentType: string | null
@@ -30,6 +32,7 @@ export interface TemplateInput {
   subject?: string | null | undefined
   body: string
   bodyHtml?: string | null | undefined
+  builderJson?: unknown | null | undefined
   shortcut?: string | null | undefined
   attachmentUrl?: string | null | undefined
   attachmentName?: string | null | undefined

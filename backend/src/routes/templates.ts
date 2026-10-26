@@ -4,6 +4,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
+import { Prisma } from '@prisma/client'
+import { sendEmailGeneric, getEmailConfig, getFromAddress } from '../services/notify.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 
 // Variaveis disponiveis para substituicao
@@ -69,6 +71,28 @@ export async function templatesRoutes(app: FastifyInstance) {
   })
 
   // ── GET /api/templates/variables — Lista de variaveis disponiveis ──
+  // ── POST /api/templates/test-email — envia o e-mail do editor para um endereço ──
+  // Variáveis saem com o valor de exemplo: é para ver o layout na caixa de
+  // entrada de verdade (Gmail/Outlook), não para falar com um lead.
+  app.post('/api/templates/test-email', { preHandler: authMiddleware }, async (req, reply) => {
+    const b = req.body as { to?: string; subject?: string; html?: string }
+    const to = String(b?.to ?? '').trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return reply.code(400).send({ error: 'E-mail de destino inválido' })
+    if (!String(b?.html ?? '').trim()) return reply.code(400).send({ error: 'O e-mail está vazio' })
+    const exemplos = Object.fromEntries(TEMPLATE_VARIABLES.map((v) => [v.key, v.example]))
+    const cfg = await getEmailConfig()
+    const configurado = cfg['email.provider'] === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
+    if (!configurado) return reply.code(400).send({ error: 'O envio de e-mail não está configurado (Configurações › E-mail).' })
+    try {
+      await sendEmailGeneric({
+        from: getFromAddress(cfg, 'Teste'), to,
+        subject: `[Teste] ${replaceVariables(String(b.subject || 'Sem assunto'), exemplos)}`,
+        html: replaceVariables(String(b.html), exemplos), origem: 'teste',
+      })
+    } catch (e) { return reply.code(502).send({ error: (e as Error).message }) }
+    return { ok: true }
+  })
+
   app.get('/api/templates/variables', { preHandler: authMiddleware }, async () => {
     return { variables: TEMPLATE_VARIABLES }
   })
@@ -96,6 +120,7 @@ export async function templatesRoutes(app: FastifyInstance) {
         subject: body.subject || null,
         body: body.body,
         bodyHtml: body.bodyHtml || null,
+        builderJson: body.builderJson ?? undefined,
         attachmentUrl: body.attachmentUrl || null,
         attachmentName: body.attachmentName || null,
         attachmentType: body.attachmentType || null,
@@ -120,6 +145,8 @@ export async function templatesRoutes(app: FastifyInstance) {
     if (body.subject !== undefined) data.subject = body.subject
     if (body.body !== undefined) data.body = body.body
     if (body.bodyHtml !== undefined) data.bodyHtml = body.bodyHtml
+    // null apaga o projeto do editor (voltou a editar o HTML à mão).
+    if (body.builderJson !== undefined) data.builderJson = body.builderJson === null ? Prisma.DbNull : body.builderJson
     if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
     if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
     if (body.attachmentType !== undefined) data.attachmentType = body.attachmentType
