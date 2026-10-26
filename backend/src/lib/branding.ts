@@ -24,7 +24,8 @@ export async function getBranding(): Promise<BrandingConfig> {
     cfg[r.key] = val.replace(/^"|"$/g, '')
   })
 
-  const brandName = cfg['appearance.admin_brand_name'] || 'BeyondHub'
+  // trim: espaço salvo no início do nome aparecia em todo assunto de e-mail.
+  const brandName = (cfg['appearance.admin_brand_name'] || '').trim() || 'BeyondHub'
   const brandAccent = cfg['appearance.admin_brand_accent'] || 'Hub'
 
   const data: BrandingConfig = {

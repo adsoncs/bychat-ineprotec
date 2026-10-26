@@ -106,6 +106,18 @@ const APPEARANCE_DEFAULTS: Record<string, string> = {
   'appearance.login_hero_to': '',
 }
 
+/**
+ * Nome da marca sem espaço sobrando nas pontas. Um espaço no início
+ * (" Kobogó") ia para o topo do painel e para o assunto de todo e-mail
+ * ("Redefinição de senha —  Kobogó"). Limpa ao salvar e ao ler, porque o
+ * que já está gravado também precisa sair certo.
+ */
+const TEXTOS_APARADOS = new Set(['appearance.admin_brand_name'])
+function limparTexto(key: string, valor: unknown): string {
+  const v = String(valor ?? '')
+  return TEXTOS_APARADOS.has(key) ? v.trim() : v
+}
+
 export async function appearanceRoutes(app: FastifyInstance) {
 
   // GET /api/appearance — Público (para aplicar tema no frontend)
@@ -117,7 +129,7 @@ export async function appearanceRoutes(app: FastifyInstance) {
     rows.forEach(r => {
       const val = typeof r.value === 'string' ? r.value : String(r.value)
       // Remove aspas extras do JSON
-      config[r.key] = val.replace(/^"|"$/g, '')
+      config[r.key] = limparTexto(r.key, val.replace(/^"|"$/g, ''))
     })
     return { appearance: config, landingAdmin: isPrimaryInstall() }
   })
@@ -130,7 +142,7 @@ export async function appearanceRoutes(app: FastifyInstance) {
     const config: Record<string, string> = { ...APPEARANCE_DEFAULTS }
     rows.forEach(r => {
       const val = typeof r.value === 'string' ? r.value : String(r.value)
-      config[r.key] = val.replace(/^"|"$/g, '')
+      config[r.key] = limparTexto(r.key, val.replace(/^"|"$/g, ''))
     })
     return { appearance: config, defaults: APPEARANCE_DEFAULTS, landingAdmin: isPrimaryInstall() }
   })
@@ -146,8 +158,9 @@ export async function appearanceRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'Apenas SUPERADMIN pode alterar códigos personalizados (head/body/scripts).' })
     }
 
-    for (const [key, value] of Object.entries(updates)) {
+    for (const [key, valorRecebido] of Object.entries(updates)) {
       if (!key.startsWith('appearance.')) continue
+      const value = limparTexto(key, valorRecebido)
       const label = key.replace('appearance.', '').replace(/_/g, ' ')
 
       const exists = await prisma.setting.findUnique({ where: { key } })
