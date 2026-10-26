@@ -74,7 +74,7 @@ export async function getNotificationTargets(): Promise<NotificationTargets> {
 // Todo e-mail que sai passa por aqui e vira uma linha em OutboundSend (canal
 // email): é essa contagem que a Volumetria mostra e que a loja cobra. Envio
 // fora deste caminho some da conta — use sendEmailGeneric ou registrarEnvioDeEmail.
-export async function sendEmailGeneric(opts: { from: string, to: string, cc?: string, subject: string, html: string, replyTo?: string, origem?: string, origemId?: number | null, leadId?: number | null }): Promise<string | null> {
+export async function sendEmailGeneric(opts: { from: string, to: string, cc?: string, subject: string, html: string, replyTo?: string, origem?: string, origemId?: number | null, leadId?: number | null, registro?: Record<string, unknown> }): Promise<string | null> {
   const cfg = await getEmailConfig()
   const provider = cfg['email.provider'] || 'resend'
   const replyTo = opts.replyTo || cfg['notification.reply_to'] || undefined
@@ -92,7 +92,7 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
     }
 
     const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } })
-    return registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, origemId: opts.origemId, leadId: opts.leadId, provider }, async ({ headers }) => {
+    return registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, origemId: opts.origemId, leadId: opts.leadId, registro: opts.registro, provider }, async ({ headers }) => {
       const info = await transporter.sendMail({
         from: opts.from,
         to: opts.to,
@@ -112,7 +112,7 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
       return null
     }
     const resend = new Resend(apiKey)
-    return registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, origemId: opts.origemId, leadId: opts.leadId, provider }, async ({ headers, tags }) => {
+    return registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, origemId: opts.origemId, leadId: opts.leadId, registro: opts.registro, provider }, async ({ headers, tags }) => {
       const result = await resend.emails.send({
         from: opts.from,
         to: opts.to,
@@ -139,7 +139,7 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
  * provedor. Com `lancarSeBloqueado`, o bloqueio vira erro para quem chamou.
  */
 export async function registrarEnvioDeEmail(
-  meta: { to: string, subject?: string | null, origem?: string, origemId?: number | null, leadId?: number | null, provider: string, lancarSeBloqueado?: boolean },
+  meta: { to: string, subject?: string | null, origem?: string, origemId?: number | null, leadId?: number | null, provider: string, lancarSeBloqueado?: boolean, registro?: Record<string, unknown> },
   enviar: (extras: { headers: Record<string, string>, tags: Array<{ name: string, value: string }> }) => Promise<string | null>,
 ): Promise<string | null> {
   const bloqueio = await motivoDeBloqueio(meta.to, !!meta.leadId)
@@ -149,6 +149,7 @@ export async function registrarEnvioDeEmail(
       channel: 'email', queueName: 'email-direto', jobId: null, leadId: meta.leadId ?? null,
       recipient: String(meta.to).slice(0, 191), subject: meta.subject ? String(meta.subject).slice(0, 191) : null,
       attempts: 1, source: meta.origem || 'system', sourceId: meta.origemId ?? null,
+      metadata: { provider: meta.provider, ...(meta.registro ?? {}) },
     }, async () => {
       if (bloqueio) throw new Error(`E-mail não enviado: ${bloqueio}`)
       return { externalId: await enviar(extras), metadata: { provider: meta.provider } }
@@ -474,7 +475,18 @@ export async function marcaParaEmail(): Promise<{ brandName: string; color: stri
  * configurado ou endereço bloqueado): quem chama precisa saber — dizer "enviado"
  * para quem está trancado do lado de fora é o pior caso.
  */
-export async function sendPasswordResetEmail(email: string, name: string, resetLink: string): Promise<void> {
+/** Quem pediu a redefinição — fica no registro do envio (Filas & Monitor) por segurança. */
+export interface SolicitacaoDeSenha {
+  modo: 'proprio_usuario' | 'administrador'
+  ip: string | null
+  navegador: string | null
+  porUsuarioId?: number | null
+  porNome?: string | null
+  porEmail?: string | null
+  usuarioAlvoId: number
+}
+
+export async function sendPasswordResetEmail(email: string, name: string, resetLink: string, solicitacao?: SolicitacaoDeSenha): Promise<void> {
   const cfg = await getEmailConfig()
   const marca = await marcaParaEmail()
   const vars = {
@@ -492,7 +504,11 @@ export async function sendPasswordResetEmail(email: string, name: string, resetL
 
   const configurado = cfg['email.provider'] === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
   if (!configurado) throw new Error('Envio de e-mail não configurado (Configurações › E-mail)')
-  const id = await sendEmailGeneric({ from: getFromAddress(cfg, 'Sistema'), to: email, subject, html, origem: 'system' })
+  const id = await sendEmailGeneric({
+    from: getFromAddress(cfg, 'Sistema'), to: email, subject, html,
+    origem: 'redefinicao_senha', origemId: solicitacao?.usuarioAlvoId ?? null,
+    ...(solicitacao ? { registro: { solicitacao } } : {}),
+  })
   if (!id) throw new Error('O e-mail de redefinição não saiu (endereço bloqueado ou recusado)')
 }
 

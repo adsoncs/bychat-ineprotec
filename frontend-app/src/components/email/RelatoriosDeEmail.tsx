@@ -29,6 +29,7 @@ interface Relatorio {
 const ORIGENS: Record<string, string> = {
   campanha: 'Campanhas', workflow: 'Workflows', cadence: 'Cadências', atividade: 'E-mails da equipe',
   system: 'Avisos do sistema', teste: 'Testes', manual: 'Envio manual',
+  redefinicao_senha: 'Redefinição de senha',
 }
 const n = (v: number) => v.toLocaleString('pt-BR')
 const pct = (a: number, b: number) => (b > 0 ? `${(Math.round((a / b) * 1000) / 10).toLocaleString('pt-BR')}%` : '—')

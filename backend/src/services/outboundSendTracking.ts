@@ -19,6 +19,8 @@ export interface RecordSendInput {
   maxAttempts?: number | null
   source?: string | null
   sourceId?: number | null
+  /** Gravado já na criação: fica mesmo se o envio falhar (ex.: quem pediu a redefinição de senha e o IP). */
+  metadata?: any
 }
 
 // Cria registro inicial 'processing' quando o worker começa.
@@ -39,6 +41,7 @@ export async function recordSend(input: RecordSendInput): Promise<{ id: number; 
       sourceId: input.sourceId ?? null,
       status: 'processing',
       processingAt: new Date(),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
     },
     select: { id: true },
   })
@@ -144,7 +147,7 @@ export async function trackedSend<T extends MarkSentInput>(
     if (id > 0) {
       await markSendSent(id, startedAt, {
         externalId: result.externalId ?? null,
-        metadata: result.metadata,
+        metadata: meta.metadata || result.metadata ? { ...(meta.metadata ?? {}), ...(result.metadata ?? {}) } : undefined,
       }).catch((e) => console.error('[OutboundSend] markSent falhou:', e))
     }
     return result
@@ -152,6 +155,7 @@ export async function trackedSend<T extends MarkSentInput>(
     if (id > 0) {
       await markSendFailed(id, startedAt, {
         error: err?.message || String(err),
+        ...(meta.metadata ? { metadata: meta.metadata } : {}),
       }).catch((e) => console.error('[OutboundSend] markFailed falhou:', e))
     }
     throw err

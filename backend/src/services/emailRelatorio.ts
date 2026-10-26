@@ -90,6 +90,7 @@ export function csv(cab: string[], linhas: Array<Array<string | number | null | 
 export const ORIGENS: Record<string, string> = {
   campanha: 'Campanhas', workflow: 'Workflows', cadence: 'Cadências', atividade: 'E-mails da equipe',
   system: 'Avisos do sistema', teste: 'Testes', manual: 'Envio manual',
+  redefinicao_senha: 'Redefinição de senha',
 }
 export const nomeDaOrigem = (o: string) => ORIGENS[o] ?? o
 

@@ -454,6 +454,7 @@ function SendRow({ send, onClick }: { send: OutboundSend; onClick: () => void })
       </td>
       <td class="px-3 py-2 text-xs text-fg-muted max-w-[280px] truncate" title={send.bodyPreview ?? ''}>
         {send.subject || send.bodyPreview || '–'}
+        {send.metadata?.solicitacao && <div class="text-2xs text-warning truncate">{resumoSolicitacao(send.metadata.solicitacao)}</div>}
       </td>
       <td class="px-3 py-2"><Badge tone={tone as any}>{send.status}</Badge></td>
       <td class="px-3 py-2 text-xs text-fg-muted text-right tabular-nums">
@@ -934,12 +935,39 @@ function SendDetailDrawer({ sendId, onClose }: { sendId: number; onClose: () => 
                   <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(send.metadata, null, 2)}</pre>
                 </div>
               )}
-              <DetailRow label="Origem" value={send.source ? `${send.source}${send.sourceId ? ` #${send.sourceId}` : ''}` : '–'} />
+              {send.metadata?.solicitacao && <SolicitacaoDeSenhaInfo s={send.metadata.solicitacao} />}
+              <DetailRow label="Origem" value={send.source ? `${ORIGEM_LABEL[send.source] ?? send.source}${send.sourceId ? ` #${send.sourceId}` : ''}` : '–'} />
               {send.jobId && <DetailRow label="Job ID" value={<code class="font-mono text-2xs">{send.jobId}</code>} />}
             </>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+const ORIGEM_LABEL: Record<string, string> = {
+  redefinicao_senha: 'Redefinição de senha (usuário)', campanha: 'Campanha', workflow: 'Workflow', cadence: 'Cadência',
+  atividade: 'E-mail da equipe', system: 'Aviso do sistema', teste: 'Teste',
+}
+
+interface Solicitacao { modo: 'proprio_usuario' | 'administrador'; ip: string | null; navegador: string | null; porNome?: string | null; porEmail?: string | null }
+
+/** "Pedido pelo próprio usuário · IP 1.2.3.4" — a trilha de quem pediu a redefinição de senha. */
+function resumoSolicitacao(s: Solicitacao): string {
+  const quem = s.modo === 'administrador' ? `Enviado por ${s.porNome || s.porEmail || 'administrador'}` : 'Pedido pelo próprio usuário'
+  return `${quem}${s.ip ? ` · IP ${s.ip}` : ''}`
+}
+
+function SolicitacaoDeSenhaInfo({ s }: { s: Solicitacao }) {
+  return (
+    <div class="rounded-md border border-warning/40 bg-warning/5 p-3 space-y-1.5">
+      <h4 class="text-xs font-semibold text-fg uppercase">Solicitação de redefinição de senha</h4>
+      <DetailRow label="Pedido por" value={s.modo === 'administrador'
+        ? `${s.porNome ?? 'Administrador'}${s.porEmail ? ` (${s.porEmail})` : ''} — botão em Usuários`
+        : 'O próprio usuário — tela "Esqueci minha senha"'} />
+      <DetailRow label="IP" value={s.ip ? <code class="font-mono text-2xs">{s.ip}</code> : 'não registrado'} />
+      <DetailRow label="Navegador" value={<span class="text-2xs">{s.navegador || 'não informado'}</span>} />
     </div>
   )
 }

@@ -7,7 +7,7 @@ import { signToken, authMiddleware, adminOnly, adminStrict, superadminOnly, type
 import { verificarTotp, consumirCodigoRecuperacao } from '../services/twoFactor.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
-import { sendPasswordResetEmail, RESET_EXPIRA_MINUTOS } from '../services/notify.js'
+import { sendPasswordResetEmail, RESET_EXPIRA_MINUTOS, type SolicitacaoDeSenha } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
 import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole, ESCOPO_EDITAVEL } from '../lib/permissions.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -680,9 +680,12 @@ export async function usersRoutes(app: FastifyInstance) {
     const user = await prisma.user.findUnique({ where: { id } })
     if (!user) return reply.code(404).send({ error: 'Usuário não encontrado' })
     if (!user.active) return reply.code(400).send({ error: 'Usuário inativo — reative antes de enviar o link' })
-    const r = await enviarLinkDeRedefinicao(user)
-    if (!r.ok) return reply.code(502).send({ error: r.erro })
     const op = (req as any).user as JwtPayload | undefined
+    const r = await enviarLinkDeRedefinicao(user, {
+      modo: 'administrador', ip: req.ip ?? null, navegador: String(req.headers['user-agent'] ?? '').slice(0, 300) || null,
+      porUsuarioId: op?.userId ?? null, porNome: op?.name ?? null, porEmail: op?.email ?? null, usuarioAlvoId: user.id,
+    })
+    if (!r.ok) return reply.code(502).send({ error: r.erro })
     void logUserAudit({
       action: 'auth.password_reset_sent', actorId: op?.userId ?? null, actorName: op?.name ?? null,
       targetUserId: user.id, targetType: 'auth', ipAddress: req.ip,
@@ -713,7 +716,13 @@ export async function usersRoutes(app: FastifyInstance) {
       return { ok: true }
     }
 
-    const r = await enviarLinkDeRedefinicao(user)
+    const navegador = String(req.headers['user-agent'] ?? '').slice(0, 300) || null
+    void logUserAudit({
+      action: 'auth.password_reset_requested', actorId: user.id, actorName: user.name || user.email,
+      targetUserId: user.id, targetType: 'auth', ipAddress: req.ip,
+      targetLabel: 'Pediu redefinição de senha (Esqueci minha senha)',
+    })
+    const r = await enviarLinkDeRedefinicao(user, { modo: 'proprio_usuario', ip: req.ip ?? null, navegador, usuarioAlvoId: user.id })
     if (!r.ok) {
       req.log.error(`[users] redefinição de senha para ${user.email} não saiu: ${r.erro}`)
       await minDelay(startTime, 800)
@@ -917,7 +926,7 @@ export async function usersRoutes(app: FastifyInstance) {
  * e-mail. Sem APP_URL não monta link: o fallback antigo mandava para o domínio
  * de antes da migração — link morto na caixa de quem está trancado do lado de fora.
  */
-async function enviarLinkDeRedefinicao(user: { id: number; email: string; name: string | null }): Promise<{ ok: true } | { ok: false; erro: string }> {
+async function enviarLinkDeRedefinicao(user: { id: number; email: string; name: string | null }, solicitacao: SolicitacaoDeSenha): Promise<{ ok: true } | { ok: false; erro: string }> {
   const appUrl = process.env.APP_URL
   if (!appUrl) return { ok: false, erro: 'APP_URL não configurada — avise o suporte técnico' }
   await prisma.passwordReset.updateMany({ where: { userId: user.id, used: false }, data: { used: true } })
@@ -925,7 +934,7 @@ async function enviarLinkDeRedefinicao(user: { id: number; email: string; name: 
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
   await prisma.passwordReset.create({ data: { userId: user.id, token: tokenHash, expiresAt: new Date(Date.now() + RESET_EXPIRA_MINUTOS * 60 * 1000) } })
   try {
-    await sendPasswordResetEmail(user.email, user.name ?? user.email, `${appUrl.replace(/\/$/, '')}/app/reset-password?token=${token}`)
+    await sendPasswordResetEmail(user.email, user.name ?? user.email, `${appUrl.replace(/\/$/, '')}/app/reset-password?token=${token}`, solicitacao)
     return { ok: true }
   } catch (e) {
     return { ok: false, erro: (e as Error).message }

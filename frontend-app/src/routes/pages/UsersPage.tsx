@@ -631,6 +631,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   'auth.logout': 'Logout',
   'auth.password_reset': 'Senha redefinida',
   'auth.password_reset_sent': 'Link de redefinição enviado',
+  'auth.password_reset_requested': 'Pediu redefinição de senha',
   // Permissões e módulos
   'permission.role_changed': 'Permissões por perfil',
   'permission.user_override_changed': 'Permissões do usuário',
