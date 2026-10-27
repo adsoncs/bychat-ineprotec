@@ -547,9 +547,10 @@ const WORKFLOWS: WfDef[] = [
   { key: 'wf_enrollment_doc_rejected',       name: 'Notificar — Documento rejeitado',     description: 'Avisa o candidato quando um documento é rejeitado, com motivo + link de reenvio', triggerEvent: 'enrollment.document_rejected', emailTplKey: 'enrollment_doc_rejected_email', waTplKey: 'enrollment_doc_rejected_wa' },
 
   // ── Aviso à equipe ──
-  // Único caminho do aviso de novo lead (antes saía direto do código). Ligar,
-  // desligar, filtrar por funil/origem e trocar o texto: tudo em Fluxos/Modelos.
-  { key: 'wf_lead_captured_team', name: 'Avisar equipe — Novo lead captado', description: 'Avisa os destinos de Configurações › Empresa › Dados de Notificações (WhatsApp e e-mail) quando entra um lead por formulário, webhook, anúncio, chat do site ou chatbot.', triggerEvent: 'lead.captured', emailTplKey: 'lead_captured_team_email', waTplKey: 'lead_captured_team_wa', notifyTeam: true },
+  // Único caminho do aviso de novo lead (antes saía direto do código). Nasce
+  // DESLIGADO: quem administra a instalação liga em Fluxos se quiser o aviso.
+  // Filtrar por funil/origem e trocar o texto: tudo em Fluxos/Modelos.
+  { key: 'wf_lead_captured_team', name: 'Avisar equipe — Novo lead captado', description: 'Avisa os destinos de Configurações › Empresa › Dados de Notificações (WhatsApp e e-mail) quando entra um lead por formulário, webhook, anúncio, chat do site ou chatbot. Vem desligado — ligue para receber o aviso.', triggerEvent: 'lead.captured', emailTplKey: 'lead_captured_team_email', waTplKey: 'lead_captured_team_wa', notifyTeam: true, active: false },
 
   // ── ENEM ──
   { key: 'wf_enrollment_enem_approved',      name: 'Notificar — ENEM aprovado',           description: 'Avisa o candidato quando a nota do ENEM passa do corte e é validada',     triggerEvent: 'enrollment.enem_approved',            emailTplKey: 'enrollment_enem_approved_email',      waTplKey: 'enrollment_enem_approved_wa' },
