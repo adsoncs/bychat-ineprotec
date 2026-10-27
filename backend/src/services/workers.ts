@@ -143,6 +143,20 @@ async function fillEmptyTemplateParams(components: any, stepExecutionId?: number
 function createWhatsAppWorker() {
   return new Worker('wf-whatsapp', async (job, token) => {
     const { leadId, message, stepExecutionId, cloudTemplate } = job.data
+
+    // A execução pode ter parado enquanto o job esperava a vez, o teto ou a
+    // janela (lead respondeu, alguém pausou ou cancelou): aí não envia.
+    if (stepExecutionId) {
+      const se = await prisma.workflowStepExecution.findUnique({
+        where: { id: stepExecutionId },
+        select: { execution: { select: { status: true } } },
+      })
+      const st = se?.execution?.status
+      if (st && st !== 'running') {
+        await updateStepExecution(stepExecutionId, 'skipped', null, `Execução ${st} antes do envio — não enviado`)
+        return
+      }
+    }
     const lead = await prisma.lead.findUnique({ where: { id: leadId } })
     if (!lead || !lead.whatsapp) throw new Error(`Lead ${leadId} sem WhatsApp`)
 
@@ -259,6 +273,22 @@ function createWhatsAppWorker() {
     // Ritmo por linha (ver ritmoEnvio.ts): a vez é reservada uma única vez por
     // job; se ela cai no futuro, o job volta para a fila atrasado em vez de
     // prender o worker dormindo — e as outras linhas seguem andando.
+    // Teto diário da linha (ver ritmoEnvio.ts): uma vaga por job. Teto cheio =
+    // o envio vai para o próximo dia permitido, sem ocupar vaga hoje.
+    if (!job.data.tetoOk && token) {
+      const { linhaDoProvider, consumirTeto, proximaAbertura } = await import('./ritmoEnvio.js')
+      const linha = linhaDoProvider(provider as any)
+      if (linha && !(await consumirTeto(linha, provider.providerName))) {
+        const quando = await proximaAbertura(leadId)
+        await updateStepExecution(stepExecutionId, 'pending', null,
+          `Teto diário de envios automáticos da linha atingido — reagendado para ${new Date(quando).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`)
+        await job.updateData({ ...job.data, vezReservada: false })
+        await job.moveToDelayed(quando, token)
+        throw new DelayedError()
+      }
+      await job.updateData({ ...job.data, tetoOk: true })
+    }
+
     if (!job.data.vezReservada) {
       const { linhaDoProvider, reservarVez } = await import('./ritmoEnvio.js')
       const linha = linhaDoProvider(provider as any)

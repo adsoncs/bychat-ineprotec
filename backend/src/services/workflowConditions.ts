@@ -98,6 +98,21 @@ export async function evaluateCondition(
     return config.type === 'source_is' ? bate : !bate
   }
 
+  // Contato recente: o lead entrou há no máximo N dias OU escreveu para nós nos
+  // últimos N dias. É o freio da reativação de base fria: follow-up automático
+  // para quem não fala conosco há meses, por linha QR Code, é o padrão que o
+  // WhatsApp bane (elementus, 27/10).
+  if (config.type === 'contato_recente') {
+    const dias = Number(config.value)
+    const desde = new Date(Date.now() - (Number.isFinite(dias) && dias > 0 ? dias : 30) * 86_400_000)
+    if (lead.createdAt >= desde) return true
+    const respondeu = await prisma.message.findFirst({
+      where: { leadId: lead.id, fromMe: false, isInternal: false, timestamp: { gte: desde } },
+      select: { id: true },
+    })
+    return Boolean(respondeu)
+  }
+
   // Tag conditions
   if (config.type === 'has_tag') {
     return lead.tags.some((lt: any) => lt.tag.name === config.tagName)

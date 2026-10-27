@@ -570,6 +570,10 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
     ...(operatorMeta || {}),
     description: (msgBody || '').substring(0, 200),
     metadata: { mediaType: mType, isInternal, externalId: sentExternalId, messageId: message.id, origin },
+    // Mensagem automática sem operador (aviso de transferência) não abre
+    // follow-up: o gatilho "mensagem enviada pelo painel" é para o que uma
+    // pessoa escreveu ao lead.
+    skipDomainEvent: !isInternal && !temOperador && origin !== 'scheduled',
     ...(ipAddress ? { ipAddress } : {}),
   } as any)
 

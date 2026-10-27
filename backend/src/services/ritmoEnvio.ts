@@ -15,6 +15,7 @@
 // Redis fora do ar = sem espera (não bloqueia o envio).
 
 import { redis } from '../lib/redis.js'
+import { prisma } from '../lib/prisma.js'
 
 type ProviderName = 'evolution' | 'cloud_api'
 
@@ -59,4 +60,86 @@ export async function esperarVez(provider: { providerName: ProviderName } & Reco
   if (!linha) return
   const ms = await reservarVez(linha, provider.providerName)
   if (ms > 0) await new Promise((r) => setTimeout(r, ms))
+}
+
+// ─── Teto diário por linha QR Code ──────────────────────────────────────────
+// O ritmo espaça, mas não limita: 300 execuções acordando no mesmo dia ainda
+// viram 300 mensagens pela mesma linha. Passou do teto, o envio de fluxo vai
+// para o próximo dia permitido (ver wf-whatsapp em workers.ts). Configurável em
+// Fluxos › Proteção dos números (setting `workflows.teto_diario_qr`); 0 = sem
+// teto. Cloud API fica de fora: a Meta já limita por tier.
+
+export const TETO_PADRAO_QR = 80
+
+/** Teto do dia cheio na linha — quem chamou reagenda o envio. */
+export class TetoDiarioCheio extends Error {
+  constructor(public linha: string) {
+    super(`Teto diário de envios automáticos atingido na linha ${linha}`)
+    this.name = 'TetoDiarioCheio'
+  }
+}
+export const CHAVE_TETO = 'workflows.teto_diario_qr'
+let tetoCache: { valor: number; ate: number } | null = null
+
+export async function lerTetoDiario(): Promise<number> {
+  if (tetoCache && tetoCache.ate > Date.now()) return tetoCache.valor
+  const row = await prisma.setting.findUnique({ where: { key: CHAVE_TETO }, select: { value: true } }).catch(() => null)
+  const n = row ? Number(String(row.value ?? '').replace(/"/g, '')) : NaN
+  const valor = Number.isFinite(n) && n >= 0 ? Math.floor(n) : TETO_PADRAO_QR
+  tetoCache = { valor, ate: Date.now() + 60_000 }
+  return valor
+}
+
+export function invalidarTeto(): void {
+  tetoCache = null
+}
+
+/** Dia corrente em Brasília (UTC−3), no formato AAAA-MM-DD. */
+function diaBrasilia(agora = Date.now()): string {
+  return new Date(agora - 3 * 3_600_000).toISOString().slice(0, 10)
+}
+
+const chaveTeto = (linha: string) => `teto:wa:${linha}:${diaBrasilia()}`
+
+// Ocupa uma vaga do dia; teto cheio devolve 0 sem ocupar.
+const CONSUMIR = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], 172800) end
+if n > tonumber(ARGV[1]) then redis.call('DECR', KEYS[1]) return 0 end
+return 1
+`
+
+/** Ocupa uma vaga do teto de hoje na linha. false = teto cheio. Redis fora = libera. */
+export async function consumirTeto(linha: string, providerName: ProviderName): Promise<boolean> {
+  if (providerName !== 'evolution') return true
+  const teto = await lerTetoDiario()
+  if (teto <= 0) return true
+  try {
+    return Number(await redis.eval(CONSUMIR, 1, chaveTeto(linha), teto)) === 1
+  } catch {
+    return true
+  }
+}
+
+/** Envios automáticos de hoje por linha QR (para a tela). */
+export async function usoDoDia(instancias: string[]): Promise<Record<string, number>> {
+  if (!instancias.length) return {}
+  const vals = await redis.mget(...instancias.map((i) => chaveTeto(`evolution:${i}`))).catch(() => [] as (string | null)[])
+  return Object.fromEntries(instancias.map((i, k) => [i, Number(vals[k] ?? 0) || 0]))
+}
+
+/**
+ * Próximo horário para um envio que estourou o teto: amanhã às 08:00 de
+ * Brasília, empurrado pela janela de silêncio do lead (fim de semana, por
+ * exemplo), mais 0–120 min sorteados para a fila não acordar toda junta.
+ */
+export async function proximaAbertura(leadId: number, agora = Date.now()): Promise<number> {
+  const brt = new Date(agora - 3 * 3_600_000)
+  let alvo = Date.UTC(brt.getUTCFullYear(), brt.getUTCMonth(), brt.getUTCDate() + 1, 11, 0, 0)
+  try {
+    const { canSendNow } = await import('./messageGovernance.js')
+    const r = await canSendNow(leadId, 'whatsapp', new Date(alvo))
+    if (!r.ok && r.reason === 'silence_window' && r.retryAt) alvo = Math.max(alvo, r.retryAt.getTime())
+  } catch { /* governança fora: fica o horário padrão */ }
+  return alvo + Math.floor(Math.random() * 120 * 60_000)
 }

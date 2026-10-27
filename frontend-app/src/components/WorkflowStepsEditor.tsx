@@ -88,6 +88,7 @@ const CONDITION_TYPES = [
   { value: 'has_tag', label: 'O lead possui uma etiqueta específica' },
   { value: 'not_has_tag', label: 'O lead NÃO possui uma etiqueta específica' },
   { value: 'time_since', label: 'Tempo desde última atividade' },
+  { value: 'contato_recente', label: 'O lead é recente ou respondeu nos últimos dias' },
   { value: 'stage_is', label: 'O lead está em uma etapa específica' },
   { value: 'source_is', label: 'A origem do lead é' },
   { value: 'message_contains', label: 'A mensagem recebida contém' },
@@ -196,6 +197,7 @@ function stepSummary(s: WorkflowStep): string {
       const lista = (Array.isArray(v) ? v.map(String) : String(v ?? '').split('\n')).map((x) => x.trim()).filter(Boolean)
       return `Mensagem ${ct === 'message_contains' ? 'contém' : 'NÃO contém'} "${lista[0] ?? '?'}"${lista.length > 1 ? ` (+${lista.length - 1})` : ''}`
     }
+    if (ct === 'contato_recente') return `Recente ou respondeu em ${getStr(cfg, 'value') || 30} dias`
     if (ct === 'time_since') return `${getStr(cfg, 'value')}h desde ${getStr(cfg, 'field') || 'última mensagem'}`
     if (ct === 'lost_reason_in') {
       const ids = (cfg.reasonIds as number[] | undefined) ?? []
@@ -700,7 +702,7 @@ function ConditionFields({
 
   function changeType(next: string) {
     // Reset config quando trocar de tipo (mesma lógica do legado)
-    onReplace(next === 'field' ? {} : { type: next })
+    onReplace(next === 'field' ? {} : next === 'contato_recente' ? { type: next, value: 30 } : { type: next })
   }
 
   return (
@@ -763,6 +765,17 @@ function ConditionFields({
           <option value="">Selecione a origem</option>
           {SOURCE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </Select>
+      )}
+
+      {condType === 'contato_recente' && (
+        <Input
+          label="Dias"
+          type="number"
+          min={1}
+          value={getNum(config, 'value', 30)}
+          onInput={(e) => onPatch({ value: Number((e.target as HTMLInputElement).value) || 30 })}
+          hint="Segue se o lead entrou nesse período ou escreveu para nós nele. Quem não fala com a gente há mais tempo não recebe o follow-up — envio automático para base fria é o que leva número QR Code a ser bloqueado."
+        />
       )}
 
       {condType === 'time_since' && (

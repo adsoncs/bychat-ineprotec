@@ -173,6 +173,7 @@ export async function editarMensagem(
     title: 'Mensagem editada',
     description: `De "${(msg.body ?? '').slice(0, 120)}" para "${texto.slice(0, 120)}"`,
     source: 'panel', channel: 'whatsapp', actorType: 'operator',
+    skipDomainEvent: true, // editar/apagar/encaminhar não é envio ao lead: não dispara fluxo
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   avisarTelas(leadId, 'message.edited', { id: msg.id, body: texto, editedAt: atualizada.editedAt })
@@ -220,6 +221,7 @@ export async function apagarMensagem(
     title: scope === 'all' ? 'Mensagem apagada para todos' : 'Mensagem apagada da tela',
     description: (msg.body ?? `(${msg.mediaType})`).slice(0, 200),
     source: 'panel', channel: 'whatsapp', actorType: 'operator',
+    skipDomainEvent: true, // editar/apagar/encaminhar não é envio ao lead: não dispara fluxo
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   avisarTelas(leadId, 'message.deleted', { id: msg.id, scope })
@@ -285,6 +287,7 @@ export async function encaminharMensagem(
     title: `Mensagem encaminhada para ${enviados} conversa(s)`,
     description: (msg.body ?? `(${msg.mediaType})`).slice(0, 200),
     source: 'panel', channel: 'whatsapp', actorType: 'operator',
+    skipDomainEvent: true, // editar/apagar/encaminhar não é envio ao lead: não dispara fluxo
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   return { ok: true as const, enviados, resultados }

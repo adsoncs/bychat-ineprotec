@@ -13,6 +13,32 @@ export async function workflowRoutes(app: FastifyInstance) {
   // WORKFLOWS CRUD
   // ══════════════════════════════════════════════
 
+  // GET/PUT /api/admin/workflows/protecao — teto diário de envios automáticos
+  // por linha QR Code (ver services/ritmoEnvio.ts) e o uso de hoje.
+  app.get('/api/admin/workflows/protecao', { preHandler: adminOnly }, async () => {
+    const { lerTetoDiario, usoDoDia, TETO_PADRAO_QR } = await import('../services/ritmoEnvio.js')
+    const linhas = await prisma.whatsAppInstance.findMany({ where: { active: true }, select: { instanceName: true }, orderBy: { instanceName: 'asc' } })
+    const uso = await usoDoDia(linhas.map((l) => l.instanceName))
+    return {
+      tetoDiarioQr: await lerTetoDiario(),
+      padrao: TETO_PADRAO_QR,
+      hoje: linhas.map((l) => ({ linha: l.instanceName, enviados: uso[l.instanceName] ?? 0 })),
+    }
+  })
+
+  app.put('/api/admin/workflows/protecao', { preHandler: adminOnly }, async (req, reply) => {
+    const n = Number((req.body as any)?.tetoDiarioQr)
+    if (!Number.isInteger(n) || n < 0 || n > 1000) return reply.code(400).send({ error: 'Informe um número inteiro entre 0 e 1000 (0 = sem limite).' })
+    const { CHAVE_TETO, invalidarTeto } = await import('../services/ritmoEnvio.js')
+    await prisma.setting.upsert({
+      where: { key: CHAVE_TETO },
+      update: { value: String(n) },
+      create: { key: CHAVE_TETO, value: String(n), label: 'Teto diário de envios automáticos por número QR Code', grp: 'workflows', fieldType: 'number' },
+    })
+    invalidarTeto()
+    return { ok: true, tetoDiarioQr: n }
+  })
+
   // GET /api/admin/workflows — List all
   app.get('/api/admin/workflows', { preHandler: adminOnly }, async (req) => {
     const { active } = req.query as any

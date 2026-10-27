@@ -8,6 +8,8 @@ import {
   useToggleWorkflow,
   useDuplicateWorkflow,
   useDeleteWorkflow,
+  useProtecaoNumeros,
+  useSalvarProtecao,
   type Workflow,
   type WorkflowInput,
   type WorkflowTriggerConfig,
@@ -143,6 +145,8 @@ export function WorkflowsPage() {
         </Card>
       )}
 
+      <ProtecaoNumerosCard />
+
       {!isLoading && data && data.workflows.length > 0 && (
         <Card class="p-0 overflow-hidden">
           <div class="overflow-x-auto">
@@ -230,6 +234,57 @@ export function WorkflowsPage() {
         />
       )}
     </Page>
+  )
+}
+
+// Teto diário de mensagens automáticas por número QR Code. O ritmo (20–45 s
+// entre envios) já vale sempre; aqui o dono decide quantas saem por dia.
+function ProtecaoNumerosCard() {
+  const { data } = useProtecaoNumeros()
+  const salvar = useSalvarProtecao()
+  const [valor, setValor] = useState<string | null>(null)
+  if (!data) return null
+  const atual = valor ?? String(data.tetoDiarioQr)
+  const teto = data.tetoDiarioQr
+
+  function handleSalvar() {
+    const n = Number(atual)
+    if (!Number.isInteger(n) || n < 0) { toast('Informe um número inteiro (0 = sem limite).', 'danger'); return }
+    salvar.mutate(n, {
+      onSuccess: () => { setValor(null); toast('Limite salvo', 'success') },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <Card class="mb-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-fg">Proteção dos números (QR Code)</p>
+          <p class="text-xs text-fg-muted mt-1 max-w-2xl">
+            Cada número QR Code envia no máximo este número de mensagens de fluxo por dia, com 20 a 45 s entre uma e outra.
+            O que passar do limite sai no dia seguinte. A API oficial não entra nesta conta. 0 = sem limite.
+          </p>
+          {data.hoje.length > 0 && (
+            <p class="text-xs text-fg-muted mt-2">
+              Hoje: {data.hoje.map((h) => `${h.linha} ${h.enviados}${teto > 0 ? `/${teto}` : ''}`).join(' · ')}
+            </p>
+          )}
+        </div>
+        <div class="flex items-end gap-2 shrink-0">
+          <Input
+            label="Por número, por dia"
+            type="number"
+            min={0}
+            value={atual}
+            onInput={(e) => setValor((e.target as HTMLInputElement).value)}
+          />
+          <Button variant="primary" size="sm" onClick={handleSalvar} disabled={salvar.isPending || atual === String(teto)}>
+            Salvar
+          </Button>
+        </div>
+      </div>
+    </Card>
   )
 }
 

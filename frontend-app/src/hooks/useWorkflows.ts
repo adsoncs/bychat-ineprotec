@@ -269,3 +269,25 @@ export function useDeleteWorkflow() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows'] }),
   })
 }
+
+// Teto diário de envios automáticos por número QR Code (Fluxos › Proteção).
+export interface ProtecaoNumeros {
+  tetoDiarioQr: number
+  padrao: number
+  hoje: { linha: string; enviados: number }[]
+}
+
+export function useProtecaoNumeros() {
+  return useQuery({
+    queryKey: ['workflows', 'protecao'],
+    queryFn: () => api.get<ProtecaoNumeros>('/admin/workflows/protecao'),
+  })
+}
+
+export function useSalvarProtecao() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (tetoDiarioQr: number) => api.put<{ ok: true }>('/admin/workflows/protecao', { tetoDiarioQr }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows', 'protecao'] }),
+  })
+}
