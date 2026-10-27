@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import { numeroDiscavel, phoneKey } from './phone.js'
 import { decryptSettingValue, encryptSettingValue, isSecretSettingKey, isEncrypted } from './secretSettings.js'
 import { podeTrocarDono } from './donoDoLead.js'
+import { usuariosComerciais } from './equipeComercial.js'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
@@ -207,13 +208,13 @@ prisma.$use(async (params, next) => {
         .catch((e) => console.error('[oportunidade]', e?.message || e))
     }
     // Só quem ACABOU de virar Ganho (reaberto e ganho de novo também): quem já
-    // estava ganho guarda o vendedor que tinha. Sem responsável no momento, vale
-    // quem marcou o Ganho.
+    // estava ganho guarda o vendedor que tinha. Quem é o vendedor (equipe
+    // comercial, último comercial, responsável): services/vendedorDoLead.ts.
     const ganhosAgora = antes.filter((l) => l.outcome !== 'won').map((l) => Number(l.id))
     if (marcaGanho && ganhosAgora.length) {
-      prisma.$executeRawUnsafe(
-        `UPDATE bychat_leads SET vendedorUserId = COALESCE(assignedUserId, outcomeBy), vendedorEm = NOW(3) WHERE outcome = 'won' AND id IN (${ganhosAgora.join(',')})`,
-      ).catch((e) => console.error('[vendedor]', e?.message || e))
+      import('../services/vendedorDoLead.js')
+        .then((m) => m.gravarVendedorNoGanho(ganhosAgora))
+        .catch((e) => console.error('[vendedor]', e?.message || e))
     }
   })
   return result
@@ -325,10 +326,39 @@ prisma.$use(async (params, next) => {
         }
       }
       if (ids.length) {
+        // Equipe comercial marcada: lead que sai da comercial (Financeiro,
+        // Secretaria, liberado ao resolver) ainda em negociação não leva a
+        // proposta — ela fica com quem negociou. Só passa entre comerciais, ou
+        // quando a proposta não está com ninguém da comercial.
+        const comerciais = await usuariosComerciais().catch(() => null)
+        const novoEhComercial = novoDono != null && !!comerciais?.has(novoDono)
+        const whereNeg: any = { leadId: { in: ids }, resultado: null }
+        if (comerciais?.size && !novoEhComercial) {
+          whereNeg.OR = [{ responsavelUserId: null }, { responsavelUserId: { notIn: [...comerciais] } }]
+        }
         await prisma.negotiation.updateMany({
-          where: { leadId: { in: ids }, resultado: null },
+          where: whereNeg,
           data: { responsavelUserId: novoDono ?? null },
         }).catch(() => { /* propagação é best-effort: não derruba a atribuição do lead */ })
+        // Última pessoa da comercial com o lead: o novo dono, se for da
+        // comercial; senão o dono que está saindo, se era. Fora da transação de
+        // quem gravou (esperaria o lock dela).
+        if (comerciais?.size) {
+          const porPessoa = new Map<number, number[]>()
+          for (const l of linhas) {
+            if (!ids.includes(l.id)) continue
+            const quem = novoEhComercial ? novoDono! : (l.assignedUserId != null && comerciais.has(l.assignedUserId) ? l.assignedUserId : null)
+            if (quem == null) continue
+            porPessoa.set(quem, [...(porPessoa.get(quem) ?? []), Number(l.id)])
+          }
+          if (porPessoa.size) setImmediate(() => {
+            for (const [quem, leadIds] of porPessoa) {
+              prisma.$executeRawUnsafe(
+                `UPDATE bychat_leads SET ultimoComercialUserId = ? WHERE id IN (${leadIds.join(',')})`, quem,
+              ).catch((e) => console.error('[comercial]', e?.message || e))
+            }
+          })
+        }
       }
       return result
     }

@@ -136,6 +136,7 @@ function TeamsSortable({
                 {t.conversasPrivadas && (
                   <Badge tone="neutral"><Lock size={10} class="inline -mt-0.5 mr-0.5" />Conversas privadas</Badge>
                 )}
+                {t.equipeComercial && <Badge tone="accent">Comercial</Badge>}
                 {t.liberarAoResolver && <Badge tone="neutral">Libera ao resolver</Badge>}
                 {t.podePegarDeOutros && <Badge tone="neutral">Pega leads de outros</Badge>}
                 {t.podeTransferir === false && <Badge tone="warning">Não transfere</Badge>}
@@ -207,6 +208,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
   const [podeTransferir, setPodeTransferir] = useState(team?.podeTransferir ?? true)
   const [podePegarDeOutros, setPodePegarDeOutros] = useState(team?.podePegarDeOutros ?? false)
   const [liberarAoResolver, setLiberarAoResolver] = useState(team?.liberarAoResolver ?? false)
+  const [equipeComercial, setEquipeComercial] = useState(team?.equipeComercial ?? false)
   const [funnelId, setFunnelId] = useState<number | null>(team?.funnelId ?? null)
   const [oportunidadeFunnelId, setOportunidadeFunnelId] = useState<number | null>(team?.oportunidadeFunnelId ?? null)
   const [oportunidadeStageKey, setOportunidadeStageKey] = useState<string | null>(team?.oportunidadeStageKey ?? null)
@@ -229,6 +231,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
       podeTransferir,
       podePegarDeOutros,
       liberarAoResolver,
+      equipeComercial,
       funnelId,
       oportunidadeFunnelId,
       oportunidadeStageKey: oportunidadeFunnelId ? oportunidadeStageKey : null,
@@ -423,6 +426,18 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
             </p>
           </div>
           <p class="text-2xs text-fg-muted">Em <strong>Membros</strong> dá para liberar ou bloquear uma pessoa só, diferente da equipe.</p>
+        </div>
+
+        <div>
+          <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+            <input type="checkbox" checked={equipeComercial} onChange={(e) => setEquipeComercial((e.target as HTMLInputElement).checked)} />
+            Equipe comercial: as vendas contam para ela
+          </label>
+          <p class="text-2xs text-fg-muted mt-1 ml-6">
+            {equipeComercial
+              ? 'No Ganho, o vendedor é quem está com o lead se for desta equipe; se o lead já foi para outro setor (Financeiro, Secretaria…) ainda em negociação, é a última pessoa daqui que esteve com ele. A proposta aberta também não sai daqui quando o lead vai para uma equipe que não é comercial.'
+              : 'Marque nas equipes que vendem. Sem nenhuma marcada, o vendedor é quem estiver com o lead no momento do Ganho.'}
+          </p>
         </div>
 
         <div>

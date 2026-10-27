@@ -7,6 +7,7 @@ import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { isAdminRole, isTeamLeader } from '../lib/teamAccess.js'
 import { invalidarAcessoPortais } from '../lib/portalAccess.js'
+import { invalidarEquipeComercial } from '../lib/equipeComercial.js'
 
 // Guard: permite ADMIN/SUPERADMIN OU líder do setor específico (rota tem :id).
 // Para uso em endpoints de gestão de membros (POST/PUT/DELETE /admin/teams/:id/members[/:userId]).
@@ -29,7 +30,7 @@ const TEAM_SELECT = {
   color: true, icon: true, active: true, position: true,
   routingMode: true, workingHoursEnabled: true, conversasPrivadas: true, funnelId: true,
   oportunidadeFunnelId: true, oportunidadeStageKey: true,
-  podeTransferir: true, podePegarDeOutros: true, liberarAoResolver: true,
+  podeTransferir: true, podePegarDeOutros: true, liberarAoResolver: true, equipeComercial: true,
   createdAt: true, updatedAt: true,
 }
 
@@ -119,10 +120,12 @@ export async function teamsRoutes(app: FastifyInstance) {
         podeTransferir: body.podeTransferir !== false,
         podePegarDeOutros: body.podePegarDeOutros === true,
         liberarAoResolver: body.liberarAoResolver === true,
+        equipeComercial: body.equipeComercial === true,
         funnelId: Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null,
       },
       select: TEAM_SELECT,
     })
+    if (team.equipeComercial) invalidarEquipeComercial()
 
     return reply.code(201).send({ ok: true, team })
   })
@@ -159,6 +162,7 @@ export async function teamsRoutes(app: FastifyInstance) {
     if (body.podeTransferir !== undefined) data.podeTransferir = body.podeTransferir === true
     if (body.podePegarDeOutros !== undefined) data.podePegarDeOutros = body.podePegarDeOutros === true
     if (body.liberarAoResolver !== undefined) data.liberarAoResolver = body.liberarAoResolver === true
+    if (body.equipeComercial !== undefined) data.equipeComercial = body.equipeComercial === true
     // Funil da equipe: equipe e funil andam juntos (services/encaminharEquipe.ts).
     if (body.funnelId !== undefined) data.funnelId = Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null
     // Abertura automática: lead GANHO que passa para esta equipe ganha um card
@@ -181,7 +185,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         select: TEAM_SELECT,
       })
       // Equipe ativada/desativada muda quem vê os portais restritos.
-      invalidarAcessoPortais()
+      invalidarAcessoPortais(); invalidarEquipeComercial()
       return { ok: true, team }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Equipe não encontrada' })
@@ -203,7 +207,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         })
       }
       await prisma.team.delete({ where: { id: parseInt(id) } })
-      invalidarAcessoPortais()
+      invalidarAcessoPortais(); invalidarEquipeComercial()
       return { ok: true }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Equipe não encontrada' })
@@ -283,7 +287,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       data: { teamId, userId, isLeader: !!body.isLeader },
       select: MEMBER_SELECT,
     })
-    invalidarAcessoPortais()
+    invalidarAcessoPortais(); invalidarEquipeComercial()
     return reply.code(201).send({ ok: true, member })
   })
 
@@ -315,7 +319,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         data,
         select: MEMBER_SELECT,
       })
-      invalidarAcessoPortais()
+      invalidarAcessoPortais(); invalidarEquipeComercial()
       return { ok: true, member }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Membro não encontrado' })
@@ -331,7 +335,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       await prisma.teamMember.delete({
         where: { teamId_userId: { teamId: parseInt(id), userId: parseInt(userId) } },
       })
-      invalidarAcessoPortais()
+      invalidarAcessoPortais(); invalidarEquipeComercial()
       return { ok: true }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Membro não encontrado' })

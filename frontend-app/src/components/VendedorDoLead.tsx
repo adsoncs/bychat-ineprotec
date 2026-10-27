@@ -6,9 +6,10 @@ import { useUserStore } from '@/stores/user'
 import { useDestinos } from '@/hooks/useDestinos'
 
 /**
- * "Vendido por": quem estava com o lead no momento do Ganho. Comissão, metas e
- * placares contam por ele — transferir o lead depois (Secretaria, Financeiro…)
- * não muda. Só um administrador corrige, e a correção fica no histórico.
+ * "Vendido por": gravado no Ganho — quem estava com o lead, ou, com equipe
+ * comercial marcada, a última pessoa dela que esteve com o lead (mesmo que ele
+ * tenha ido antes para Secretaria/Financeiro). Comissão, metas e placares
+ * contam por ele, e transferir depois não muda. Só um administrador corrige.
  */
 export function VendedorDoLead({ leadId, vendedor }: { leadId: number; vendedor: { id: number; name: string | null } | null }) {
   const papel = useUserStore((s) => s.user?.role)
@@ -49,7 +50,7 @@ export function VendedorDoLead({ leadId, vendedor }: { leadId: number; vendedor:
   return (
     <span
       class="text-2xs text-fg-muted whitespace-nowrap"
-      title="Quem estava com o lead no Ganho. Comissão e placar contam por esta pessoa; transferir o lead depois não muda."
+      title="Quem fez a venda (gravado no Ganho; com equipe comercial marcada, a última pessoa dela que esteve com o lead). Comissão e placar contam por esta pessoa; transferir o lead depois não muda."
     >
       Vendido por <strong class="text-fg font-medium">{vendedor?.name || '—'}</strong>
       {admin && (

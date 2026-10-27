@@ -622,6 +622,11 @@ model Team {
   // Ao resolver no Conversas, a conversa fica sem atendente e vai para a fila
   // "Liberadas" (qualquer agente vê e puxa). O vendedor não muda.
   liberarAoResolver   Boolean  @default(false)
+  // Equipe comercial: as vendas contam para ela. No Ganho, o vendedor é quem
+  // está com o lead se for de equipe comercial; senão, a última pessoa de equipe
+  // comercial que esteve com ele (Lead.ultimoComercialUserId). Nenhuma marcada
+  // = vendedor é quem está com o lead no Ganho.
+  equipeComercial     Boolean  @default(false)
   // Acesso por portal: quem integra o setor vê todos os portais do Educacional
   // (Secretaria, Financeiro, Coordenação), mesmo os restritos a outras equipes.
   veTodosOsPortais    Boolean  @default(false)
@@ -1204,6 +1209,9 @@ model Lead {
   // (o atendente — assignedUserId — muda livremente). Só admin corrige à mão.
   vendedorUserId Int?
   vendedorEm     DateTime?
+  // Última pessoa de equipe comercial que esteve com o lead — o lead pode ir
+  // para Financeiro/Secretaria ainda em negociação sem a venda sair da Vendas.
+  ultimoComercialUserId Int?
   // Resolver com a equipe em "liberar ao resolver": a conversa fica sem
   // atendente, na fila "Liberadas", que qualquer agente vê e pode puxar.
   conversaLiberadaEm DateTime?

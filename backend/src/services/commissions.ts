@@ -11,6 +11,7 @@
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
+import { usuariosComerciais } from '../lib/equipeComercial.js'
 
 // ── Indicadores ──────────────────────────────────────────────────────────────
 
@@ -328,10 +329,16 @@ export async function previewNegotiation(
   // Fechada congela o responsável; em aberto vale o dono atual do lead. Ganha
   // sem responsável fica com o VENDEDOR do lead (quem estava com ele no Ganho)
   // — nunca com quem atende o aluno depois (Secretaria, Financeiro…).
-  const userId = neg.responsavelUserId
+  let userId = neg.responsavelUserId
     ?? (neg.resultado === 'won' ? lead?.vendedorUserId : null)
     ?? lead?.assignedUserId
     ?? null
+  // Com equipe comercial marcada, proposta ganha que ficou com alguém de fora
+  // dela (Financeiro, Secretaria…) paga a comissão ao vendedor do lead.
+  if (neg.resultado === 'won' && lead?.vendedorUserId != null && userId !== lead.vendedorUserId) {
+    const comerciais = await usuariosComerciais()
+    if (comerciais?.has(lead.vendedorUserId) && (userId == null || !comerciais.has(userId))) userId = lead.vendedorUserId
+  }
   if (userId == null) return semComissao('Negociação sem responsável — defina o dono do lead', { funnelId })
 
   // Venda ligada ao Educacional: portal da inscrição e curso da oferta.

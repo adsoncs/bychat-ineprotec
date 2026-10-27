@@ -26,6 +26,8 @@ export interface Team {
   podePegarDeOutros?: boolean
   /** Ao resolver, a conversa fica sem atendente na fila "Liberadas". */
   liberarAoResolver?: boolean
+  /** As vendas contam para esta equipe: o vendedor do Ganho sai dela. */
+  equipeComercial?: boolean
   /** Funil da equipe: para onde o lead vai junto quando é mandado para ela. */
   funnelId?: number | null
   /** Abertura automática: lead GANHO que passa para esta equipe ganha card neste funil. */
@@ -50,6 +52,7 @@ export interface TeamInput {
   podeTransferir?: boolean | undefined
   podePegarDeOutros?: boolean | undefined
   liberarAoResolver?: boolean | undefined
+  equipeComercial?: boolean | undefined
   funnelId?: number | null | undefined
   oportunidadeFunnelId?: number | null | undefined
   oportunidadeStageKey?: string | null | undefined
