@@ -536,7 +536,15 @@ const semEspaco = (t: string | null | undefined) => String(t ?? '').replace(/\s+
  * Grava no banco os modelos que ainda não existem (pela `key`). Nunca
  * sobrescreve: o que alguém editou continua como está.
  */
-export async function garantirModelosDoSistema(): Promise<void> {
+// Um seed por vez: o boot e a carga em memória chamavam ao mesmo tempo e
+// criavam o mesmo modelo duas vezes (key não é única no banco).
+let semeando: Promise<void> | null = null
+export function garantirModelosDoSistema(): Promise<void> {
+  if (!semeando) semeando = semear().finally(() => { semeando = null })
+  return semeando
+}
+
+async function semear(): Promise<void> {
   for (const [key, antigos] of Object.entries(CONTEUDO_ANTIGO)) {
     const atual = await prisma.messageTemplate.findFirst({ where: { key } }).catch(() => null)
     const padrao = MODELOS_PADRAO.find((m) => m.key === key)
@@ -561,7 +569,22 @@ export async function garantirModelosDoSistema(): Promise<void> {
   }
 }
 
-async function criar(m: ModeloPadrao) {
+// Criação por chave sem corrida: duas chamadas para a mesma chave esperam a
+// mesma promessa, e só cria se o registro ainda não existir.
+type RegistroModelo = Awaited<ReturnType<typeof criarNoBanco>>
+const criando = new Map<string, Promise<RegistroModelo>>()
+function criar(m: ModeloPadrao): Promise<RegistroModelo> {
+  const emAndamento = criando.get(m.key)
+  if (emAndamento) return emAndamento
+  const p = (async () => {
+    const ja = await prisma.messageTemplate.findFirst({ where: { key: m.key }, orderBy: { id: 'asc' } })
+    return ja ?? criarNoBanco(m)
+  })().finally(() => criando.delete(m.key))
+  criando.set(m.key, p)
+  return p
+}
+
+async function criarNoBanco(m: ModeloPadrao) {
   return prisma.messageTemplate.create({
     data: {
       key: m.key,
@@ -584,7 +607,7 @@ export interface ModeloRenderizado { subject: string; body: string }
  * é recriado com o conteúdo inicial.
  */
 export async function renderizarModelo(key: string, vars: Record<string, any> = {}): Promise<ModeloRenderizado | null> {
-  let tpl = await prisma.messageTemplate.findFirst({ where: { key } })
+  let tpl = await prisma.messageTemplate.findFirst({ where: { key }, orderBy: { id: 'asc' } })
   if (!tpl) {
     const padrao = MODELOS_PADRAO.find((m) => m.key === key)
     if (!padrao) {
@@ -613,11 +636,44 @@ export async function textoDoSistema(key: string, vars: Record<string, any> = {}
 
 /** Conteúdo CRU (sem interpolar) do modelo, ou null quando desligado. */
 export async function modeloCru(key: string): Promise<string | null> {
-  let tpl = await prisma.messageTemplate.findFirst({ where: { key }, select: { body: true, active: true } })
+  let tpl = await prisma.messageTemplate.findFirst({ where: { key }, orderBy: { id: 'asc' }, select: { body: true, active: true } })
   if (!tpl) {
     const padrao = MODELOS_PADRAO.find((m) => m.key === key)
     if (!padrao) return null
     tpl = await criar(padrao)
   }
   return tpl.active ? tpl.body || '' : null
+}
+
+/**
+ * Módulos que só existem em algumas instalações (atendimento/triagem, RH…)
+ * registram aqui o conteúdo inicial dos próprios modelos. Mesma regra do
+ * catálogo: o texto só serve para criar o registro; o envio lê o banco.
+ */
+export function registrarModelosPadrao(lista: ModeloPadrao[]): void {
+  for (const m of lista) if (!MODELOS_PADRAO.some((x) => x.key === m.key)) MODELOS_PADRAO.push(m)
+}
+
+// ── Leitura síncrona ───────────────────────────────────────────────────────
+// Funções de texto chamadas fora de contexto assíncrono (timers, callbacks de
+// renderização) leem daqui. Recarregado a cada 30 s e logo após salvar um
+// modelo na tela (recarregarModelosEmMemoria).
+const emMemoria = new Map<string, string | null>()
+
+export async function recarregarModelosEmMemoria(): Promise<void> {
+  try {
+    // Catálogo sem registro no banco (apagado à mão ou módulo novo) é criado aqui.
+    await garantirModelosDoSistema()
+    const chaves = MODELOS_PADRAO.map((m) => m.key)
+    const linhas = await prisma.messageTemplate.findMany({ where: { key: { in: chaves } }, orderBy: { id: 'desc' }, select: { key: true, body: true, active: true } })
+    // Ordem decrescente: em caso de duplicata, o mais antigo sobrescreve por último e vale.
+    for (const l of linhas) if (l.key) emMemoria.set(l.key, l.active ? l.body || '' : null)
+  } catch { /* mantém o que já estava */ }
+}
+setTimeout(() => { void recarregarModelosEmMemoria() }, 2_000).unref()
+setInterval(() => { void recarregarModelosEmMemoria() }, 30_000).unref()
+
+/** Conteúdo cru do modelo, síncrono: string (ligado), null (desligado) ou undefined (ainda não carregado). */
+export function modeloCruEmMemoria(key: string): string | null | undefined {
+  return emMemoria.get(key)
 }

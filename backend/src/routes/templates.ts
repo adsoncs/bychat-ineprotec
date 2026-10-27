@@ -161,6 +161,7 @@ export async function templatesRoutes(app: FastifyInstance) {
     if (body.active !== undefined) data.active = body.active
 
     const template = await prisma.messageTemplate.update({ where: { id: parseInt(id) }, data })
+    if (template.key) void import('../services/modelosDoSistema.js').then((m) => m.recarregarModelosEmMemoria())
     return { ok: true, template }
   })
 
