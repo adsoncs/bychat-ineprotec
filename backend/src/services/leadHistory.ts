@@ -25,6 +25,8 @@ export interface LogEventParams {
   newValue?: string
   metadata?: Record<string, any>
   ipAddress?: string
+  /** Só grava o histórico; quem chama emite o domain event por conta própria. */
+  skipDomainEvent?: boolean
 }
 
 // ─── Event Types Constants ───────────────────────────────
@@ -156,7 +158,7 @@ export function logEvent(params: LogEventParams): void {
     channel, source, userId, userName,
     actorType = 'system',
     description, oldValue, newValue,
-    metadata, ipAddress
+    metadata, ipAddress, skipDomainEvent
   } = params
 
   // Fire and forget — não bloqueia a rota
@@ -183,7 +185,7 @@ export function logEvent(params: LogEventParams): void {
 
   // Emit domain event for workflow engine
   const domainType = EVENT_TO_DOMAIN[type]
-  if (domainType) {
+  if (domainType && !skipDomainEvent) {
     eventBus.emitDomain({
       type: domainType,
       leadId,

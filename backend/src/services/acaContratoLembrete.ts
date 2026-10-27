@@ -115,6 +115,8 @@ async function cobrar(
         : null
       const lead = aluno?.lead
       const { provider } = await getProviderForLeadOwner({ id: lead?.id ?? 0, whatsapp: s.telefone })
+      const { esperarVez } = await import('./ritmoEnvio.js')
+      await esperarVez(provider as any)
       await provider.sendText(s.telefone, msg.body)
       return 'whatsapp'
     } catch {

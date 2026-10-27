@@ -1,8 +1,10 @@
 // src/services/workflowActions.ts
 // Despacha ações de workflow para as filas BullMQ correspondentes
 
+import { createHash } from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
 import { queues } from '../lib/queues.js'
+import { redis } from '../lib/redis.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
@@ -398,6 +400,23 @@ export async function dispatchAction(
           data: { status: 'failed', error: 'Mensagem vazia', completedAt: new Date() }
         })
         await finalizarPasso(executionId, stepId, { falhou: true })
+        return
+      }
+      // Rede de segurança contra envio repetido: o mesmo texto para o mesmo
+      // lead, saindo de automação, só uma vez a cada 10 min — venha de onde
+      // vier a execução duplicada. SET NX é atômico, então duas execuções que
+      // acordam no mesmo instante não passam juntas (consultar a tabela de
+      // mensagens não serviria: a 1ª ainda não foi gravada quando a 2ª olha).
+      // Redis fora do ar não bloqueia o envio. Barrado = execução duplicada, encerra.
+      const chaveEnvio = `wf:envio:${leadId}:${createHash('sha1').update(message.trim()).digest('hex')}`
+      const primeiraVez = await redis.set(chaveEnvio, String(stepExec.id), 'EX', 600, 'NX').catch(() => 'OK')
+      if (primeiraVez !== 'OK') {
+        console.warn(`[Workflow] envio repetido bloqueado: lead #${leadId}, execução #${executionId}, passo #${stepId}`)
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { status: 'skipped', error: 'Mesma mensagem já enviada a este lead nos últimos 10 min', completedAt: new Date() }
+        })
+        await finalizarPasso(executionId, stepId, { encerrar: true })
         return
       }
       const gov = await enforceGovernance(leadId, 'whatsapp', stepExec.id)

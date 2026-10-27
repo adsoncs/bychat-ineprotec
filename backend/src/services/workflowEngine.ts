@@ -112,6 +112,27 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
   return true
 }
 
+// ─── Trava de disparo por (fluxo, lead) ─────────────────
+//
+// A política de reentrada é "consulta se há execução rodando → cria". Dois
+// eventos do mesmo lead a milissegundos um do outro passavam os dois pela
+// consulta antes de qualquer um criar a sua execução, e o fluxo rodava em
+// dobro. Serializa só a consulta + criação (não a execução dos passos, que pode
+// emitir eventos que voltam para este mesmo fluxo). Um processo só por tenant,
+// então a trava em memória basta.
+const disparoEmCurso = new Map<string, Promise<unknown>>()
+
+async function comTravaDeDisparo<T>(chave: string, fn: () => Promise<T>): Promise<T> {
+  const anterior = disparoEmCurso.get(chave) ?? Promise.resolve()
+  const atual = anterior.catch(() => {}).then(fn)
+  disparoEmCurso.set(chave, atual)
+  try {
+    return await atual
+  } finally {
+    if (disparoEmCurso.get(chave) === atual) disparoEmCurso.delete(chave)
+  }
+}
+
 // ─── Core: Handle Domain Event ──────────────────────────
 
 async function handleDomainEvent(event: DomainEvent): Promise<void> {
@@ -133,17 +154,18 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
       if (workflow.funnelId && event.funnelId && workflow.funnelId !== event.funnelId) continue
       if (workflow.chatbotId && event.chatbotId && workflow.chatbotId !== event.chatbotId) continue
 
+      const execution = await comTravaDeDisparo(`${workflow.id}:${event.leadId}`, async () => {
       // Verificar política de re-entrada
       if (workflow.reentryPolicy === 'never') {
         const existing = await prisma.workflowExecution.findFirst({
           where: { workflowId: workflow.id, leadId: event.leadId, status: { in: ['running', 'paused'] } }
         })
-        if (existing) continue
+        if (existing) return null
       } else if (workflow.reentryPolicy === 'after_completion') {
         const running = await prisma.workflowExecution.findFirst({
           where: { workflowId: workflow.id, leadId: event.leadId, status: 'running' }
         })
-        if (running) continue
+        if (running) return null
       }
 
       // Guarda anti-loop. Desde que `change_stage` passou a usar moveLeadStage,
@@ -157,11 +179,11 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
       })
       if (recentes >= 10) {
         console.warn(`[Workflow] "${workflow.name}" disparou ${recentes}x para o lead #${event.leadId} em 1 min — execução ignorada (proteção contra laço)`)
-        continue
+        return null
       }
 
       // Criar execução
-      const execution = await prisma.workflowExecution.create({
+      return prisma.workflowExecution.create({
         data: {
           workflowId: workflow.id,
           leadId: event.leadId,
@@ -169,6 +191,8 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
           triggerData: { event: event.type, payload: event.payload, timestamp: event.timestamp.toISOString() },
         }
       })
+      })
+      if (!execution) continue
 
       logEvent({
         leadId: event.leadId,

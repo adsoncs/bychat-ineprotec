@@ -119,6 +119,8 @@ async function convidar(
     const msg = await renderizarModelo('inscricao_retomada_wa', vars)
     if (msg?.body.trim()) try {
       const { provider } = await getProviderForLeadOwner({ id: 0, whatsapp: String(tel) })
+      const { esperarVez } = await import('./ritmoEnvio.js')
+      await esperarVez(provider as any)
       await provider.sendText(String(tel), msg.body)
       return 'whatsapp'
     } catch { /* cai para o e-mail */ }

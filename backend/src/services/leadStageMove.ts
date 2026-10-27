@@ -94,11 +94,16 @@ export async function moveLeadStage(input: MoveLeadStageInput): Promise<MoveLead
     oldValue: fromStageKey ?? undefined,
     newValue: toStageKey ?? undefined,
     metadata: { fromFunnelId, toFunnelId, ...(metadata ?? {}) },
+    // O lead.stage_changed sai uma vez só, logo abaixo. Deixar o logEvent
+    // reemitir fazia todo change_stage de workflow disparar o fluxo seguinte
+    // DUAS vezes — execuções gêmeas que acordavam juntas e mandavam a mesma
+    // mensagem duas (às vezes três) vezes ao lead (elementus, 21–27/10).
+    skipDomainEvent: true,
   })
 
   // Entrou numa etapa de desfecho → marca Ganho/Perdido. Explícito aqui, e não
   // como listener do evento abaixo, porque nem todo caminho de movimentação
-  // emite (`formFlow.moveLeadStage` não emite nada) e este emite duas vezes.
+  // emite (`formFlow.moveLeadStage` não emite nada).
   const { applyStageOutcome } = await import('./stageOutcome.js')
   await applyStageOutcome({
     leadId, toStageKey, funnelId: toFunnelId, origem: source, userId,
@@ -113,6 +118,9 @@ export async function moveLeadStage(input: MoveLeadStageInput): Promise<MoveLead
       payload: {
         oldValue: fromStageKey,
         newValue: toStageKey,
+        // `source` no topo também: era onde a cópia do logEvent o levava, e é o
+        // primeiro lugar que o filtro de gatilho olha.
+        source,
         metadata: { fromFunnelId, toFunnelId, source, ...(metadata ?? {}) },
       },
       timestamp: new Date(),

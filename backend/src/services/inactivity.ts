@@ -56,14 +56,21 @@ async function resolveInstanceForChatbot(chatbotId: number): Promise<{ url: stri
  * O texto passa pelas mesmas regras de escrita das outras mensagens do bot: cada
  * ideia em sua bolha, sem travessão e sem emoji.
  */
-async function sendWhatsAppViaChatbotInstance(phone: string, text: string, chatbotId: number, leadId?: number): Promise<boolean> {
+async function sendWhatsAppViaChatbotInstance(
+  phone: string, text: string, chatbotId: number, leadId?: number,
+  /** Reconferido depois de esperar a vez na linha: o lead pode ter respondido. */
+  aindaInativo?: () => Promise<boolean>,
+): Promise<boolean> {
   const partes = quebrarEmMensagens(text)
   if (!partes.length) return false
+  const { esperarVez, reservarVez } = await import('./ritmoEnvio.js')
 
   if (leadId) {
     try {
       const { getProviderForLead } = await import('./whatsappProvider.js')
       const provider = await getProviderForLead({ id: leadId, whatsapp: phone })
+      await esperarVez(provider as any)
+      if (aindaInativo && !(await aindaInativo())) return false
       for (const [i, parte] of partes.entries()) {
         await provider.sendText(phone, parte)
         if (i < partes.length - 1) await new Promise((r) => setTimeout(r, intervaloDigitacao(partes[i + 1] as string)))
@@ -79,6 +86,9 @@ async function sendWhatsAppViaChatbotInstance(phone: string, text: string, chatb
   // Caminho antigo (chamada crua na Evolution): vai em uma mensagem só, com as
   // partes separadas por linha em branco.
   const textoUnico = partes.join('\n\n')
+  const espera = await reservarVez(`evolution:${conn.instanceName}`, 'evolution')
+  if (espera > 0) await new Promise((r) => setTimeout(r, espera))
+  if (aindaInativo && !(await aindaInativo())) return false
 
   try {
     const resp = await fetch(`${conn.url}/message/sendText/${conn.instanceName}`, {
@@ -98,7 +108,13 @@ async function sendWhatsAppViaChatbotInstance(phone: string, text: string, chatb
   }
 }
 
+// Com o ritmo por linha uma varredura pode passar dos 2 min do intervalo; sem
+// esta trava a seguinte pegaria os mesmos leads e mandaria o lembrete de novo.
+let varrendo = false
+
 async function checkInactiveLeads(): Promise<void> {
+  if (varrendo) return
+  varrendo = true
   try {
     // Busca todos os chatbots que têm inatividade habilitada
     const chatbots = await prisma.chatbot.findMany({
@@ -174,7 +190,11 @@ async function checkInactiveLeads(): Promise<void> {
 
         // Send re-engagement message — ONLY via the instance linked to this chatbot
         if ((action === 'notify' || action === 'notify_then_close') && message && source === 'whatsapp' && lead.whatsapp) {
-          const sent = await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id, lead.id)
+          const sent = await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id, lead.id, async () => {
+            const atual = await prisma.lead.findUnique({ where: { id: lead.id }, select: { lastActivityAt: true, completed: true, outcome: true } })
+            return !!atual && !atual.completed && !atual.outcome
+              && !!atual.lastActivityAt && atual.lastActivityAt < inactiveThreshold
+          })
 
           if (!sent) {
             console.warn(`[Inactivity] Skipping lead #${lead.id} — no instance linked to chatbot #${bot.id} (${bot.name})`)
@@ -214,6 +234,8 @@ async function checkInactiveLeads(): Promise<void> {
     }
   } catch (err) {
     console.error('[Inactivity] Check failed:', err)
+  } finally {
+    varrendo = false
   }
 }
 

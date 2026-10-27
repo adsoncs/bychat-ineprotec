@@ -1,7 +1,7 @@
 // src/services/workers.ts
 // BullMQ workers para as filas de execução
 
-import { Worker, UnrecoverableError } from 'bullmq'
+import { Worker, UnrecoverableError, DelayedError } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
 import { toWaNumber } from '../lib/phone.js'
 import { redisConnection } from '../lib/queues.js'
@@ -141,7 +141,7 @@ async function fillEmptyTemplateParams(components: any, stepExecutionId?: number
 }
 
 function createWhatsAppWorker() {
-  return new Worker('wf-whatsapp', async (job) => {
+  return new Worker('wf-whatsapp', async (job, token) => {
     const { leadId, message, stepExecutionId, cloudTemplate } = job.data
     const lead = await prisma.lead.findUnique({ where: { id: leadId } })
     if (!lead || !lead.whatsapp) throw new Error(`Lead ${leadId} sem WhatsApp`)
@@ -255,6 +255,20 @@ function createWhatsAppWorker() {
       provider = new wp.EvolutionProvider(cfg.url, cfg.key, inst)
     }
     if (!provider) throw new Error('Sem número para enviar')
+
+    // Ritmo por linha (ver ritmoEnvio.ts): a vez é reservada uma única vez por
+    // job; se ela cai no futuro, o job volta para a fila atrasado em vez de
+    // prender o worker dormindo — e as outras linhas seguem andando.
+    if (!job.data.vezReservada) {
+      const { linhaDoProvider, reservarVez } = await import('./ritmoEnvio.js')
+      const linha = linhaDoProvider(provider as any)
+      const espera = linha ? await reservarVez(linha, provider.providerName) : 0
+      if (espera > 1000 && token) {
+        await job.updateData({ ...job.data, vezReservada: true })
+        await job.moveToDelayed(Date.now() + espera, token)
+        throw new DelayedError()
+      }
+    }
 
     const result = await trackedSend({
       channel: 'whatsapp',
