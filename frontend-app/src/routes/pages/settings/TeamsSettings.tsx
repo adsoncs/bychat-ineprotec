@@ -25,6 +25,7 @@ import { Input, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { DefaultTeamCard } from '@/components/DefaultTeamCard'
 import { toast } from '@/lib/toast'
+import { useUserStore } from '@/stores/user'
 import { useFunnels, useStages } from '@/hooks/useFunnels'
 
 const TEAM_COLORS = [
@@ -135,6 +136,9 @@ function TeamsSortable({
                 {t.conversasPrivadas && (
                   <Badge tone="neutral"><Lock size={10} class="inline -mt-0.5 mr-0.5" />Conversas privadas</Badge>
                 )}
+                {t.liberarAoResolver && <Badge tone="neutral">Libera ao resolver</Badge>}
+                {t.podePegarDeOutros && <Badge tone="neutral">Pega leads de outros</Badge>}
+                {t.podeTransferir === false && <Badge tone="warning">Não transfere</Badge>}
               </div>
               {t.description && <div class="text-xs text-fg-muted truncate">{t.description}</div>}
               <div class="text-2xs text-fg-muted mt-0.5 flex items-center gap-2 flex-wrap">
@@ -200,6 +204,9 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
     (team?.routingMode as any) ?? 'manual',
   )
   const [conversasPrivadas, setConversasPrivadas] = useState(team?.conversasPrivadas ?? false)
+  const [podeTransferir, setPodeTransferir] = useState(team?.podeTransferir ?? true)
+  const [podePegarDeOutros, setPodePegarDeOutros] = useState(team?.podePegarDeOutros ?? false)
+  const [liberarAoResolver, setLiberarAoResolver] = useState(team?.liberarAoResolver ?? false)
   const [funnelId, setFunnelId] = useState<number | null>(team?.funnelId ?? null)
   const [oportunidadeFunnelId, setOportunidadeFunnelId] = useState<number | null>(team?.oportunidadeFunnelId ?? null)
   const [oportunidadeStageKey, setOportunidadeStageKey] = useState<string | null>(team?.oportunidadeStageKey ?? null)
@@ -219,6 +226,9 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
       active,
       routingMode,
       conversasPrivadas,
+      podeTransferir,
+      podePegarDeOutros,
+      liberarAoResolver,
       funnelId,
       oportunidadeFunnelId,
       oportunidadeStageKey: oportunidadeFunnelId ? oportunidadeStageKey : null,
@@ -388,6 +398,45 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
           </p>
         </div>
 
+        <div class="rounded-md border border-border p-3 space-y-3">
+          <div class="text-2xs uppercase tracking-wider text-fg-muted">Transferir e pegar leads</div>
+          <div>
+            <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+              <input type="checkbox" checked={podeTransferir} onChange={(e) => setPodeTransferir((e.target as HTMLInputElement).checked)} />
+              Membros desta equipe podem transferir leads e contatos
+            </label>
+            <p class="text-2xs text-fg-muted mt-1 ml-6">
+              {podeTransferir
+                ? 'Transferem na hora em Leads, Conversas e Contatos.'
+                : 'Não transferem: só pedem ao responsável (transferência consensual).'}
+            </p>
+          </div>
+          <div>
+            <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+              <input type="checkbox" checked={podePegarDeOutros} onChange={(e) => setPodePegarDeOutros((e.target as HTMLInputElement).checked)} />
+              Membros desta equipe podem pegar leads de outras pessoas
+            </label>
+            <p class="text-2xs text-fg-muted mt-1 ml-6">
+              {podePegarDeOutros
+                ? 'Puxam para si (ou transferem) um lead que está com um colega, mesmo com o Dono fixo ligado. Fica no histórico.'
+                : 'Lead de outra pessoa só muda de mãos pelo próprio responsável ou por um administrador.'}
+            </p>
+          </div>
+          <p class="text-2xs text-fg-muted">Em <strong>Membros</strong> dá para liberar ou bloquear uma pessoa só, diferente da equipe.</p>
+        </div>
+
+        <div>
+          <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+            <input type="checkbox" checked={liberarAoResolver} onChange={(e) => setLiberarAoResolver((e.target as HTMLInputElement).checked)} />
+            Ao resolver, liberar a conversa para qualquer agente
+          </label>
+          <p class="text-2xs text-fg-muted mt-1 ml-6">
+            {liberarAoResolver
+              ? 'Resolvida, a conversa fica sem atendente na fila "Liberadas" do Conversas, que qualquer agente de qualquer equipe vê e pode puxar. Quem vendeu continua sendo o vendedor — comissão e placar não mudam.'
+              : 'Resolvida, a conversa continua com quem atendeu; se o contato voltar a escrever, volta para essa pessoa.'}
+          </p>
+        </div>
+
         <label class="flex items-center gap-2 text-sm text-fg-muted cursor-pointer">
           <input type="checkbox" checked={active} onChange={(e) => setActive((e.target as HTMLInputElement).checked)} />
           Equipe ativa
@@ -449,6 +498,19 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
+
+  // Transferir / pegar de outros por pessoa (null = igual à equipe). Só admin
+  // muda — o servidor também recusa para líder.
+  const papel = useUserStore((st) => st.user?.role)
+  const souAdmin = papel === 'ADMIN' || papel === 'SUPERADMIN'
+  function handlePermissao(userId: number, campo: 'podeTransferir' | 'podePegarDeOutros', valor: string) {
+    const v = valor === 'equipe' ? null : valor === 'sim'
+    updateMember.mutate({ userId, [campo]: v }, {
+      onSuccess: () => toast('Permissão do membro atualizada', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+  const triValor = (v: boolean | null | undefined) => (v == null ? 'equipe' : v ? 'sim' : 'nao')
 
   function handleToggleLeader(userId: number, isLeader: boolean) {
     updateMember.mutate({ userId, isLeader }, {
@@ -550,6 +612,34 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
                         <div class="text-2xs text-fg-muted truncate">
                           {m.user.email} · {m.user.role}
                         </div>
+                        {souAdmin && (
+                          <div class="flex items-center gap-3 mt-1 flex-wrap text-2xs text-fg-muted">
+                            <label class="inline-flex items-center gap-1">
+                              Transferir:
+                              <select
+                                class="h-6 rounded border border-border bg-surface px-1 text-2xs text-fg"
+                                value={triValor(m.podeTransferir)}
+                                onChange={(e) => handlePermissao(m.user.id, 'podeTransferir', (e.target as HTMLSelectElement).value)}
+                              >
+                                <option value="equipe">igual à equipe</option>
+                                <option value="sim">sim</option>
+                                <option value="nao">não</option>
+                              </select>
+                            </label>
+                            <label class="inline-flex items-center gap-1">
+                              Pegar de outros:
+                              <select
+                                class="h-6 rounded border border-border bg-surface px-1 text-2xs text-fg"
+                                value={triValor(m.podePegarDeOutros)}
+                                onChange={(e) => handlePermissao(m.user.id, 'podePegarDeOutros', (e.target as HTMLSelectElement).value)}
+                              >
+                                <option value="equipe">igual à equipe</option>
+                                <option value="sim">sim</option>
+                                <option value="nao">não</option>
+                              </select>
+                            </label>
+                          </div>
+                        )}
                       </div>
                       <span class="text-2xs" style={{ color: presence.color }}>
                         {presence.label}

@@ -614,6 +614,14 @@ model Team {
   // e a fila sem dono — a de um colega só chega por transferência. Líder do
   // setor continua vendo tudo. Desligado = todos do setor veem tudo do setor.
   conversasPrivadas   Boolean  @default(false)
+  // Membros transferem leads e contatos (Leads, Conversas, Contatos). O membro
+  // pode ter a sua própria marcação em TeamMember, que vale mais que esta.
+  podeTransferir      Boolean  @default(true)
+  // Membros pegam para si leads de OUTRA pessoa, mesmo com o Dono fixo ligado.
+  podePegarDeOutros   Boolean  @default(false)
+  // Ao resolver no Conversas, a conversa fica sem atendente e vai para a fila
+  // "Liberadas" (qualquer agente vê e puxa). O vendedor não muda.
+  liberarAoResolver   Boolean  @default(false)
   // Acesso por portal: quem integra o setor vê todos os portais do Educacional
   // (Secretaria, Financeiro, Coordenação), mesmo os restritos a outras equipes.
   veTodosOsPortais    Boolean  @default(false)
@@ -702,6 +710,9 @@ model TeamMember {
   teamId    Int
   userId    Int
   isLeader  Boolean  @default(false)
+  // Por pessoa (null = igual à equipe): vale mais que a marcação da equipe.
+  podeTransferir    Boolean?
+  podePegarDeOutros Boolean?
   createdAt DateTime @default(now())
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -1188,6 +1199,14 @@ model Lead {
   outcome      String?     @db.VarChar(10)
   outcomeAt    DateTime?
   outcomeBy    Int? // userId que classificou
+  // Vendedor: quem era o responsável no momento do Ganho. Comissão, metas e
+  // placares contam por ele; transferir o lead depois NÃO muda este campo
+  // (o atendente — assignedUserId — muda livremente). Só admin corrige à mão.
+  vendedorUserId Int?
+  vendedorEm     DateTime?
+  // Resolver com a equipe em "liberar ao resolver": a conversa fica sem
+  // atendente, na fila "Liberadas", que qualquer agente vê e pode puxar.
+  conversaLiberadaEm DateTime?
   outcomeNote  String?     @db.Text
   lostReasonId Int?
   lostReason   LossReason? @relation(fields: [lostReasonId], references: [id], onDelete: SetNull)
@@ -1289,6 +1308,8 @@ model Lead {
   @@index([statusSummaryId, statusSummaryAt])
   @@index([phoneKey, instanceName])
   @@index([phoneKey, cloudApiConnectionId])
+  @@index([vendedorUserId])
+  @@index([conversaLiberadaEm])
   @@map("bychat_leads")
 }
 

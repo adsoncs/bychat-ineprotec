@@ -797,7 +797,10 @@ export async function usersRoutes(app: FastifyInstance) {
     // esconde o que a pessoa não pode fazer.
     const { capacidadesNomeadas } = await import('../services/papeisMotor.js')
     const capacidades = await capacidadesNomeadas(user.userId, user.role).catch(() => [] as string[])
-    return { permissions, modules, acessoPortal, capacidades }
+    // Transferir / pegar leads de outra pessoa (Configurações › Equipes).
+    const { permissoesDeTransferencia } = await import('../lib/permissoesDeTransferencia.js')
+    const transferencia = await permissoesDeTransferencia(user.userId, user.role).catch(() => ({ transferir: true, pegarDeOutros: false }))
+    return { permissions, modules, acessoPortal, capacidades, transferencia }
   })
 
   // ── GET /api/admin/module-permissions — Todas as permissões por role ──

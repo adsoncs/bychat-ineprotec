@@ -41,6 +41,7 @@ import { formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { api, ApiError } from '@/lib/apiClient'
 import { cn } from '@/lib/cn'
+import { VendedorDoLead } from '@/components/VendedorDoLead'
 
 interface Props {
   params: { id: string; section?: string }
@@ -271,6 +272,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           outcomeNote={lead.outcomeNote}
           lostReason={lead.lostReason ?? null}
         />
+        {lead.outcome === 'won' && <VendedorDoLead leadId={id} vendedor={lead.vendedorUser ?? null} />}
 
         <OpenConversationButton
           leadId={id}

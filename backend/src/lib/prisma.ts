@@ -174,12 +174,20 @@ prisma.$use(async (params, next) => {
   const data = a === 'update' || a === 'updateMany' ? params.args?.data : null
   const trocaEquipe = !!data && 'teamId' in data
   const trocaFunil = !!data && 'funnelId' in data
-  if (!trocaEquipe && !trocaFunil) return next(params)
+  // Ganho: o responsável deste momento vira o VENDEDOR do lead (Lead.vendedorUserId)
+  // — comissão, metas e placares contam por ele, e transferir depois não o muda.
+  // São vários caminhos que marcam Ganho (botão, etapa, pagamento, fluxo); este
+  // é o único por onde todos passam.
+  const outcomeNovo = data && 'outcome' in data
+    ? (data.outcome && typeof data.outcome === 'object' && 'set' in data.outcome ? data.outcome.set : data.outcome)
+    : undefined
+  const marcaGanho = outcomeNovo === 'won'
+  if (!trocaEquipe && !trocaFunil && !marcaGanho) return next(params)
 
   const antes = await prisma.lead.findMany({
     where: params.args?.where ?? {},
-    select: { id: true, teamId: true },
-  }).catch(() => [] as { id: number; teamId: number | null }[])
+    select: { id: true, teamId: true, outcome: true },
+  }).catch(() => [] as { id: number; teamId: number | null; outcome: string | null }[])
   const result = await next(params)
   if (!antes.length) return result
   const ids = antes.map((l) => l.id)
@@ -197,6 +205,15 @@ prisma.$use(async (params, next) => {
       import('../services/oportunidadeAutomatica.js')
         .then((m) => m.aoTrocarDeEquipe(antes))
         .catch((e) => console.error('[oportunidade]', e?.message || e))
+    }
+    // Só quem ACABOU de virar Ganho (reaberto e ganho de novo também): quem já
+    // estava ganho guarda o vendedor que tinha. Sem responsável no momento, vale
+    // quem marcou o Ganho.
+    const ganhosAgora = antes.filter((l) => l.outcome !== 'won').map((l) => Number(l.id))
+    if (marcaGanho && ganhosAgora.length) {
+      prisma.$executeRawUnsafe(
+        `UPDATE bychat_leads SET vendedorUserId = COALESCE(assignedUserId, outcomeBy), vendedorEm = NOW(3) WHERE outcome = 'won' AND id IN (${ganhosAgora.join(',')})`,
+      ).catch((e) => console.error('[vendedor]', e?.message || e))
     }
   })
   return result
@@ -274,6 +291,9 @@ prisma.$use(async (params, next) => {
     // fechamento (é o registro da venda, não o estado atual da carteira).
     if ((a === 'update' || a === 'updateMany') && params.args?.data && 'assignedUserId' in params.args.data) {
       const novoDono = valorDoCampo(params.args.data.assignedUserId)
+      // Conversa liberada (fila "Liberadas") deixa de ser liberada quando alguém
+      // assume o lead — por qualquer caminho: puxar, transferir, rodízio.
+      if (novoDono != null && !('conversaLiberadaEm' in params.args.data)) params.args.data.conversaLiberadaEm = null
       const linhas = await prisma.lead.findMany({ where: params.args?.where ?? {}, select: { id: true, assignedUserId: true } })
       const trava = await travaDoDonoLigada()
       const barrados = trava ? linhas.filter((l) => !podeTrocarDono(l.assignedUserId, novoDono)).map((l) => l.id) : []

@@ -3,7 +3,7 @@ import { rotaManualDeDono } from '../lib/donoDoLead.js'
 import { prisma } from '../lib/prisma.js'
 import { applyStageOutcome } from '../services/stageOutcome.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
-import { buildLeadAccessWhere, canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
+import { buildLeadAccessWhere, canUserAccessLead, isAdminRole, type AccessRole } from '../lib/teamAccess.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { generateLeadAnalysis } from '../services/scoring.js'
 import { generateUid, findDuplicate } from '../services/dedup.js'
@@ -345,7 +345,58 @@ export async function leadsRoutes(app: FastifyInstance) {
     const { findLeadBlock } = await import('../services/leadBlocklist.js')
     const bloqueio = await findLeadBlock({ email: lead.email, whatsapp: lead.whatsapp }).catch(() => null)
 
-    return { ...lead, agendamento, statusLabel, outcomeByUser, blocked: bloqueio }
+    // Vendedor: quem estava com o lead no Ganho (comissão e placar contam por ele).
+    const vendedorUser = lead.vendedorUserId
+      ? await prisma.user.findUnique({ where: { id: lead.vendedorUserId }, select: { id: true, name: true } }).catch(() => null)
+      : null
+
+    return { ...lead, agendamento, statusLabel, outcomeByUser, vendedorUser, blocked: bloqueio }
+  })
+
+  // ── PUT /api/bychat/leads/:id/vendedor ─── Corrigir o vendedor (só admin) ──
+  // O vendedor é gravado no Ganho e nada o muda depois — transferir o lead para
+  // Secretaria/Financeiro não tira a venda de quem vendeu. Esta é a única porta
+  // para corrigir à mão (ex.: ganho marcado com o dono errado). As propostas
+  // GANHAS do lead passam para o vendedor corrigido e a comissão é refeita;
+  // comissão já paga não muda (fica a anotação, regra de commissions.ts).
+  app.put('/api/bychat/leads/:id/vendedor', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    if (!isAdminRole(user.role)) return reply.code(403).send({ error: 'Só um administrador corrige o vendedor.' })
+    const leadId = parseInt((req.params as any).id)
+    const body = (req.body || {}) as { userId?: number | null }
+    const novo = body.userId == null ? null : Number(body.userId)
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, outcome: true, vendedorUserId: true } })
+    if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
+    if (lead.outcome !== 'won') return reply.code(400).send({ error: 'Só lead ganho tem vendedor.' })
+    let nome: string | null = null
+    if (novo != null) {
+      const u = await prisma.user.findUnique({ where: { id: novo }, select: { id: true, name: true, email: true } })
+      if (!u) return reply.code(400).send({ error: 'Usuário inválido.' })
+      nome = u.name || u.email
+    }
+    const antigo = lead.vendedorUserId
+      ? await prisma.user.findUnique({ where: { id: lead.vendedorUserId }, select: { name: true, email: true } })
+      : null
+    await prisma.lead.update({ where: { id: leadId }, data: { vendedorUserId: novo, vendedorEm: new Date() } })
+    const ganhas = await prisma.negotiation.findMany({ where: { leadId, resultado: 'won' }, select: { id: true } })
+    if (ganhas.length) {
+      await prisma.negotiation.updateMany({ where: { id: { in: ganhas.map((n) => n.id) } }, data: { responsavelUserId: novo } })
+      const { onNegotiationChanged } = await import('../services/commissions.js')
+      for (const n of ganhas) await onNegotiationChanged(n.id)
+    }
+    logEvent({
+      leadId,
+      type: EVENT_TYPES.OPERATOR_ASSIGNED,
+      category: 'operator',
+      title: `Vendedor corrigido: ${antigo?.name || antigo?.email || 'sem vendedor'} → ${nome || 'sem vendedor'}`,
+      source: 'panel',
+      ...getOperator(req),
+      oldValue: antigo?.name || antigo?.email || '',
+      newValue: nome || '',
+      metadata: { vendedorAnterior: lead.vendedorUserId, vendedorNovo: novo, propostas: ganhas.map((n) => n.id) },
+      ipAddress: getIp(req),
+    })
+    return { ok: true, vendedorUserId: novo, propostas: ganhas.length }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──
@@ -931,9 +982,11 @@ export async function leadsRoutes(app: FastifyInstance) {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
-    const { closeConversation } = await import('../services/leadConversation.js')
-    const r = await closeConversation(id, { byUserId: user.userId, byUserName: user.name || user.email })
-    return { ok: true, ...r }
+    const { closeConversation, liberarAoResolver } = await import('../services/leadConversation.js')
+    const quem = { byUserId: user.userId, byUserName: user.name || user.email }
+    const r = await closeConversation(id, quem)
+    const { liberada } = await liberarAoResolver(id, quem)
+    return { ok: true, ...r, liberada }
   })
 
   // ── POST /api/bychat/leads/:id/qualify ─── Promover "conversa" para Lead ──

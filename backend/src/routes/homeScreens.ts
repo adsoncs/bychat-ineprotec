@@ -331,29 +331,32 @@ export async function homeScreensRoutes(app: FastifyInstance) {
 
     const access = await buildLeadAccessWhere(user.userId, user.role)
     // Só lead conta no placar: contato (sem qualifiedAt) e grupo ficam de fora.
-    const where: any = { outcome: 'won', outcomeAt: { gte: since }, qualifiedAt: { not: null }, isGroup: false }
-    if (Object.keys(access).length > 0) where.AND = [access]
+    // A venda é de quem a fez (Lead.vendedorUserId, gravado no Ganho): o aluno
+    // passar para Secretaria/Financeiro não tira a linha de quem vendeu — nem
+    // tira a venda do recorte dela.
+    const where: any = { outcome: 'won', outcomeAt: { gte: since }, qualifiedAt: { not: null }, isGroup: false, vendedorUserId: { not: null } }
+    if (Object.keys(access).length > 0) where.AND = [{ OR: [access, { vendedorUserId: user.userId }] }]
 
     const rows = await prisma.lead.groupBy({
-      by: ['assignedUserId'],
+      by: ['vendedorUserId'],
       where,
       _count: { _all: true },
       _sum: { saleValue: true },
     })
-    const userIds = rows.map((r) => r.assignedUserId).filter((v): v is number => v != null)
+    const userIds = rows.map((r) => r.vendedorUserId).filter((v): v is number => v != null)
     const users = userIds.length
       ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
       : []
     const nameById = new Map(users.map((u) => [u.id, u.name]))
 
     const entries = rows
-      .filter((r) => r.assignedUserId != null)
+      .filter((r) => r.vendedorUserId != null)
       .map((r) => ({
-        userId: r.assignedUserId as number,
-        name: nameById.get(r.assignedUserId as number) || 'Sem nome',
+        userId: r.vendedorUserId as number,
+        name: nameById.get(r.vendedorUserId as number) || 'Sem nome',
         won: r._count._all,
         revenue: Number(r._sum.saleValue || 0),
-        isMe: r.assignedUserId === user.userId,
+        isMe: r.vendedorUserId === user.userId,
       }))
       .sort((a, b) => b.revenue - a.revenue || b.won - a.won)
 

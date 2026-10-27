@@ -89,9 +89,9 @@ import {
   type SenderChannel,
   useMarkAsRead,
   useClaimTicket,
+  usePegarDeOutro,
   useReleaseTicket,
   useDeleteTicket,
-  useAssignTicket,
   useSnoozeTicket,
   useClearTicket,
   useUnsnoozeTicket,
@@ -115,7 +115,6 @@ import {
   type DeliveryError,
   type TicketLeadInfo,
 } from '@/hooks/useChat'
-import { useDestinos } from '@/hooks/useDestinos'
 import {
   useUpdateLeadContact,
   useUnqualifyLead,
@@ -173,7 +172,8 @@ import { formatRelative } from '@/lib/format'
 import { formatarTelefone } from '@/lib/telefone'
 import { toast } from '@/lib/toast'
 import { leadSourceLabel, isFormSource, baseLeadSource } from '@/lib/leadSourceLabels'
-import { TransferenciaFunil, type EscolhaFunil } from '@/components/routing/TransferenciaFunil'
+import { TransferirModal } from '@/components/routing/TransferirModal'
+import { usePermissoesDeTransferencia } from '@/hooks/usePermissions'
 
 // As abas. O rótulo aqui é só o de fábrica: o nome exibido vem de
 // `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
@@ -191,6 +191,9 @@ const LEITURAS: { id: 'unread' | 'read'; label: string; Icon: typeof MessageSqua
 const ESCOPOS: { id: Scope; label: string; Icon: typeof MessageSquare }[] = [
   { id: 'all', label: 'Todas', Icon: Layers },
   { id: 'mine', label: 'Meus', Icon: UserIcon },
+  // Conversas resolvidas em equipe que "libera ao resolver" (Configurações ›
+  // Equipes): sem atendente, qualquer agente de qualquer equipe puxa.
+  { id: 'liberadas', label: 'Liberadas', Icon: Inbox },
 ]
 
 // Ordenação. Sempre existiu — `lastMessageAt desc`, fixo — só que invisível.
@@ -469,6 +472,8 @@ function ConversationsScreen() {
   const [, navegar] = useLocation()
   const usuario = useUserStore((st) => st.user)
   const claimLista = useClaimTicket()
+  const pegarLista = usePegarDeOutro()
+  const permsTransferencia = usePermissoesDeTransferencia()
   const releaseLista = useReleaseTicket()
   const closeLista = useCloseConversation()
   const openLista = useOpenConversation()
@@ -506,8 +511,11 @@ function ConversationsScreen() {
     const resolvida = !!t.conversationClosedAt && !t.conversationReopenedAt
     const crua = !t.conversationOpenedAt && !t.conversationClosedAt
     const temDono = t.assignedUserId != null
-    const podeAssumir = !temDono && (crua || !!t.conversationReopenedAt)
+    // Liberada ao resolver: sem atendente e aberta a qualquer agente.
+    const podeAssumir = !temDono && (crua || !!t.conversationReopenedAt || !!t.conversaLiberadaEm)
     const minha = temDono && usuario?.id != null && Number(t.assignedUserId) === Number(usuario.id)
+    // Lead de outra pessoa: só quem tem "pegar leads de outra pessoa".
+    const podePegar = temDono && !minha && permsTransferencia.pegarDeOutros
     const adormecida = !!t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()
     const grupo = !!t.isGroup
     const evolution = t.channel?.provider === 'evolution'
@@ -528,10 +536,11 @@ function ConversationsScreen() {
 
     sep('s1')
     if (podeAssumir) add({ id: 'assumir', rotulo: 'Assumir atendimento', icone: <Hand size={I} />, aoEscolher: () => claimLista.mutate(t.id, { onSuccess: ok('Atendimento assumido'), onError: falhou }) })
+    if (podePegar) add({ id: 'pegar', rotulo: 'Pegar para mim', icone: <Hand size={I} />, aoEscolher: () => pegarLista.mutate(t.id, { onSuccess: ok('Conversa passou para você'), onError: falhou }) })
     if (resolvida) add({ id: 'reabrir', rotulo: 'Reabrir atendimento', icone: <Inbox size={I} />, aoEscolher: () => openLista.mutate(t.id, { onSuccess: ok('Atendimento reaberto'), onError: falhou }) })
     else add({ id: 'resolver', rotulo: crua ? 'Descartar da Caixa' : 'Resolver atendimento', icone: <CheckCircle size={I} />, aoEscolher: () => closeLista.mutate(t.id, { onSuccess: ok(crua ? 'Descartada da Caixa' : 'Atendimento resolvido'), onError: falhou }) })
     if (minha && !resolvida && !crua) add({ id: 'devolver', rotulo: 'Devolver à fila', icone: <UserMinus size={I} />, aoEscolher: () => releaseLista.mutate(t.id, { onSuccess: ok('Devolvida à fila'), onError: falhou }) })
-    if (!resolvida) add({ id: 'transferir', rotulo: 'Transferir…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'transferir') })
+    if (!resolvida && permsTransferencia.transferir) add({ id: 'transferir', rotulo: 'Transferir…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'transferir') })
     if (adormecida) add({ id: 'acordar', rotulo: 'Acordar agora', icone: <Clock size={I} />, aoEscolher: () => unsnoozeLista.mutate(t.id, { onSuccess: ok('Conversa acordada'), onError: falhou }) })
     else if (!resolvida && !crua) add({
       id: 'adormecer', rotulo: 'Adormecer', icone: <Clock size={I} />, submenu: [
@@ -981,7 +990,10 @@ function ConversationsScreen() {
                     )}
                   >
                     <e.Icon size={ICON_SIZE.xs} class="shrink-0" />
-                    {labels.scope[e.id] ?? e.label}
+                    {(labels.scope as Record<string, string | undefined>)[e.id] ?? e.label}
+                    {e.id === 'liberadas' && (counters?.liberadas ?? 0) > 0 && (
+                      <span class="tabular-nums opacity-80">{counters?.liberadas}</span>
+                    )}
                   </button>
                 )
               })}
@@ -2666,7 +2678,9 @@ function ChatPanel({
   // "Assumir" também na conversa que o contato reabriu e que ninguém pegou:
   // ela está na Caixa como qualquer outra, e sem isto o único jeito de pôr o
   // nome nela seria responder.
-  const podeAssumir = !isAssigned && (isRaw || !!convReopenedAt)
+  // E na conversa liberada ao resolver: sem atendente, qualquer agente puxa.
+  const convLiberada = !!(lead?.conversaLiberadaEm ?? ticket?.conversaLiberadaEm)
+  const podeAssumir = !isAssigned && (isRaw || !!convReopenedAt || convLiberada)
   const snoozedUntil = lead?.snoozedUntil ?? ticket?.snoozedUntil ?? null
   const isSnoozed = snoozedUntil ? new Date(snoozedUntil).getTime() > Date.now() : false
   // Takeover humano: o chatbot para de responder assim que um operador escreve
@@ -2677,6 +2691,10 @@ function ChatPanel({
     lead?.assignedUserId != null
     && currentUserId != null
     && Number(lead.assignedUserId) === Number(currentUserId)
+  // Configurações › Equipes: transferir e pegar de outra pessoa.
+  const permsTransferencia = usePermissoesDeTransferencia()
+  const pegar = usePegarDeOutro()
+  const podePegarDeOutro = isAssigned && !assignedToMe && permsTransferencia.pegarDeOutros
 
   function snoozeUntilDate(date: Date) {
     snooze.mutate({ leadId, until: date.toISOString() }, {
@@ -2771,7 +2789,21 @@ function ChatPanel({
           Devolver à fila
         </ItemAcao>
       )}
-      {!isResolved && (
+      {podePegarDeOutro && (
+        <ItemAcao
+          icone={<Hand size={ICON_SIZE.sm} />}
+          onClick={() => {
+            setMenuAcoesOpen(false)
+            pegar.mutate(leadId, {
+              onSuccess: () => toast('Conversa passou para você', 'success'),
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            })
+          }}
+        >
+          Pegar para mim
+        </ItemAcao>
+      )}
+      {!isResolved && permsTransferencia.transferir && (
         <ItemAcao icone={<ArrowRightLeft size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); setTransferOpen(true) }}>
           Transferir para operador ou setor
         </ItemAcao>
@@ -3181,7 +3213,7 @@ function ChatPanel({
 
 
       {transferOpen && (
-        <TransferModal
+        <TransferirModal
           leadId={leadId}
           currentTeamId={lead?.teamId ?? null}
           currentUserId={lead?.assignedUserId ?? null}
@@ -4476,6 +4508,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
             <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Status</div>
             <dl class="text-xs space-y-1">
               <InfoRow label="Status" value={lead.completed ? 'Resolvido' : 'Aberto'} />
+              {lead.vendedor && <InfoRow label="Vendido por" value={lead.vendedor.name} />}
               <InfoRow
                 label="Origem"
                 valueNode={
@@ -4953,125 +4986,6 @@ function EditContactModal({
             {update.isPending || salvarCampos.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
         </div>
-      </div>
-    </Modal>
-  )
-}
-
-function TransferModal({
-  leadId, currentTeamId, currentUserId, onClose,
-}: {
-  leadId: number
-  currentTeamId: number | null
-  currentUserId: number | null
-  onClose: () => void
-}) {
-  // Lista do dia a dia (ver hooks/useDestinos): as de administração voltavam
-  // 403 para o agente, e a janela só oferecia "fila geral" — e transferia
-  // para lá sem querer.
-  const destinosQ = useDestinos()
-  const [teamId, setTeamId] = useState<number | ''>(currentTeamId ?? '')
-  const [userId, setUserId] = useState<number | ''>(currentUserId ?? '')
-  const [reason, setReason] = useState('')
-  const [funil, setFunil] = useState<EscolhaFunil>({ acao: 'manter', funnelId: null, stageKey: null })
-
-  const assign = useAssignTicket()
-  const teams = destinosQ.data?.equipes ?? []
-  const equipe = typeof teamId === 'number' ? teams.find((t) => t.id === teamId) : undefined
-  const members = equipe?.members ?? []
-  const semDestinos = destinosQ.isLoading || destinosQ.isError
-
-  // Quando muda team, limpa user se ele não pertence à nova team.
-  useEffect(() => {
-    if (typeof userId === 'number' && members.length > 0) {
-      const stillMember = members.some((m) => m.id === userId)
-      if (!stillMember) setUserId('')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, members.length])
-
-  function handleSubmit() {
-    if (funil.acao !== 'manter' && !funil.funnelId) {
-      toast('Escolha o funil de destino', 'danger')
-      return
-    }
-    assign.mutate({
-      leadId,
-      teamId: teamId === '' ? null : teamId,
-      userId: userId === '' ? null : userId,
-      reason: reason.trim() || undefined,
-      ...(funil.acao !== 'manter' && funil.funnelId
-        ? { funilAcao: funil.acao, funnelId: funil.funnelId, ...(funil.stageKey ? { stageKey: funil.stageKey } : {}) }
-        : {}),
-    }, {
-      onSuccess: (r) => {
-        if (r.funil?.erro) toast(`Lead transferido, mas o funil não foi alterado: ${r.funil.erro}`, 'warning', 6000)
-        else toast(funil.acao === 'mover' ? 'Lead transferido e movido de funil'
-          : funil.acao === 'acompanhar' ? 'Lead transferido e aberto também no outro funil'
-            : 'Lead transferido', 'success')
-        onClose()
-      },
-      onError: (e: unknown) => toast((e as Error).message, 'danger'),
-    })
-  }
-
-  return (
-    <Modal
-      open
-      onOpenChange={(o) => { if (!o) onClose() }}
-      title="Transferir lead"
-      footer={
-        <>
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={assign.isPending}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={assign.isPending || semDestinos}>
-            {assign.isPending ? 'Transferindo…' : 'Transferir'}
-          </Button>
-        </>
-      }
-    >
-      <div class="space-y-3">
-        {destinosQ.isError && (
-          <p class="text-sm text-danger">Não foi possível carregar os destinos. Peça a um gestor para transferir esta conversa.</p>
-        )}
-        <Select
-          label="Equipe destino"
-          value={teamId === '' ? '' : String(teamId)}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value
-            setTeamId(v ? Number(v) : '')
-          }}
-        >
-          <option value="">Sem equipe (fila geral)</option>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}{t.minha ? ' (sua equipe)' : ''}</option>)}
-        </Select>
-        <Select
-          label="Operador destino"
-          value={userId === '' ? '' : String(userId)}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value
-            setUserId(v ? Number(v) : '')
-          }}
-          disabled={typeof teamId !== 'number' || !equipe?.membrosVisiveis}
-          hint={typeof teamId !== 'number'
-            ? 'Selecione uma equipe primeiro'
-            : equipe && !equipe.membrosVisiveis
-              ? 'A conversa vai para a fila desta equipe — quem é dela assume.'
-              : 'Operador deve pertencer à equipe'}
-        >
-          <option value="">Deixar em fila (sem operador específico)</option>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}{m.isLeader ? ' (líder)' : ''}
-            </option>
-          ))}
-        </Select>
-        <TransferenciaFunil leadId={leadId} valor={funil} onChange={setFunil} />
-        <Textarea
-          label="Motivo (opcional, fica no histórico)"
-          value={reason}
-          onInput={(e) => setReason((e.target as HTMLTextAreaElement).value)}
-          rows={2}
-        />
       </div>
     </Modal>
   )

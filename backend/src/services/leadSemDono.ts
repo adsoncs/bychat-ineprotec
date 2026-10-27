@@ -142,6 +142,8 @@ export async function distribuirLeadsSemDono(opts: { soLeadIds?: number[] } = {}
   const leads = await prisma.lead.findMany({
     where: {
       assignedUserId: null, isGroup: false, outcome: null,
+      // Liberada ao resolver: fica na fila "Liberadas" até alguém puxar.
+      conversaLiberadaEm: null,
       createdAt: { lt: new Date(Date.now() - CARENCIA_MS) },
       ...(opts.soLeadIds ? { id: { in: opts.soLeadIds } } : {}),
     },

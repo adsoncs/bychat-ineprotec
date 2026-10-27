@@ -13,6 +13,8 @@ import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
 import { useTeams, useTeamMembers } from '@/hooks/useTeams'
 import { TransferLeadModal } from '@/components/routing/TransferLeadModal'
+import { TransferirModal } from '@/components/routing/TransferirModal'
+import { usePermissoesDeTransferencia } from '@/hooks/usePermissions'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { ContextMenu, type ItemMenu } from '@/components/ui/ContextMenu'
 import { env } from '@/lib/env'
@@ -157,7 +159,10 @@ export function LeadsPage() {
   const [whatsappLead, setWhatsappLead] = useState<{ id: number; whatsapp: string | null } | null>(null)
   const [confirmDeleteLead, setConfirmDeleteLead] = useState<{ id: number; label: string } | null>(null)
   const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
-  const [transferLead, setTransferLead] = useState<{ id: number; label: string } | null>(null)
+  const [transferLead, setTransferLead] = useState<{ id: number; label: string; teamId: number | null; assignedUserId: number | null } | null>(null)
+  // Configurações › Equipes: quem pode transfere na hora (igual ao Conversas);
+  // quem não pode só pede ao responsável (transferência consensual).
+  const permsTransferencia = usePermissoesDeTransferencia()
   const [moveToKanbanLead, setMoveToKanbanLead] = useState<number | null>(null)
   // Ganho/Perdido de UM lead: o mesmo modal das ações em massa, com uma lista
   // de um só id — o formulário (valor, motivo da perda) é o mesmo.
@@ -273,7 +278,7 @@ export function LeadsPage() {
         setConfirmDeleteLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
         break
       case 'transfer':
-        setTransferLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
+        setTransferLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}`, teamId: lead.teamId ?? null, assignedUserId: lead.assignedUserId ?? null })
         break
     }
   }
@@ -308,7 +313,7 @@ export function LeadsPage() {
     sep('s1')
     add({ id: 'editar', rotulo: 'Editar lead', icone: <Pencil size={I} />, aoEscolher: () => executarAcaoLead('edit', lead) })
     add({ id: 'funil', rotulo: 'Mover para funil…', icone: <KanbanSquare size={I} />, aoEscolher: () => executarAcaoLead('kanban', lead) })
-    if (lead.assignedUserId != null) add({ id: 'transferir', rotulo: 'Transferir para…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => executarAcaoLead('transfer', lead) })
+    if (lead.assignedUserId != null || permsTransferencia.transferir) add({ id: 'transferir', rotulo: 'Transferir para…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => executarAcaoLead('transfer', lead) })
     if (lead.outcome !== 'won') add({ id: 'ganho', rotulo: 'Marcar como Ganho', icone: <Trophy size={I} />, aoEscolher: () => setOutcomeLead({ id: lead.id, kind: 'won' }) })
     if (lead.outcome !== 'lost') add({ id: 'perdido', rotulo: 'Marcar como Perdido', icone: <XCircle size={I} />, aoEscolher: () => setOutcomeLead({ id: lead.id, kind: 'lost' }) })
     add({ id: 'selecionar', rotulo: marcado ? 'Desmarcar' : 'Selecionar', icone: <Check size={I} />, aoEscolher: () => toggleSelected(lead.id) })
@@ -564,13 +569,20 @@ export function LeadsPage() {
         />
       )}
 
-      {transferLead !== null && (
+      {transferLead !== null && (permsTransferencia.transferir ? (
+        <TransferirModal
+          leadId={transferLead.id}
+          currentTeamId={transferLead.teamId}
+          currentUserId={transferLead.assignedUserId}
+          onClose={() => setTransferLead(null)}
+        />
+      ) : (
         <TransferLeadModal
           leadId={transferLead.id}
           leadLabel={transferLead.label}
           onClose={() => setTransferLead(null)}
         />
-      )}
+      ))}
 
       {confirmDeleteLead !== null && (
         <ConfirmDialog
@@ -1615,6 +1627,7 @@ function LeadRowActionsMenu({
   lead, onAction,
 }: { lead: LeadListItem; onAction: (a: LeadRowAction, l: LeadListItem) => void }) {
   const isWebChat = lead.source === 'web_chat'
+  const { transferir: podeTransferir } = usePermissoesDeTransferencia()
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -1666,7 +1679,7 @@ function LeadRowActionsMenu({
           >
             <KanbanSquare size={14} /> Mover para Funil
           </DropdownMenu.Item>
-          {lead.assignedUserId != null && (
+          {(lead.assignedUserId != null || podeTransferir) && (
             <DropdownMenu.Item
               class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
               onSelect={() => onAction('transfer', lead)}

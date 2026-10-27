@@ -141,6 +141,8 @@ export interface LeadDetail extends LeadListItem {
   outcomeBy?: number | null
   /** Quem fechou o lead. O backend resolve o usuário e envia junto. */
   outcomeByUser?: { id: number; name: string | null } | null
+  /** Quem estava com o lead no Ganho (comissão/placar contam por ele). */
+  vendedorUser?: { id: number; name: string | null } | null
   outcomeNote?: string | null
   lostReasonId?: number | null
   lostReason?: { id: number; name: string; color: string | null } | null

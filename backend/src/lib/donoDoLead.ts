@@ -17,6 +17,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 export interface AtorDaTroca {
   userId: number
   admin: boolean
+  /** Tem a permissão "pegar leads de outra pessoa" (Configurações › Equipes). */
+  pegaDeOutros?: boolean
 }
 
 const contexto = new AsyncLocalStorage<AtorDaTroca>()
@@ -29,6 +31,16 @@ export function comoAtor<T>(user: { userId: number; role?: string | null }, fn: 
   // Aguarda DENTRO do contexto: a promise do Prisma é preguiçosa — a consulta
   // só roda no `.then`, e se ele acontecesse fora daqui o ator se perderia.
   return contexto.run({ userId: user.userId, admin: user.role === 'ADMIN' || user.role === 'SUPERADMIN' }, async () => await fn())
+}
+
+/**
+ * Como `comoAtor`, para quem tem a permissão de pegar leads de outra pessoa
+ * (lib/permissoesDeTransferencia.ts): passa pela trava do Dono fixo, igual a um
+ * admin, mas só nas gravações feitas dentro de `fn`.
+ */
+export function comoAtorQuePegaDeOutros<T>(user: { userId: number; role?: string | null }, fn: () => Promise<T>): Promise<T> {
+  const admin = user.role === 'ADMIN' || user.role === 'SUPERADMIN'
+  return contexto.run({ userId: user.userId, admin, pegaDeOutros: true }, async () => await fn())
 }
 
 /**
@@ -68,5 +80,5 @@ export function atorDaTroca(): AtorDaTroca | null {
 export function podeTrocarDono(donoAtual: number | null, novoDono: number | null): boolean {
   if (donoAtual == null || donoAtual === novoDono) return true
   const ator = atorDaTroca()
-  return !!ator && (ator.admin || ator.userId === donoAtual)
+  return !!ator && (ator.admin || !!ator.pegaDeOutros || ator.userId === donoAtual)
 }

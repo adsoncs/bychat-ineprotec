@@ -321,12 +321,17 @@ export async function previewNegotiation(
   if (!neg) return semComissao('Negociação não encontrada')
   if (!opts.hipotetica && neg.resultado !== 'won') return semComissao('A negociação ainda não foi ganha')
 
-  const lead = await prisma.lead.findUnique({ where: { id: neg.leadId }, select: { funnelId: true, assignedUserId: true } })
+  const lead = await prisma.lead.findUnique({ where: { id: neg.leadId }, select: { funnelId: true, assignedUserId: true, vendedorUserId: true } })
   // O funil desta venda: o dela, e só na falta dele o do lead (negociação
   // anterior à coluna). É por ele que a regra de comissão é escolhida.
   const funnelId = neg.funnelId ?? lead?.funnelId ?? null
-  // Fechada congela o responsável; em aberto vale o dono atual do lead.
-  const userId = neg.responsavelUserId ?? lead?.assignedUserId ?? null
+  // Fechada congela o responsável; em aberto vale o dono atual do lead. Ganha
+  // sem responsável fica com o VENDEDOR do lead (quem estava com ele no Ganho)
+  // — nunca com quem atende o aluno depois (Secretaria, Financeiro…).
+  const userId = neg.responsavelUserId
+    ?? (neg.resultado === 'won' ? lead?.vendedorUserId : null)
+    ?? lead?.assignedUserId
+    ?? null
   if (userId == null) return semComissao('Negociação sem responsável — defina o dono do lead', { funnelId })
 
   // Venda ligada ao Educacional: portal da inscrição e curso da oferta.

@@ -19,6 +19,8 @@ import {
   BookUser, Search, MessageSquare, Star, Users as UsersIcon, X,
   CheckSquare, Square, Phone, Mail, HelpCircle, Plus, Pencil, Trash2,
 } from '@/components/ui/icon-set'
+import { ArrowRightLeft } from '@/components/ui/icon-set'
+import { TransferirModal } from '@/components/routing/TransferirModal'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -29,7 +31,7 @@ import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { useCan, useMyPermissions } from '@/hooks/usePermissions'
+import { useCan, useMyPermissions, usePermissoesDeTransferencia } from '@/hooks/usePermissions'
 import {
   useContatos, useResumoContatos, useFiltrosDeContato,
   useCriarContato, useEditarContato, useApagarContato,
@@ -84,6 +86,10 @@ export function ContatosPage() {
   const [comoFunciona, setComoFunciona] = useState(false)
   const [editando, setEditando] = useState<Contato | 'novo' | null>(null)
   const [apagando, setApagando] = useState<Contato | null>(null)
+  // Transferir contato: mesma janela e mesma regra de Leads e Conversas
+  // (Configurações › Equipes decide quem pode).
+  const [transferindo, setTransferindo] = useState<Contato | null>(null)
+  const { transferir: podeTransferir } = usePermissoesDeTransferencia()
 
   // Cada ação tem a sua permissão: o administrador decide quem cadastra, quem
   // corrige e quem apaga sem precisar mexer no acesso a Leads.
@@ -301,6 +307,7 @@ export function ContatosPage() {
                 onPromover={() => setPromover({ kind: 'single', leadId: c.id, leadName: c.nome })}
                 onEditar={podeEditar ? () => setEditando(c) : undefined}
                 onApagar={podeApagar ? () => setApagando(c) : undefined}
+                onTransferir={podeTransferir && !c.isGroup ? () => setTransferindo(c) : undefined}
               />
             ))}
           </ul>
@@ -341,6 +348,15 @@ export function ContatosPage() {
         alvo={editando}
         onClose={() => setEditando(null)}
       />
+
+      {transferindo && (
+        <TransferirModal
+          leadId={transferindo.id}
+          currentTeamId={transferindo.teamId}
+          currentUserId={transferindo.assignedUserId}
+          onClose={() => setTransferindo(null)}
+        />
+      )}
 
       <ConfirmDialog
         open={apagando !== null}
@@ -422,7 +438,7 @@ function Resumo({ rotulo, valor, destaque, alerta }: { rotulo: string; valor?: n
 }
 
 function LinhaContato({
-  contato, marcado, onMarcar, onAbrirConversa, onPromover, onEditar, onApagar,
+  contato, marcado, onMarcar, onAbrirConversa, onPromover, onEditar, onApagar, onTransferir,
 }: {
   contato: Contato
   marcado: boolean
@@ -431,6 +447,7 @@ function LinhaContato({
   onPromover: () => void
   onEditar?: (() => void) | undefined
   onApagar?: (() => void) | undefined
+  onTransferir?: (() => void) | undefined
 }) {
   const nome = contato.nome || contato.whatsapp || 'Sem nome'
   const inicial = nome.trim()[0]?.toUpperCase() ?? '?'
@@ -489,6 +506,11 @@ function LinhaContato({
         {!contato.isGroup && (
           <Button variant="secondary" size="sm" onClick={onPromover} title="Promover a Lead">
             <Star size={13} /> <span class="hidden md:inline">Promover</span>
+          </Button>
+        )}
+        {onTransferir && (
+          <Button variant="ghost" size="sm" onClick={onTransferir} title="Transferir contato">
+            <ArrowRightLeft size={13} /> <span class="hidden md:inline">Transferir</span>
           </Button>
         )}
         {/* Corrigir e apagar aparecem no hover: são ações de manutenção, e um

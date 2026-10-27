@@ -280,10 +280,9 @@ export async function negotiationsRoutes(app: FastifyInstance) {
 
     // Ids de lead quando o filtro é do lado do lead (funil, responsável ou busca).
     let leadIdFilter: number[] | null = null
-    if (funnelId || search || responsavelUserId || semResponsavel || restrito) {
+    if (funnelId || search || semResponsavel || restrito) {
       const leadWhere: any = restrito ? { AND: [escopo] } : {}
       if (funnelId) leadWhere.funnelId = funnelId
-      if (responsavelUserId) leadWhere.assignedUserId = responsavelUserId
       if (semResponsavel) leadWhere.assignedUserId = null
       if (search) leadWhere.OR = [{ nome: { contains: search } }, { email: { contains: search } }, { whatsapp: { contains: search } }]
       const leads = await prisma.lead.findMany({ where: leadWhere, select: { id: true }, take: restrito ? 20000 : 5000 })
@@ -298,6 +297,16 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (cobranca === 'recorrente') where.valorRecorrente = { gt: 0 }
     if (cobranca === 'unico') where.valorUnico = { gt: 0 }
     if (leadIdFilter) where.leadId = { in: leadIdFilter.length ? leadIdFilter : [-1] }
+    // Responsável: proposta FECHADA é de quem fechou (congelado no fechamento —
+    // o lead passar para outra equipe depois não tira a venda de ninguém);
+    // em aberto, do dono atual do lead.
+    if (responsavelUserId) {
+      const doDono = await prisma.lead.findMany({ where: { assignedUserId: responsavelUserId }, select: { id: true }, take: 20000 })
+      where.AND = [...(where.AND ?? []), { OR: [
+        { resultado: null, leadId: { in: doDono.length ? doDono.map((l) => l.id) : [-1] } },
+        { resultado: { not: null }, responsavelUserId },
+      ] }]
+    }
     // Busca também casa com o título da proposta, não só com o lead — mas só
     // quando o recorte de lead veio da própria busca (senão o OR furaria o
     // filtro de funil/responsável).
@@ -340,7 +349,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         lname.get(n.leadId) ?? `Lead #${n.leadId}`, n.titulo,
         letapa.get(n.leadId) ?? '', n.status, n.resultado ?? 'em aberto',
         n.valorUnico ?? 0, n.valorRecorrente ?? 0, n.valorFinal ?? 0,
-        (() => { const id = ldono.get(n.leadId) ?? n.responsavelUserId; return id ? uname.get(id) ?? '' : '' })(),
+        (() => { const id = n.resultado ? (n.responsavelUserId ?? ldono.get(n.leadId)) : (ldono.get(n.leadId) ?? n.responsavelUserId); return id ? uname.get(id) ?? '' : '' })(),
         n.createdAt.toISOString().slice(0, 10), n.fechadaEm ? n.fechadaEm.toISOString().slice(0, 10) : '',
       ].map(esc).join(';'))
       // BOM + ';' para o Excel em pt-BR abrir sem passar pelo assistente de importação.
@@ -380,8 +389,11 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     ].filter((v): v is number => !!v)))
     const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     const userById = new Map(users.map((u) => [u.id, u]))
-    const donoDe = (n: { leadId: number; responsavelUserId: number | null }) => {
-      const id = leadById.get(n.leadId)?.assignedUserId ?? n.responsavelUserId
+    const donoDe = (n: { leadId: number; responsavelUserId: number | null; resultado?: string | null }) => {
+      // Fechada: quem fechou. Em aberto: o dono atual do lead.
+      const id = n.resultado
+        ? (n.responsavelUserId ?? leadById.get(n.leadId)?.assignedUserId)
+        : (leadById.get(n.leadId)?.assignedUserId ?? n.responsavelUserId)
       return id ? userById.get(id)?.name ?? null : null
     }
 

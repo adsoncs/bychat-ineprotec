@@ -135,6 +135,9 @@ interface Recorte {
 
 const lista = (xs: number[]) => Prisma.join(xs.length ? xs : [-1])
 
+/** Quem leva a matrícula/venda: o VENDEDOR (gravado no Ganho); antes do Ganho, o responsável. */
+const QUEM_VENDEU = Prisma.sql`COALESCE(l.vendedorUserId, l.assignedUserId)`
+
 function noFunil(r: Recorte, alias = 'l') {
   const a = Prisma.raw(alias)
   return Prisma.sql`(${a}.funnelId IN (${lista(r.funis)}) OR EXISTS (SELECT 1 FROM bychat_lead_funnels lf WHERE lf.leadId = ${a}.id AND lf.saiuEm IS NULL AND lf.funnelId IN (${lista(r.funis)})))`
@@ -209,12 +212,12 @@ interface CtxResposta { relogio: Awaited<ReturnType<typeof relogioDaCasa>>; meta
 
 async function matriculas(r: Recorte, j: Janela): Promise<{ u: number | null; leadId: number; dia: string; origem: string; segAteMatricula: number | null }[]> {
   const rows = await prisma.$queryRaw<{ u: number | null; leadId: number; em: Date; origem: string; criado: Date }[]>`
-    SELECT l.assignedUserId u, l.id leadId, MIN(e.createdAt) em,
+    SELECT ${QUEM_VENDEU} u, l.id leadId, MIN(e.createdAt) em,
            COALESCE(NULLIF(l.originType,''), NULLIF(l.source,''), 'desconhecida') origem, l.createdAt criado
       FROM bychat_lead_events e JOIN bychat_leads l ON l.id = e.leadId
      WHERE e.type = 'status_changed' AND e.createdAt BETWEEN ${j.de} AND ${j.ate}
-       AND ${entrouNaMatricula(r)} AND ${BASE_LEAD} ${daOrigem(r)} ${noAlcance(r)}
-     GROUP BY l.id, l.assignedUserId, origem, l.createdAt`
+       AND ${entrouNaMatricula(r)} AND ${BASE_LEAD} ${daOrigem(r)} ${noAlcance(r, QUEM_VENDEU)}
+     GROUP BY l.id, u, origem, l.createdAt`
   return rows.map((x) => ({
     u: x.u == null ? null : Number(x.u), leadId: Number(x.leadId), dia: diaBR(new Date(x.em)), origem: x.origem,
     segAteMatricula: Math.max(0, Math.round((new Date(x.em).getTime() - new Date(x.criado).getTime()) / 1000)),
@@ -232,11 +235,11 @@ async function pagamentos(r: Recorte, j: Janela): Promise<Pagamento[]> {
        WHERE n.resultado = 'won' AND n.fechadaEm BETWEEN ${j.de} AND ${j.ate} AND ${BASE_LEAD}
          AND (n.funnelId IN (${lista(r.funis)}) OR (n.funnelId IS NULL AND ${noFunil(r)})) ${daOrigem(r)} ${noAlcance(r, Prisma.sql`n.responsavelUserId`)}`,
     prisma.$queryRaw<{ u: number | null; valor: any; em: Date; curso: string | null }[]>`
-      SELECT l.assignedUserId u, r.paymentAmount valor, r.paymentPaidAt em, NULL curso
+      SELECT ${QUEM_VENDEU} u, r.paymentAmount valor, r.paymentPaidAt em, NULL curso
         FROM bychat_enrollment_registrations r JOIN bychat_leads l ON l.id = r.leadId
        WHERE r.paymentStatus = 'paid' AND r.mergedIntoId IS NULL AND r.paymentPaidAt BETWEEN ${j.de} AND ${j.ate}
          AND NOT EXISTS (SELECT 1 FROM bychat_negotiations n WHERE n.registrationId = r.id)
-         AND ${BASE_LEAD} AND ${noFunil(r)} ${daOrigem(r)} ${noAlcance(r)}`,
+         AND ${BASE_LEAD} AND ${noFunil(r)} ${daOrigem(r)} ${noAlcance(r, QUEM_VENDEU)}`,
   ])
   return [...negs, ...regs].map((x) => ({ u: x.u == null ? null : Number(x.u), valor: num(x.valor), dia: diaBR(new Date(x.em)), curso: x.curso || 'Sem curso definido' }))
 }

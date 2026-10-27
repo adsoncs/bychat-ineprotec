@@ -292,6 +292,8 @@ const SELECAO_TICKET = {
       // A lista mostra "Voltou a falar" na conversa que o contato reabriu: sem
       // isso o operador vê um lead COM dono na Caixa e não entende por quê.
       conversationReopenedAt: true,
+      conversaLiberadaEm: true,
+      vendedorUserId: true,
       // Aberta/encerrada: o menu de contexto da lista decide Resolver × Reabrir
       // × Descartar por eles, com a MESMA regra do cabeçalho da conversa. O tipo
       // Ticket do front já os declarava, mas a lista não mandava — toda conversa
@@ -510,7 +512,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       // Cláusula de acesso por escopo
       let scopeWhere: any = {}
-      if (filtroMatriz) {
+      const { CONVERSA_LIBERADA } = await import('../lib/teamAccess.js')
+      if (requestedScope === 'liberadas') {
+        // Fila "Liberadas": conversas resolvidas em equipe que libera ao
+        // resolver. Qualquer agente de qualquer equipe vê — por decisão do
+        // cliente, nem alcance do papel nem a matriz recortam. Números
+        // reservados continuam valendo (filtrosAnd, abaixo).
+        scopeWhere = CONVERSA_LIBERADA
+      } else if (filtroMatriz) {
         if (requestedScope === 'mine') {
           scopeWhere = { AND: [filtroMatriz, { assignedUserId: user.userId }] }
         } else if (requestedScope === 'team') {
@@ -560,7 +569,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       //   Mensagem nova em conversa fechada devolve o contato para a fila de
       //   quem tem de responder: 'snoozed' (Aguardando) quando o lead tem
       //   responsável, 'raw' (Caixa) quando não tem.
-      const bucket = (query.bucket || 'inbox').toString()
+      // Na fila "Liberadas" o estado da conversa não recorta: resolvida ou com
+      // o contato de volta, ela está esperando alguém puxar.
+      const bucket = requestedScope === 'liberadas' ? 'all' : (query.bucket || 'inbox').toString()
       const now = new Date()
 
       // ── Filtros da tela, separados do escopo e da caixa ────────────────
@@ -891,7 +902,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       const [
         waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount,
-        inboxCount, rawCount, snoozedCount, allCount, groupsCount, unreadCount,
+        inboxCount, rawCount, snoozedCount, allCount, groupsCount, unreadCount, liberadasCount,
       ] = await Promise.all([
         // waiting/attending: subfiltros legados do Atendimento (não lidas x lidas).
         prisma.lead.count({
@@ -950,6 +961,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             unreadMessages: { gt: 0 },
           },
         }),
+        // Fila "Liberadas": todas as caixas, mesmos filtros de tela.
+        prisma.lead.count({ where: montarWhere(CONVERSA_LIBERADA, 'all') }),
       ])
 
       return {
@@ -967,6 +980,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           snoozed: snoozedCount,
           groups: groupsCount,
           unread: unreadCount,
+          liberadas: liberadasCount,
         },
         myTeamIds,
         isAdmin: effectiveScope === 'all',
@@ -1991,11 +2005,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const lid = parseInt(leadId)
       if (!await assertTicketAccess(req, reply, lid, 'edit')) return
       const user = (req as any).user as { userId: number; name?: string; email?: string }
-      const { closeConversation } = await import('../services/leadConversation.js')
-      await closeConversation(lid, { byUserId: user.userId, byUserName: user.name || user.email })
+      const { closeConversation, liberarAoResolver } = await import('../services/leadConversation.js')
+      const quem = { byUserId: user.userId, byUserName: user.name || user.email }
+      await closeConversation(lid, quem)
       // Marca também o campo legado para sistemas externos que ainda leem `completed`.
       await prisma.lead.update({ where: { id: lid }, data: { completed: true } })
-      return { ok: true }
+      const { liberada } = await liberarAoResolver(lid, quem)
+      return { ok: true, liberada }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
@@ -2126,12 +2142,23 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { getAjustesRoteamento } = await import('../services/teamRouting.js')
       const ajustes = await getAjustesRoteamento()
 
-      // Lead com responsável só sai das mãos dele por ele mesmo (ou por admin).
-      // Ver lib/donoDoLead.ts — a trava do Prisma barraria em silêncio; aqui a
-      // pessoa recebe o motivo.
-      if (ajustes.donoFixo && lead.assignedUserId && lead.assignedUserId !== user.userId && !isAdminRole(user.role)
-          && newUserId !== lead.assignedUserId) {
-        return reply.code(403).send({ error: 'Só o responsável pela conversa (ou um administrador) pode transferi-la.' })
+      // Configurações › Equipes: "pode transferir" e "pode pegar leads de outra
+      // pessoa" (lib/permissoesDeTransferencia.ts). Mandar para OUTRA pessoa ou
+      // equipe é transferir; puxar para si é pegar.
+      const { permissoesDeTransferencia } = await import('../lib/permissoesDeTransferencia.js')
+      const perms = await permissoesDeTransferencia(user.userId, user.role)
+      const mudaPessoa = (newUserId ?? null) !== (lead.assignedUserId ?? null)
+      const mudaEquipe = (newTeamId ?? null) !== (lead.teamId ?? null)
+      if (!perms.transferir && (mudaEquipe || (mudaPessoa && newUserId !== user.userId))) {
+        return reply.code(403).send({ error: 'Sua equipe não tem permissão para transferir leads. Peça a um administrador em Configurações › Equipes.' })
+      }
+
+      // Lead com responsável só sai das mãos dele por ele mesmo, por admin ou
+      // por quem tem "pegar leads de outra pessoa". Ver lib/donoDoLead.ts — a
+      // trava do Prisma barraria em silêncio; aqui a pessoa recebe o motivo.
+      const tiraDeOutro = !!lead.assignedUserId && lead.assignedUserId !== user.userId && mudaPessoa
+      if (ajustes.donoFixo && tiraDeOutro && !isAdminRole(user.role) && !perms.pegarDeOutros) {
+        return reply.code(403).send({ error: 'Só o responsável pela conversa (ou quem pode pegar leads de outra pessoa) pode transferi-la.' })
       }
 
       // Transferência só para o setor: o rodízio da equipe escolhe a pessoa.
@@ -2213,7 +2240,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const oldLabel = describeAssignment(lead.assignedUser, lead.team)
       const newLabel = describeAssignment(newUser, newTeam)
 
-      const updated = await prisma.lead.update({
+      const gravar = () => prisma.lead.update({
         where: { id: lid },
         data: {
           assignedUserId: newUserId,
@@ -2226,6 +2253,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           team: { select: { id: true, name: true, color: true } },
         },
       })
+      const { comoAtorQuePegaDeOutros } = await import('../lib/donoDoLead.js')
+      const updated = tiraDeOutro && perms.pegarDeOutros ? await comoAtorQuePegaDeOutros(user, gravar) : await gravar()
 
       // F7: propaga novo responsável nas Activities pendentes de cadência.
       const reassignedCount = (lead.assignedUserId ?? null) !== (newUserId ?? null)
@@ -2331,7 +2360,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const lead = await prisma.lead.findUnique({
         where: { id: lid },
         select: {
-          id: true, assignedUserId: true, teamId: true,
+          id: true, assignedUserId: true, teamId: true, conversaLiberadaEm: true,
           assignedUser: { select: { id: true, name: true, email: true } },
           team: { select: { id: true, name: true } },
         },
@@ -2346,24 +2375,32 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
 
       // Já atribuído a outro operador?
-      // Reforma F3: força (force=true) só permitida para ADMIN/SUPERADMIN.
-      // Outros precisam usar transfer-request (consensual).
+      // Pegar de outra pessoa: admin, ou quem tem "pegar leads de outra pessoa"
+      // em Configurações › Equipes. Os demais usam a transferência consensual.
       const force = (req.query as any)?.force === '1' || (req.body as any)?.force === true
-      if (lead.assignedUserId && lead.assignedUserId !== user.userId) {
+      const { permissoesDeTransferencia } = await import('../lib/permissoesDeTransferencia.js')
+      const permsClaim = await permissoesDeTransferencia(user.userId, user.role)
+      const deOutro = !!lead.assignedUserId && lead.assignedUserId !== user.userId
+      if (deOutro) {
         if (!force) {
           return reply.code(409).send({
             error: 'Lead já atribuído a outro operador',
             assignedUser: lead.assignedUser,
-            suggestion: 'Use transferência consensual: solicite ao operador atual.',
+            podePegar: permsClaim.pegarDeOutros,
+            suggestion: permsClaim.pegarDeOutros
+              ? 'Confirme para pegar este lead para você.'
+              : 'Use transferência consensual: solicite ao operador atual.',
           })
         }
-        if (!isAdminRole(user.role)) {
+        if (!permsClaim.pegarDeOutros) {
           return reply.code(403).send({
-            error: 'Apenas admin pode assumir lead de outro agente. Use transferência consensual.',
+            error: 'Você não tem permissão para pegar leads de outra pessoa. Use transferência consensual.',
             assignedUser: lead.assignedUser,
           })
         }
       }
+      // Conversa liberada ao resolver: qualquer agente puxa, de qualquer equipe.
+      const liberada = !lead.assignedUserId && !!lead.conversaLiberadaEm
 
       // Permissão: admin OU membro da equipe (ou lead sem equipe — fila geral).
       //
@@ -2371,7 +2408,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // conversa, e quem tem "Editar" no canal dela assume mesmo sem integrar o
       // setor — é justamente o caso do grupo que ninguém do setor dono atende.
       const mapaClaim = await mapaDeAcesso(user.userId, user.role)
-      if (mapaClaim.configurado) {
+      if (liberada || (deOutro && permsClaim.pegarDeOutros)) {
+        // liberada: aberta a todos; pegar de outro: a permissão já decidiu.
+      } else if (mapaClaim.configurado) {
         const perms = await permissoesNaConversa(mapaClaim, lid)
         if (!perms || !permite(perms, 'edit')) {
           return reply.code(403).send({ error: 'Sem permissão para assumir esta conversa' })
@@ -2389,7 +2428,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       const dbUser = await prisma.user.findUnique({ where: { id: user.userId }, select: { id: true, name: true, email: true } })
 
-      const updated = await prisma.lead.update({
+      const gravarClaim = () => prisma.lead.update({
         where: { id: lid },
         data: {
           assignedUserId: user.userId,
@@ -2401,6 +2440,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           team: { select: { id: true, name: true, color: true } },
         },
       })
+      const { comoAtorQuePegaDeOutros } = await import('../lib/donoDoLead.js')
+      const updated = deOutro ? await comoAtorQuePegaDeOutros(user, gravarClaim) : await gravarClaim()
 
       // F7: propaga novo responsável nas Activities pendentes de cadência.
       const reassignedCount = lead.assignedUserId !== user.userId
@@ -2418,7 +2459,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         ...getOperator(req),
         oldValue: oldLabel,
         newValue: newLabel,
-        metadata: { claim: true, force, reassignedCadenceActivities: reassignedCount },
+        metadata: { claim: true, force, deOutro, liberada, reassignedCadenceActivities: reassignedCount },
         ipAddress: getIp(req),
       })
 
@@ -2971,6 +3012,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           // O painel precisa saber que o CONTATO reabriu: é o que libera o
           // compositor numa conversa cujo encerramento continua de pé.
           conversationReopenedAt: true,
+          conversaLiberadaEm: true,
+          vendedorUserId: true,
           snoozedUntil: true,
           formData: true,
           // Campos personalizados marcados para o painel Informações: o atendente
@@ -2990,9 +3033,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // DDIs mora no backend — e porque o painel precisa dizer "🇺🇸 Estados
       // Unidos" em vez de deixar o operador achar que o cadastro está quebrado.
       const pais = paisDoTelefone(rest.whatsapp)
+      // Quem vendeu (gravado no Ganho): o painel mostra junto do atendente.
+      const vendedor = rest.vendedorUserId
+        ? await prisma.user.findUnique({ where: { id: rest.vendedorUserId }, select: { id: true, name: true } }).catch(() => null)
+        : null
       return {
         lead: {
           ...rest,
+          vendedor,
           botPaused: readBotPause(formData),
           telefoneFormatado: rest.whatsapp ? formatarTelefone(rest.whatsapp) : null,
           telefonePais: pais && !pais.brasileiro

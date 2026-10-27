@@ -26,6 +26,8 @@ export interface MyPermissionsResponse {
   acessoPortal?: { recortado: boolean }
   /** Ações com nome próprio que o papel/pacotes liberam (ex.: 'transferencia.mover_funil'). */
   capacidades?: string[]
+  /** Configurações › Equipes: transferir leads e pegar leads de outra pessoa. */
+  transferencia?: { transferir: boolean; pegarDeOutros: boolean }
 }
 
 export type PermAction = 'view' | 'create' | 'edit' | 'delete'
@@ -77,6 +79,18 @@ export function useCapacidade(id: string): boolean {
   const { data } = useMyPermissions()
   if (role === 'SUPERADMIN' || role === 'ADMIN') return true
   return !!data?.capacidades?.includes(id)
+}
+
+/**
+ * Transferir leads/contatos e pegar para si lead de outra pessoa (marcações da
+ * equipe e do membro em Configurações › Equipes). Enquanto carrega, transferir
+ * vale `true` (é o comportamento de sempre) e pegar de outros, `false`.
+ */
+export function usePermissoesDeTransferencia(): { transferir: boolean; pegarDeOutros: boolean } {
+  const role = useUserStore((s) => s.user?.role ?? null)
+  const { data } = useMyPermissions()
+  if (role === 'SUPERADMIN' || role === 'ADMIN') return { transferir: true, pegarDeOutros: true }
+  return data?.transferencia ?? { transferir: true, pegarDeOutros: false }
 }
 
 /**

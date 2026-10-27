@@ -8,7 +8,7 @@ import { onServerEvent } from '@/lib/realtime'
 /** 'all' ignora o estado da conversa e mostra as quatro caixas juntas — o
  *  escopo (mine/team/all) e as permissões continuam valendo. */
 export type Bucket = 'inbox' | 'raw' | 'resolved' | 'snoozed' | 'all'
-export type Scope = 'mine' | 'team' | 'all'
+export type Scope = 'mine' | 'team' | 'all' | 'liberadas'
 
 export interface TicketLastMessage {
   body: string | null
@@ -38,6 +38,10 @@ export interface Ticket {
   /** Contato voltou a falar depois de resolvido: a conversa está na Caixa
    *  esperando alguém pegar, mesmo tendo dono. null = sem retorno pendente. */
   conversationReopenedAt: string | null
+  /** Liberada ao resolver: sem atendente, na fila "Liberadas" — qualquer agente puxa. */
+  conversaLiberadaEm?: string | null
+  /** Quem vendeu (gravado no Ganho). */
+  vendedorUserId?: number | null
   assignedUserId: number | null
   assignedUser: { id: number; name: string | null; email: string } | null
   teamId: number | null
@@ -67,6 +71,8 @@ export interface TicketsCounters {
   groups?: number
   /** Não lidas DENTRO da aba aberta — o número da pílula "Não lidas". */
   unread?: number
+  /** Fila "Liberadas": resolvidas em equipe que libera ao resolver — qualquer agente puxa. */
+  liberadas?: number
 }
 
 export interface TicketsListResponse {
@@ -627,6 +633,19 @@ export function useClaimTicket() {
   })
 }
 
+/** Pegar para si a conversa de OUTRA pessoa (permissão em Configurações › Equipes). */
+export function usePegarDeOutro() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadId: number) => api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/claim`, { force: true }),
+    onSuccess: (_d, leadId) => {
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+      void qc.invalidateQueries({ queryKey: ['ticket-info', leadId] })
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
 export function useReleaseTicket() {
   const qc = useQueryClient()
   return useMutation({
@@ -705,6 +724,10 @@ export function useAssignTicket() {
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: ['tickets'] })
       void qc.invalidateQueries({ queryKey: ['ticket-info', vars.leadId] })
+      // A mesma janela transfere em Leads e Contatos: as listas de lá também mudam.
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+      void qc.invalidateQueries({ queryKey: ['lead', vars.leadId] })
+      void qc.invalidateQueries({ queryKey: ['contatos'] })
       if (vars.funilAcao && vars.funilAcao !== 'manter') {
         void qc.invalidateQueries({ queryKey: ['kanban'] })
         void qc.invalidateQueries({ queryKey: ['ticket-funnel', vars.leadId] })
@@ -760,6 +783,11 @@ export interface TicketLeadInfo {
   /** O CONTATO voltou a falar depois de resolvida — o encerramento continua de
    *  pé, mas responder já está liberado. */
   conversationReopenedAt: string | null
+  /** Liberada ao resolver: sem atendente, na fila "Liberadas" — qualquer agente puxa. */
+  conversaLiberadaEm?: string | null
+  /** Quem vendeu (gravado no Ganho) — não muda com transferências. */
+  vendedorUserId?: number | null
+  vendedor?: { id: number; name: string | null } | null
   snoozedUntil: string | null
   /** Takeover humano: setado quando um operador respondeu → o chatbot está pausado
    *  nesta conversa até alguém devolvê-la ao bot. null = bot ativo. */

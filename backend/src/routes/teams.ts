@@ -29,11 +29,12 @@ const TEAM_SELECT = {
   color: true, icon: true, active: true, position: true,
   routingMode: true, workingHoursEnabled: true, conversasPrivadas: true, funnelId: true,
   oportunidadeFunnelId: true, oportunidadeStageKey: true,
+  podeTransferir: true, podePegarDeOutros: true, liberarAoResolver: true,
   createdAt: true, updatedAt: true,
 }
 
 const MEMBER_SELECT = {
-  id: true, isLeader: true, createdAt: true,
+  id: true, isLeader: true, podeTransferir: true, podePegarDeOutros: true, createdAt: true,
   user: { select: { id: true, name: true, email: true, role: true, active: true, lastSeenAt: true } },
 }
 
@@ -115,6 +116,9 @@ export async function teamsRoutes(app: FastifyInstance) {
         active: body.active ?? true,
         routingMode: allowedModes.includes(body.routingMode) ? body.routingMode : 'manual',
         conversasPrivadas: body.conversasPrivadas === true,
+        podeTransferir: body.podeTransferir !== false,
+        podePegarDeOutros: body.podePegarDeOutros === true,
+        liberarAoResolver: body.liberarAoResolver === true,
         funnelId: Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null,
       },
       select: TEAM_SELECT,
@@ -152,6 +156,9 @@ export async function teamsRoutes(app: FastifyInstance) {
       data.routingMode = body.routingMode
     }
     if (body.conversasPrivadas !== undefined) data.conversasPrivadas = body.conversasPrivadas === true
+    if (body.podeTransferir !== undefined) data.podeTransferir = body.podeTransferir === true
+    if (body.podePegarDeOutros !== undefined) data.podePegarDeOutros = body.podePegarDeOutros === true
+    if (body.liberarAoResolver !== undefined) data.liberarAoResolver = body.liberarAoResolver === true
     // Funil da equipe: equipe e funil andam juntos (services/encaminharEquipe.ts).
     if (body.funnelId !== undefined) data.funnelId = Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null
     // Abertura automática: lead GANHO que passa para esta equipe ganha um card
@@ -288,6 +295,19 @@ export async function teamsRoutes(app: FastifyInstance) {
 
     const data: any = {}
     if (body.isLeader !== undefined) data.isLeader = !!body.isLeader
+    // Permissões de transferir/pegar por pessoa: null = igual à equipe. Só
+    // admin concede — líder de setor edita o membro, mas não se dá (nem dá a
+    // ninguém) o poder de pegar leads dos outros.
+    const tocaPermissao = body.podeTransferir !== undefined || body.podePegarDeOutros !== undefined
+    if (tocaPermissao) {
+      const quem = (req as any).user
+      if (quem?.role !== 'ADMIN' && quem?.role !== 'SUPERADMIN') {
+        return reply.code(403).send({ error: 'Só um administrador muda as permissões de transferir e pegar leads.' })
+      }
+      const tri = (v: unknown) => (v === null || v === 'equipe' ? null : v === true)
+      if (body.podeTransferir !== undefined) data.podeTransferir = tri(body.podeTransferir)
+      if (body.podePegarDeOutros !== undefined) data.podePegarDeOutros = tri(body.podePegarDeOutros)
+    }
 
     try {
       const member = await prisma.teamMember.update({
@@ -537,13 +557,9 @@ export async function teamsRoutes(app: FastifyInstance) {
         revenue: 0, salesCount: 0,
       }
       acc.total++
-      if (l.outcome === 'won') {
-        acc.resolved++; acc.won++
-        // Receita = valor da venda do lead ganho (lead.saleValue), mesma fonte da
-        // Visão Geral. DetectedSale foi abandonado (tabela vazia nos tenants).
-        const sv = l.saleValue ? Number(l.saleValue) : 0
-        if (sv > 0) { acc.revenue += sv; acc.salesCount++ }
-      }
+      // Ganho conta como resolvido para quem atendeu; a VENDA (ganhos e
+      // receita) é creditada ao vendedor logo abaixo, fora deste laço.
+      if (l.outcome === 'won') acc.resolved++
       else if (l.outcome === 'lost') { acc.resolved++; acc.lost++ }
       // TME
       if (l.assignedAt && l.createdAt) {
@@ -567,6 +583,36 @@ export async function teamsRoutes(app: FastifyInstance) {
         acc.priorityScoreN++
       }
       byUser.set(l.assignedUserId, acc)
+    }
+
+    // Vendas do período por VENDEDOR (Lead.vendedorUserId, gravado no Ganho), na
+    // data do Ganho. O aluno passar para Secretaria/Financeiro depois não move a
+    // venda para quem atende agora. Receita = lead.saleValue, mesma fonte da
+    // Visão Geral (DetectedSale foi abandonado — tabela vazia nos tenants).
+    const ondeVendas: any = {
+      outcome: 'won', outcomeAt: { gte: from, lte: to },
+      vendedorUserId: userFilter ?? { not: null },
+    }
+    if (funnelFilter) ondeVendas.funnelId = funnelFilter
+    if (qualificationFilter) ondeVendas.qualificationSource = qualificationFilter
+    if (teamFilter) {
+      const membros = await prisma.teamMember.findMany({ where: { teamId: teamFilter }, select: { userId: true } })
+      const ids = membros.map((m) => m.userId)
+      ondeVendas.vendedorUserId = userFilter ? (ids.includes(userFilter) ? userFilter : -1) : { in: ids.length ? ids : [-1] }
+    }
+    const vendas = await prisma.lead.findMany({ where: ondeVendas, select: { vendedorUserId: true, saleValue: true } })
+    for (const v of vendas) {
+      if (!v.vendedorUserId) continue
+      const acc = byUser.get(v.vendedorUserId) ?? {
+        total: 0, resolved: 0, won: 0, lost: 0,
+        tmeMs: 0, tmeN: 0, tmaMs: 0, tmaN: 0, frtMs: 0, frtN: 0,
+        priorityScoreSum: 0, priorityScoreN: 0,
+        revenue: 0, salesCount: 0,
+      }
+      acc.won++
+      const sv = v.saleValue ? Number(v.saleValue) : 0
+      if (sv > 0) { acc.revenue += sv; acc.salesCount++ }
+      byUser.set(v.vendedorUserId, acc)
     }
 
     // Buscar dados dos usuários — inclui usuários que têm atividade/movimentação

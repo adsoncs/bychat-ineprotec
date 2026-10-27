@@ -20,6 +20,12 @@ export interface Team {
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random'
   workingHoursEnabled?: boolean
   conversasPrivadas?: boolean
+  /** Membros transferem leads e contatos. */
+  podeTransferir?: boolean
+  /** Membros pegam para si leads de outra pessoa (passa pelo Dono fixo). */
+  podePegarDeOutros?: boolean
+  /** Ao resolver, a conversa fica sem atendente na fila "Liberadas". */
+  liberarAoResolver?: boolean
   /** Funil da equipe: para onde o lead vai junto quando é mandado para ela. */
   funnelId?: number | null
   /** Abertura automática: lead GANHO que passa para esta equipe ganha card neste funil. */
@@ -41,6 +47,9 @@ export interface TeamInput {
   active?: boolean | undefined
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random' | undefined
   conversasPrivadas?: boolean | undefined
+  podeTransferir?: boolean | undefined
+  podePegarDeOutros?: boolean | undefined
+  liberarAoResolver?: boolean | undefined
   funnelId?: number | null | undefined
   oportunidadeFunnelId?: number | null | undefined
   oportunidadeStageKey?: string | null | undefined
@@ -113,6 +122,9 @@ export function useTeams() {
 export interface TeamMemberDetail {
   id: number
   isLeader: boolean
+  /** null = igual à equipe. */
+  podeTransferir?: boolean | null
+  podePegarDeOutros?: boolean | null
   createdAt: string
   user: {
     id: number
@@ -182,8 +194,8 @@ export function useAddTeamMember(teamId: number) {
 export function useUpdateTeamMember(teamId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ userId, isLeader }: { userId: number; isLeader: boolean }) =>
-      api.put<{ ok: true }>(`/admin/teams/${teamId}/members/${userId}`, { isLeader }),
+    mutationFn: ({ userId, ...dados }: { userId: number; isLeader?: boolean; podeTransferir?: boolean | null; podePegarDeOutros?: boolean | null }) =>
+      api.put<{ ok: true }>(`/admin/teams/${teamId}/members/${userId}`, dados),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['team-members'] }) },
   })
 }

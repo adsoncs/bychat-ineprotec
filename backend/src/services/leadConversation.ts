@@ -234,3 +234,39 @@ export const conversationFilters = {
     { conversationReopenedAt: { not: null }, assignedUserId: null },
   ] },
 } as const
+
+/**
+ * Resolver numa equipe com "Ao resolver, liberar a conversa para qualquer
+ * agente" (Team.liberarAoResolver): a conversa fica sem atendente e entra na
+ * fila "Liberadas", que qualquer agente vê e pode puxar. O VENDEDOR do lead
+ * (Lead.vendedorUserId) não muda — liberar não tira a venda de ninguém.
+ *
+ * Chamado só pelas rotas do botão Resolver: fechamento automático (inatividade,
+ * fluxo) não libera. Tirar o dono é regra configurada pelo admin, então passa
+ * pela trava do Dono fixo (comoRegraDeRoteamento).
+ */
+export async function liberarAoResolver(leadId: number, opts: OpenOpts = {}): Promise<{ liberada: boolean }> {
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { assignedUserId: true, isGroup: true, team: { select: { liberarAoResolver: true } } },
+  })
+  if (!lead || lead.isGroup || !lead.team?.liberarAoResolver) return { liberada: false }
+  const { comoRegraDeRoteamento } = await import('../lib/donoDoLead.js')
+  await comoRegraDeRoteamento(() => prisma.lead.update({
+    where: { id: leadId },
+    data: { assignedUserId: null, assignedAt: null, conversaLiberadaEm: new Date() },
+  }))
+  const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
+  logEvent({
+    leadId,
+    type: EVENT_TYPES.OPERATOR_ASSIGNED,
+    category: 'operator',
+    title: 'Conversa liberada ao resolver — disponível para qualquer agente',
+    source: 'panel',
+    actorType: 'operator',
+    ...(opts.byUserId ? { userId: opts.byUserId } : {}),
+    ...(opts.byUserName ? { userName: opts.byUserName } : {}),
+    metadata: { liberarAoResolver: true, donoAnterior: lead.assignedUserId },
+  })
+  return { liberada: true }
+}

@@ -981,8 +981,10 @@ export async function canSendVia(
 export async function redistribuirSemDono(leadId: number): Promise<number | null> {
   const ajustes = await getAjustesRoteamento()
   if (!ajustes.redistribuirSemDono) return null
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true, teamId: true, isGroup: true } })
-  if (!lead || lead.isGroup || lead.assignedUserId) return null
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true, teamId: true, isGroup: true, conversaLiberadaEm: true } })
+  // Liberada ao resolver: o retorno do contato não vai ao rodízio — espera na
+  // fila "Liberadas" que qualquer agente puxe.
+  if (!lead || lead.isGroup || lead.assignedUserId || lead.conversaLiberadaEm) return null
   const teamId = lead.teamId ?? (await resolveDefaultTeamId())
   if (!teamId) return null
   const userId = await pickOperatorForTeam(teamId, { origem: 'retorno' })
