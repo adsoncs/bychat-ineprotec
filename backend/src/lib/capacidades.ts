@@ -74,7 +74,7 @@ export function catalogo(): Capacidade[] {
     for (const a of m.actions) add({ id: `${m.id}.${a}`, area: m.category, nome: `${m.name}: ${NOME_ACAO[a]}`, modulo: m.id, tipo: 'basica', acao: a })
   }
   for (const t of EDU_TELAS) {
-    for (const a of t.actions) add({ id: `${t.id}.${a}`, area: 'educacional', nome: `${t.name}: ${NOME_ACAO[a]}`, modulo: t.parent, tipo: 'basica', acao: a })
+    for (const a of t.actions) add({ id: `${t.id}.${a}`, area: t.parent === 'leads' ? 'crm' : 'educacional', nome: `${t.name}: ${NOME_ACAO[a]}`, modulo: t.parent, tipo: 'basica', acao: a })
   }
   for (const n of NOMEADAS) add({ ...n, area: n.area ?? 'sensivel', tipo: 'nomeada' })
   cache = out

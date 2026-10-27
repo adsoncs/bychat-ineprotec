@@ -41,10 +41,11 @@ export interface AlertMute {
   createdAt: string
 }
 
-export function useUnreadAlertCount() {
+export function useUnreadAlertCount(enabled = true) {
   return useQuery({
     queryKey: ['alerts', 'unread-count'],
     queryFn: () => api.get<{ count: number }>('/alerts/unread-count'),
+    enabled,
     staleTime: 15_000,
     refetchInterval: 120_000,
   })

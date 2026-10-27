@@ -108,6 +108,9 @@ async function pruneForUser(blocks: Block[], user: JwtPayload): Promise<Block[]>
       continue
     }
     if (b.type === 'kpis' && !canLoadKpis()) continue
+    // "Meu dia" lista atividades e compromissos: sem Atividades nem Agenda,
+    // o bloco abria vazio (ou com dado que a pessoa não pode abrir).
+    if (b.type === 'my_day' && !canView('activities') && !canView('scheduling')) continue
     out.push(b)
   }
   return out

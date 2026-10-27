@@ -90,7 +90,7 @@ export const sidebarSchema: SidebarSchema = {
         // entra — e o que não for promovido continua vivendo aqui.
         { id: 'contatos', label: 'Contatos', href: '/app/contatos', icon: 'BookUser', permission: 'contatos' },
         { id: 'leads', label: 'Leads', href: '/app/leads', icon: 'Users', permission: 'leads' },
-        { id: 'leads-duplicates', label: 'Duplicados', href: '/app/leads/duplicates', icon: 'Copy', permission: 'leads' },
+        { id: 'leads-duplicates', label: 'Duplicados', href: '/app/leads/duplicates', icon: 'Copy', permission: 'crm_duplicados' },
         { id: 'kanban', label: 'Kanban', href: '/app/kanban', icon: 'KanbanSquare', permission: 'kanban' },
         { id: 'activities', label: 'Atividades', href: '/app/activities', icon: 'ListChecks', permission: 'activities' },
         { id: 'scheduling', label: 'Agenda', href: '/app/scheduling', icon: 'CalendarRange', permission: 'scheduling' },
@@ -240,7 +240,7 @@ export const sidebarSchema: SidebarSchema = {
         // Modelos: cadastro operacional usado em cadências/atividades. Gated
         // por 'leads' (não mais 'captacao') — AGENT já possui leads, evita
         // exigir role administrativo para item de gestão de mensagens.
-        { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'leads', atalho: true },
+        { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'crm_modelos', atalho: true },
         { id: 'personas', label: 'Personas / ICPs', href: '/app/personas', icon: 'Users', permission: 'personas' },
         { id: 'users', label: 'Usuários', href: '/app/users', icon: 'Users', permission: 'users' },
         { id: 'cad-teams', label: 'Equipes', href: '/app/cadastros/teams', icon: 'Users', permission: 'settings' },
@@ -251,7 +251,7 @@ export const sidebarSchema: SidebarSchema = {
         // Objeções (motivos de perda): operador usa ao marcar lead como perdido.
         // Gated por 'leads' para AGENT poder visualizar/escolher; CRUD continua
         // restrito por canCreate/canEdit/canDelete no backend.
-        { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'leads', atalho: true },
+        { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'crm_objecoes', atalho: true },
         // Resumos: catálogo do módulo status_summary (nasce OFF). Gated pelo
         // próprio módulo — tenant que não usa não vê o item.
         { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary', atalho: true },
@@ -288,7 +288,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'edu_cupons' },
         { id: 'edu-contratos', label: 'Contratos', href: '/app/educational/contratos', icon: 'FileSignature', permission: 'edu_contratos' },
         { id: 'edu-acesso-portais', label: 'Acesso por portal', href: '/app/educational/acesso-portais', icon: 'ShieldCheck', permission: 'edu_acesso_portais' },
-        { id: 'edu-geral', label: 'Configurações Gerais', href: '/app/educational/configuracoes', icon: 'SlidersHorizontal', permission: 'edu_configuracoes' },
+        { id: 'edu-geral', label: 'Configurações Gerais', href: '/app/educational/configuracoes', icon: 'Settings', permission: 'edu_configuracoes' },
       ],
       initiallyCollapsed: true,
     },

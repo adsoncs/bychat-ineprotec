@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
+import { useCan } from '@/hooks/usePermissions'
 
 /**
  * Conversas esperando resposta — alimenta o contador do menu.
@@ -13,10 +14,12 @@ import { useUserStore } from '@/stores/user'
  */
 export function useUnreadCount() {
   const userId = useUserStore((s) => s.user?.id ?? null)
+  // Sem Conversas não há o que contar (a rota responde 403).
+  const veConversas = useCan('atendimento', 'view')
   return useQuery({
     queryKey: ['tickets', 'unread-count'],
     queryFn: () => api.get<{ unread: number }>('/atendimento/unread-count'),
-    enabled: userId !== null,
+    enabled: userId !== null && veConversas,
     staleTime: 10_000,
     // Rede de segurança para o caso de o WebSocket cair: o número não pode
     // ficar velho na tela por muito tempo.

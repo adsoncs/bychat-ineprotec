@@ -786,7 +786,8 @@ export async function usersRoutes(app: FastifyInstance) {
     for (const t of telasParaUi()) {
       if (modules.some((m) => m.id === t.id)) continue
       if (!activeIds.has(t.parent)) continue
-      modules.push({ id: t.id, name: t.name, icon: '🎓', category: 'edu_telas', pages: [], active: true })
+      const crm = t.parent === 'leads'
+      modules.push({ id: t.id, name: t.name, icon: crm ? '👥' : '🎓', category: crm ? 'crm' : 'edu_telas', pages: [], active: true })
     }
     // Acesso por portal (lib/portalAccess): recortado = vê só parte dos
     // portais. O menu esconde as visões que cruzam todos (somenteTodos).
@@ -811,7 +812,7 @@ export async function usersRoutes(app: FastifyInstance) {
     const ativos = await getActiveModuleIds()
     const telas = telasParaUi()
       .filter((t) => ativos.has(t.parent))
-      .map((t) => ({ id: t.id, name: t.name, icon: '🎓', category: 'edu_telas', actions: t.actions, parent: t.parent, def: t.def }))
+      .map((t) => ({ id: t.id, name: t.name, icon: t.parent === 'leads' ? '👥' : '🎓', category: t.parent === 'leads' ? 'crm' : 'edu_telas', actions: t.actions, parent: t.parent, def: t.def }))
     const modules = [
       ...MODULE_REGISTRY.filter((m) => !telas.some((t) => t.id === m.id)).map(m => ({ id: m.id, name: m.name, icon: m.icon, category: m.category })),
       ...telas,

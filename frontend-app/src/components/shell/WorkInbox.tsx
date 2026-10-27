@@ -22,6 +22,7 @@ import { TransferList } from '@/components/routing/TransferInbox'
 import { useUnreadAlertCount } from '@/hooks/useAlerts'
 import { useIncomingTransferCount } from '@/hooks/useTransferRequests'
 import { useDuplicatesCount } from '@/hooks/useLeads'
+import { useCan } from '@/hooks/usePermissions'
 import { cn } from '@/lib/cn'
 import { TopbarUtil } from './TopbarUtil'
 import { ICON_SIZE } from '@/components/ui/Icon'
@@ -32,9 +33,14 @@ export function WorkInbox() {
   const [open, setOpen] = useState(false)
   const [abaEscolhida, setAbaEscolhida] = useState<Aba | null>(null)
 
-  const alertas = useUnreadAlertCount().data?.count ?? 0
-  const transferencias = useIncomingTransferCount().data?.count ?? 0
-  const duplicados = useDuplicatesCount().data?.count ?? 0
+  // Cada aba só para quem tem a tela dela: sem isso o papel recortado (ex.:
+  // Polo) via a caixa com abas que levavam a "acesso restrito".
+  const veAlertas = useCan('alerts', 'view')
+  const veTransferencias = useCan('atendimento', 'view')
+  const veDuplicados = useCan('crm_duplicados', 'view')
+  const alertas = useUnreadAlertCount(veAlertas).data?.count ?? 0
+  const transferencias = useIncomingTransferCount(veTransferencias).data?.count ?? 0
+  const duplicados = useDuplicatesCount(veDuplicados).data?.count ?? 0
   const total = alertas + transferencias + duplicados
 
   // O aviso sonoro e a notificação da área de trabalho moravam no sino. Como o
@@ -43,13 +49,15 @@ export function WorkInbox() {
   useAvisoDeAlertaAoVivo()
 
   const abaPadrao: Aba = transferencias > 0 ? 'transferencias' : alertas > 0 ? 'alertas' : duplicados > 0 ? 'duplicados' : 'alertas'
-  const aba = abaEscolhida ?? abaPadrao
 
   const abas: { id: Aba; label: string; n: number }[] = useMemo(() => ([
-    { id: 'alertas', label: 'Alertas', n: alertas },
-    { id: 'transferencias', label: 'Transferências', n: transferencias },
-    { id: 'duplicados', label: 'Duplicados', n: duplicados },
-  ]), [alertas, transferencias, duplicados])
+    ...(veAlertas ? [{ id: 'alertas' as const, label: 'Alertas', n: alertas }] : []),
+    ...(veTransferencias ? [{ id: 'transferencias' as const, label: 'Transferências', n: transferencias }] : []),
+    ...(veDuplicados ? [{ id: 'duplicados' as const, label: 'Duplicados', n: duplicados }] : []),
+  ]), [alertas, transferencias, duplicados, veAlertas, veTransferencias, veDuplicados])
+  const aba = abaEscolhida ?? (abas.some((x) => x.id === abaPadrao) ? abaPadrao : abas[0]?.id)
+
+  if (!abas.length) return null
 
   return (
     <DropdownMenu.Root

@@ -628,10 +628,11 @@ export function useDuplicatesGroups(filters: DuplicatesGroupsFilters = {}) {
   })
 }
 
-export function useDuplicatesCount() {
+export function useDuplicatesCount(enabled = true) {
   return useQuery({
     queryKey: ['lead-duplicates-count'],
     queryFn: () => api.get<{ count: number }>('/bychat/leads/duplicates/count'),
+    enabled,
     staleTime: 60_000,
     refetchInterval: 60_000,
   })

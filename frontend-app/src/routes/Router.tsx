@@ -814,7 +814,7 @@ export function Router() {
             {() => {
               const Migrated = migratedPages['leads-duplicates']
               if (!Migrated) return null
-              return <ModuleGate moduleId="leads"><Migrated /></ModuleGate>
+              return <ModuleGate moduleId="crm_duplicados"><Migrated /></ModuleGate>
             }}
           </Route>
           <Route path="/leads/import">

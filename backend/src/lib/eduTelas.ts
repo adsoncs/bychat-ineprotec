@@ -27,7 +27,7 @@ export interface TelaDef {
   id: string
   name: string
   /** Módulo que liga/desliga a tela e de quem ela herda sem linha própria. */
-  parent: 'educacional' | 'enrollment_portals'
+  parent: 'educacional' | 'enrollment_portals' | 'leads'
   /** Item do menu (sidebar.config.ts) governado por esta tela. */
   menuId: string
   actions: AcaoTela[]
@@ -105,6 +105,14 @@ export const EDU_TELAS: TelaDef[] = [
   // Quem vê cada portal (polos e parceiros) — lib/portalAccess.ts.
   { id: 'edu_acesso_portais', legado: 'admin', name: 'Acesso por portal', parent: 'enrollment_portals', menuId: 'edu-acesso-portais', actions: ['view', 'edit'],
     rotas: ['/api/admin/portal-acesso'] },
+  // ── Telas do CRM que dividiam a permissão de Leads ──
+  // Quem via Leads via também Duplicados, Modelos e Objeções, sem como marcar
+  // à parte (papel Polo da FABAD, 27/10/2026). Só o Ver da tela: as rotas
+  // continuam em Leads, porque Conversas usa os modelos e marcar Perdido usa
+  // as objeções. Sem linha própria, herdam de Leads (ninguém perde acesso).
+  { id: 'crm_duplicados', name: 'Duplicados', parent: 'leads', menuId: 'leads-duplicates', actions: ['view'], rotas: [] },
+  { id: 'crm_modelos', name: 'Modelos', parent: 'leads', menuId: 'templates', actions: ['view'], rotas: [] },
+  { id: 'crm_objecoes', name: 'Objeções', parent: 'leads', menuId: 'cad-loss-reasons', actions: ['view'], rotas: [] },
 ]
 
 /** GETs que qualquer usuário logado faz fora do Educacional: a lista de
@@ -191,7 +199,8 @@ export async function avaliarTela(user: Pick<JwtPayload, 'userId' | 'role'>, met
 
   if (acao === 'view' && tela.catalogo) {
     const { MODULE_REGISTRY } = await import('./moduleRegistry.js')
-    const veAlgumaTela = EDU_TELAS.some((t) => perms[t.id]?.canView)
+    // Telas do CRM (pai 'leads') não abrem os cadastros do Educacional.
+    const veAlgumaTela = EDU_TELAS.some((t) => t.parent !== 'leads' && perms[t.id]?.canView)
     const veErp = MODULE_REGISTRY.some((m) => m.umbrella === 'erp_academico' && perms[m.id]?.canView)
     if (veAlgumaTela || veErp) return { tela, acao, permitido: true }
   }

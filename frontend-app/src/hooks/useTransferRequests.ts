@@ -24,10 +24,11 @@ export interface CreateTransferInput {
   reason?: string | undefined
 }
 
-export function useIncomingTransferCount() {
+export function useIncomingTransferCount(enabled = true) {
   return useQuery({
     queryKey: ['transfer-requests', 'incoming-count'],
     queryFn: () => api.get<{ count: number }>('/atendimento/transfer-requests/incoming/count'),
+    enabled,
     staleTime: 15_000,
     refetchInterval: 30_000,
   })

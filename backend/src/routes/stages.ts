@@ -1,13 +1,17 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
-import { adminOnly } from '../lib/auth.js'
+import { adminOnly, authMiddleware } from '../lib/auth.js'
 import { normTerminalKind, conflitoTerminalKind } from '../lib/terminalStage.js'
 
 export async function stagesRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/stages — Listar etapas (com filtro de funil opcional) ──
-  app.get('/api/admin/stages', { preHandler: adminOnly }, async (req) => {
+  // Leitura para quem está logado, como GET /api/admin/funnels: Kanban e os
+  // filtros de Leads montam as colunas com elas. O gate de módulos decide
+  // quem chega aqui (Funis, ou Leads/Kanban/Conversas/Contatos — lib/permissions).
+  // Criar, editar e excluir etapa continuam só de admin.
+  app.get('/api/admin/stages', { preHandler: authMiddleware }, async (req) => {
     const { funnelId } = req.query as any
     const where: any = {}
     if (funnelId) {

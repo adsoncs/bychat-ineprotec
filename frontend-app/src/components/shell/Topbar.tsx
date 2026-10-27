@@ -167,13 +167,17 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
         {!isMobile && <MenuDeAtalhos />}
         {!isMobile && <BotaoTelaCheia />}
         <MenuDeTema />
-        <TopbarUtil
-          titulo={semResposta ? `${semResposta} conversa(s) com mensagem não lida` : 'Conversas'}
-          onClick={() => navigate('/app/conversations')}
-          badge={semResposta}
-        >
-          <MessageSquare size={ICON_SIZE.md} />
-        </TopbarUtil>
+        {/* Atalho para Conversas só para quem tem Conversas: sem a permissão o
+            botão levava a uma tela de "acesso restrito". */}
+        {veAtendimento && (
+          <TopbarUtil
+            titulo={semResposta ? `${semResposta} conversa(s) com mensagem não lida` : 'Conversas'}
+            onClick={() => navigate('/app/conversations')}
+            badge={semResposta}
+          >
+            <MessageSquare size={ICON_SIZE.md} />
+          </TopbarUtil>
+        )}
         <WorkInbox />
         <span class="w-px h-6 bg-border mx-2 shrink-0" aria-hidden="true" />
         <MenuDaConta

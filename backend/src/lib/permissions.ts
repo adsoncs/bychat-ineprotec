@@ -385,6 +385,20 @@ const CATALOG_READ_PATHS = new Set<string>([
 ])
 const CATALOG_READ_MODULES = ['catalog', 'negotiations']
 
+// Listas de apoio de quem trabalha leads: o Kanban e os filtros de Leads,
+// Conversas e Contatos montam colunas e seletores com funis, etapas,
+// etiquetas e origens. Pela rota elas caem em Funis, Etiquetas e Formulários,
+// e quem só tinha Leads/Kanban marcado abria o Kanban sem colunas (papel Polo
+// da FABAD). Liberada a LEITURA a quem vê qualquer um desses; criar, editar e
+// excluir funis, etiquetas e formulários continua no módulo de cada um.
+const APOIO_LEADS_READ_PATHS = new Set<string>([
+  '/api/admin/funnels',
+  '/api/admin/stages',
+  '/api/tags',
+  '/api/forms/source-labels',
+])
+const APOIO_LEADS_READ_MODULES = ['leads', 'kanban', 'atendimento', 'contatos']
+
 // Tenta resolver o user a partir do Bearer token DIRETAMENTE no hook global,
 // sem depender do `authMiddleware` da rota (que é preHandler de ROTA — roda
 // DEPOIS deste preHandler global e portanto deixaria `req.user` indefinido).
@@ -505,6 +519,9 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
 
     // Leitura do catálogo: basta 'Ver' em Catálogo OU em Negociações.
     if (req.method === 'GET' && CATALOG_READ_PATHS.has(pathOnly) && CATALOG_READ_MODULES.some(m => perms[m]?.canView)) {
+      return
+    }
+    if (req.method === 'GET' && APOIO_LEADS_READ_PATHS.has(pathOnly) && APOIO_LEADS_READ_MODULES.some(m => perms[m]?.canView)) {
       return
     }
 
