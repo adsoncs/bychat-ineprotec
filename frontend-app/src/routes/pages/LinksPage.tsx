@@ -1113,13 +1113,13 @@ function CopyableCode({ code, rows = 3 }: { code: string; rows?: number }) {
 
 function PixelInstallModal({ onClose }: { onClose: () => void }) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const snippet = `<script src="${origin}/pixel/bychat.js" async></script>`
+  const snippet = `<script src="${origin}/pixel/p.js" async></script>`
   const trackableSnippet = `<!-- Marque seus links de WhatsApp assim: -->
-<a href="${origin}/l/SLUG" data-bychat-track>Fale com a gente</a>
+<a href="${origin}/l/SLUG" data-pixel-track>Fale com a gente</a>
 
 <!-- Ou use a API JS: -->
 <script>
-  document.getElementById('meu-botao').href = window.bychat.trackableHref('${origin}/l/SLUG');
+  document.getElementById('meu-botao').href = window.pixel.trackableHref('${origin}/l/SLUG');
 </script>`
 
   return (
@@ -1161,10 +1161,10 @@ function PixelInstallModal({ onClose }: { onClose: () => void }) {
         <div>
           <h3 class="font-semibold text-fg mb-2">4. API JavaScript disponível</h3>
           <div class="rounded-md border border-border bg-surface-3 p-3 font-mono text-2xs text-fg leading-relaxed space-y-1">
-            <div><strong>window.bychat.visitorId</strong> — UUID do visitante</div>
-            <div><strong>window.bychat.track('evento', data)</strong> — evento custom</div>
-            <div><strong>window.bychat.trackableHref(href)</strong> — retorna URL com sid</div>
-            <div><strong>window.bychat.rewriteLinks(selector?)</strong> — reescreve links</div>
+            <div><strong>window.pixel.visitorId</strong> — UUID do visitante</div>
+            <div><strong>window.pixel.track('evento', data)</strong> — evento custom</div>
+            <div><strong>window.pixel.trackableHref(href)</strong> — retorna URL com sid</div>
+            <div><strong>window.pixel.rewriteLinks(selector?)</strong> — reescreve links</div>
           </div>
         </div>
       </div>
@@ -1194,7 +1194,7 @@ function HowItWorksModal({ onClose, onShowPixel }: { onClose: () => void; onShow
         <div class="space-y-3">
           <Step n={1} title="🔗 Você cria um link no painel">
             No lugar de <code class="bg-surface-3 px-1 rounded">wa.me/5511…</code> no anúncio, você gera um link tipo{' '}
-            <code class="bg-surface-3 px-1 rounded">bychat.ia.br/l/black-friday</code>.
+            <code class="bg-surface-3 px-1 rounded">{typeof window !== 'undefined' ? window.location.host : ''}/l/black-friday</code>.
           </Step>
           <Step n={2} title="🖱️ O cliente clica no anúncio">
             Passa por uma página intermediária (~3s). Nesses segundos o sistema captura fbclid/gclid, dispara o evento

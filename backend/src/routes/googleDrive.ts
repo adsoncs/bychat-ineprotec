@@ -18,10 +18,14 @@ export async function googleDriveRoutes(app: FastifyInstance) {
 
     const user = (req as any).user
 
-    // Create or find root folder "ByChat CRM"
-    let rootFolder = await driveFindFolder(parseInt(body.connectionId), 'ByChat CRM')
+    // Pasta principal (nome em Modelos › "Google Drive — nome da pasta principal").
+    // A pasta com o nome antigo, se já existir, continua sendo usada.
+    const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+    const nomePasta = (await textoDoSistema('drive_pasta_raiz')) || 'CRM'
+    let rootFolder = await driveFindFolder(parseInt(body.connectionId), nomePasta)
+      || await driveFindFolder(parseInt(body.connectionId), 'ByChat CRM')
     if (!rootFolder) {
-      const created = await driveCreateFolder(parseInt(body.connectionId), 'ByChat CRM')
+      const created = await driveCreateFolder(parseInt(body.connectionId), nomePasta)
       rootFolder = { id: created.id, webViewLink: created.link }
     }
 

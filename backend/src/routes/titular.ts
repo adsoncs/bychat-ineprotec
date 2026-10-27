@@ -195,53 +195,56 @@ async function findLeadByContact(contact: string): Promise<any | null> {
   return prisma.lead.findFirst({ where: { whatsapp: { contains: tail } }, orderBy: { id: 'desc' } })
 }
 
-async function notifyEncarregado(subject: string, lines: string[]): Promise<void> {
-  const text = lines.join('\n')
+/** Aviso ao encarregado/equipe: modelos `<base>_wa` e `<base>_email` (desligado = não envia). */
+async function notifyEncarregado(base: string, vars: Record<string, any>): Promise<void> {
   const { getNotificationTargets, sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
+  const { renderizarModelo } = await import('../services/modelosDoSistema.js')
   const targets = await getNotificationTargets()
-  // WhatsApp aos números de notificação (se configurados)
   if (targets.whatsapps.length > 0) {
-    // Aviso interno → Evolution (número conectado da instância).
-    const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
-    const provider = createEvolutionProvider()
-    for (const num of targets.whatsapps) {
-      try {
-        await provider.sendText(num, `🔐 *LGPD — ${subject}*\n\n${text}`)
-      } catch (e: any) { console.warn(`[titular] notify WA falhou (${num}):`, e?.message) }
+    const msg = await renderizarModelo(`${base}_wa`, vars)
+    if (msg?.body.trim()) {
+      // Aviso interno → Evolution (número conectado da instância).
+      const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
+      const provider = createEvolutionProvider()
+      for (const num of targets.whatsapps) {
+        try {
+          await provider.sendText(num, msg.body)
+        } catch (e: any) { console.warn(`[titular] notify WA falhou (${num}):`, e?.message) }
+      }
     }
   }
-  // E-mail aos endereços de notificação (se configurados)
   try {
     const to = targets.emails.join(', ')
     if (to) {
-      const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'LGPD'), to,
-        subject: `[LGPD] ${subject}`,
-        html: `<p>${lines.map(esc).join('<br>')}</p>`,
-      })
+      const escapadas = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, esc(String(v ?? ''))]))
+      const em = await renderizarModelo(`${base}_email`, escapadas)
+      if (em?.body.trim()) {
+        const cfg = await getEmailConfig()
+        await sendEmailGeneric({ from: getFromAddress(cfg), to, subject: em.subject, html: em.body })
+      }
     }
   } catch (e: any) { console.warn('[titular] notify email falhou:', e?.message) }
 }
 
 async function sendViaEmail(lead: any, link: string): Promise<void> {
   const { sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
+  const { renderizarModelo } = await import('../services/modelosDoSistema.js')
   const cfg = await getEmailConfig()
   const provider = cfg['email.provider'] || 'resend'
   const configured = provider === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
   if (!configured) throw new Error('e-mail não configurado')
-  await sendEmailGeneric({
-    from: getFromAddress(cfg, 'Privacidade'), to: lead.email,
-    subject: 'Acesso aos seus dados (LGPD)',
-    html: `<p>Olá${lead.nome ? ' ' + esc(lead.nome) : ''},</p><p>Recebemos um pedido de acesso aos seus dados (LGPD). Clique no botão abaixo (válido por 48 horas):</p><p><a href="${esc(link)}" style="display:inline-block;padding:12px 18px;background:#1a73e8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Acessar meus dados</a></p><p style="color:#6b7280;font-size:13px">Se não foi você, ignore esta mensagem.</p>`,
-  })
+  const em = await renderizarModelo('lgpd_link_titular_email', { nome: esc(lead.nome || ''), link: esc(link) })
+  if (!em?.body.trim()) throw new Error('modelo de e-mail desligado')
+  await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
 }
 
 async function sendViaWhatsApp(lead: any, link: string): Promise<void> {
-  const msg = `Recebemos um pedido de acesso aos seus dados (LGPD). Use o link a seguir (válido por 48h) para ver, exportar, corrigir ou solicitar a eliminação dos seus dados:\n\n${link}\n\nSe não foi você, ignore esta mensagem.`
+  const { renderizarModelo } = await import('../services/modelosDoSistema.js')
+  const msg = await renderizarModelo('lgpd_link_titular_wa', { nome: lead.nome || '', link })
+  if (!msg?.body.trim()) throw new Error('modelo de WhatsApp desligado')
   const { getProviderForLead } = await import('../services/whatsappProvider.js')
   const provider = await getProviderForLead({ id: lead.id, whatsapp: lead.whatsapp })
-  await provider.sendText(lead.whatsapp, msg)
+  await provider.sendText(lead.whatsapp, msg.body)
 }
 
 // Envia o magic link. E-mail é o canal PREFERENCIAL (mais confiável; não tem a
@@ -374,11 +377,9 @@ export async function titularRoutes(app: FastifyInstance) {
       title: 'Titular revogou o consentimento (LGPD)', actorType: 'lead', source: 'titular_portal',
       oldValue: lead.lgpdConsent ? 'concedido' : 'não concedido', newValue: 'revogado', ipAddress: getIp(req),
     })
-    notifyEncarregado('Consentimento revogado pelo titular', [
-      `Lead #${lead.id} — ${lead.nome || '(sem nome)'}`,
-      `E-mail: ${lead.email || '—'} · WhatsApp: ${lead.whatsapp || '—'}`,
-      `Ação: revogação de consentimento + opt-out total (imediato).`,
-    ]).catch(() => {})
+    notifyEncarregado('lgpd_consentimento_revogado', {
+      lead_id: lead.id, nome: lead.nome || '', email: lead.email || '', whatsapp: lead.whatsapp || '',
+    }).catch(() => {})
     return { ok: true }
   })
 
@@ -406,12 +407,10 @@ export async function titularRoutes(app: FastifyInstance) {
       actorType: 'lead', source: 'titular_portal', description: message || undefined, ipAddress: getIp(req),
       metadata: { requestId: dsr.id },
     })
-    notifyEncarregado(`Nova requisição de titular: ${type === 'deletion' ? 'ELIMINAÇÃO' : 'correção'}`, [
-      `Requisição #${dsr.id} — Lead #${lead.id} — ${lead.nome || '(sem nome)'}`,
-      `E-mail: ${lead.email || '—'} · WhatsApp: ${lead.whatsapp || '—'}`,
-      `Mensagem: ${message || '(sem detalhes)'}`,
-      `Prazo de atendimento: ${dsr.dueAt.toLocaleDateString('pt-BR')} (15 dias).`,
-    ]).catch(() => {})
+    notifyEncarregado('lgpd_requisicao', {
+      requisicao_id: dsr.id, lead_id: lead.id, nome: lead.nome || '', email: lead.email || '', whatsapp: lead.whatsapp || '',
+      eliminacao: type === 'deletion' ? 'sim' : '', mensagem: message || '', prazo: dsr.dueAt.toLocaleDateString('pt-BR'),
+    }).catch(() => {})
     return { ok: true, requestId: dsr.id }
   })
 

@@ -11,6 +11,11 @@ interface LandingContactOverride {
   whatsappNumber?: string
   whatsappMessage?: string
   loginUrl?: string
+  /** Marca do dono da instalação (Configurações › Aparência). */
+  marca?: string
+  /** Domínio principal (BASE_DOMAIN ou 1º de MARKETING_HOST) e os antigos (os demais). */
+  dominioPrincipal?: string
+  dominiosAntigos?: string[]
 }
 declare global {
   interface Window {
@@ -22,13 +27,16 @@ declare global {
 const CONTACT_DEFAULTS = {
   /** Número no formato internacional sem símbolos, ex: 5511999999999. */
   whatsappNumber: '5511944742843',
-  whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
+  whatsappMessage: 'Olá! Quero agendar uma demonstração.',
   /** Onde o botão "Entrar" leva (app servido em /app). */
   loginUrl: '/app',
 }
 
 const CONTACT_OVERRIDE: LandingContactOverride =
   (typeof window !== 'undefined' && window.__LANDING_CONTACT__) || {}
+
+/** Nome exibido em toda a landing — vem da instalação, nunca do código. */
+export const MARCA = (CONTACT_OVERRIDE.marca || '').trim()
 
 export const CONTACT = {
   whatsappNumber: CONTACT_OVERRIDE.whatsappNumber || CONTACT_DEFAULTS.whatsappNumber,
@@ -56,14 +64,14 @@ export const HERO = {
   title: 'Atenda, venda e fidelize no WhatsApp com IA',
   highlight: 'tudo numa plataforma só',
   subtitle:
-    'O ByChat reúne atendimento multicanal, CRM de vendas, chatbot com inteligência artificial, automação e gestão de Meta e Google Ads — para você responder mais rápido, vender mais e decidir com dados.',
+    `${MARCA} reúne atendimento multicanal, CRM de vendas, chatbot com inteligência artificial, automação e gestão de Meta e Google Ads — para você responder mais rápido, vender mais e decidir com dados.`,
   primaryCta: 'Agende uma demonstração',
   secondaryCta: 'Falar no WhatsApp',
   reassurance: 'Sem cartão de crédito · Onboarding assistido · Suporte em português',
 } as const
 
 export const SOCIAL_PROOF = {
-  intro: 'Operações de vendas e atendimento que já confiam no ByChat',
+  intro: `Operações de vendas e atendimento que já confiam em ${MARCA}`,
   // Placeholders — trocar por logos reais de clientes.
   logos: ['Cliente A', 'Cliente B', 'Cliente C', 'Cliente D', 'Cliente E'],
   badges: ['Parceira de tecnologia Meta', 'Conforme LGPD', 'Software 100% nacional'],
@@ -143,7 +151,7 @@ export const AI = {
   eyebrow: 'Inteligência artificial nativa',
   title: 'Uma IA que atende, qualifica e vende com você',
   subtitle:
-    'A IA do ByChat não é um plugin — está no centro da plataforma, operando 24 horas por dia ao lado da sua equipe.',
+    `A IA de ${MARCA} não é um plugin — está no centro da plataforma, operando 24 horas por dia ao lado da sua equipe.`,
   features: [
     {
       title: 'Atende 24/7',
@@ -293,8 +301,8 @@ export const STACK_MAP = {
   eyebrow: 'Comparativo de mercado',
   title: 'Uma plataforma no lugar de onze contratos',
   subtitle:
-    'Cada função abaixo costuma ser um sistema diferente, com login, suporte e fatura próprios — e o dado do seu cliente picado entre eles. No ByChat, é tudo o mesmo cadastro.',
-  columns: { from: 'O que você contrataria separado', to: 'No ByChat é' },
+    `Cada função abaixo costuma ser um sistema diferente, com login, suporte e fatura próprios — e o dado do seu cliente picado entre eles. Em ${MARCA}, é tudo o mesmo cadastro.`,
+  columns: { from: 'O que você contrataria separado', to: `Em ${MARCA} é` },
   rows: [
     { tools: ['Digisac', 'Umbler Talk', 'Letalk'], module: 'Multiatendimento no WhatsApp oficial', icon: 'MessageSquare' },
     { tools: ['Huggy', 'Octadesk'], module: 'Caixa de entrada unificada com filas e transferência', icon: 'Users' },
@@ -331,12 +339,12 @@ export const STACK_MAP = {
 
 export const FAQ: ReadonlyArray<{ q: string; a: string }> = [
   {
-    q: 'O que é o ByChat?',
+    q: `O que é ${MARCA}?`,
     a: 'Uma plataforma brasileira que reúne atendimento multicanal, CRM de vendas, chatbot com IA, automação e gestão de Meta/Google Ads — tudo integrado.',
   },
   {
     q: 'Preciso instalar algo?',
-    a: 'Não. O ByChat é uma plataforma web. Você conecta seus canais e começa a usar; cuidamos da infraestrutura.',
+    a: `Não. ${MARCA} é uma plataforma web. Você conecta seus canais e começa a usar; cuidamos da infraestrutura.`,
   },
   {
     q: 'Funciona com mais de um número de WhatsApp?',
@@ -347,7 +355,7 @@ export const FAQ: ReadonlyArray<{ q: string; a: string }> = [
     a: 'Sim, com diferencial: portal de matrículas, processos seletivos e checkout transparente (PIX, boleto e cartão) — algo que nenhum concorrente oferece.',
   },
   {
-    q: 'O ByChat grava e transcreve reuniões?',
+    q: `${MARCA} grava e transcreve reuniões?`,
     a: 'Sim. Um bot entra em Google Meet, Teams ou Zoom, grava e transcreve; a IA gera resumo, próximos passos, objeções e até uma nota de aderência ao seu playbook comercial. Também funciona para reuniões presenciais (por gravação ou upload de áudio), e a transcrição roda no seu próprio servidor.',
   },
   {
@@ -633,7 +641,7 @@ export const HELPDESK = {
 export const FINAL_CTA = {
   title: 'Pronto para vender mais com menos esforço?',
   subtitle:
-    'Veja o ByChat funcionando na sua operação. Agende uma demonstração ou fale agora com nosso time.',
+    `Veja ${MARCA} funcionando na sua operação. Agende uma demonstração ou fale agora com nosso time.`,
   primary: 'Agende uma demonstração',
   secondary: 'Falar no WhatsApp',
 } as const
@@ -660,5 +668,5 @@ export const FOOTER = {
       ],
     },
   ],
-  legal: `© ${new Date().getFullYear()} ByChat. Todos os direitos reservados.`,
+  legal: `© ${new Date().getFullYear()} ${MARCA}. Todos os direitos reservados.`,
 } as const

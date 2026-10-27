@@ -104,34 +104,30 @@ async function convidar(
   horas: number,
   simular: boolean,
 ): Promise<string | null> {
-  const nome = String((d.formData as any)?.nome || '').split(' ')[0] || 'tudo bem'
+  const nome = String((d.formData as any)?.nome || '').split(' ')[0] || ''
   const base = (process.env.APP_URL || '').replace(/\/$/, '')
   // O rascunho é recuperado pelo sessionId que a própria página guardou; o link
   // só reabre o formulário, não expõe dado de ninguém.
   const url = `${base}/portal/${d.portal?.slug ?? ''}`
-  const texto = `Olá, ${nome}! Vi que você começou a inscrição em ${d.portal?.nome ?? 'nosso portal'} e não terminou.`
-    + `\n\nSeus dados estão salvos — é só voltar e continuar de onde parou: ${url}`
-    + '\n\nSe precisar de ajuda para escolher o curso, é só responder por aqui.'
+  const vars = { nome, portal: d.portal?.nome ?? '', link: url }
 
   const tel = d.whatsapp || (d.formData as any)?.whatsapp
   if (simular) return tel ? 'whatsapp (simulado)' : d.email ? 'email (simulado)' : null
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
 
   if (tel) {
-    try {
+    const msg = await renderizarModelo('inscricao_retomada_wa', vars)
+    if (msg?.body.trim()) try {
       const { provider } = await getProviderForLeadOwner({ id: 0, whatsapp: String(tel) })
-      await provider.sendText(String(tel), texto)
+      await provider.sendText(String(tel), msg.body)
       return 'whatsapp'
     } catch { /* cai para o e-mail */ }
   }
   if (d.email) {
-    try {
+    const em = await renderizarModelo('inscricao_retomada_email', vars)
+    if (em?.body.trim()) try {
       const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'secretaria'),
-        to: d.email,
-        subject: 'Sua inscrição está salva — falta pouco',
-        html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${texto.replace(/\n/g, '<br>')}</div>`,
-      })
+      await sendEmailGeneric({ from: getFromAddress(cfg), to: d.email, subject: em.subject, html: em.body })
       return 'email'
     } catch { /* nada mais a tentar */ }
   }

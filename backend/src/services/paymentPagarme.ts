@@ -37,7 +37,7 @@ async function pagarmeFetch(config: PagarmeConfig, path: string, method = 'GET',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': authHeader(config.apiKey),
-      'User-Agent': 'bychat-beyond/1.0',
+      'User-Agent': 'crm-integracao/1.0',
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15_000),

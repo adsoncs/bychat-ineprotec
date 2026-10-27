@@ -162,7 +162,7 @@ export function JobsPage() {
         problem={<>
           Por baixo do CRM rodam <strong>filas</strong> de tarefas (envio de WhatsApp, e-mail, SMS,
           webhook, retry, deteção de venda, sincronização de Meta Ads…). Quando algo falha ou
-          atrasa, esta tela é onde você <strong>vê, depura e re-executa</strong>. É o "raio-X" técnico
+          atrasa, esta tela é onde você <strong>vê, depura e re-executa</strong>. É o diagnóstico técnico
           do sistema — útil pra admin/suporte.
         </>}
         steps={[

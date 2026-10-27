@@ -18,7 +18,7 @@ async function deliver(channel: SideChannel, target: { email?: string | null; ph
       const { getEmailConfig, getFromAddress, sendEmailGeneric } = await import('./notify.js')
       const cfg = await getEmailConfig()
       const html = `<div style="font-family:system-ui,sans-serif;font-size:14px;color:#111">${body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
-      await sendEmailGeneric({ from: getFromAddress(cfg, 'suporte'), to: target.email, subject, html })
+      await sendEmailGeneric({ from: getFromAddress(cfg), to: target.email, subject, html })
       return { ok: true }
     }
     // whatsapp

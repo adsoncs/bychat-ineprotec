@@ -44,15 +44,12 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   { category: 'leads', metric: 'leads_total', title: 'Total de Leads', description: 'Número total de leads no sistema', icon: '👥', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge', 'stat_grid'] },
   { category: 'leads', metric: 'leads_new', title: 'Leads Novos', description: 'Leads criados hoje e na semana', icon: '📈', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'stat_grid'] },
   { category: 'leads', metric: 'leads_uncontacted', title: 'Sem Contato', description: 'Leads na primeira etapa sem nenhuma atividade executada', icon: '📵', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
-  { category: 'leads', metric: 'leads_avg_score', title: 'Score Médio', description: 'Média geral dos scores dos leads', icon: '🎯', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
   { category: 'leads', metric: 'leads_conversion', title: 'Prob. Conversão (IA)', description: 'Probabilidade média de conversão via IA', icon: '🤖', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
   { category: 'leads', metric: 'leads_by_date', title: 'Leads por Período', description: 'Evolução de leads ao longo do tempo', icon: '📊', defaultSize: 'lg', defaultType: 'line', availableTypes: ['line', 'area', 'bar'] },
   { category: 'leads', metric: 'leads_by_status', title: 'Leads por Etapa', description: 'Distribuição por etapa do funil', icon: '🔀', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'funnel', 'hbar_list'] },
   { category: 'leads', metric: 'leads_by_source', title: 'Origem dos Leads', description: 'De onde os leads vieram', icon: '🌐', defaultSize: 'md', defaultType: 'donut', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_by_segment', title: 'Leads por Segmento', description: 'Top segmentos de mercado', icon: '🏷️', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_by_funnel', title: 'Leads por Funil', description: 'Visão geral de cada funil', icon: '🔄', defaultSize: 'xl', defaultType: 'funnel', availableTypes: ['funnel', 'bar', 'table'] },
-  { category: 'leads', metric: 'leads_by_pillar', title: 'Score por Pilar', description: 'Média de score por pilar de avaliação', icon: '📉', defaultSize: 'md', defaultType: 'progress', availableTypes: ['radar', 'progress', 'bar', 'hbar', 'polar'] },
-  { category: 'leads', metric: 'leads_maturidade', title: 'Maturidade', description: 'Distribuição de maturidade dos leads', icon: '🧩', defaultSize: 'md', defaultType: 'donut', availableTypes: ['pie', 'donut', 'polar', 'bar', 'hbar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_by_tag', title: 'Leads por Tag', description: 'Distribuição de leads por tag', icon: '🏷', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_recent', title: 'Últimos Leads', description: 'Tabela com os leads mais recentes', icon: '📋', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
   { category: 'leads', metric: 'leads_won', title: 'Negócios Ganhos', description: 'Leads marcados como ganhos no período (com Δ% vs período anterior)', icon: '🏆', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
@@ -118,8 +115,8 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
 
 export const FUNNEL_AWARE_METRICS = [
   'leads_total', 'leads_new', 'leads_uncontacted', 'leads_by_date', 'leads_by_status', 'leads_by_source',
-  'leads_by_segment', 'leads_by_funnel', 'leads_by_pillar', 'leads_maturidade',
-  'leads_avg_score', 'leads_conversion', 'leads_recent', 'leads_by_tag',
+  'leads_by_segment', 'leads_by_funnel',
+  'leads_conversion', 'leads_recent', 'leads_by_tag',
   'leads_loss_reasons', 'leads_lost_revenue_by_reason',
 ]
 

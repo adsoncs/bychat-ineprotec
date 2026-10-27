@@ -510,7 +510,6 @@ function dashboardDefaults(): Widget[] {
   return [
     { id: defaultId(), metric: 'leads_total', type: 'kpi', title: 'Total de Leads', size: 'sm' },
     { id: defaultId(), metric: 'leads_new', type: 'kpi', title: 'Leads Novos', size: 'sm' },
-    { id: defaultId(), metric: 'leads_avg_score', type: 'kpi', title: 'Score Médio', size: 'sm' },
     { id: defaultId(), metric: 'activities_summary', type: 'kpi', title: 'Atividades', size: 'sm' },
     { id: defaultId(), metric: 'registrations_total', type: 'kpi', title: 'Inscrições', size: 'sm' },
     { id: defaultId(), metric: 'registrations_revenue', type: 'kpi', title: 'Receita de Matrículas', size: 'sm' },
@@ -518,7 +517,6 @@ function dashboardDefaults(): Widget[] {
     { id: defaultId(), metric: 'leads_by_status', type: 'bar', title: 'Leads por Etapa', size: 'lg' },
     { id: defaultId(), metric: 'leads_by_funnel', type: 'funnel', title: 'Funis', size: 'xl' },
     { id: defaultId(), metric: 'leads_by_source', type: 'donut', title: 'Origem dos Leads', size: 'md' },
-    { id: defaultId(), metric: 'leads_by_pillar', type: 'progress', title: 'Score por Pilar', size: 'md' },
     { id: defaultId(), metric: 'pages_performance', type: 'table', title: 'Landing Pages', size: 'lg' },
     { id: defaultId(), metric: 'leads_recent', type: 'table', title: 'Últimos Leads', size: 'xl', config: { limit: 8 } },
   ]
@@ -528,13 +526,10 @@ function analyticsDefaults(includeEducational: boolean): Widget[] {
   const general: Widget[] = [
     { id: defaultId(), metric: 'leads_total', type: 'kpi', title: 'Total de Leads', size: 'sm' },
     { id: defaultId(), metric: 'leads_uncontacted', type: 'kpi', title: 'Sem Contato', size: 'sm' },
-    { id: defaultId(), metric: 'leads_avg_score', type: 'kpi', title: 'Score Médio', size: 'sm' },
     { id: defaultId(), metric: 'tracking_visitors', type: 'kpi', title: 'Visitantes', size: 'sm' },
     { id: defaultId(), metric: 'meta_leads', type: 'kpi', title: 'Meta Ads', size: 'sm' },
     { id: defaultId(), metric: 'leads_by_date', type: 'line', title: 'Leads por Semana', size: 'lg', config: { groupBy: 'week' } },
-    { id: defaultId(), metric: 'leads_maturidade', type: 'donut', title: 'Maturidade', size: 'md' },
     { id: defaultId(), metric: 'leads_by_segment', type: 'bar', title: 'Top Segmentos', size: 'md', config: { limit: 8 } },
-    { id: defaultId(), metric: 'leads_by_pillar', type: 'progress', title: 'Score por Pilar', size: 'md' },
     { id: defaultId(), metric: 'leads_by_status', type: 'funnel', title: 'Funil de Etapas', size: 'xl' },
     { id: defaultId(), metric: 'messages_volume', type: 'bar', title: 'Mensagens', size: 'lg' },
     { id: defaultId(), metric: 'tracking_by_device', type: 'donut', title: 'Dispositivos', size: 'md' },

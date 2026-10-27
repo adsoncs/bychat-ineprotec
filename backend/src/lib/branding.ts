@@ -9,6 +9,7 @@ export interface BrandingConfig {
 const BRANDING_KEYS = [
   'appearance.admin_brand_name',
   'appearance.admin_brand_accent',
+  'legal.company_name',
 ]
 
 let cache: { data: BrandingConfig; ts: number } | null = null
@@ -24,14 +25,16 @@ export async function getBranding(): Promise<BrandingConfig> {
     cfg[r.key] = val.replace(/^"|"$/g, '')
   })
 
+  // Nome do dono da instalação: marca (Aparência) → razão social (Empresa).
+  // Sem nenhum dos dois, fica vazio — nunca um nome de outra empresa.
   // trim: espaço salvo no início do nome aparecia em todo assunto de e-mail.
-  const brandName = (cfg['appearance.admin_brand_name'] || '').trim() || 'BeyondHub'
-  const brandAccent = cfg['appearance.admin_brand_accent'] || 'Hub'
+  const brandName = (cfg['appearance.admin_brand_name'] || '').trim() || (cfg['legal.company_name'] || '').trim()
+  const brandAccent = cfg['appearance.admin_brand_accent'] || ''
 
   const data: BrandingConfig = {
     brandName,
     brandAccent,
-    emailFooter: `${brandName} · ${new Date().toLocaleDateString('pt-BR')}`,
+    emailFooter: [brandName, new Date().toLocaleDateString('pt-BR')].filter(Boolean).join(' · '),
   }
 
   cache = { data, ts: Date.now() }

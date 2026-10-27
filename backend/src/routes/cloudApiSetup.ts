@@ -660,9 +660,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
 
       const token = decryptToken(conn.systemUserToken)
       const { sendTextMessage } = await import('../services/cloudApi.js')
-      const { getBranding } = await import('../lib/branding.js')
-      const brand = await getBranding()
-      const result = await sendTextMessage(conn.phoneNumberId, token, phone, message || `Teste de conexao Cloud API - ${brand.brandName}`)
+      const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+      const texto = message || await textoDoSistema('teste_cloud_api')
+      if (!texto) return reply.code(400).send({ error: 'Modelo "Teste — mensagem de teste do WhatsApp Oficial" desligado e nenhuma mensagem informada' })
+      const result = await sendTextMessage(conn.phoneNumberId, token, phone, texto)
 
       return { ok: true, messageId: result.messageId }
     } catch (err: any) {

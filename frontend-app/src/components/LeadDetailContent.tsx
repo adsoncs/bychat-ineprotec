@@ -4,7 +4,6 @@ import {
   useLead,
   useDeleteLead,
   useQualifyLead,
-  useResendLeadReport,
   getRegistrationConflict,
 } from '@/hooks/useLeads'
 import { useEnrollmentLinkByLead } from '@/hooks/useEnrollmentPortals'
@@ -147,7 +146,6 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
   const blockContact = useBlockLeadContact()
   const [confirmBlock, setConfirmBlock] = useState(false)
   const qualify = useQualifyLead()
-  const resendReport = useResendLeadReport()
   const enrollLink = useEnrollmentLinkByLead()
 
   const isEnrollmentLead =
@@ -170,13 +168,6 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
           toast('Lead não tem inscrição ativa', 'warning')
         }
       },
-      onError: (e: unknown) => toast((e as Error).message, 'danger'),
-    })
-  }
-
-  function handleResendReport() {
-    resendReport.mutate(id, {
-      onSuccess: () => toast('Relatório reenviado por e-mail', 'success'),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -259,7 +250,6 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
       qualify: qualify.isPending,
       delete: delMut.isPending,
       enrollLink: enrollLink.isPending,
-      resendReport: resendReport.isPending,
       blockEntry: blockContact.isPending,
     },
     actions: {
@@ -269,7 +259,6 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
       merge: () => setMergeOpen(true),
       duplicate: () => setDuplicateOpen(true),
       enrollmentLink: handleEnrollmentLink,
-      resendReport: handleResendReport,
       blockEntry: () => setConfirmBlock(true),
     },
   }

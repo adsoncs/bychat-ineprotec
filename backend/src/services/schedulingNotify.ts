@@ -3,8 +3,7 @@
 import { prisma } from '../lib/prisma.js'
 import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
 import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
-import { getBranding } from '../lib/branding.js'
-import { getRenderedTemplate } from './messageTemplates.js'
+import { renderizarModelo } from './modelosDoSistema.js'
 import { EMPTY_PARAM_PLACEHOLDER, buildBodyParams, renderTemplateText } from '../lib/waTemplateParams.js'
 
 function publicBase(): string { return (process.env.APP_URL || 'https://localhost').replace(/\/$/, '') }
@@ -52,17 +51,21 @@ async function sendWa(leadId: number | null, phone: string, text: string): Promi
 // de véspera e confirmação de lead de formulário caem quase sempre nessa situação.
 // Configuráveis por tenant (Configurações) porque cada escola/empresa aprova os seus
 // com nomes próprios na Meta; os defaults preservam o comportamento antigo.
+// Sem nome configurado = não usa modelo da Meta (nenhum nome é presumido).
 const TEMPLATE_KEYS = {
-  confirmation: { setting: 'scheduling.confirm_template', fallback: 'confirmacao_agendamento_reuniao' },
-  reminder24h: { setting: 'scheduling.reminder_24h_template', fallback: '' },
-  reminder1h: { setting: 'scheduling.reminder_1h_template', fallback: '' },
+  confirmation: 'scheduling.confirm_template',
+  reminder24h: 'scheduling.reminder_24h_template',
+  reminder1h: 'scheduling.reminder_1h_template',
 } as const
 
 async function templateNameFor(kind: keyof typeof TEMPLATE_KEYS): Promise<string> {
-  const { setting, fallback } = TEMPLATE_KEYS[kind]
-  const row = await prisma.setting.findUnique({ where: { key: setting } }).catch(() => null)
-  const v = row ? String(row.value).replace(/^"|"$/g, '').trim() : ''
-  return v || fallback
+  const row = await prisma.setting.findUnique({ where: { key: TEMPLATE_KEYS[kind] } }).catch(() => null)
+  return row ? String(row.value).replace(/^"|"$/g, '').trim() : ''
+}
+
+/** Texto curto de um modelo do sistema (vazio quando desligado). */
+async function textoDoModelo(key: string): Promise<string> {
+  return (await renderizarModelo(key))?.body.trim() || ''
 }
 
 // Em que ordem os nossos nomes entram nos {{1}}, {{2}}… de um template POSICIONAL.
@@ -163,18 +166,20 @@ async function sendBookingConfirmationToLead(
       const wp = await import('./whatsappProvider.js')
       const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
       const recNotice = await getMeetingRecordingNotice()
-      // Encontro presencial não tem "link": chamar o endereço da escola de link da
-      // reunião confunde a família logo no momento mais importante da conversa.
-      const body = `✅ *${presencial ? 'Visita agendada' : 'Reunião agendada'}!*\n📅 ${when}`
-        + (linkText ? `\n\n📍 ${presencial ? 'Endereço' : 'Link da reunião'}: ${linkText}` : '')
-        + (recNotice && !presencial ? `\n\nℹ️ ${recNotice}` : '')
-      await provider.sendText(phone, body)
+      // Encontro presencial não tem "link": o modelo separa visita (endereço) de
+      // reunião online (link + aviso de gravação) por {{presencial}}.
+      const msg = await renderizarModelo('agendamento_confirmado_janela_wa', {
+        quando: when, presencial: presencial ? 'sim' : '',
+        link: presencial ? '' : linkText, local: presencial ? linkText : '',
+        aviso_gravacao: recNotice || '',
+      })
+      if (msg?.body.trim()) await provider.sendText(phone, msg.body)
       return
     }
 
     // Lead frio (fora da janela de 24h) → só passa HSM aprovado.
     const templateName = await templateNameFor('confirmation')
-    const sent = await sendHsm(conn, templateName, phone, { ...vars, reuniao: mt.name, quando: when, link: linkText || 'a combinar com nossa equipe' }, leadId)
+    const sent = await sendHsm(conn, templateName, phone, { ...vars, reuniao: mt.name, quando: when, link: linkText || await textoDoModelo('agendamento_hsm_sem_link') }, leadId)
     if (sent) await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
   } catch (e: any) { console.warn('[scheduling] confirmação ao lead falhou:', e?.message) }
 }
@@ -218,8 +223,11 @@ export async function tryConfirmBookingReply(phone: string, text: string, intera
   try {
     const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (conn) {
-      const wp = await import('./whatsappProvider.js')
-      await new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken).sendText(phone, '✅ Presença confirmada! Nos vemos em breve. 🙌')
+      const msg = await renderizarModelo('agendamento_presenca_confirmada_wa')
+      if (msg?.body.trim()) {
+        const wp = await import('./whatsappProvider.js')
+        await new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken).sendText(phone, msg.body)
+      }
     }
   } catch { /* best-effort */ }
   return true
@@ -247,26 +255,21 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
   const meetLink = await resolveMeetLink(booking)
   const when = fmtDateTime(booking.startAt, booking.timezone)
   const name = booking.inviteeName || lead?.nome || ''
-  const head = kind === 'reminder' ? 'Lembrete de reunião' : 'Reunião confirmada'
-  const kindKey = kind === 'reminder' ? 'lembrete' : 'confirmado' // chave do template (pt-BR)
-  const locLine = meetLink ? `\nLink: ${meetLink}` : (mt.locationDetail ? `\nLocal: ${mt.locationDetail}` : '')
+  const kindKey = kind === 'reminder' ? 'lembrete' : 'confirmado' // chave do modelo (pt-BR)
+  const local = mt.locationDetail || ''
 
-  // ── WhatsApp ao lead — texto editável (MessageTemplate booking_<kind>_wa) ──
-  // Variáveis: {{saudacao}} {{nome}} {{reuniao}} {{quando}} {{link}}
-  const waVars = { saudacao: name ? `Olá, ${name}!` : 'Olá!', nome: name, reuniao: mt.name, quando: when, link: locLine }
-  const waDefault = kind === 'reminder'
-    ? `{{saudacao}}\n\n⏰ *Lembrete: {{reuniao}}*\n📅 {{quando}}{{link}}`
-    : `{{saudacao}}\n\n✅ *Reunião confirmada: {{reuniao}}*\n📅 {{quando}}{{link}}`
-  const wa = await getRenderedTemplate(`agendamento_${kindKey}_wa`, 'whatsapp', waVars, { body: waDefault })
+  // ── WhatsApp ao lead — modelo agendamento_<kind>_wa (desligado = não envia) ──
+  const waVars = { nome: name, reuniao: mt.name, quando: when, link: meetLink || '', local }
+  const wa = (await renderizarModelo(`agendamento_${kindKey}_wa`, waVars)) ?? { subject: '', body: '' }
 
   // Variáveis dos HSM de agendamento. `aluno` sai do 1º filho cadastrado (convenção
   // filho_1_nome) — os templates de escola citam a criança pelo nome.
   const cf = ((lead as any)?.customFields || {}) as Record<string, unknown>
   const hsmVars: Record<string, string> = {
-    nome: name || 'tudo bem',
+    nome: name || await textoDoModelo('agendamento_hsm_sem_nome'),
     data_visita: fmtDateOnly(booking.startAt, booking.timezone),
     hora_visita: fmtTimeOnly(booking.startAt, booking.timezone),
-    aluno: String(cf.filho_1_nome || cf.aluno_nome || '').trim() || 'seu filho(a)',
+    aluno: String(cf.filho_1_nome || cf.aluno_nome || '').trim() || await textoDoModelo('agendamento_hsm_sem_aluno'),
   }
 
   const phone = lead?.whatsapp || booking.inviteePhone || ''
@@ -300,23 +303,11 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
   if (toEmail) {
     try {
       const cfg = await getEmailConfig()
-      const brand = await getBranding()
-      // E-mail ao lead — editável (modelo agendamento_<kind>_email).
-      // Variáveis (já escapadas): {{nome}} {{saudacao}} {{titulo}} {{reuniao}} {{quando}} {{linkHtml}}
-      const emailVars = {
-        nome: esc(name), saudacao: name ? `Olá, ${esc(name)}!` : 'Olá!',
-        titulo: esc(head), reuniao: esc(mt.name), quando: esc(when),
-        linkHtml: meetLink ? `<p>Link da reunião: <a href="${esc(meetLink)}">${esc(meetLink)}</a></p>` : (mt.locationDetail ? `<p>Local: ${esc(mt.locationDetail)}</p>` : ''),
-      }
-      const emailDefault = `<div style="font-family:system-ui;max-width:560px;margin:0 auto">
-        <h2 style="color:#1a73e8">{{titulo}}: {{reuniao}}</h2>
-        <p>{{saudacao}}</p>
-        <p>📅 <b>{{quando}}</b></p>
-        {{linkHtml}}
-        <p style="margin-top:20px;font-size:13px;color:#5f6368">Para remarcar ou cancelar, fale com a nossa equipe.</p>
-      </div>`
-      const em = await getRenderedTemplate(`agendamento_${kindKey}_email`, 'email', emailVars, { subject: `{{titulo}}: {{reuniao}} — {{quando}}`, body: emailDefault })
-      if (em.body.trim()) await sendEmailGeneric({ from: getFromAddress(cfg, brand?.brandName || 'Agendamentos'), to: toEmail, subject: em.subject, html: em.body })
+      // E-mail ao lead — modelo agendamento_<kind>_email (valores já escapados).
+      const em = await renderizarModelo(`agendamento_${kindKey}_email`, {
+        nome: esc(name), reuniao: esc(mt.name), quando: esc(when), link: esc(meetLink || ''), local: esc(local),
+      })
+      if (em?.body.trim()) await sendEmailGeneric({ from: getFromAddress(cfg), to: toEmail, subject: em.subject, html: em.body })
     } catch (e: any) { console.warn('[scheduling] e-mail falhou:', e?.message) }
   }
 
@@ -329,24 +320,21 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
     const op = await prisma.user.findUnique({ where: { id: responsibleUserId }, select: { email: true, name: true, notifyWhatsapp: true } })
     // WhatsApp ao operador (se ele tiver número de avisos configurado).
     if (op?.notifyWhatsapp) {
-      const waOpVars = { operador: op.name || '', nome: name, telefone: phone || '', emailLead: toEmail || '', reuniao: mt.name, quando: when, link: locLine }
-      const waOpDefault = `🗓️ *Novo agendamento: {{reuniao}}*\n👤 {{nome}}{{telefone}}\n📅 {{quando}}{{link}}`
-      const waOp = await getRenderedTemplate('agendamento_operador_wa', 'whatsapp', { ...waOpVars, telefone: phone ? `\n📱 ${phone}` : '' }, { body: waOpDefault })
-      if (waOp.body.trim()) await sendWa(null, op.notifyWhatsapp, waOp.body)
+      const waOp = await renderizarModelo('agendamento_operador_wa', {
+        operador: op.name || '', nome: name, telefone: phone || '', email_contato: toEmail || '',
+        reuniao: mt.name, quando: when, link: meetLink || '', local,
+      })
+      if (waOp?.body.trim()) await sendWa(null, op.notifyWhatsapp, waOp.body)
     }
     // E-mail ao operador.
     if (op?.email) {
       try {
         const cfg = await getEmailConfig()
-        const brand = await getBranding()
-        const emailOpVars = {
-          operador: esc(op.name || ''), nome: esc(name), telefone: esc(phone || ''), emailLead: esc(toEmail || ''),
-          reuniao: esc(mt.name), quando: esc(when),
-          linkHtml: meetLink ? `<p>Link: <a href="${esc(meetLink)}">${esc(meetLink)}</a></p>` : (mt.locationDetail ? `<p>Local: ${esc(mt.locationDetail)}</p>` : ''),
-        }
-        const emailOpDefault = `<div style="font-family:system-ui;max-width:560px;margin:0 auto"><h3>🗓️ Novo agendamento: {{reuniao}}</h3><p>Com: <b>{{nome}}</b>${phone ? ' · {{telefone}}' : ''}${toEmail ? ' · {{emailLead}}' : ''}</p><p>📅 {{quando}}</p>{{linkHtml}}</div>`
-        const emOp = await getRenderedTemplate('agendamento_operador_email', 'email', emailOpVars, { subject: `Novo agendamento: {{nome}} — {{quando}}`, body: emailOpDefault })
-        if (emOp.body.trim()) await sendEmailGeneric({ from: getFromAddress(cfg, brand?.brandName || 'Agendamentos'), to: op.email, subject: emOp.subject, html: emOp.body })
+        const emOp = await renderizarModelo('agendamento_operador_email', {
+          operador: esc(op.name || ''), nome: esc(name), telefone: esc(phone || ''), email_contato: esc(toEmail || ''),
+          reuniao: esc(mt.name), quando: esc(when), link: esc(meetLink || ''), local: esc(local),
+        })
+        if (emOp?.body.trim()) await sendEmailGeneric({ from: getFromAddress(cfg), to: op.email, subject: emOp.subject, html: emOp.body })
       } catch { /* best-effort */ }
     }
   }
@@ -360,11 +348,9 @@ export async function notifyCancelled(bookingId: number): Promise<void> {
   const when = fmtDateTime(booking.startAt, booking.timezone)
   const phone = lead?.whatsapp || booking.inviteePhone || ''
   if (phone) {
-    // Cancelamento ao lead — editável (MessageTemplate booking_cancelled_wa).
-    const cancelled = await getRenderedTemplate('agendamento_cancelado_wa', 'whatsapp',
-      { reuniao: mt?.name || 'reunião', quando: when },
-      { body: `Seu agendamento de *{{reuniao}}* ({{quando}}) foi *cancelado*.` })
-    if (cancelled.body.trim()) await sendWa(lead?.id ?? null, phone, cancelled.body)
+    // Cancelamento ao lead — modelo agendamento_cancelado_wa.
+    const cancelled = await renderizarModelo('agendamento_cancelado_wa', { reuniao: mt?.name || '', quando: when })
+    if (cancelled?.body.trim()) await sendWa(lead?.id ?? null, phone, cancelled.body)
   }
 }
 

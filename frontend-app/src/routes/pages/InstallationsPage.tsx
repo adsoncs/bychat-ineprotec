@@ -56,7 +56,7 @@ function InstallationsContent() {
   return (
     <Page
       title="Instalações"
-      description="Provisionar, gerenciar e remover instalações cliente em subdomínios .bychat.ia.br."
+      description={`Provisionar, gerenciar e remover instalações cliente em subdomínios${data?.dominioBase ? ` .${data.dominioBase}` : ''}.`}
       actions={
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Plus size={14} /> Nova instalação
@@ -230,6 +230,7 @@ function InstallationCard({
 function NewInstallationModal({
   onClose, onSuccess,
 }: { onClose: () => void; onSuccess: (r: ProvisionResult) => void }) {
+  const base = useInstallations()
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [subdomain, setSubdomain] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
@@ -295,7 +296,7 @@ function NewInstallationModal({
               class="flex-1 h-9 px-3 rounded-l-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
             />
             <span class="inline-flex items-center px-3 rounded-r-md bg-surface-3 border border-l-0 border-border text-sm text-fg-muted">
-              .bychat.ia.br
+              .{base.data?.dominioBase ?? ''}
             </span>
           </div>
           <span class="text-2xs text-fg-muted">Apenas letras, números e hífen.</span>
@@ -316,8 +317,8 @@ function NewInstallationModal({
                 label="Email do admin"
                 value={adminEmail}
                 onInput={(e) => setAdminEmail((e.target as HTMLInputElement).value)}
-                placeholder="admin@bychat.ia.br"
-                hint="Default: admin@bychat.ia.br"
+                placeholder={base.data?.emailPadrao ?? ''}
+                hint={`Default: ${base.data?.emailPadrao ?? ''}`}
               />
               <Input
                 label="Senha do admin"
@@ -410,7 +411,7 @@ function ProvisionResultModal({
         <div class="rounded-md border border-success/30 bg-success/10 p-3 text-xs text-success flex items-start gap-2">
           <Check size={14} class="mt-0.5 shrink-0" />
           <div class="flex-1">
-            <strong>{c.subdomain}.bychat.ia.br</strong> está {c.health ? 'online e saudável' : 'configurado'}.
+            <strong>{c.domain || c.subdomain}</strong> está {c.health ? 'online e saudável' : 'configurado'}.
             <div class="mt-1">
               SSL: {c.ssl ? '✓ ativo' : '✕ ainda não emitido'}{!c.dnsOk && ' (DNS não resolve para este servidor)'}
             </div>
@@ -462,7 +463,7 @@ function LogsModal({ subdomain, onClose }: { subdomain: string; onClose: () => v
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title={`Logs — bychat-${subdomain}`}
+      title={`Logs — ${subdomain}`}
       size="xl"
       footer={
         <>

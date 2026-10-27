@@ -61,15 +61,12 @@ export async function appendPreferencesLink(
   format: 'text' | 'html' = 'text',
 ): Promise<string> {
   const url = await getPreferencesUrl(leadId)
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
   if (format === 'html') {
     if (body.includes('data-pref-link')) return body
-    const footer =
-      `<hr style="margin:24px 0;border:0;border-top:1px solid #e5e7eb"/>` +
-      `<p data-pref-link style="font-size:12px;color:#6b7280;text-align:center">` +
-      `Não quer mais receber estes e-mails? ` +
-      `<a href="${url}" style="color:#6b7280;text-decoration:underline">Atualize suas preferências</a>.` +
-      `</p>`
-    return `${body}\n${footer}`
+    const footer = (await renderizarModelo('rodape_preferencias_email', { link: url }))?.body || ''
+    return footer.trim() ? `${body}\n${footer}` : body
   }
-  return `${body}\n\n---\nNão quer mais receber? Atualize suas preferências em ${url}`
+  const footer = (await renderizarModelo('rodape_preferencias_texto', { link: url }))?.body || ''
+  return footer.trim() ? `${body}\n\n${footer}` : body
 }

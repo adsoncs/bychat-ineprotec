@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma.js'
 import { getMeetingsSettings } from '../lib/meetingsConfig.js'
 import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
 import { getDefaultProvider } from './whatsappProvider.js'
+import { renderizarModelo, textoDoSistema } from './modelosDoSistema.js'
 
 function esc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -29,46 +30,23 @@ interface RecForDelivery {
   analysis: any
 }
 
-function buildSubject(): string {
-  return 'Resumo da reunião — ByChat'
-}
-
-function section(title: string, items: string[]): string {
-  if (!items?.length) return ''
-  return `\n${title}:\n` + items.map(i => `• ${i}`).join('\n')
-}
-
-function buildText(rec: RecForDelivery, leadName: string | null): string {
+/** Variáveis dos modelos reuniao_* a partir da análise da IA. */
+function variaveisDaReuniao(rec: RecForDelivery, leadName: string | null, escapar = false): Record<string, any> {
   const a = rec.analysis || {}
-  let t = `*Resumo da reunião*${leadName ? ` — ${leadName}` : ''}\n`
-  if (a.resumo) t += `\n${a.resumo}\n`
-  t += section('Próximos passos', a.proximosPassos)
-  t += section('Action items', a.acaoItems)
-  t += section('Objeções', a.objecoes)
-  if (a.playbook) {
-    t += `\n\n*Coaching (Playbook) — aderência ${a.playbook.aderencia}/100*`
-    t += section('A melhorar', a.playbook.pontosMelhoria)
-    t += section('Direcionamento', a.playbook.direcionamento)
+  const e = (t: any) => (escapar ? esc(String(t ?? '')) : String(t ?? ''))
+  const lista = (x: any) => (Array.isArray(x) ? x.map((i) => e(i)).filter(Boolean) : [])
+  return {
+    lead: e(leadName || ''),
+    resumo: e(a.resumo || ''),
+    proximos_passos: lista(a.proximosPassos),
+    acoes: lista(a.acaoItems),
+    objecoes: lista(a.objecoes),
+    tem_playbook: a.playbook ? 'sim' : '',
+    aderencia: a.playbook ? e(a.playbook.aderencia) : '',
+    pontos_fortes: lista(a.playbook?.pontosFortes),
+    a_melhorar: lista(a.playbook?.pontosMelhoria),
+    direcionamento: lista(a.playbook?.direcionamento),
   }
-  return t.trim()
-}
-
-function buildHtml(rec: RecForDelivery, leadName: string | null): string {
-  const a = rec.analysis || {}
-  const list = (title: string, items: string[]) =>
-    items?.length ? `<p><strong>${esc(title)}:</strong></p><ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : ''
-  let h = `<h2>Resumo da reunião${leadName ? ` — ${esc(leadName)}` : ''}</h2>`
-  if (a.resumo) h += `<p>${esc(a.resumo)}</p>`
-  h += list('Próximos passos', a.proximosPassos)
-  h += list('Action items', a.acaoItems)
-  h += list('Objeções', a.objecoes)
-  if (a.playbook) {
-    h += `<hr><h3>Coaching · Playbook — aderência ${esc(String(a.playbook.aderencia))}/100</h3>`
-    h += list('Pontos fortes', a.playbook.pontosFortes)
-    h += list('A melhorar', a.playbook.pontosMelhoria)
-    h += list('Direcionamento', a.playbook.direcionamento)
-  }
-  return h
 }
 
 export async function deliverMeetingSummary(recId: number): Promise<boolean> {
@@ -95,12 +73,14 @@ export async function deliverMeetingSummary(recId: number): Promise<boolean> {
     }
     if (recipients.size) {
       try {
-        const cfg = await getEmailConfig()
-        const rawHtml = buildHtml(rec as any, leadName)
-        const html = ms.redactPii ? redact(rawHtml) : rawHtml
-        for (const to of recipients) {
-          await sendEmailGeneric({ from: getFromAddress(cfg, 'Reuniões ByChat'), to, subject: buildSubject(), html })
-          sent = true
+        const em = await renderizarModelo('reuniao_resumo_email', variaveisDaReuniao(rec as any, leadName, true))
+        if (em?.body.trim()) {
+          const cfg = await getEmailConfig()
+          const html = ms.redactPii ? redact(em.body) : em.body
+          for (const to of recipients) {
+            await sendEmailGeneric({ from: getFromAddress(cfg), to, subject: em.subject, html })
+            sent = true
+          }
         }
       } catch (e: any) { console.warn('[MeetingDelivery] e-mail falhou:', e?.message) }
     }
@@ -111,8 +91,8 @@ export async function deliverMeetingSummary(recId: number): Promise<boolean> {
     try {
       const provider = await getDefaultProvider()
       const number = ms.notifyWhatsappTo.replace(/\D/g, '')
-      const raw = buildText(rec as any, leadName)
-      if (number) { await provider.sendText(number, ms.redactPii ? redact(raw) : raw); sent = true }
+      const raw = await textoDoSistema('reuniao_resumo_wa', variaveisDaReuniao(rec as any, leadName))
+      if (number && raw) { await provider.sendText(number, ms.redactPii ? redact(raw) : raw); sent = true }
     } catch (e: any) { console.warn('[MeetingDelivery] WhatsApp falhou:', e?.message) }
   }
 
@@ -151,8 +131,8 @@ export async function runPostAnalysisActions(recId: number): Promise<void> {
     try {
       await prisma.activity.create({
         data: {
-          leadId: rec.leadId, type: 'note', title: 'Resumo da reunião (IA)',
-          description: buildText(rec as any, leadName).slice(0, 5000),
+          leadId: rec.leadId, type: 'note', title: (await textoDoSistema('reuniao_nota_lead_titulo')) || '—',
+          description: (await textoDoSistema('reuniao_nota_lead', variaveisDaReuniao(rec as any, leadName))).slice(0, 5000),
           ...(rec.userId ? { userId: rec.userId } : {}),
           scheduledAt: new Date(), status: 'completed', completedAt: new Date(),
           metadata: { meetingRecordingId: rec.id } as any,
@@ -164,10 +144,12 @@ export async function runPostAnalysisActions(recId: number): Promise<void> {
   // (4) Alerta ao gestor por baixa aderência ao playbook.
   if (ms.alertLowAdherence && a.playbook && typeof a.playbook.aderencia === 'number' && a.playbook.aderencia < ms.alertThreshold && ms.alertEmail.trim()) {
     try {
-      const cfg = await getEmailConfig()
-      const html = `<p><strong>⚠️ Reunião com baixa aderência ao playbook: ${a.playbook.aderencia}/100</strong></p>` + buildHtml(rec as any, leadName)
-      for (const to of ms.alertEmail.split(/[,;\s]+/).filter(x => x.includes('@'))) {
-        await sendEmailGeneric({ from: getFromAddress(cfg, 'Reuniões ByChat'), to, subject: `⚠️ Baixa aderência (${a.playbook.aderencia}/100) — reunião`, html })
+      const em = await renderizarModelo('reuniao_baixa_aderencia_email', variaveisDaReuniao(rec as any, leadName, true))
+      if (em?.body.trim()) {
+        const cfg = await getEmailConfig()
+        for (const to of ms.alertEmail.split(/[,;\s]+/).filter(x => x.includes('@'))) {
+          await sendEmailGeneric({ from: getFromAddress(cfg), to, subject: em.subject, html: em.body })
+        }
       }
     } catch (e: any) { console.warn('[MeetingPost] alerta falhou:', e?.message) }
   }

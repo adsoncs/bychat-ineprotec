@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { getMeetingTypeSlots, createBooking, validateSlot, getActiveMeetingType } from '../services/schedulingService.js'
 import { notifyBooking, notifyCancelled } from '../services/schedulingNotify.js'
+import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 const LOCATION_LABELS: Record<string, string> = {
   google_meet: 'Google Meet', phone: 'Telefone', whatsapp: 'WhatsApp', in_person: 'Presencial', custom: 'Online',
@@ -38,7 +39,8 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     reply.header('Content-Security-Policy', 'frame-ancestors *')
     reply.type('text/html')
     if (!mt) return reply.code(404).send(renderNotFound())
-    return reply.send(renderBookingPage(mt, embed))
+    const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+    return reply.send(renderBookingPage(mt, embed, await textoDoSistema('agendamento_pagina_rodape')))
   })
 
   // ── API pública: info do tipo de reunião ──
@@ -179,16 +181,7 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
 
 function renderManagePage(token: string, mode: 'cancel' | 'reschedule'): string {
   return `<!doctype html><html lang="pt-br"><head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${mode === 'cancel' ? 'Cancelar' : 'Remarcar'} agendamento</title>
@@ -227,36 +220,18 @@ fetch(API).then(function(r){return r.json()}).then(function(i){
 
 function renderNotFound(): string {
   return `<!doctype html><html lang="pt-br"><head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agendamento</title></head>
 <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#444">
 <div style="text-align:center"><h1>Link indisponível</h1><p>Este agendamento não existe ou foi desativado.</p></div></body></html>`
 }
 
-function renderBookingPage(mt: { slug: string; name: string; color: string | null }, embed = false): string {
+function renderBookingPage(mt: { slug: string; name: string; color: string | null }, embed = false, rodape = ''): string {
   const accent = mt.color || '#1a73e8'
   return `<!doctype html>
 <html lang="pt-br"><head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -285,7 +260,7 @@ window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window
   <div class="head"><h1 id="t">Carregando…</h1><div class="meta" id="m"></div></div>
   <div class="body" id="b"><div class="muted">Carregando horários…</div></div>
 </div>
-${embed ? '' : '<p class="muted" style="text-align:center;margin-top:12px;font-size:11px">Agendamento via ByChat</p>'}
+${embed || !rodape ? '' : `<p class="muted" style="text-align:center;margin-top:12px;font-size:11px">${rodape.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))}</p>`}
 </div>
 <script>
 (function(){

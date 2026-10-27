@@ -24,7 +24,7 @@ import { prisma } from '../lib/prisma.js'
 import { isModuleEnabled } from '../lib/moduleManager.js'
 
 const INDEX_URL = 'https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/censo-da-educacao-superior'
-const UA = 'Mozilla/5.0 (compatible; ByChatMarket/1.0)'
+const UA = 'Mozilla/5.0 (compatible; RadarMercado/1.0)'
 const BATCH = 1000
 
 // TP_CATEGORIA_ADMINISTRATIVA: 4 privada c/ fins, 5 privada s/ fins, 7 especial

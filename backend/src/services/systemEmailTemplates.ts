@@ -3,9 +3,10 @@
 // Templates de email do sistema editáveis pelo painel
 // Configurações > Emails do Sistema (superadmin).
 //
-// O code chama `renderSystemEmail('lead_diagnostic_report', { lead })` que
-// devolve `{ subject, html }` com placeholders substituídos. Se o template
-// estiver disabled ou ausente no banco, usa o fallback hardcoded.
+// O código chama `renderSystemEmail('password_reset', { user })`, que devolve
+// `{ subject, html }` com placeholders substituídos. Os textos abaixo são só o
+// conteúdo inicial gravado no banco na primeira subida; daí em diante vale o
+// que estiver editado na tela.
 //
 // Sintaxe: `{{ campo.subcampo }}` (espaços são opcionais).
 // Exemplo: `{{ lead.nome }}` busca em `vars.lead.nome`. Caminhos faltantes
@@ -31,110 +32,6 @@ export interface SystemEmailTemplateSeed {
 // ─── Seeds (defaults aplicados na primeira execução) ─────
 
 export const SYSTEM_EMAIL_TEMPLATES: SystemEmailTemplateSeed[] = [
-  {
-    key: 'notify_new_lead_admin',
-    name: 'Novo lead — notificação ao time',
-    description: 'Email enviado pra equipe (NOTIFY_EMAIL_TO/CC) quando um lead novo entra no funil.',
-    category: 'lifecycle',
-    subject: '🎯 Novo lead: {{lead.nome}} ({{lead.empresa}}) — Score {{scores.geral}}/100 · {{lead.solucaoNome}}',
-    htmlBody: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e0e3e7">
-  <div style="background:#1a73e8;padding:24px 28px;color:#fff">
-    <h1 style="margin:0;font-size:20px;font-weight:600">🎯 Novo lead — {{brand.brandName}}</h1>
-    <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px">{{now.full}}</p>
-  </div>
-  <div style="padding:24px 28px;color:#202124">
-    <table style="width:100%;border-collapse:collapse;font-size:14px">
-      <tr><td style="padding:6px 0;color:#5f6368">Empresa</td><td style="padding:6px 0;text-align:right"><strong>{{lead.empresa}}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">Contato</td><td style="padding:6px 0;text-align:right">{{lead.nome}}</td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">WhatsApp</td><td style="padding:6px 0;text-align:right"><a href="https://wa.me/55{{lead.whatsappDigits}}" style="color:#1a73e8;text-decoration:none">{{lead.whatsapp}}</a></td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">E-mail</td><td style="padding:6px 0;text-align:right">{{lead.email}}</td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">Segmento</td><td style="padding:6px 0;text-align:right">{{lead.segmento}}</td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">Cidade</td><td style="padding:6px 0;text-align:right">{{lead.cidade}}</td></tr>
-    </table>
-    <div style="background:#e8f0fe;border-left:3px solid #1a73e8;border-radius:6px;padding:14px 16px;margin:18px 0">
-      <div style="display:flex;gap:18px;flex-wrap:wrap">
-        <div><div style="font-size:11px;color:#5f6368">Score Geral</div><div style="font-size:22px;font-weight:700;color:#1a73e8">{{scores.geral}}</div></div>
-        <div><div style="font-size:11px;color:#5f6368">Marketing</div><div style="font-size:18px;font-weight:600;color:#1a73e8">{{scores.mkt}}</div></div>
-        <div><div style="font-size:11px;color:#5f6368">Vendas</div><div style="font-size:18px;font-weight:600;color:#1a73e8">{{scores.vnd}}</div></div>
-        <div><div style="font-size:11px;color:#5f6368">Oferta</div><div style="font-size:18px;font-weight:600;color:#1a73e8">{{scores.oferta}}</div></div>
-      </div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:14px">
-      <tr><td style="padding:6px 0;color:#5f6368">Maturidade</td><td style="padding:6px 0;text-align:right">{{lead.maturidade}}</td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">Solução indicada</td><td style="padding:6px 0;text-align:right"><strong style="color:#1a73e8">{{lead.solucaoNome}}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:#5f6368">Investimento</td><td style="padding:6px 0;text-align:right">{{investmentLabel}}</td></tr>
-    </table>
-    <div style="margin-top:22px;text-align:center">
-      <a href="https://wa.me/55{{lead.whatsappDigits}}" style="background:#1a73e8;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">Contatar via WhatsApp →</a>
-    </div>
-  </div>
-  <div style="background:#f8f9fa;padding:14px 28px;text-align:center;font-size:11px;color:#80868b;border-top:1px solid #e8eaed">
-    {{brand.brandName}} · Sistema interno
-  </div>
-</div>`,
-    variables: [
-      { name: 'lead.nome', description: 'Nome do lead' },
-      { name: 'lead.empresa', description: 'Empresa do lead' },
-      { name: 'lead.whatsapp', description: 'WhatsApp formatado' },
-      { name: 'lead.whatsappDigits', description: 'WhatsApp só dígitos (pra link wa.me)' },
-      { name: 'lead.email', description: 'E-mail do lead' },
-      { name: 'lead.segmento', description: 'Segmento de mercado' },
-      { name: 'lead.cidade', description: 'Cidade' },
-      { name: 'lead.maturidade', description: 'Maturidade comercial' },
-      { name: 'lead.solucaoNome', description: 'Solução recomendada' },
-      { name: 'scores.geral', description: 'Score geral 0-100' },
-      { name: 'scores.mkt', description: 'Score de marketing' },
-      { name: 'scores.vnd', description: 'Score de vendas' },
-      { name: 'scores.oferta', description: 'Score de oferta' },
-      { name: 'investmentLabel', description: 'Faixa de investimento (label)' },
-      { name: 'brand.brandName', description: 'Nome da marca' },
-      { name: 'now.full', description: 'Data/hora atual (pt-BR)' },
-    ],
-  },
-  {
-    key: 'lead_diagnostic_report',
-    name: 'Diagnóstico — envio ao lead',
-    description: 'Email de diagnóstico/raio-x enviado ao próprio lead após completar o formulário.',
-    category: 'lifecycle',
-    subject: '🎯 Seu Raio-X de Growth está pronto — Score {{scores.geral}}/100 · {{lead.empresa}}',
-    htmlBody: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e0e3e7">
-  <div style="background:#1a73e8;padding:28px;text-align:center;color:#fff">
-    <h1 style="margin:0;font-size:22px;font-weight:600">Seu Raio-X de Growth</h1>
-    <p style="margin:8px 0 0;font-size:13px;color:rgba(255,255,255,0.85)">{{lead.empresa}}</p>
-  </div>
-  <div style="padding:28px;color:#202124">
-    <p style="font-size:14px;line-height:1.6">Olá <strong>{{lead.nome}}</strong>,</p>
-    <p style="font-size:14px;line-height:1.6;color:#5f6368">Aqui está o resultado da análise da {{brand.brandName}} sobre a sua operação. Use isso pra priorizar onde investir nas próximas semanas.</p>
-    <div style="background:#e8f0fe;border-left:3px solid #1a73e8;border-radius:8px;padding:18px;margin:22px 0;text-align:center">
-      <div style="font-size:11px;color:#5f6368;text-transform:uppercase;letter-spacing:0.05em">Score Geral</div>
-      <div style="font-size:42px;font-weight:700;color:#1a73e8;line-height:1">{{scores.geral}}</div>
-      <div style="font-size:13px;color:#5f6368;margin-top:4px">Maturidade: <strong style="color:#202124">{{lead.maturidade}}</strong></div>
-    </div>
-    <h3 style="font-size:14px;color:#1a73e8;margin:18px 0 8px">🚀 Solução Recomendada</h3>
-    <div style="background:#f8f9fa;border:1px solid #e0e3e7;border-radius:8px;padding:16px">
-      <div style="font-size:18px;font-weight:700;color:#202124">{{lead.solucaoNome}}</div>
-    </div>
-    <div style="margin-top:24px;text-align:center">
-      <a href="https://wa.me/55{{lead.whatsappDigits}}" style="background:#1a73e8;color:#fff;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block">Falar com a {{brand.brandName}} →</a>
-      <p style="margin-top:10px;font-size:12px;color:#80868b">Clique pra agendar uma conversa sobre seu diagnóstico</p>
-    </div>
-  </div>
-  <div style="background:#f8f9fa;padding:14px 28px;text-align:center;font-size:11px;color:#80868b;border-top:1px solid #e8eaed">
-    {{brand.brandName}} · {{now.date}}
-  </div>
-</div>`,
-    variables: [
-      { name: 'lead.nome', description: 'Nome do lead' },
-      { name: 'lead.empresa', description: 'Empresa do lead' },
-      { name: 'lead.email', description: 'E-mail do lead' },
-      { name: 'lead.whatsappDigits', description: 'WhatsApp só dígitos' },
-      { name: 'lead.maturidade', description: 'Maturidade comercial' },
-      { name: 'lead.solucaoNome', description: 'Solução recomendada' },
-      { name: 'scores.geral', description: 'Score geral 0-100' },
-      { name: 'brand.brandName', description: 'Nome da marca' },
-      { name: 'now.date', description: 'Data atual (pt-BR)' },
-    ],
-  },
   {
     key: 'password_reset',
     name: 'Reset de senha',
@@ -226,7 +123,14 @@ export const SYSTEM_EMAIL_TEMPLATES: SystemEmailTemplateSeed[] = [
 
 // ─── Seed/upsert (executado no boot) ─────────────────────
 
+// Modelos que deixaram de existir. O aviso de novo lead passou para o fluxo
+// "Avisar equipe — Novo lead captado"; o relatório de diagnóstico foi removido.
+// Só sai do banco o que ninguém editou (updatedById nulo) — editado fica, desligado.
+const MODELOS_DESCONTINUADOS = ['notify_new_lead_admin', 'lead_diagnostic_report']
+
 export async function seedSystemEmailTemplates(): Promise<void> {
+  await prisma.systemEmailTemplate.deleteMany({ where: { key: { in: MODELOS_DESCONTINUADOS }, updatedById: null } }).catch(() => {})
+  await prisma.systemEmailTemplate.updateMany({ where: { key: { in: MODELOS_DESCONTINUADOS } }, data: { enabled: false } }).catch(() => {})
   for (const t of SYSTEM_EMAIL_TEMPLATES) {
     const exists = await prisma.systemEmailTemplate.findUnique({ where: { key: t.key }, select: { id: true } })
     if (exists) {

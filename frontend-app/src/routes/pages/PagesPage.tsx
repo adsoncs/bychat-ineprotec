@@ -223,7 +223,7 @@ export function PagesPage() {
         steps={[
           {
             title: '🎨 Começa por um modelo (ou do zero)',
-            body: <>Botão <strong>A partir de um modelo</strong> mostra layouts prontos (curso, evento, lançamento, captura). Ou <strong>Nova página</strong> pra montar livre. Cada página tem URL única (ex.: bychat.ia.br/p/black-friday).</>,
+            body: <>Botão <strong>A partir de um modelo</strong> mostra layouts prontos (curso, evento, lançamento, captura). Ou <strong>Nova página</strong> pra montar livre. Cada página tem URL única (ex.: {typeof window !== 'undefined' ? window.location.host : ''}/p/black-friday).</>,
           },
           {
             title: '🧱 Monte com blocos',

@@ -129,7 +129,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'atendimento', cobranca: 'base',
     description: 'Inbox unificada de atendimento — WhatsApp, Instagram, Email em um só lugar.',
     pages: ['atendimento'],
-    routePrefixes: ['/api/atendimento', '/api/bychat/chat', '/api/admin/conversation-access'],
+    routePrefixes: ['/api/atendimento', '/api/admin/conversation-access'],
     actions: ['view', 'create', 'edit', 'delete'],
     core: true, defaultEnabled: true,
   },
@@ -223,7 +223,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     // desligada. Jornada IA e Auditoria de Conversas viraram módulos próprios
     // logo abaixo: fazem coisas sem parentesco com score e enriquecimento, e
     // ligá-las obrigava a ligar tudo junto.
-    routePrefixes: ['/api/admin/scoring-config', '/api/admin/enrichment', '/api/bychat/enrichment', '/api/bychat/analyze'],
+    routePrefixes: ['/api/admin/scoring-config', '/api/admin/enrichment', '/api/bychat/enrichment'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
   },
@@ -829,7 +829,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   {
     id: 'aca_comunicacao', name: 'Comunicação Acadêmica', icon: '📨', category: 'erp_academico',
     umbrella: 'erp_academico', cobranca: 'pacote',
-    description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando WhatsApp/e-mail do ByChat.',
+    description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando os canais de WhatsApp e e-mail do sistema.',
     pages: ['acaComunicacao'],
     routePrefixes: [
       // Rotas que só exigiam login (21/10/2026): passam a cobrar a

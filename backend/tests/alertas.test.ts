@@ -451,7 +451,7 @@ describe('escalonamento — o crítico que ninguém viu', () => {
     await critico('segundo', { horas: 50, count: 1, ultimoAvisoH: 30 })
     const [a] = await meus()
     assert.ok(a, 'o candidato existe')
-    const texto = textoDoAviso(a!)
+    const texto = await textoDoAviso(a!)
     assert.match(texto, /segundo aviso/)
     assert.match(texto, /há 2 dia\(s\)/, 'a idade sai em dias quando passa de 24h')
     await limpar()

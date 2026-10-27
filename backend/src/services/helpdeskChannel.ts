@@ -67,7 +67,9 @@ export async function sendTicketEmailReply(
     const { getEmailConfig, getFromAddress, sendEmailGeneric } = await import('./notify.js')
     const cfg = await getEmailConfig()
     const html = `<div style="font-family:system-ui,sans-serif;font-size:14px;color:#111">${body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>')}</div>`
-    await sendEmailGeneric({ from: getFromAddress(cfg, 'suporte'), to: ticket.requesterEmail, subject: `Re: ${ticket.subject} [#${ticket.number}]`, html })
+    const { textoDoSistema } = await import('./modelosDoSistema.js')
+    const assunto = (await textoDoSistema('helpdesk_resposta_assunto', { assunto: ticket.subject, numero: ticket.number })) || ticket.subject
+    await sendEmailGeneric({ from: getFromAddress(cfg), to: ticket.requesterEmail, subject: assunto, html })
     return { ok: true }
   } catch (e) {
     return { ok: false, error: (e as Error).message }

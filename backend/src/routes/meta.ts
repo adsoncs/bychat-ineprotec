@@ -8,7 +8,7 @@ import { DEFAULT_FIELD_MAP, normKey, guessCoreField, buildAutoMapping } from '..
 import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp, getOperator, EVENT_TYPES } from '../services/leadHistory.js'
-import { notifyNewLead } from '../services/notify.js'
+import { emitirLeadCaptado } from '../services/notify.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
 import { getMetaAppId, getMetaAppSecret, getMetaConfigId, metaFetch, metaFetchAll, META_GRAPH_URL } from '../lib/meta.js'
 import { queues } from '../lib/queues.js'
@@ -1686,7 +1686,7 @@ async function createLeadFromMeta(
   })
 
   // Notificar admin
-  notifyNewLead(lead).catch(err => {
+  emitirLeadCaptado(lead, 'meta_lead_ads').catch(err => {
     console.error('[Meta] Notify error:', err.message)
   })
 

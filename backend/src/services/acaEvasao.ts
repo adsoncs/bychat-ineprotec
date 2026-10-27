@@ -35,7 +35,7 @@ const PESOS = {
   frequencia: 30,   // maior preditor isolado no ensino superior
   desempenho: 20,
   financeiro: 20,
-  engajamento: 20,  // exclusivo ByChat
+  engajamento: 20,  // exclusivo deste sistema
   portal: 10,
 }
 

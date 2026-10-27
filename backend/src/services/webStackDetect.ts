@@ -21,7 +21,7 @@ import { prisma } from '../lib/prisma.js'
 
 const TIMEOUT_MS = 15_000
 const MAX_BYTES = 2 * 1024 * 1024 // 2 MB de HTML é muito mais que suficiente
-const UA = 'Mozilla/5.0 (compatible; ByChatRadar/1.0; +https://bychat.ia.br)'
+const UA = 'Mozilla/5.0 (compatible; Radar/1.0)'
 
 // ── assinaturas ──────────────────────────────────────────────────────────────
 

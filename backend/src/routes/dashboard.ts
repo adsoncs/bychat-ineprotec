@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly } from '../lib/auth.js'
-import { getScoringConfig, LEGACY_BYCHAT_CONFIG } from '../services/scoring.js'
+import { getScoringConfig } from '../services/scoring.js'
 
 export async function dashboardRoutes(app: FastifyInstance) {
 

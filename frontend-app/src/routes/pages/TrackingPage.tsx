@@ -1340,7 +1340,7 @@ function ValidateTab({ seedUrl, clearSeed }: { seedUrl: string | null; clearSeed
         <div class="mb-4">
           <h3 class="text-base font-semibold text-fg">Validar Tracking em URL</h3>
           <p class="text-xs text-fg-muted mt-1">
-            Insira a URL de uma página para verificar se o código de tracking Beyond (bt.js) está instalado corretamente.
+            Insira a URL de uma página para verificar se o código de rastreamento (bt.js) está instalado corretamente.
           </p>
         </div>
         <div class="flex gap-2 items-stretch flex-wrap">
@@ -1588,7 +1588,7 @@ function InstallationModal({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title="Código de Instalação — Beyond Tracking"
+      title="Código de Instalação — Rastreamento"
       description="Adicione este código antes do </head> em todas as páginas que deseja monitorar."
       size="xl"
       footer={<Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>}

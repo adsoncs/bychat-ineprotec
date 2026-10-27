@@ -33,13 +33,12 @@ export async function helpdeskPortalRoutes(app: FastifyInstance) {
     }
     const link = `${appOrigin(req)}/suporte?t=${signMagicLink(email)}`
     try {
-      const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'suporte'),
-        to: email,
-        subject: 'Acesso ao portal de suporte',
-        html: `<p>Olá,</p><p>Clique no link abaixo para acessar seus chamados (válido por 30 minutos):</p><p><a href="${link}">Acessar portal de suporte</a></p><p>Se você não solicitou, ignore este e-mail.</p>`,
-      })
+      const { renderizarModelo } = await import('../services/modelosDoSistema.js')
+      const em = await renderizarModelo('suporte_acesso_email', { link, validade: 30 })
+      if (em?.body.trim()) {
+        const cfg = await getEmailConfig()
+        await sendEmailGeneric({ from: getFromAddress(cfg), to: email, subject: em.subject, html: em.body })
+      }
     } catch (e) {
       console.error('[helpdesk-portal] envio do magic link falhou:', (e as Error).message)
     }

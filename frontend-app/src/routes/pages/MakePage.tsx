@@ -92,7 +92,7 @@ export function MakePage() {
   async function handleDownloadZip() {
     setDownloading(true)
     try {
-      await downloadFile('/admin/make/app.zip', 'bychat-beyond-make-app.zip')
+      await downloadFile('/admin/make/app.zip', 'make-app.zip')
       toast('Pacote baixado', 'success')
     } catch (e: unknown) {
       const msg = (e as Error).message
@@ -384,7 +384,7 @@ export function MakePage() {
             </li>
             <li>
               Em <strong class="text-fg">Collaborators → Invite</strong>, o Make gera um link estilo{' '}
-              <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">make.com/en/hq/apps/bychat-beyond?invite=…</code>.
+              <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">make.com/en/hq/apps/&lt;seu-app&gt;?invite=…</code>.
             </li>
             <li>
               Cada cliente que abrir esse link vê o app na lista. Ao criar cenário, ele só preenche

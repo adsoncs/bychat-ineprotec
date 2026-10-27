@@ -34,7 +34,7 @@ import { isModuleEnabled } from '../lib/moduleManager.js'
 
 const BASE_URL = process.env.REPUTATION_SOURCE_URL || 'https://consumidor.gov.br'
 const INDEX_PATH = '/pages/publicacao/externo/publicacoes.json?indicadorTipoPublicacao=2'
-const UA = 'Mozilla/5.0 (compatible; ByChatRadarReputacao/1.0)'
+const UA = 'Mozilla/5.0 (compatible; RadarReputacao/1.0)'
 const FETCH_TIMEOUT_MS = 5 * 60_000
 
 export interface Publication {

@@ -32,6 +32,7 @@ import {
 import {
   AI,
   AI_JOURNEY,
+  MARCA,
   BR_DIFF,
   CASES,
   ENGAGE,
@@ -224,7 +225,7 @@ export function ModuleExplorer() {
           {total}+ módulos numa só plataforma
         </h2>
         <p class="mt-4 text-lg text-fg-muted">
-          Navegue pelo painel real do ByChat. Cada área substitui uma
+          Navegue pelo painel real de {MARCA}. Cada área substitui uma
           ferramenta que você pagaria à parte — e todas conversam entre si.
         </p>
       </div>
@@ -479,7 +480,7 @@ export function BRDifferentials() {
   return (
     <Section>
       <div class="mx-auto max-w-2xl text-center">
-        <Eyebrow>Por que ByChat</Eyebrow>
+        <Eyebrow>Por que {MARCA}</Eyebrow>
         <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
           Tecnologia brasileira, suporte de verdade
         </h2>

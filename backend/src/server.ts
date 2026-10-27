@@ -14,9 +14,7 @@ import { leadsRoutes } from './routes/leads.js'
 import { realtimeRoutes } from './routes/realtime.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { instagramRoutes, startInstagramTokenRefresher } from './routes/instagram.js'
-import { chatRoutes } from './routes/chat.js'
 import { statsRoutes } from './routes/stats.js'
-import { analyzeRoutes } from './routes/analyze.js'
 import { whatsappRoutes } from './routes/whatsapp.js'
 import { usersRoutes } from './routes/users.js'
 import { stagesRoutes } from './routes/stages.js'
@@ -332,14 +330,8 @@ const ADMIN_REDIRECT_HTML = `<!doctype html>
 </noscript>
 <p>Redirecionando para o painel…</p>`
 
-// URL desconhecida (fora de /api e /app) numa instalação FILHA (tenant de
-// cliente) caia no fallback de `serveHtmlWithInjections`, que serve o
-// `frontend/index.html` — a VITRINE DE VENDAS do BeyondHub ("Diagnostico
-// Estrategico Gratuito"), com o nome "BeyondHub" injetado por padrao pelas
-// configs de aparencia da landing. Achado por um cliente, 2026-09-17:
-// digitar qualquer URL errada no dominio DELE mostrava propaganda do
-// fornecedor. Esta pagina substitui esse fallback nas instalacoes filhas —
-// nunca cai no conteudo do BeyondHub, e ainda ajuda quem se perdeu a voltar.
+// Página para endereço inexistente (fora de /api e /app), em qualquer
+// instalação. Neutra: não mostra marca nenhuma e ajuda quem se perdeu a voltar.
 const TENANT_404_HTML = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -599,8 +591,8 @@ app.addHook('preHandler', async (req) => {
 // ByChat→Attrae o tenant responde no domínio novo E no antigo, e sem isto o
 // login no domínio novo levaria 403 do guard de CSRF abaixo.
 const ALLOWED_ORIGINS = [
-  ...(process.env.CORS_ORIGIN || 'https://bychat.ia.br').split(','),
-  ...(process.env.APP_URL || 'https://bychat.ia.br').split(','),
+  ...(process.env.CORS_ORIGIN || '').split(',').filter(Boolean),
+  ...(process.env.APP_URL || '').split(',').filter(Boolean),
 ]
   .map(o => o.trim())
   .filter(Boolean)
@@ -720,9 +712,7 @@ app.addHook('onRequest', async (req, reply) => {
   const hasAuth = !!req.headers.authorization
   const isLogin = req.url === '/api/admin/login' && req.method === 'POST'
   const isWebhookExempt = req.url === '/api/appearance' ||
-    req.url.startsWith('/api/bychat/chat/') ||
-    req.url.startsWith('/api/chatbots/public/') ||
-    req.url.startsWith('/api/chatbots/embed/')
+    req.url.startsWith('/api/chatbots/public/')
 
   // Rate limit específico para tracking (mais permissivo, mas protege contra DoS)
   if (req.url.startsWith('/api/t/')) {
@@ -816,8 +806,6 @@ await app.register(telegramRoutes)
 await app.register(instagramRoutes)
 await app.register(leadsRoutes)
 await app.register(statsRoutes)
-await app.register(analyzeRoutes)
-await app.register(chatRoutes)
 await app.register(whatsappRoutes)
 await app.register(usersRoutes)
 await app.register(stagesRoutes)
@@ -1091,19 +1079,19 @@ function escapeHtmlText(str: string): string {
     .replace(/>/g, '&gt;')
 }
 
-async function injectAppearanceIntoHtml(rawHtml: string, kind: 'admin' | 'lp'): Promise<string> {
+async function injectAppearanceIntoHtml(rawHtml: string, kind: 'admin'): Promise<string> {
   let html = rawHtml
   const cfg = await loadAppearanceConfig()
   const { default: sanitizeHtmlLib } = await import('sanitize-html')
 
-  const prefix = kind === 'admin' ? 'admin' : 'lp'
-  const robotsVal = cfg[`appearance.${prefix}_robots_index`] || (kind === 'admin' ? 'noindex' : 'index')
+  const prefix = kind
+  const robotsVal = cfg[`appearance.${prefix}_robots_index`] || 'noindex'
   const robotsContent = robotsVal === 'index' ? 'index, follow' : 'noindex, nofollow'
   const pageTitle = cfg[`appearance.${prefix}_page_title`] || ''
   const pageDescription = cfg[`appearance.${prefix}_page_description`] || ''
   const faviconUrl = cfg['appearance.favicon_url'] || ''
-  const headCode = cfg[`appearance.${prefix === 'admin' ? 'custom_head_code' : 'lp_custom_head_code'}`] || ''
-  const bodyCode = cfg[`appearance.${prefix === 'admin' ? 'custom_body_code' : 'lp_custom_body_code'}`] || ''
+  const headCode = cfg['appearance.custom_head_code'] || ''
+  const bodyCode = cfg['appearance.custom_body_code'] || ''
 
   // <title> — substitui o existente (ou injeta se não existir)
   if (pageTitle) {
@@ -1154,164 +1142,16 @@ async function injectAppearanceIntoHtml(rawHtml: string, kind: 'admin' | 'lp'): 
     html = html.replace('</body>', `${sanitizeHtmlLib(bodyCode, BODY_SANITIZE_OPTS)}\n</body>`)
   }
 
-  // ── LP-only: aplicar cores, fonte, conteúdo, marca e tracking ──
-  if (kind === 'lp') {
-    const landingBg = cfg['appearance.landing_bg'] || '#0a0a0a'
-    const landingText = cfg['appearance.landing_text'] || '#ffffff'
-    const landingTextLight = cfg['appearance.landing_text_light'] || '#000000'
-    const landingGold = cfg['appearance.landing_gold'] || '#d1ae60'
-    const landingGoldLight = cfg['appearance.landing_gold_light'] || '#e8cc8a'
-    const landingGoldDark = cfg['appearance.landing_gold_dark'] || '#a88a3d'
-    const landingFont = cfg['appearance.landing_font'] || "'Poppins', sans-serif"
-    const lpTitle = decodeHtmlEntities(cfg['appearance.lp_title'] || '')
-    const lpDescription = cfg['appearance.lp_description'] || ''
-    const lpLogoMode = cfg['appearance.lp_logo_mode'] || 'text'
-    const lpLogoUrl = cfg['appearance.lp_logo_url'] || ''
-    const lpLogoSize = cfg['appearance.lp_logo_size'] || '18'
-    const lpBrandName = cfg['appearance.lp_brand_name'] || 'BeyondHub'
-    const lpBrandAccent = cfg['appearance.lp_brand_accent'] || ''
-    const lpEventForm = decodeHtmlEntities(cfg['appearance.lp_event_btn_form'] || '')
-    const lpEventChat = decodeHtmlEntities(cfg['appearance.lp_event_btn_chat'] || '')
-
-    // Quando o brand_name começa com brand_accent (ex: "BeyondHub" / accent "Hub"),
-    // separamos a base do destaque para renderizar com cor de acento.
-    let brandBase = lpBrandName
-    let brandAccent = ''
-    if (lpBrandAccent && lpBrandName.endsWith(lpBrandAccent)) {
-      brandBase = lpBrandName.slice(0, lpBrandName.length - lpBrandAccent.length)
-      brandAccent = lpBrandAccent
-    }
-
-    // 1. Injeta CSS vars + fonte sobrescrevendo as hardcoded da landing.
-    // Várias classes do template original têm cor/fonte hardcoded; sobrescrevemos
-    // aqui para que as configs landing_text/landing_gold/landing_font realmente
-    // se reflitam no visual. Para gold com alpha (gradient/badge/glow) usamos
-    // color-mix(in srgb, var(--gold) X%, transparent) — recompõe a transparência
-    // a partir da cor configurada (suporte universal nos navegadores modernos).
-    const sizePx = /^\d+(\.\d+)?$/.test(lpLogoSize) ? `${lpLogoSize}px` : lpLogoSize
-    const lpVarsCss = `
-<style id="lp-appearance">
-:root{
-  --gold:${landingGold};
-  --gold-l:${landingGoldLight};
-  --gold-d:${landingGoldDark};
-  --black:${landingBg};
-  --b2:${landingBg};
-  --g3:${landingText};
-  --g4:${landingText};
-  --lp-logo-size:${sizePx};
-}
-html,body{font-family:${landingFont}}
-.land-h1,.land-logo,.land-nav-logo,.loading-logo,.result-logo,.form-logo{font-family:${landingFont}}
-.land-nav-logo{font-size:var(--lp-logo-size)}
-.land-nav-logo img{height:calc(var(--lp-logo-size) * 1.6);width:auto;display:block}
-/* Cor de texto geral — sobrescreve #fff hardcoded (tema escuro apenas;
-   tema claro mantém sua cor fixa via [data-theme="light"]). */
-.land-h1,.land-h1 .dim,.land-sub,.land-card-text,.land-footer,.land-footer a,.land-note,.how-label{color:var(--g3)}
-/* Gold com alpha — recompõe rgba(209,174,96,X) a partir de var(--gold). */
-.land-bg{background:radial-gradient(ellipse 80% 60% at 50% -10%,color-mix(in srgb,var(--gold) 12%,transparent) 0%,transparent 60%),radial-gradient(ellipse 40% 40% at 90% 80%,color-mix(in srgb,var(--gold) 6%,transparent) 0%,transparent 50%),var(--black)}
-.land-grid{background-image:linear-gradient(color-mix(in srgb,var(--gold) 4%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--gold) 4%,transparent) 1px,transparent 1px)}
-.land-badge{background:color-mix(in srgb,var(--gold) 10%,transparent);border-color:color-mix(in srgb,var(--gold) 25%,transparent);color:var(--gold)}
-.land-badge .dot{background:var(--gold)}
-.land-card:hover{border-color:color-mix(in srgb,var(--gold) 30%,transparent)}
-.land-card-title{color:var(--gold)}
-.btn-primary:hover{box-shadow:0 8px 32px color-mix(in srgb,var(--gold) 30%,transparent)}
-.btn-chat-cta{color:var(--gold);border-color:var(--gold)}
-.btn-chat-cta:hover{background:color-mix(in srgb,var(--gold) 12%,transparent);box-shadow:0 8px 32px color-mix(in srgb,var(--gold) 15%,transparent)}
-.how-num{background:color-mix(in srgb,var(--gold) 10%,transparent);border-color:color-mix(in srgb,var(--gold) 20%,transparent);color:var(--gold)}
-.land-footer a:hover{color:var(--gold)}
-.land-nav-logo,.land-nav-logo .lp-logo-base{color:var(--g3)}
-.land-nav-logo .lp-logo-accent,.lp-logo-accent{color:var(--gold)}
-/* Tema claro: cor de texto separada (landing_text_light) — sobrescreve as
-   regras hardcoded #000/#111 do template. */
-html[data-theme="light"] .land-h1,
-html[data-theme="light"] .land-h1 .dim,
-html[data-theme="light"] .land-sub,
-html[data-theme="light"] .land-card-text,
-html[data-theme="light"] .land-footer,
-html[data-theme="light"] .land-footer a,
-html[data-theme="light"] .land-note,
-html[data-theme="light"] .how-label,
-html[data-theme="light"] .land-nav-logo,
-html[data-theme="light"] .land-nav-logo .lp-logo-base{color:${landingTextLight}}
-/* Mobile responsivo: respeita lp_logo_size em vez do 16px/15px hardcoded. */
-@media(max-width:640px){.land-nav-logo{font-size:var(--lp-logo-size)}}
-@media(max-width:380px){.land-nav-logo{font-size:calc(var(--lp-logo-size) * 0.85)}}
-</style>`
-    html = html.replace('</head>', `${lpVarsCss}\n</head>`)
-
-    // 2. Substitui H1 pelo lp_title (sanitizado: permite <br> e <span class="gold|dim">).
-    if (lpTitle) {
-      const safeTitle = sanitizeHtmlLib(lpTitle, LP_TITLE_SANITIZE_OPTS)
-      html = html.replace(
-        /<h1\s+class="land-h1"\s+id="land-h1">[\s\S]*?<\/h1>/,
-        `<h1 class="land-h1" id="land-h1">${safeTitle}</h1>`
-      )
-    }
-
-    // 3. Substitui descrição pelo lp_description (texto puro escapado).
-    if (lpDescription) {
-      html = html.replace(
-        /<p\s+class="land-sub"\s+id="land-sub">[\s\S]*?<\/p>/,
-        `<p class="land-sub" id="land-sub">${escapeHtmlText(lpDescription)}</p>`
-      )
-    }
-
-    // 4. Substitui o nav-logo pelo logo configurado (texto ou imagem).
-    let logoInner: string
-    if (lpLogoMode === 'image' && lpLogoUrl) {
-      logoInner = `<img src="${escapeHtmlAttr(lpLogoUrl)}" alt="${escapeHtmlAttr(lpBrandName)}">`
-    } else {
-      logoInner = brandAccent
-        ? `<span class="lp-logo-base">${escapeHtmlText(brandBase)}</span><span class="lp-logo-accent">${escapeHtmlText(brandAccent)}</span>`
-        : `<span class="lp-logo-base">${escapeHtmlText(brandBase)}</span>`
-    }
-    html = html.replace(
-      /<div\s+class="land-nav-logo"\s+data-lp-bind="logo">[\s\S]*?<\/div>/,
-      `<div class="land-nav-logo" data-lp-bind="logo">${logoInner}</div>`
-    )
-
-    // 5. Substitui texto da marca no footer.
-    html = html.replace(
-      /<span\s+class="brand-name-text"\s+data-lp-bind="brand-text">[^<]*<\/span>/,
-      `<span class="brand-name-text" data-lp-bind="brand-text">${escapeHtmlText(lpBrandName)}</span>`
-    )
-
-    // 6. Tracking dos CTAs: snippets executados ao clicar nos botões marcados.
-    // Os snippets são código JS livre digitado pelo admin (gtag/dataLayer/fbq/etc).
-    // Embrulhamos em try/catch para não quebrar a navegação caso o snippet falhe.
-    if (lpEventForm || lpEventChat) {
-      const ctaScript = `
-<script id="lp-cta-tracking">
-(function(){
-  function bind(){
-    var formFn = function(){ try { ${lpEventForm} } catch(e){ console.warn('[lp-cta form]', e); } };
-    var chatFn = function(){ try { ${lpEventChat} } catch(e){ console.warn('[lp-cta chat]', e); } };
-    document.querySelectorAll('[data-lp-cta="form"]').forEach(function(b){ b.addEventListener('click', formFn); });
-    document.querySelectorAll('[data-lp-cta="chat"]').forEach(function(b){ b.addEventListener('click', chatFn); });
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-  else bind();
-})();
-</script>`
-      html = html.replace('</body>', `${ctaScript}\n</body>`)
-    }
-  }
-
   return html
 }
 
-async function serveHtmlWithInjections(req: any, reply: any) {
-  try {
-    const htmlPath = join(__dirname, '../../frontend/index.html')
-    const raw = readFileSync(htmlPath, 'utf-8')
-    const isAdminPath = req.url.startsWith('/admin') || req.url.startsWith('/app')
-    const kind: 'admin' | 'lp' = isAdminPath ? 'admin' : 'lp'
-    const html = await injectAppearanceIntoHtml(raw, kind)
-    return reply.type('text/html').send(html)
-  } catch {
-    return reply.sendFile('index.html')
-  }
+/**
+ * Endereço sem página (fora de /api e /app, ou landing não buildada): página
+ * 404 neutra. Antes caía na vitrine antiga de diagnóstico (`frontend/index.html`),
+ * com marca e conteúdo de outra empresa.
+ */
+async function serveHtmlWithInjections(_req: any, reply: any) {
+  return reply.code(404).type('text/html').send(TENANT_404_HTML)
 }
 
 // ── LANDING INSTITUCIONAL (bychat.ia.br) ──────────
@@ -1336,7 +1176,7 @@ const MARKETING_HOST = resolveMarketingHost()
 // /api/admin/landing-contact (settings.ts).
 const LANDING_CONTACT_DEFAULTS = {
   whatsappNumber: '5511944742843',
-  whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
+  whatsappMessage: 'Olá! Quero agendar uma demonstração.',
   loginUrl: '/app',
 }
 async function loadLandingContact(): Promise<{ whatsappNumber: string; whatsappMessage: string; loginUrl: string }> {
@@ -1354,6 +1194,29 @@ async function loadLandingContact(): Promise<{ whatsappNumber: string; whatsappM
   }
 }
 
+/**
+ * Os HTML de entrada (painel e landing) não têm nome de produto nem domínio
+ * fixos: %MARCA% vira a marca da instalação e %ORIGEM% o primeiro host de
+ * MARKETING_HOST (ou do APP_URL).
+ */
+function preencherMarcadores(html: string, marca: string): string {
+  const host = dominiosDaMarca().principal
+  const origem = host ? `https://${host}` : (process.env.APP_URL || '').split(',')[0]?.trim().replace(/\/$/, '') || ''
+  return html.replace(/%MARCA%/g, escapeHtmlAttr(marca)).replace(/%ORIGEM%/g, escapeHtmlAttr(origem))
+}
+
+/**
+ * Domínio principal do site institucional = BASE_DOMAIN (se estiver entre os
+ * de MARKETING_HOST) ou o primeiro de MARKETING_HOST; os outros são domínios
+ * antigos da marca, onde a landing mostra o aviso de troca de nome.
+ */
+function dominiosDaMarca(): { principal: string; antigos: string[] } {
+  const lista = (process.env.MARKETING_HOST || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
+  const base = (process.env.BASE_DOMAIN || '').trim().toLowerCase()
+  const principal = base && lista.includes(base) ? base : (lista[0] || '')
+  return { principal, antigos: lista.filter((h) => h !== principal) }
+}
+
 // Serve frontend-app/dist/landing.html (build do entry `landing`), injetando
 // os contatos configuráveis em window.__LANDING_CONTACT__ antes de </head>.
 // Retorna `null` quando o build ainda não existe — chamador faz fallback.
@@ -1361,8 +1224,13 @@ async function serveLandingPage(reply: any, file = 'landing.html'): Promise<unkn
   try {
     let raw = readFileSync(join(NEW_APP_ROOT, file), 'utf-8')
     const contact = await loadLandingContact()
+    // Marca do dono desta instalação (Configurações › Aparência): a landing
+    // não tem nome de produto fixo no código.
+    const { getBranding } = await import('./lib/branding.js')
+    const marca = (await getBranding().catch(() => null))?.brandName || ''
     // Escape de < > & evita quebra/injeção dentro da tag <script>.
-    const safeJson = JSON.stringify(contact)
+    const { principal: dominioPrincipal, antigos: dominiosAntigos } = dominiosDaMarca()
+    const safeJson = JSON.stringify({ ...contact, marca, dominioPrincipal, dominiosAntigos })
       .replace(/</g, '\\u003c')
       .replace(/>/g, '\\u003e')
       .replace(/&/g, '\\u0026')
@@ -1370,6 +1238,7 @@ async function serveLandingPage(reply: any, file = 'landing.html'): Promise<unkn
     raw = raw.includes('</head>')
       ? raw.replace('</head>', `${tag}\n</head>`)
       : `${tag}\n${raw}`
+    raw = preencherMarcadores(raw, marca)
     return reply
       .type('text/html')
       .header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -1449,6 +1318,8 @@ async function serveNewAppIndex(_req: any, reply: any) {
     } catch {
       html = raw
     }
+    const { getBranding } = await import('./lib/branding.js')
+    html = preencherMarcadores(html, (await getBranding().catch(() => null))?.brandName || '')
     return reply
       .type('text/html')
       .header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -1489,12 +1360,7 @@ app.setNotFoundHandler(async (req, reply) => {
     }
     return serveNewAppIndex(req, reply)
   }
-  // Fora de /api e /app: instalacao filha (tenant de cliente) NUNCA mostra o
-  // fallback de vitrine de vendas do BeyondHub — so a instalacao PRINCIPAL,
-  // onde `serveHtmlWithInjections` e de fato a landing institucional.
-  if (!isPrimaryInstall()) {
-    return reply.code(404).type('text/html').send(TENANT_404_HTML)
-  }
+  // Fora de /api e /app: página 404 neutra.
   return serveHtmlWithInjections(req, reply)
 })
 
@@ -1503,7 +1369,7 @@ const PORT = parseInt(process.env.PORT || '3001')
 
 try {
   await app.listen({ port: PORT, host: '0.0.0.0' })
-  console.log(`🚀 ByChat Beyond rodando na porta ${PORT}`)
+  console.log(`🚀 Servidor rodando na porta ${PORT}`)
   // Semeia bychat_modules a partir do MODULE_REGISTRY (idempotente) — garante que
   // módulos novos (ex.: voip) tenham row e possam ser ativados/aparecer na sidebar.
   import('./lib/moduleManager.js')
@@ -1657,6 +1523,10 @@ import('./services/profilePictureSync.js')
     .then(m => m.seedSystemEmailTemplates())
     .then(() => console.log('✅ Seed de templates de email do sistema concluído'))
     .catch(err => console.warn('[systemEmailTemplates] seed falhou:', err.message))
+  // Envios que antes saíam fixos no código e agora são Modelo/Fluxo editáveis.
+  import('./services/notificationSeed.js')
+    .then(m => m.garantirEnviosDoSistema())
+    .catch(err => console.warn('[envios do sistema] falhou:', err?.message || err))
   startWebhookDispatcher()
   startGoogleSheetsSync()
   startGA4Sync()

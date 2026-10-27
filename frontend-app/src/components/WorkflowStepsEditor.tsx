@@ -125,7 +125,6 @@ const FIELD_OPTIONS = [
   { value: 'lead.source', label: 'Origem' },
   { value: 'lead.segmento', label: 'Segmento' },
   { value: 'lead.cidade', label: 'Cidade' },
-  { value: 'lead.maturidade', label: 'Maturidade' },
   { value: 'lead.completed', label: 'Concluído' },
   { value: 'lead.empresa', label: 'Empresa' },
 ]
@@ -134,7 +133,6 @@ const BRANCH_FIELD_OPTIONS = [
   { value: 'lead.status', label: 'Etapa atual' },
   { value: 'lead.source', label: 'Origem' },
   { value: 'lead.channel', label: 'Canal' },
-  { value: 'lead.maturidade', label: 'Maturidade' },
 ]
 
 const SOURCE_OPTIONS = [

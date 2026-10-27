@@ -662,13 +662,6 @@ export function useRunAiSentiment() {
   })
 }
 
-export function useResendLeadReport() {
-  return useMutation({
-    mutationFn: (id: number) =>
-      api.post<{ ok: true }>(`/bychat/leads/${id}/send-report`),
-  })
-}
-
 export interface AiScoreCalibration {
   scored: number
   buckets: { bucket: string; total: number; won: number; lost: number; open: number; winRate: number | null }[]

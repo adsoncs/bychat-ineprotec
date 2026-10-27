@@ -238,28 +238,30 @@ export async function enviarLinkAcesso(identificador: string, baseUrl: string): 
 
   const token = mintPortalToken('aca-aluno', aluno.id, 1)
   const url = `${baseUrl.replace(/\/$/, '')}/portal/aca/senha?t=${encodeURIComponent(token)}`
-  const texto = `Olá, ${lead.nome ?? 'tudo bem'}! Use o link abaixo para entrar no portal e criar sua senha:\n\n${url}\n\nO link vale por 24 horas e é de uso pessoal.`
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
+  const vars = { nome: lead.nome ?? '', link: url, validade: 24 }
 
   if (lead.whatsapp) {
-    try {
-      const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
-      await provider.sendText(lead.whatsapp, texto)
-      return { enviado: true, canal: 'whatsapp' }
-    } catch {
-      // Cai para o e-mail: WhatsApp fora do ar não pode deixar o aluno sem acesso.
+    const msg = await renderizarModelo('aluno_acesso_wa', vars)
+    if (msg?.body.trim()) {
+      try {
+        const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
+        await provider.sendText(lead.whatsapp, msg.body)
+        return { enviado: true, canal: 'whatsapp' }
+      } catch {
+        // Cai para o e-mail: WhatsApp fora do ar não pode deixar o aluno sem acesso.
+      }
     }
   }
   if (lead.email) {
-    try {
-      const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'secretaria'),
-        to: lead.email,
-        subject: 'Acesso ao portal do aluno',
-        html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${texto.replace(/\n/g, '<br>')}</div>`,
-      })
-      return { enviado: true, canal: 'email' }
-    } catch { /* nada a fazer */ }
+    const em = await renderizarModelo('aluno_acesso_email', vars)
+    if (em?.body.trim()) {
+      try {
+        const cfg = await getEmailConfig()
+        await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
+        return { enviado: true, canal: 'email' }
+      } catch { /* nada a fazer */ }
+    }
   }
   return { enviado: false }
 }

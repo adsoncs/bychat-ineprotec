@@ -4476,8 +4476,6 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
             <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Status</div>
             <dl class="text-xs space-y-1">
               <InfoRow label="Status" value={lead.completed ? 'Resolvido' : 'Aberto'} />
-              <InfoRow label="Maturidade" value={lead.maturidade} />
-              <InfoRow label="Solução" value={lead.solucaoNome} />
               <InfoRow
                 label="Origem"
                 valueNode={
@@ -4808,8 +4806,6 @@ function EditContactModal({
     email: lead.email ?? '',
     segmento: lead.segmento ?? '',
     cidade: lead.cidade ?? '',
-    maturidade: lead.maturidade ?? '',
-    solucaoNome: lead.solucaoNome ?? '',
     annotation: lead.annotation ?? '',
   })
   const [error, setError] = useState<string | null>(null)
@@ -4842,8 +4838,6 @@ function EditContactModal({
         email: form.email.trim() || null,
         segmento: form.segmento.trim() || null,
         cidade: form.cidade.trim() || null,
-        maturidade: form.maturidade.trim() || null,
-        solucaoNome: form.solucaoNome.trim() || null,
         annotation: form.annotation || null,
       },
       {
@@ -4924,22 +4918,6 @@ function EditContactModal({
             <Input
               value={form.cidade}
               onInput={(e) => update_('cidade', (e.target as HTMLInputElement).value)}
-            />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="text-2xs text-fg-muted block mb-1">Maturidade</label>
-            <Input
-              value={form.maturidade}
-              onInput={(e) => update_('maturidade', (e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div>
-            <label class="text-2xs text-fg-muted block mb-1">Solução</label>
-            <Input
-              value={form.solucaoNome}
-              onInput={(e) => update_('solucaoNome', (e.target as HTMLInputElement).value)}
             />
           </div>
         </div>

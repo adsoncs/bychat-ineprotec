@@ -15,10 +15,11 @@ import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFie
 import { escolherOperadorDaRota } from '../services/teamRouting.js'
 import { rejectLeadEntry, candidateFromForm } from '../services/leadBlocklist.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
-import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
+import { rastreamentoSnippet, rastreamentoInlineJs } from '../lib/rastreamento.js'
 import { dispatchConversion } from '../services/googleAdsConversions.js'
 import { logTitularConsent } from './consent.js'
 import { createHmac } from 'crypto'
+import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 // ── Token de progresso (captura parcial) ──────────────────────────────────────
 // Protege o endpoint público /progress e o finalize do /submit: só quem recebeu
@@ -231,7 +232,7 @@ export async function formsRoutes(app: FastifyInstance) {
           if (created) {
             leadId = created.leadId
             convStageKey = created.targetStageKey
-            try { const { notifyNewLead } = await import('../services/notify.js'); notifyNewLead(created.newLead).catch(() => {}) } catch {}
+            try { const { emitirLeadCaptado } = await import('../services/notify.js'); emitirLeadCaptado(created.newLead, 'formulario').catch(() => {}) } catch {}
           }
         }
 
@@ -743,9 +744,9 @@ export async function formsRoutes(app: FastifyInstance) {
     const form = await prisma.form.findUnique({ where: { id: parseInt(id) }, select: { settings: true, slug: true } })
     const displayMode = (form?.settings as any)?.displayMode === 'conversational' ? 'conversational' : 'classic'
 
-    const snippet = `<!-- Beyond Form Embed -->
+    const snippet = `<!-- Formulário -->
 <script src="${baseUrl}/api/forms/embed/${id}.js" defer></script>
-<beyond-form form-id="${id}"></beyond-form>`
+<lead-form form-id="${id}"></lead-form>`
 
     // Modo conversacional: página hospedada full-screen + embed por iframe.
     // Usa o slug amigável quando disponível; senão cai no id.
@@ -1063,9 +1064,9 @@ function generateEmbedScript(
     : ''
 
   return `(function(){
-  if(customElements.get('beyond-form'))return;
+  if(customElements.get('lead-form'))return;
 
-  class BeyondForm extends HTMLElement {
+  class LeadForm extends HTMLElement {
     constructor(){super();this.attachShadow({mode:'open'})}
     connectedCallback(){
       var fid=${formId};
@@ -1119,7 +1120,7 @@ function generateEmbedScript(
   </div>
 </div>\`;
 
-      ${beyondTrackingInlineJs(baseUrl)}
+      ${rastreamentoInlineJs(baseUrl)}
       var form=this.shadowRoot.getElementById('bf');
       var ok=this.shadowRoot.getElementById('bf-ok');
       var wel=this.shadowRoot.getElementById('bf-welcome');
@@ -1179,7 +1180,9 @@ function generateEmbedScript(
       try{if(window.BT&&BT.track)BT.track('form_view',{formId:fid})}catch(ex){}
     }
   }
-  customElements.define('beyond-form',BeyondForm);
+  customElements.define('lead-form',LeadForm);
+  // Nome antigo, de código já colado em sites: mesmo componente.
+  if(!customElements.get('beyond-form'))customElements.define('beyond-form',class extends LeadForm{});
 })();`
 }
 
@@ -1263,23 +1266,14 @@ function generateConversationalPage(
 
   return `<!doctype html>
 <html lang="pt-br"><head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>${e(formName)}</title>
 ${metaSnippet}
 ${gtagSnippet}
-${beyondTrackingSnippet(baseUrl)}
+${rastreamentoSnippet(baseUrl)}
 <style>
 :root{
   --bg:${g('pageBgColor', '#ffffff')};--accent:${g('primaryColor', '#1a73e8')};--accent-hover:${g('primaryHoverColor', '#1557b0')};
@@ -1385,7 +1379,7 @@ function paginaClassica(id: number, nome: string, styling: any, embed: boolean):
   const fundo = embed ? 'transparent' : e(styling?.pageBackground || '#f5f6f8')
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(nome)}</title>
 <style>html,body{margin:0;background:${fundo}}main{max-width:560px;margin:0 auto;padding:${embed ? '0' : '32px 16px'}}</style></head>
-<body><main><beyond-form form-id="${id}"></beyond-form></main>
+<body><main><lead-form form-id="${id}"></lead-form></main>
 <script src="/api/forms/embed/${id}.js"></script>
 <script>(function(){if(window.parent===window)return;function avisa(){try{window.parent.postMessage({bfFormId:'${id}',bfFormHeight:document.documentElement.scrollHeight},'*')}catch(e){}}if(window.ResizeObserver)new ResizeObserver(avisa).observe(document.body);window.addEventListener('load',avisa);setInterval(avisa,1500);})();</script>
 </body></html>`

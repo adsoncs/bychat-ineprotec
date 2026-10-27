@@ -7,11 +7,12 @@ import { prisma } from '../lib/prisma.js'
 
 export type HelpdeskNotifyEvent = 'assigned' | 'sla_at_risk' | 'sla_breached' | 'customer_reply'
 
-const MESSAGES: Record<HelpdeskNotifyEvent, (n: number, s: string) => string> = {
-  assigned: (n, s) => `🎫 Chamado #${n} atribuído a você: ${s}`,
-  sla_at_risk: (n, s) => `⏳ SLA do chamado #${n} perto do prazo: ${s}`,
-  sla_breached: (n, s) => `🔴 SLA do chamado #${n} ESTOUROU: ${s}`,
-  customer_reply: (n, s) => `💬 Nova resposta do cliente no chamado #${n}: ${s}`,
+/** Evento → prefixo do modelo (helpdesk_<x>_wa / helpdesk_<x>_email). */
+const MODELO: Record<HelpdeskNotifyEvent, string> = {
+  assigned: 'helpdesk_atribuido',
+  sla_at_risk: 'helpdesk_sla_risco',
+  sla_breached: 'helpdesk_sla_estourou',
+  customer_reply: 'helpdesk_resposta_cliente',
 }
 
 async function notifyEnabled(): Promise<boolean> {
@@ -30,7 +31,7 @@ async function emailTo(to: string | null, subject: string, html: string): Promis
   try {
     const { getEmailConfig, getFromAddress, sendEmailGeneric } = await import('./notify.js')
     const cfg = await getEmailConfig()
-    await sendEmailGeneric({ from: getFromAddress(cfg, 'suporte'), to, subject, html })
+    await sendEmailGeneric({ from: getFromAddress(cfg), to, subject, html })
   } catch (e) {
     console.warn('[helpdesk-notify] e-mail falhou:', (e as Error).message)
   }
@@ -61,12 +62,15 @@ export async function notifyTicketAgent(ticketId: number, event: HelpdeskNotifyE
     if (!t || t.assignedUserId == null) return
     const agent = await prisma.user.findUnique({ where: { id: t.assignedUserId }, select: { email: true, name: true, notifyWhatsapp: true } })
     if (!agent) return
-    const text = MESSAGES[event](t.number, t.subject)
-    const link = `${process.env.APP_URL || ''}/app/helpdesk`
-    const html = `<div style="font-family:system-ui,sans-serif"><p>${text}</p><p><a href="${link}">Abrir Helpdesk</a></p></div>`
+    const { renderizarModelo } = await import('./modelosDoSistema.js')
+    const { urlNoPainel } = await import('../lib/appUrl.js')
+    const esc = (x: string) => x.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+    const vars = { numero: t.number, assunto: t.subject, agente: agent.name || '', link: urlNoPainel('/app/helpdesk') || '' }
+    const wa = await renderizarModelo(`${MODELO[event]}_wa`, vars)
+    const em = await renderizarModelo(`${MODELO[event]}_email`, { ...vars, assunto: esc(t.subject), agente: esc(agent.name || '') })
     await Promise.all([
-      emailTo(agent.email, `Helpdesk — chamado #${t.number}`, html),
-      waToOperator(agent.notifyWhatsapp, text),
+      em?.body.trim() ? emailTo(agent.email, em.subject, em.body) : Promise.resolve(),
+      wa?.body.trim() ? waToOperator(agent.notifyWhatsapp, wa.body) : Promise.resolve(),
     ])
   } catch (e) {
     console.error('[helpdesk-notify] notifyTicketAgent falhou:', (e as Error).message)

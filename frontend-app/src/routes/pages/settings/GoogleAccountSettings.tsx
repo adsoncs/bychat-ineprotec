@@ -40,7 +40,7 @@ export function GoogleAccountSettings() {
   }
 
   function handleDisconnect() {
-    if (!confirm('Desconectar sua conta Google? Reuniões e tarefas futuras criadas pelo bychat passarão a usar a conexão da empresa como fallback.')) return
+    if (!confirm('Desconectar sua conta Google? Reuniões e tarefas futuras criadas pelo sistema passarão a usar a conexão da empresa como fallback.')) return
     disconnect.mutate(undefined, {
       onSuccess: () => toast('Conta Google desconectada', 'success'),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -66,7 +66,7 @@ export function GoogleAccountSettings() {
           <div>
             <div class="text-sm font-semibold text-fg">Minha conta Google</div>
             <div class="text-xs text-fg-muted mt-0.5">
-              Quando você conecta sua conta, agendamentos, tarefas e e-mails do bychat passam a usar SEU Google — não o da empresa.
+              Quando você conecta sua conta, agendamentos, tarefas e e-mails do sistema passam a usar SEU Google — não o da empresa.
             </div>
           </div>
           {conn?.active ? (
@@ -113,7 +113,7 @@ export function GoogleAccountSettings() {
           </li>
           <li class="flex items-start gap-2">
             <Send size={14} class="mt-0.5 text-purple-500 shrink-0" />
-            <span><strong class="text-fg">E-mails enviados pelo bychat</strong> — saem do seu Gmail, com a sua assinatura, mantendo a thread no seu histórico.</span>
+            <span><strong class="text-fg">E-mails enviados pelo sistema</strong> — saem do seu Gmail, com a sua assinatura, mantendo a thread no seu histórico.</span>
           </li>
         </ul>
 

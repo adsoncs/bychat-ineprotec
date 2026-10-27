@@ -14,7 +14,7 @@
 import { prisma } from '../lib/prisma.js'
 
 interface TplDef { key: string; name: string; channel: 'whatsapp' | 'email'; subject?: string; body: string; bodyHtml?: string }
-interface WfDef { key: string; name: string; description: string; triggerEvent: string; emailTplKey?: string; waTplKey?: string; active?: boolean }
+interface WfDef { key: string; name: string; description: string; triggerEvent: string; emailTplKey?: string; waTplKey?: string; active?: boolean; notifyTeam?: boolean }
 
 const TEMPLATES: TplDef[] = [
   // ── Inscrição recebida ──
@@ -496,48 +496,45 @@ Olá {{nome}}, sua redação não atingiu a nota mínima para *{{courseName}}*.
 Mais detalhes: {{candidateUrl}}`,
   },
 
-  // ── Lead lifecycle (usados por wf_lead_created_notify e wf_diagnosis_report_to_lead) ──
+  // ── Aviso à equipe: lead captado (usados por wf_lead_captured_team) ──
   {
-    key: 'lead_created_admin_email',
-    name: 'Novo lead — notificação à equipe (Fluxo)',
+    key: 'lead_captured_team_email',
+    name: 'Aviso à equipe — Novo lead captado (e-mail)',
     channel: 'email',
-    subject: '🎯 Novo lead: {{lead.nome}} ({{lead.empresa}})',
+    subject: 'Novo lead: {{nome}} — {{origem}}',
     bodyHtml: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e0e3e7">
-  <div style="background:#1a73e8;padding:24px 28px;color:#fff">
-    <h1 style="margin:0;font-size:20px;font-weight:600">🎯 Novo lead</h1>
+  <div style="background:#1a73e8;padding:22px 28px;color:#fff">
+    <h1 style="margin:0;font-size:20px;font-weight:600">Novo lead{{#marca}} — {{marca}}{{/marca}}</h1>
+    <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px">{{data_hoje}}</p>
   </div>
-  <div style="padding:24px 28px;color:#202124;font-size:14px">
-    <p><strong>Empresa:</strong> {{lead.empresa}}</p>
-    <p><strong>Contato:</strong> {{lead.nome}}</p>
-    <p><strong>WhatsApp:</strong> {{lead.whatsapp}}</p>
-    <p><strong>E-mail:</strong> {{lead.email}}</p>
-    <p><strong>Score Geral:</strong> {{lead.scores.geral}}/100</p>
-    <p><strong>Solução indicada:</strong> {{lead.solucaoNome}}</p>
+  <div style="padding:22px 28px;color:#202124;font-size:14px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="padding:6px 0;color:#5f6368">Nome</td><td style="padding:6px 0;text-align:right"><strong>{{nome}}</strong></td></tr>
+      {{#whatsapp}}<tr><td style="padding:6px 0;color:#5f6368">WhatsApp</td><td style="padding:6px 0;text-align:right">{{whatsapp}}</td></tr>{{/whatsapp}}
+      {{#email}}<tr><td style="padding:6px 0;color:#5f6368">E-mail</td><td style="padding:6px 0;text-align:right">{{email}}</td></tr>{{/email}}
+      {{#origem}}<tr><td style="padding:6px 0;color:#5f6368">Origem</td><td style="padding:6px 0;text-align:right">{{origem}}</td></tr>{{/origem}}
+      {{#funil}}<tr><td style="padding:6px 0;color:#5f6368">Funil / etapa</td><td style="padding:6px 0;text-align:right">{{funil}}{{#etapa_nome}} · {{etapa_nome}}{{/etapa_nome}}</td></tr>{{/funil}}
+    </table>
+    {{#link_lead}}<div style="margin-top:22px;text-align:center">
+      <a href="{{link_lead}}" style="background:#1a73e8;color:#fff;padding:12px 26px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Abrir no painel</a>
+    </div>{{/link_lead}}
   </div>
 </div>`,
-    body: 'Novo lead: {{lead.nome}} ({{lead.empresa}}) — Score {{lead.scores.geral}}/100',
+    body: 'Novo lead: {{nome}} — {{whatsapp}} — {{origem}}. {{link_lead}}',
   },
   {
-    key: 'lead_diagnostic_email',
-    name: 'Diagnóstico ao lead (Fluxo)',
-    channel: 'email',
-    subject: '🎯 Seu Raio-X de Growth está pronto — {{lead.empresa}}',
-    bodyHtml: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e0e3e7">
-  <div style="background:#1a73e8;padding:28px;text-align:center;color:#fff">
-    <h1 style="margin:0;font-size:22px;font-weight:600">Seu Raio-X de Growth</h1>
-  </div>
-  <div style="padding:28px;color:#202124">
-    <p>Olá <strong>{{lead.nome}}</strong>,</p>
-    <p style="color:#5f6368">Aqui está o resultado da análise da sua operação.</p>
-    <div style="background:#e8f0fe;border-left:3px solid #1a73e8;border-radius:8px;padding:18px;margin:22px 0;text-align:center">
-      <div style="font-size:11px;color:#5f6368;text-transform:uppercase">Score Geral</div>
-      <div style="font-size:42px;font-weight:700;color:#1a73e8;line-height:1">{{lead.scores.geral}}</div>
-      <div style="font-size:13px;color:#5f6368">Maturidade: <strong>{{lead.maturidade}}</strong></div>
-    </div>
-    <p><strong>Solução recomendada:</strong> {{lead.solucaoNome}}</p>
-  </div>
-</div>`,
-    body: 'Seu diagnóstico está pronto. Score: {{lead.scores.geral}}/100. Solução: {{lead.solucaoNome}}',
+    key: 'lead_captured_team_wa',
+    name: 'Aviso à equipe — Novo lead captado (WhatsApp)',
+    channel: 'whatsapp',
+    body: `*Novo lead{{#marca}} — {{marca}}{{/marca}}*
+
+*Nome:* {{nome}}{{#whatsapp}}
+*WhatsApp:* {{whatsapp}}{{/whatsapp}}{{#email}}
+*E-mail:* {{email}}{{/email}}{{#origem}}
+*Origem:* {{origem}}{{/origem}}{{#funil}}
+*Funil:* {{funil}}{{#etapa_nome}} · {{etapa_nome}}{{/etapa_nome}}{{/funil}}{{#link_lead}}
+
+{{link_lead}}{{/link_lead}}`,
   },
 ]
 
@@ -549,12 +546,10 @@ const WORKFLOWS: WfDef[] = [
   { key: 'wf_enrollment_analise_emitida',    name: 'Notificar — Parecer da análise acadêmica', description: 'Avisa o candidato quando a análise acadêmica (ex.: transferência) tem parecer, com período, aproveitamento e link para responder', triggerEvent: 'enrollment.analise_emitida', emailTplKey: 'enrollment_analise_email', waTplKey: 'enrollment_analise_wa' },
   { key: 'wf_enrollment_doc_rejected',       name: 'Notificar — Documento rejeitado',     description: 'Avisa o candidato quando um documento é rejeitado, com motivo + link de reenvio', triggerEvent: 'enrollment.document_rejected', emailTplKey: 'enrollment_doc_rejected_email', waTplKey: 'enrollment_doc_rejected_wa' },
 
-  // ── Lead lifecycle (alternativa a Configurações > Emails do Sistema) ──
-  // Estes Workflows são criados INATIVOS. Quando o admin desativar o template
-  // correspondente em Configurações > Emails do Sistema, basta ativar aqui pra
-  // ter controle granular (filtros por funil, atrasos, condições, A/B).
-  { key: 'wf_lead_created_notify',           name: 'Notificar — Novo lead (substitui notify_new_lead_admin)', description: 'Email pra equipe quando um lead novo entra. Inativo por padrão — ative depois de desativar o template "Novo lead — notificação ao time" em Configurações > Emails do Sistema.', triggerEvent: 'lead.created',          emailTplKey: 'lead_created_admin_email',          active: false },
-  { key: 'wf_diagnosis_report_to_lead',      name: 'Notificar — Diagnóstico ao lead (substitui lead_diagnostic_report)', description: 'Email com diagnóstico pro próprio lead após completar o formulário. Inativo por padrão — ative depois de desativar o template "Diagnóstico — envio ao lead" em Configurações > Emails do Sistema.', triggerEvent: 'diagnosis.completed', emailTplKey: 'lead_diagnostic_email',             active: false },
+  // ── Aviso à equipe ──
+  // Único caminho do aviso de novo lead (antes saía direto do código). Ligar,
+  // desligar, filtrar por funil/origem e trocar o texto: tudo em Fluxos/Modelos.
+  { key: 'wf_lead_captured_team', name: 'Avisar equipe — Novo lead captado', description: 'Avisa os destinos de Configurações › Empresa › Dados de Notificações (WhatsApp e e-mail) quando entra um lead por formulário, webhook, anúncio, chat do site ou chatbot.', triggerEvent: 'lead.captured', emailTplKey: 'lead_captured_team_email', waTplKey: 'lead_captured_team_wa', notifyTeam: true },
 
   // ── ENEM ──
   { key: 'wf_enrollment_enem_approved',      name: 'Notificar — ENEM aprovado',           description: 'Avisa o candidato quando a nota do ENEM passa do corte e é validada',     triggerEvent: 'enrollment.enem_approved',            emailTplKey: 'enrollment_enem_approved_email',      waTplKey: 'enrollment_enem_approved_wa' },
@@ -602,9 +597,70 @@ async function ensureA11ySettings() {
   }
 }
 
+/** Já existe fluxo ATIVO (feito pela equipe) avisando de lead novo? */
+async function jaTemAvisoDeLeadNovo(): Promise<boolean> {
+  const fluxos = await prisma.workflow.findMany({
+    where: { active: true, triggerEvent: { in: ['lead.created', 'lead.captured', 'lead.handoff'] } },
+    select: { steps: { select: { config: true } } },
+  })
+  return fluxos.some((f) => f.steps.some((st) => (st.config as any)?.actionType === 'notify_operator'))
+}
+
+// Padrões antigos que saíram: o par "lead criado → e-mail à equipe" e
+// "diagnóstico → e-mail ao lead" (Raio-X). Nasciam desligados; só sai do banco
+// o que nunca rodou e ninguém ligou. Os modelos saem junto se nenhum fluxo usa.
+const FLUXOS_DESCONTINUADOS = [
+  'Notificar — Novo lead (substitui notify_new_lead_admin)',
+  'Notificar — Diagnóstico ao lead (substitui lead_diagnostic_report)',
+]
+const MODELOS_DESCONTINUADOS = ['Novo lead — notificação à equipe (Fluxo)', 'Diagnóstico ao lead (Fluxo)']
+
+async function limparPadroesDescontinuados() {
+  const fluxos = await prisma.workflow.findMany({ where: { name: { in: FLUXOS_DESCONTINUADOS }, active: false }, select: { id: true } })
+  for (const f of fluxos) {
+    const rodou = await prisma.workflowExecution.count({ where: { workflowId: f.id } })
+    if (!rodou) await prisma.workflow.delete({ where: { id: f.id } }).catch(() => {})
+  }
+  const modelos = await prisma.messageTemplate.findMany({ where: { name: { in: MODELOS_DESCONTINUADOS } }, select: { id: true } })
+  if (!modelos.length) return
+  const passos = await prisma.workflowStep.findMany({ select: { config: true } })
+  const emUso = new Set<number>()
+  for (const p of passos) {
+    const c = p.config as any
+    for (const k of ['templateId', 'waTemplateId', 'emailTemplateId']) if (typeof c?.[k] === 'number') emUso.add(c[k])
+  }
+  const livres = modelos.map((m) => m.id).filter((id) => !emUso.has(id))
+  if (livres.length) await prisma.messageTemplate.deleteMany({ where: { id: { in: livres } } }).catch(() => {})
+}
+
+/**
+ * Roda em TODA subida (server.ts). Só o que substituiu envio que antes saía
+ * direto do código — o resto do catálogo continua opcional (instalação manual):
+ *  - Modelos do Sistema (agendamento, links de acesso, avisos…);
+ *  - fluxo "Avisar equipe — Novo lead captado";
+ *  - destinos que moravam no .env → tela Empresa;
+ *  - limpeza dos padrões antigos que nunca rodaram.
+ */
+export async function garantirEnviosDoSistema(): Promise<void> {
+  const { garantirModelosDoSistema } = await import('./modelosDoSistema.js')
+  await garantirModelosDoSistema().catch((e) => console.warn('[envios do sistema] modelos:', e?.message))
+  await limparPadroesDescontinuados().catch((e) => console.warn('[envios do sistema] limpeza:', e?.message))
+  await import('./notify.js').then((m) => m.migrarDestinosDoEnv()).catch((e) => console.warn('[envios do sistema] destinos do .env:', e?.message))
+  await instalarUmaVez('wf_lead_captured_team').catch((e) => console.warn('[envios do sistema] aviso de lead:', e?.message))
+}
+
+/** Instala o fluxo padrão só na primeira vez: apagado depois, continua apagado. */
+async function instalarUmaVez(chave: string): Promise<void> {
+  const marca = `sistema.fluxo_instalado.${chave}`
+  if (await prisma.setting.findUnique({ where: { key: marca } })) return
+  await garantirWorkflowPadrao(chave)
+  await prisma.setting.create({ data: { key: marca, value: true as any, label: `Fluxo padrão instalado (${chave})`, grp: 'sistema', fieldType: 'boolean' } })
+}
+
 export async function seedDefaultNotificationTemplatesAndWorkflows() {
   await ensureSmsSettings()
   await ensureA11ySettings()
+  await garantirEnviosDoSistema()
   // Instalação completa: todos os modelos, inclusive os que nenhuma automação
   // padrão usa (o envio direto os busca pelo nome).
   await instalarWorkflows(WORKFLOWS, true)
@@ -638,6 +694,7 @@ async function instalarWorkflows(lista: WfDef[], todosOsModelos = false) {
     const created = await prisma.messageTemplate.create({
       data: {
         name: t.name,
+        key: t.key,
         channel: t.channel,
         category: 'transactional',
         subject: t.subject || null,
@@ -653,16 +710,35 @@ async function instalarWorkflows(lista: WfDef[], todosOsModelos = false) {
   for (const w of lista) {
     const existing = await prisma.workflow.findFirst({ where: { name: w.name } })
     if (existing) continue // não sobrescreve customizações do admin
+    // Aviso à equipe: se a instalação já tem um fluxo próprio avisando a equipe
+    // de lead novo, o padrão nasce DESLIGADO — senão o aviso chegaria em dobro.
+    const jaAvisa = w.notifyTeam ? await jaTemAvisoDeLeadNovo() : false
     const wf = await prisma.workflow.create({
       data: {
         name: w.name,
         description: w.description,
         triggerEvent: w.triggerEvent,
         triggerConfig: {},
-        active: w.active !== false, // default true; alguns seeds querem inativo (admin liga depois)
+        active: w.active !== false && !jaAvisa, // default true; alguns seeds querem inativo (admin liga depois)
         reentryPolicy: 'after_completion',
       },
     })
+    if (w.notifyTeam) {
+      await prisma.workflowStep.create({
+        data: {
+          workflowId: wf.id,
+          type: 'action',
+          name: 'Avisar equipe',
+          config: {
+            actionType: 'notify_operator',
+            ...(w.waTplKey && tplIds.has(w.waTplKey) ? { waTemplateId: tplIds.get(w.waTplKey) } : {}),
+            ...(w.emailTplKey && tplIds.has(w.emailTplKey) ? { emailTemplateId: tplIds.get(w.emailTplKey) } : {}),
+          },
+          position: 0,
+        },
+      })
+      continue
+    }
     // Cria 2 steps: send_email (position 0) e send_whatsapp (position 1).
     // O engine pega o de menor position como inicial; encadeamos via nextStepId.
     let prevStepId: number | null = null

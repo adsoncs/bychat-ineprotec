@@ -94,14 +94,11 @@ export async function syncActivityToGoogleTasks(activityId: number): Promise<voi
 
     for (const config of matched) {
       try {
+        const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+        const varsTarefa = { atividade: activity.title, descricao: activity.description || '', nome: lead?.nome || '', empresa: lead?.empresa || '', tipo: activity.type }
         const result = await tasksCreateTask(config.connectionId, config.taskListId, {
-          title: `${activity.title} — ${lead?.nome || 'Lead'}`,
-          notes: [
-            activity.description || '',
-            lead?.empresa ? `Empresa: ${lead.empresa}` : '',
-            `Tipo: ${activity.type}`,
-            `Criado via ByChat Beyond`,
-          ].filter(Boolean).join('\n'),
+          title: (await textoDoSistema('tarefa_google_titulo', varsTarefa)) || activity.title,
+          notes: await textoDoSistema('tarefa_google_notas', varsTarefa),
           due: activity.scheduledAt,
         })
 

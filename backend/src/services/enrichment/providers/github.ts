@@ -5,7 +5,7 @@ import type { Provider, ProviderResult } from '../types.js'
 
 async function gh(url: string) {
   const headers: Record<string, string> = {
-    'User-Agent': 'ByChatBeyond/1.0',
+    'User-Agent': 'crm-integracao/1.0',
     'Accept': 'application/vnd.github+json',
   }
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`

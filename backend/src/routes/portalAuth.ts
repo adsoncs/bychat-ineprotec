@@ -63,30 +63,31 @@ async function enviarLink(leadId: number, url: string, finalidade: string): Prom
     select: { id: true, nome: true, whatsapp: true, email: true },
   })
   if (!lead) return null
-  const acao = finalidade === 'recuperacao' ? 'criar uma nova senha' : 'entrar no portal e criar sua senha'
-  const texto = `Olá, ${lead.nome ?? 'tudo bem'}! Use o link abaixo para ${acao}:\n\n${url}\n\n` +
-    `O link vale por ${LINK_TTL_HORAS} horas, serve uma vez só e é de uso pessoal.`
+  const { renderizarModelo } = await import('../services/modelosDoSistema.js')
+  const base = finalidade === 'recuperacao' ? 'portal_recuperacao' : 'portal_acesso'
+  const vars = { nome: lead.nome ?? '', link: url, validade: LINK_TTL_HORAS }
 
   if (lead.whatsapp) {
-    try {
-      const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
-      await provider.sendText(lead.whatsapp, texto)
-      return 'whatsapp'
-    } catch {
-      // Cai para o e-mail: WhatsApp fora do ar não pode deixar a pessoa sem acesso.
+    const msg = await renderizarModelo(`${base}_wa`, vars)
+    if (msg?.body.trim()) {
+      try {
+        const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
+        await provider.sendText(lead.whatsapp, msg.body)
+        return 'whatsapp'
+      } catch {
+        // Cai para o e-mail: WhatsApp fora do ar não pode deixar a pessoa sem acesso.
+      }
     }
   }
   if (lead.email) {
-    try {
-      const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'secretaria'),
-        to: lead.email,
-        subject: 'Acesso ao portal',
-        html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${texto.replace(/\n/g, '<br>')}</div>`,
-      })
-      return 'email'
-    } catch { /* nada a fazer */ }
+    const em = await renderizarModelo(`${base}_email`, vars)
+    if (em?.body.trim()) {
+      try {
+        const cfg = await getEmailConfig()
+        await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
+        return 'email'
+      } catch { /* nada a fazer */ }
+    }
   }
   return null
 }

@@ -206,11 +206,16 @@ export async function emailCampanhasRoutes(app: FastifyInstance) {
     if (!configurado) return reply.code(400).send({ error: 'O envio de e-mail não está configurado (Configurações › E-mail).' })
     const assuntos = [b.assunto, b.assuntoB].map((x) => String(x ?? '').trim()).filter(Boolean)
     if (!assuntos.length) assuntos.push(tpl.subject || tpl.name)
+    const { textoDoSistema } = await import('../services/modelosDoSistema.js')
     try {
       for (const [i, a] of assuntos.entries()) {
+        const texto = replaceVariables(a, VARS_EXEMPLO)
+        const subject = (assuntos.length > 1
+          ? await textoDoSistema('teste_prefixo_ab', { versao: i ? 'B' : 'A', texto })
+          : await textoDoSistema('teste_prefixo', { texto })) || texto
         await sendEmailGeneric({
-          from: getFromAddress(cfg, 'Novidades'), to, origem: 'teste',
-          subject: `[Teste${assuntos.length > 1 ? ` ${i ? 'B' : 'A'}` : ''}] ${replaceVariables(a, VARS_EXEMPLO)}`,
+          from: getFromAddress(cfg), to, origem: 'teste',
+          subject,
           html: replaceVariables(tpl.bodyHtml, VARS_EXEMPLO),
         })
       }

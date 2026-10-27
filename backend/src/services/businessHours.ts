@@ -41,7 +41,8 @@ const DEFAULT_CONFIG: BusinessHoursConfig = {
     '5': [{ start: '09:00', end: '18:00' }],
     '6': null,
   },
-  message: 'Olá! Nosso horário de atendimento é de segunda a sexta, das 9h às 18h. Sua mensagem foi recebida e responderemos no próximo expediente.',
+  // Vazio = vale o modelo do sistema `horario_fora_do_expediente` (Modelos).
+  message: '',
   throttleHours: 12,
 }
 
@@ -57,6 +58,10 @@ export async function getBusinessHoursConfig(): Promise<BusinessHoursConfig> {
     config = { ...DEFAULT_CONFIG, ...(setting.value as any) }
   } else {
     config = DEFAULT_CONFIG
+  }
+  if (!String(config.message || '').trim()) {
+    const { textoDoSistema } = await import('./modelosDoSistema.js')
+    config = { ...config, message: await textoDoSistema('horario_fora_do_expediente') }
   }
 
   _cache = { config, expiresAt: Date.now() + CACHE_TTL_MS }

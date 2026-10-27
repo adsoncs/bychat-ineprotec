@@ -1,5 +1,5 @@
 // src/services/acaComunicacao.ts
-// Módulo Acadêmico · P9 — Comunicação. Reusa os canais do ByChat (WhatsApp
+// Módulo Acadêmico · P9 — Comunicação. Reusa os canais do sistema (WhatsApp
 // Evolution/Cloud + e-mail) para avisar o aluno: vencimento de parcela,
 // publicação de notas e avisos manuais. Idempotente via AcaComunicacao.chaveDedup.
 
@@ -14,11 +14,12 @@ const DEFAULTS: Record<string, any> = {
   'aca.notif.vencimento_enabled': true,
   'aca.notif.vencimento_dias_antes': 3,
   'aca.notif.canal': 'ambos', // whatsapp | email | ambos
-  'aca.notif.msg_vencimento': 'Olá {nome}! Sua parcela {parcela} do curso {curso} vence em {vencimento}, no valor de {valor}. Acesse seu portal para a 2ª via: {link}',
-  'aca.notif.msg_notas': 'Olá {nome}! Suas notas do curso {curso} foram publicadas. Confira seu boletim no portal: {link}',
+  // Textos vazios = valem os modelos do sistema aca_*_texto (Modelos).
+  'aca.notif.msg_vencimento': '',
+  'aca.notif.msg_notas': '',
   'aca.cobranca.regua_enabled': false,
   'aca.cobranca.dias_pos': '1,7,15', // dias após o vencimento p/ cobrar
-  'aca.notif.msg_cobranca': 'Olá {nome}! Identificamos a parcela {parcela} do curso {curso} vencida em {vencimento} ({atraso} dia(s) de atraso), valor atualizado {valor}. Regularize pelo portal: {link}',
+  'aca.notif.msg_cobranca': '',
 }
 
 export interface NotifConfig { vencimentoEnabled: boolean; vencimentoDiasAntes: number; canal: string; msgVencimento: string; msgNotas: string; reguaEnabled: boolean; diasPos: string; msgCobranca: string }
@@ -26,15 +27,17 @@ export interface NotifConfig { vencimentoEnabled: boolean; vencimentoDiasAntes: 
 export async function getNotifConfig(): Promise<NotifConfig> {
   const rows = await prisma.setting.findMany({ where: { key: { in: CFG_KEYS as unknown as string[] } } })
   const v = (k: string) => { const r = rows.find((x) => x.key === k); return r ? (r.value as any) : DEFAULTS[k] }
+  const { modeloCru } = await import('./modelosDoSistema.js')
+  const texto = async (k: string, modelo: string) => String(v(k) ?? '').trim() || (await modeloCru(modelo)) || ''
   return {
     vencimentoEnabled: !!v('aca.notif.vencimento_enabled'),
     vencimentoDiasAntes: Number(v('aca.notif.vencimento_dias_antes')) || 3,
     canal: String(v('aca.notif.canal') || 'ambos'),
-    msgVencimento: String(v('aca.notif.msg_vencimento')),
-    msgNotas: String(v('aca.notif.msg_notas')),
+    msgVencimento: await texto('aca.notif.msg_vencimento', 'aca_vencimento_texto'),
+    msgNotas: await texto('aca.notif.msg_notas', 'aca_notas_texto'),
     reguaEnabled: !!v('aca.cobranca.regua_enabled'),
     diasPos: String(v('aca.cobranca.dias_pos') || '1,7,15'),
-    msgCobranca: String(v('aca.notif.msg_cobranca')),
+    msgCobranca: await texto('aca.notif.msg_cobranca', 'aca_cobranca_texto'),
   }
 }
 
@@ -61,8 +64,15 @@ function render(tpl: string, vars: Record<string, string>): string {
 
 interface EnvioOpts { tipo: 'VENCIMENTO' | 'COBRANCA' | 'FALTAS' | 'NOTAS' | 'MANUAL'; texto: string; assunto: string; chaveDedup: string; refId?: number; canalCfg: string }
 
+async function t(key: string, vars: Record<string, any> = {}): Promise<string> {
+  const { textoDoSistema } = await import('./modelosDoSistema.js')
+  return textoDoSistema(key, vars)
+}
+const rotuloParcela = (numero: number, tipo: string) => t('aca_parcela_rotulo', { numero, tipo: tipo.toLowerCase() })
+
 /** Envia ao aluno pelos canais habilitados; registra log idempotente (dedup). */
 export async function enviarAluno(alunoId: number, opts: EnvioOpts): Promise<{ enviados: number; pulado: boolean }> {
+  if (!opts.texto.trim()) return { enviados: 0, pulado: true } // texto desligado: nada sai
   // dedup: se já existe qualquer envio com a mesma chave base, pula
   const ja = await prisma.acaComunicacao.findFirst({ where: { chaveDedup: { startsWith: opts.chaveDedup } }, select: { id: true } })
   if (ja) return { enviados: 0, pulado: true }
@@ -81,7 +91,7 @@ export async function enviarAluno(alunoId: number, opts: EnvioOpts): Promise<{ e
         await provider.sendText(lead.whatsapp, opts.texto)
       } else {
         const cfg = await getEmailConfig()
-        await sendEmailGeneric({ from: getFromAddress(cfg, 'secretaria'), to: lead.email, subject: opts.assunto, html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${opts.texto.replace(/\n/g, '<br>')}</div>` })
+        await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: opts.assunto, html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${opts.texto.replace(/\n/g, '<br>')}</div>` })
       }
       enviados++
     } catch (e: any) { status = 'FALHA'; erro = String(e?.message || e).slice(0, 500) }
@@ -106,10 +116,10 @@ export async function varrerVencimentos(): Promise<{ verificadas: number; enviad
     const curso = await cursoDaOferta(pc.contrato.matricula.turma.courseOfferingId)
     const aluno = await prisma.aluno.findUnique({ where: { id: alunoId }, select: { lead: { select: { nome: true } } } })
     const texto = render(cfg.msgVencimento, {
-      nome: aluno?.lead.nome || 'aluno(a)', curso, parcela: `${pc.nroParcela}ª (${pc.tipo.toLowerCase()})`,
+      nome: aluno?.lead.nome || await t('aca_sem_nome'), curso, parcela: await rotuloParcela(pc.nroParcela, pc.tipo),
       valor: money(pc.valorBrutoCentavos), vencimento: new Date(pc.dataVencimento).toLocaleDateString('pt-BR'), link: alunoPortalLink(alunoId),
     })
-    const r = await enviarAluno(alunoId, { tipo: 'VENCIMENTO', texto, assunto: 'Lembrete de vencimento', chaveDedup: `venc:${pc.id}`, refId: pc.id, canalCfg: cfg.canal })
+    const r = await enviarAluno(alunoId, { tipo: 'VENCIMENTO', texto, assunto: await t('aca_vencimento_assunto'), chaveDedup: `venc:${pc.id}`, refId: pc.id, canalCfg: cfg.canal })
     enviados += r.enviados
   }
   return { verificadas: parcelas.length, enviados }
@@ -142,10 +152,10 @@ export async function varrerInadimplencia(): Promise<{ verificadas: number; envi
     const aluno = await prisma.aluno.findUnique({ where: { id: alunoId }, select: { lead: { select: { nome: true } } } })
     const calc = calcularEncargos(pc, enc)
     const texto = render(cfg.msgCobranca, {
-      nome: aluno?.lead.nome || 'aluno(a)', curso, parcela: `${pc.nroParcela}ª (${pc.tipo.toLowerCase()})`,
+      nome: aluno?.lead.nome || await t('aca_sem_nome'), curso, parcela: await rotuloParcela(pc.nroParcela, pc.tipo),
       valor: money(calc.valorCobranca), vencimento: venc.toLocaleDateString('pt-BR'), atraso: String(atraso), link: alunoPortalLink(alunoId),
     })
-    const r = await enviarAluno(alunoId, { tipo: 'COBRANCA', texto, assunto: 'Cobrança de parcela vencida', chaveDedup: `cobr:${pc.id}:${atraso}`, refId: pc.id, canalCfg: cfg.canal })
+    const r = await enviarAluno(alunoId, { tipo: 'COBRANCA', texto, assunto: await t('aca_cobranca_assunto'), chaveDedup: `cobr:${pc.id}:${atraso}`, refId: pc.id, canalCfg: cfg.canal })
     enviados += r.enviados
   }
   return { verificadas, enviados }
@@ -161,17 +171,17 @@ export async function notificarNotasTurma(turmaId: number): Promise<{ alunos: nu
   const dia = new Date().toISOString().slice(0, 10)
   let enviados = 0
   for (const m of mats) {
-    const texto = render(cfg.msgNotas, { nome: m.aluno.lead.nome || 'aluno(a)', curso, link: alunoPortalLink(m.alunoId) })
-    const r = await enviarAluno(m.alunoId, { tipo: 'NOTAS', texto, assunto: 'Notas publicadas', chaveDedup: `notas:${turmaId}:${dia}:${m.alunoId}`, refId: turmaId, canalCfg: cfg.canal })
+    const texto = render(cfg.msgNotas, { nome: m.aluno.lead.nome || await t('aca_sem_nome'), curso, link: alunoPortalLink(m.alunoId) })
+    const r = await enviarAluno(m.alunoId, { tipo: 'NOTAS', texto, assunto: await t('aca_notas_assunto'), chaveDedup: `notas:${turmaId}:${dia}:${m.alunoId}`, refId: turmaId, canalCfg: cfg.canal })
     enviados += r.enviados
   }
   return { alunos: mats.length, enviados }
 }
 
 async function cursoDaOferta(courseOfferingId: number | null): Promise<string> {
-  if (!courseOfferingId) return 'seu curso'
+  if (!courseOfferingId) return t('aca_sem_curso')
   const off = await prisma.courseOffering.findUnique({ where: { id: courseOfferingId }, select: { courseId: true } })
-  if (!off) return 'seu curso'
+  if (!off) return t('aca_sem_curso')
   const c = await prisma.course.findUnique({ where: { id: off.courseId }, select: { nome: true } })
   return c?.nome || 'seu curso'
 }

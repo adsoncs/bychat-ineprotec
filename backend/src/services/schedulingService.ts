@@ -8,6 +8,7 @@ import { eventBus } from '../lib/eventBus.js'
 import { getExternalGoogleEvents } from './schedulingGoogle.js'
 import { pickOperatorForTeam } from './teamRouting.js'
 import { rejectLeadAction } from './leadBlocklist.js'
+import { textoDoSistema } from './modelosDoSistema.js'
 
 export const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
 
@@ -554,8 +555,8 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
           userId: effectiveOperatorId ?? null,
           userName: ownerName,
           type: 'meeting',
-          title: `Reunião: ${mt.name}`,
-          description: 'Agendada via página pública de agendamento.',
+          title: (await textoDoSistema('agendamento_atividade_titulo', { reuniao: mt.name })) || mt.name,
+          description: await textoDoSistema('agendamento_atividade_descricao', { reuniao: mt.name }),
           status: 'pending',
           scheduledAt: startAt,
           reminderAt: reminderAt > new Date() ? reminderAt : null,

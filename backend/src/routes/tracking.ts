@@ -6,7 +6,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { resolvePeriod } from '../lib/period.js'
-import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
+import { rastreamentoSnippet } from '../lib/rastreamento.js'
 import crypto from 'crypto'
 
 // ─── Bot Detection ───────────────────────────────────────
@@ -594,7 +594,7 @@ export async function trackingRoutes(app: FastifyInstance) {
   // ── GET /api/tracking/snippet ─── Snippet de instalação (cópia manual) ──
   app.get('/api/tracking/snippet', { preHandler: authMiddleware }, async (req, reply) => {
     const baseUrl = process.env.APP_URL || `https://${req.hostname}`
-    return { snippet: beyondTrackingSnippet(baseUrl), baseUrl }
+    return { snippet: rastreamentoSnippet(baseUrl), baseUrl }
   })
 
   // ── POST /api/tracking/validate-url ─── Validar se URL tem bt.js instalado ──
@@ -620,7 +620,7 @@ export async function trackingRoutes(app: FastifyInstance) {
 
       const resp = await fetch(url, {
         signal: controller.signal,
-        headers: { 'User-Agent': 'BeyondTrackingValidator/1.0' },
+        headers: { 'User-Agent': 'TrackingValidator/1.0' },
         redirect: 'follow',
       })
       clearTimeout(timeout)
@@ -727,7 +727,7 @@ export async function trackingRoutes(app: FastifyInstance) {
         const timeout = setTimeout(() => controller.abort(), 8000)
         const resp = await fetch(url, {
           signal: controller.signal,
-          headers: { 'User-Agent': 'BeyondTrackingValidator/1.0' },
+          headers: { 'User-Agent': 'TrackingValidator/1.0' },
           redirect: 'follow',
         })
         clearTimeout(timeout)

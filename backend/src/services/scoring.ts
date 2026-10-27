@@ -34,84 +34,6 @@ interface ScoringConfig {
   thresholds: ScoringThreshold[]
 }
 
-// ─── Score padrão do ByChat (legado) ──────────
-
-const LEGACY_BYCHAT_CONFIG: ScoringConfig = {
-  pillars: [
-    {
-      key: 'mkt', name: 'Marketing', weight: 0.25, base: 50,
-      rules: [
-        { field: 'investe_mkt', value: 'sim-ambos', points: 20 },
-        { field: 'investe_mkt', value: 'sim-pago', points: 10 },
-        { field: 'investe_mkt', value: 'sim-organico', points: 10 },
-        { field: 'investe_mkt', value: 'nao', points: -15 },
-        { field: 'tem_site', value: 'sim-bom', points: 15 },
-        { field: 'tem_site', value: 'nao', points: -12 },
-        { field: 'tem_criativos', value: 'sim-consistente', points: 15 },
-        { field: 'tem_criativos', value: 'raramente', points: -10 },
-        { field: 'tem_criativos', value: 'nao', points: -10 },
-        { field: 'dificuldade_leads', value: 'sim-muito', points: -20 },
-        { field: 'dificuldade_leads', value: 'sim-pouco', points: -8 },
-        { field: 'dificuldade_leads', value: 'nao', points: 10 },
-      ]
-    },
-    {
-      key: 'vnd', name: 'Vendas', weight: 0.25, base: 50,
-      rules: [
-        { field: 'time_comercial', value: 'sim-estruturado', points: 20 },
-        { field: 'time_comercial', value: 'nao', points: -15 },
-        { field: 'funil', value: 'sim-documentado', points: 22 },
-        { field: 'funil', value: 'sim-informal', points: 8 },
-        { field: 'funil', value: 'nao', points: -15 },
-        { field: 'perde_vendas', value: 'sim-muito', points: -20 },
-        { field: 'perde_vendas', value: 'sim-pouco', points: -8 },
-        { field: 'usa_crm', value: 'sim-ativo', points: 15 },
-        { field: 'usa_crm', value: 'sim-pouco', points: 5 },
-        { field: 'usa_crm', value: 'nao', points: -8 },
-      ]
-    },
-    {
-      key: 'oferta', name: 'Oferta', weight: 0.20, base: 50,
-      rules: [
-        { field: 'forca_oferta', value: 'muito-forte', points: 25 },
-        { field: 'forca_oferta', value: 'boa', points: 10 },
-        { field: 'forca_oferta', value: 'fraca', points: -15 },
-        { field: 'mercado_entende', value: 'sim', points: 15 },
-        { field: 'mercado_entende', value: 'parcialmente', points: 5 },
-        { field: 'mercado_entende', value: 'nao', points: -10 },
-        { field: 'prova_social', value: 'sim-forte', points: 15 },
-        { field: 'prova_social', value: 'nao', points: -10 },
-        { field: 'upsell', value: 'sim-estruturado', points: 10 },
-      ]
-    },
-    {
-      key: 'dados', name: 'Dados', weight: 0.15, base: 50,
-      rules: [
-        { field: 'acompanha_numeros', value: 'sim-bem', points: 25 },
-        { field: 'acompanha_numeros', value: 'nao', points: -25 },
-        { field: 'falta_clareza', value: 'sim-muito', points: -20 },
-      ]
-    },
-    {
-      key: 'proc', name: 'Processos', weight: 0.15, base: 50,
-      rules: [
-        { field: 'capacidade', value: 'no-limite', points: -15 },
-        { field: 'capacidade', value: 'sim-facilidade', points: 10 },
-        { field: 'apoio_interno', value: 'sim-dedicado', points: 15 },
-        { field: 'apoio_interno', value: 'tudo-eu', points: -10 },
-        { field: 'produz_video', value: 'sim-frequencia', points: 10 },
-        { field: 'produz_video', value: 'nao', points: -10 },
-      ]
-    },
-  ],
-  thresholds: [
-    { max: 40, label: 'Negócio Inicial', color: '#ea4335' },
-    { max: 55, label: 'Em Estruturação', color: '#fbbc04' },
-    { max: 72, label: 'Em Crescimento', color: '#fbbc04' },
-    { max: 100, label: 'Pronto para Escala', color: '#34a853' },
-  ],
-}
-
 // ─── Motor de cálculo genérico ────────────────
 
 function matchRule(formData: any, rule: ScoringRule): boolean {
@@ -177,22 +99,19 @@ export function getMaturityLabel(score: number, config: ScoringConfig): { label:
 
 // ─── Obter config de scoring do chatbot ───────
 
-export async function getScoringConfig(chatbotId?: number | null): Promise<ScoringConfig> {
-  if (!chatbotId) return LEGACY_BYCHAT_CONFIG
-
+/**
+ * Pontuação configurada no chatbot (pilares + faixas). Sem configuração não há
+ * pontuação — não existe mais um modelo padrão de outra empresa por trás.
+ */
+export async function getScoringConfig(chatbotId?: number | null): Promise<ScoringConfig | null> {
+  if (!chatbotId) return null
   const chatbot = await prisma.chatbot.findUnique({
     where: { id: chatbotId },
     select: { scoringConfig: true },
   })
-
-  if (chatbot?.scoringConfig) {
-    const cfg = chatbot.scoringConfig as any
-    if (cfg.pillars && Array.isArray(cfg.pillars) && cfg.pillars.length > 0) {
-      return cfg as ScoringConfig
-    }
-  }
-
-  return LEGACY_BYCHAT_CONFIG
+  const cfg = chatbot?.scoringConfig as any
+  if (cfg?.pillars && Array.isArray(cfg.pillars) && cfg.pillars.length > 0) return cfg as ScoringConfig
+  return null
 }
 
 // ─── Análise IA genérica ──────────────────────
@@ -499,8 +418,12 @@ INSTRUÇÕES DE ANÁLISE:
 // ─── Pipeline completo ao completar chatbot ───
 
 export async function onChatbotComplete(leadId: number, formData: any, chatbotId?: number | null) {
-  // 1. Calcular scores
+  // 1. Calcular scores (só com pontuação configurada no chatbot)
   const config = await getScoringConfig(chatbotId)
+  if (!config) {
+    await prisma.lead.update({ where: { id: leadId }, data: { completed: true, chatbotId: chatbotId || undefined } })
+    return { scores: null, maturity: null, analysis: null, config: null }
+  }
   const scores = calcScoresGeneric(formData, config)
   const maturity = getMaturityLabel(scores.geral, config)
 
@@ -570,8 +493,5 @@ Gere diagnóstico estratégico personalizado e específico.`
     } catch { /* skip */ }
   })()
 
-  return { scores, maturity, analysis }
+  return { scores, maturity, analysis, config }
 }
-
-// ─── Exporta config legada para uso em migração ──
-export { LEGACY_BYCHAT_CONFIG }

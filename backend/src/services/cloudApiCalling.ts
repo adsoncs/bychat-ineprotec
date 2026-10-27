@@ -179,8 +179,12 @@ export async function sendCallPermissionRequest(
   phoneNumberId: string,
   token: string,
   to: string,
-  bodyText = 'Podemos te ligar pelo WhatsApp para falar sobre seu atendimento?'
+  bodyText?: string
 ): Promise<any> {
+  if (!bodyText?.trim()) {
+    const { textoDoSistema } = await import('./modelosDoSistema.js')
+    bodyText = await textoDoSistema('chamada_pedido_permissao')
+  }
   return cloudApiFetch(`/${phoneNumberId}/messages`, token, 'POST', {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',

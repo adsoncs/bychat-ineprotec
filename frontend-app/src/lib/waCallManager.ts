@@ -149,7 +149,7 @@ class MicError extends Error {
 
 const MIC_BLOCKED_MSG =
   'Este site está bloqueado para o microfone. Vá em chrome://settings/content/microphone, '
-  + 'remova "bychat.ia.br" da lista "Não tem permissão" (ícone de lixeira) — ou clique no cadeado '
+  + `remova "${typeof location !== 'undefined' ? location.host : 'este site'}" da lista "Não tem permissão" (ícone de lixeira) — ou clique no cadeado `
   + 'da barra de endereço → Microfone → Permitir — recarregue a página e tente de novo.'
 
 /** Estado atual da permissão de microfone (Permissions API), se disponível. */

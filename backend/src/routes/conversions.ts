@@ -98,7 +98,7 @@ export async function conversionsRoutes(app: FastifyInstance) {
     // mandamos: external_id (sha256 de um marker), email/phone fake, IP e user-agent
     // do request, e um fbp sintético — combinação suficiente pra Meta aceitar.
     const ip = (req.ip || req.headers['x-forwarded-for'] as string || '127.0.0.1').toString().split(',')[0]?.trim()
-    const ua = String(req.headers['user-agent'] || 'BeyondHub/CAPI-Test')
+    const ua = String(req.headers['user-agent'] || 'CAPI-Test')
     const fbp = `fb.1.${Date.now()}.${Math.floor(Math.random() * 1e10)}`
 
     // Enviar evento PageView de teste
@@ -109,7 +109,7 @@ export async function conversionsRoutes(app: FastifyInstance) {
         event_id: `test_${Date.now()}`,
         action_source: 'system_generated',
         user_data: {
-          em: [sha256('test+capi@beyondhub.test')],
+          em: [sha256('test+capi@exemplo.test')],
           ph: [sha256('5511999990000')],
           external_id: [sha256(`capi-test-${config.pixelId}`)],
           country: [sha256('br')],

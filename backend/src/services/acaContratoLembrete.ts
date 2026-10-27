@@ -103,34 +103,30 @@ async function cobrar(
   simular: boolean,
 ): Promise<string | null> {
   const link = s.linkAssinatura || ''
-  const texto = `Olá, ${s.nome}! O contrato "${env.titulo}" está esperando sua assinatura há ${diasParado} dia(s).`
-    + (link ? `\n\nAssine por aqui: ${link}` : '\n\nProcure a secretaria para receber o link de assinatura.')
-    + '\n\nSe já assinou, pode ignorar esta mensagem.'
-
   if (simular) return s.telefone ? 'whatsapp (simulado)' : s.email ? 'email (simulado)' : null
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
+  const vars = { nome: s.nome, contrato: env.titulo, dias: diasParado, link }
 
   if (s.telefone) {
-    try {
+    const msg = await renderizarModelo('contrato_lembrete_wa', vars)
+    if (msg?.body.trim()) try {
       const aluno = env.alunoId
         ? await prisma.aluno.findUnique({ where: { id: env.alunoId }, select: { lead: { select: { id: true, whatsapp: true } } } })
         : null
       const lead = aluno?.lead
       const { provider } = await getProviderForLeadOwner({ id: lead?.id ?? 0, whatsapp: s.telefone })
-      await provider.sendText(s.telefone, texto)
+      await provider.sendText(s.telefone, msg.body)
       return 'whatsapp'
     } catch {
       // Cai para o e-mail: WhatsApp fora do ar não pode segurar a cobrança.
     }
   }
   if (s.email) {
-    try {
+    const esc = (t: string) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+    const em = await renderizarModelo('contrato_lembrete_email', { ...vars, nome: esc(s.nome), contrato: esc(env.titulo) })
+    if (em?.body.trim()) try {
       const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'secretaria'),
-        to: s.email,
-        subject: `Falta sua assinatura — ${env.titulo}`,
-        html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#1f2937">${texto.replace(/\n/g, '<br>')}</div>`,
-      })
+      await sendEmailGeneric({ from: getFromAddress(cfg), to: s.email, subject: em.subject, html: em.body })
       return 'email'
     } catch { /* nada mais a tentar */ }
   }

@@ -5,6 +5,7 @@ import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { eventBus, type DomainEvent } from '../lib/eventBus.js'
 import { assertUrlIsPublic } from '../lib/urlSafety.js'
+import { getBranding } from '../lib/branding.js'
 
 // ── Available events for webhook subscription ──────────
 export const WEBHOOK_EVENTS = [
@@ -189,7 +190,7 @@ async function dispatchWebhook(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'User-Agent': 'ByChat-Webhook/1.0',
+    'User-Agent': 'Webhook/1.0',
     'X-Webhook-Event': event.type,
     'X-Webhook-Timestamp': event.timestamp.toISOString(),
     ...(webhook.headers || {}),
@@ -322,18 +323,18 @@ export async function testWebhook(webhookId: number): Promise<{ success: boolean
     lead: {
       id: 0,
       nome: 'Teste',
-      empresa: 'ByChat Beyond',
+      empresa: (await getBranding().catch(() => null))?.brandName || '',
       whatsapp: '5500000000000',
       email: 'test@example.com',
       status: 'NOVO',
     },
-    data: { message: 'Este e um evento de teste do ByChat Beyond' },
+    data: { message: 'Este é um evento de teste' },
   }
 
   const bodyStr = JSON.stringify(testPayload)
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'User-Agent': 'ByChat-Webhook/1.0',
+    'User-Agent': 'Webhook/1.0',
     'X-Webhook-Event': 'test.ping',
     'X-Webhook-Timestamp': testPayload.timestamp,
     ...((wh.headers as any) || {}),

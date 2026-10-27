@@ -8,15 +8,15 @@ import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
 import { semFichaEmDobro, chaveDoContato, acharLeadDoContato, canalDaMensagem, type CanalDoContato } from './contactIdentity.js'
 import { getBranding } from '../lib/branding.js'
-import { notifyNewLead } from './notify.js'
+import { emitirLeadCaptado } from './notify.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
-import { onChatbotComplete, getScoringConfig } from './scoring.js'
+import { onChatbotComplete } from './scoring.js'
 import { generateUid } from './dedup.js'
 import { saveLeadOrigin, type OriginData } from './originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from './teamRouting.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
-import { linhaDoLink } from '../lib/appUrl.js'
+import { textoDoSistema } from './modelosDoSistema.js'
 
 // Protocolo de opções clicáveis: injetado no system prompt só quando o canal é
 // Cloud API (botões nativos). O modelo termina a mensagem com [[OPTIONS: a | b | c]]
@@ -199,14 +199,15 @@ export async function postJourneyAiReply(params: {
     const base = (chatbot?.postChatPrompt && String(chatbot.postChatPrompt).trim())
       || chatbot?.systemPrompt || `Você é um atendente da ${brand.brandName}.`
     const systemPrompt = String(base)
-      .replace(/\{\{attendant_name\}\}/g, chatbot?.name || 'Atendimento')
+      .replace(/\{\{attendant_name\}\}/g, chatbot?.name || brand.brandName)
       .replace(/\{\{brand_name\}\}/g, brand.brandName)
       + `\n\n## Contexto desta conversa\nVocê está no WhatsApp com ${nome || 'o lead'}, que ${outcome}. NÃO recomece o formulário nem repita perguntas de cadastro/qualificação. Reconheça o que ele já fez, seja cordial e objetivo, e ajude com dúvidas dentro do contexto da empresa e dos serviços. Se ele quiser remarcar, cancelar ou falar com um humano, oriente com gentileza.`
 
     const fd: any = (lead.formData as any) || {}
     const history: Array<{ role: string; content: string }> = Array.isArray(fd._postChat) ? fd._postChat : []
     history.push({ role: 'user', content: text })
-    const reply = (await chatWithAI(systemPrompt, history.slice(-20), 'chatbot_pos_jornada')) || 'Certo! Como posso ajudar?'
+    const reply = (await chatWithAI(systemPrompt, history.slice(-20), 'chatbot_pos_jornada')) || await textoDoSistema('chatbot_ia_resposta_vazia')
+    if (!reply) return
     history.push({ role: 'assistant', content: reply })
 
     const r = await sendFn(phone, reply)
@@ -399,7 +400,7 @@ export async function processChatbotMessage(
     // mandou a saudação): esta segue o fluxo normal em vez de saudar de novo.
     if (jaExiste) return { lead: jaExiste, saudou: false }
     // Cria novo lead
-    const firstMessage = greetingMsg || `Olá! 👋 Aqui é do atendimento da ${brand.brandName}. Como posso te ajudar?`
+    const firstMessage = greetingMsg || await textoDoSistema('chatbot_saudacao_padrao')
 
     // Reforma F2: instância dedicada a um agente (ownerUserId) tem prioridade
     // sobre cascata por setor. resolveRoutingFromContext já cobre isso quando
@@ -500,11 +501,12 @@ export async function processChatbotMessage(
     })
 
     // Envia mensagem de boas-vindas
-    const greetResult = await sendFn(phone, firstMessage)
+    // Saudação desligada (modelo off e chatbot sem saudação): nada sai.
+    const greetResult = firstMessage ? await sendFn(phone, firstMessage) : { messageId: null as string | null }
     const greetMsgId = greetResult.messageId
 
     // Save greeting to Message table
-    try {
+    if (firstMessage) try {
       await prisma.message.create({
         data: {
           leadId: novo.id,
@@ -514,7 +516,7 @@ export async function processChatbotMessage(
           provider,
           ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
           ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-          senderName: attendantName || 'Atendimento',
+          senderName: attendantName || brand.brandName,
           isInternal: false,
           externalId: greetMsgId,
           ack: greetMsgId ? 1 : 0,
@@ -612,7 +614,7 @@ export async function processChatbotMessage(
       // Usa o serviço genérico de scoring
       const result = await onChatbotComplete(lead.id, extractedFormData, lead.chatbotId)
       const scores = result.scores
-      const config = await getScoringConfig(lead.chatbotId)
+      const config = result.config
 
       // Save incoming message to Message table (completed path)
       try {
@@ -661,7 +663,7 @@ export async function processChatbotMessage(
             provider,
             ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
             ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-            senderName: attendantName || 'Atendimento',
+            senderName: attendantName || brand.brandName,
             isInternal: false,
             externalId: compAiMsgId,
             ack: compAiMsgId ? 1 : 0,
@@ -689,47 +691,37 @@ export async function processChatbotMessage(
         leadId: lead.id,
         type: EVENT_TYPES.DIAGNOSIS_COMPLETED,
         category: 'lifecycle',
-        title: 'Diagnóstico completo via WhatsApp',
+        title: 'Chatbot concluído via WhatsApp',
         channel: 'whatsapp',
         source: 'chatbot',
         actorType: 'lead',
-        description: `Score: ${scores.geral}/100, Maturidade: ${result.maturity.label}`,
-        metadata: { scores, maturidade: result.maturity.label, phone, provider },
+        ...(scores && result.maturity ? { description: `Score: ${scores.geral}/100, Maturidade: ${result.maturity.label}` } : {}),
+        metadata: { ...(scores ? { scores, maturidade: result.maturity?.label } : {}), phone, provider },
       })
 
-      // Envia resultado resumido via WhatsApp (genérico - usa pilares do config)
-      const pillarLines = config.pillars
-        .map((p: any) => `• ${p.name}: ${scores[p.key] || 0}/100`)
-        .join('\n')
-
-      const analysis = result.analysis
-      const resultMsg = `📊 *Resultado da sua análise*
-
-*Score Geral:* ${scores.geral}/100
-*Classificação:* ${result.maturity.label}
-
-📈 *Scores por pilar:*
-${pillarLines}
-
-${analysis?.visaoGeral ? `\n📋 *Visão Geral:*\n${analysis.visaoGeral}` : ''}
-
-${analysis?.prioridade ? `\n🎯 *Prioridade #1:*\n${analysis.prioridade}` : ''}
-
----
-Quer conversar sobre o seu resultado? Estamos à disposição! 💬
-${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
-
-      // Envia o resultado padrão de scoring. Cenários como envio de link de
-      // matrícula pré-preenchido foram movidos pra Fluxos (Workflow) — assim
-      // mantemos chatbot e módulo educacional desacoplados.
-      setTimeout(async () => {
-        try { await sendFn(phone, resultMsg) } catch (e) { app.log.error(`Result msg failed: ${e}`) }
-      }, 3000)
+      // Resultado da pontuação: só com pontuação configurada no chatbot e o
+      // modelo `chatbot_ia_resultado_pontuacao` ligado.
+      if (scores && config && result.maturity) {
+        const { urlNoPainel } = await import('../lib/appUrl.js')
+        const resultMsg = await textoDoSistema('chatbot_ia_resultado_pontuacao', {
+          geral: scores.geral,
+          classificacao: result.maturity.label,
+          pilares: config.pillars.map((p: any) => ({ nome: p.name, nota: scores[p.key] || 0 })),
+          visao_geral: result.analysis?.visaoGeral || '',
+          prioridade: result.analysis?.prioridade || '',
+          link: urlNoPainel('/') || '',
+        })
+        if (resultMsg) {
+          setTimeout(async () => {
+            try { await sendFn(phone, resultMsg) } catch (e) { app.log.error(`Result msg failed: ${e}`) }
+          }, 3000)
+        }
+      }
 
       // Notifica admin
       try {
         const updatedLead = await prisma.lead.findUnique({ where: { id: lead.id } })
-        if (updatedLead) await notifyNewLead(updatedLead)
+        if (updatedLead) await emitirLeadCaptado(updatedLead, 'chatbot')
       } catch (notifErr) {
         app.log.warn(`Notification failed: ${notifErr}`)
       }
@@ -810,7 +802,7 @@ ${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
         provider,
         ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
         ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-        senderName: attendantName || 'Atendimento',
+        senderName: attendantName || (await getBranding()).brandName,
         isInternal: false,
         externalId: aiMsgId,
         ack: aiMsgId ? 1 : 0,

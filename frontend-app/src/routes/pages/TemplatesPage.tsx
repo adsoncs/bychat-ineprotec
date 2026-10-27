@@ -28,7 +28,7 @@ import { EmailBuilder } from '@/components/email/EmailBuilder'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 
-const CATEGORIES = ['general', 'proposal', 'follow_up', 'onboarding', 'report', 'reminder']
+const CATEGORIES = ['general', 'proposal', 'follow_up', 'onboarding', 'report', 'reminder', 'system']
 
 const CATEGORY_LABEL: Record<string, string> = {
   general: 'Geral',
@@ -37,18 +37,25 @@ const CATEGORY_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
   report: 'Relatório',
   reminder: 'Lembrete',
+  // Modelos que o próprio sistema usa nos envios automáticos (não se excluem; desligam).
+  system: 'Automático do sistema',
 }
+
+/** Modelo do sistema: tem chave fixa e só pode ser desligado, nunca excluído. */
+const ehDoSistema = (t: MessageTemplateItem) => t.category === 'system' && !!t.key
 
 const CHANNEL_TONE: Record<string, 'success' | 'danger' | 'warning' | 'info'> = {
   whatsapp: 'success',
   email: 'danger',
   sms: 'warning',
+  texto: 'info',
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
   whatsapp: 'WhatsApp',
   email: 'E-mail',
   sms: 'SMS',
+  texto: 'Texto do sistema',
 }
 
 const CHANNEL_FILTERS: { key: string; label: string; activeClass: string }[] = [
@@ -56,9 +63,10 @@ const CHANNEL_FILTERS: { key: string; label: string; activeClass: string }[] = [
   { key: 'whatsapp', label: 'WhatsApp', activeClass: 'border-success text-success bg-success/10' },
   { key: 'email', label: 'E-mail', activeClass: 'border-danger text-danger bg-danger/10' },
   { key: 'sms', label: 'SMS', activeClass: 'border-warning text-warning bg-warning/10' },
+  { key: 'texto', label: 'Texto do sistema', activeClass: 'border-info text-info bg-info/10' },
 ]
 
-const QUICK_VARS = ['nome', 'empresa', 'score', 'maturidade', 'solucao', 'operador', 'data_hoje']
+const QUICK_VARS = ['nome', 'empresa', 'whatsapp', 'email', 'marca', 'operador', 'data_hoje']
 
 // Conserta HTML salvo entity-encoded por engano (&lt;div&gt;…). Só decodifica quando
 // o valor parece TODO escapado (tem &lt;/&gt; e nenhuma tag crua) — não toca HTML válido.
@@ -76,6 +84,7 @@ export function TemplatesPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const { data, isLoading } = useTemplates(channelFilter ? { channel: channelFilter } : {})
+  const alternar = useUpdateTemplate()
   const [editing, setEditing] = useState<MessageTemplateItem | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<MessageTemplateItem | null>(null)
@@ -206,6 +215,7 @@ export function TemplatesPage() {
                 <div class="flex items-center gap-2 mb-2">
                   <Badge tone={tone}>{channelLabel}</Badge>
                   {t.category && <Badge tone="neutral">{CATEGORY_LABEL[t.category] ?? t.category}</Badge>}
+                  {!t.active && <Badge tone="warning">Desligado</Badge>}
                   <span class="text-3xs text-fg-muted ml-auto">Usado {t.usageCount}x</span>
                 </div>
                 <div class="text-sm font-medium text-fg mb-1">{t.name}</div>
@@ -218,7 +228,21 @@ export function TemplatesPage() {
                 <p class="text-xs text-fg-muted line-clamp-3 whitespace-pre-line">{t.body}</p>
                 <div class="flex gap-1.5 mt-3">
                   <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>Editar</Button>
-                  <Button variant="ghost" size="sm" class="text-danger hover:text-danger" onClick={() => setDeleting(t)}>Excluir</Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={alternar.isPending}
+                    title={t.active ? 'Desligado, este modelo deixa de ser enviado' : 'Ligado, o modelo volta a ser usado'}
+                    onClick={() => alternar.mutate({ id: t.id, active: !t.active }, {
+                      onSuccess: () => toast(t.active ? 'Modelo desligado — esse envio para' : 'Modelo ligado', 'success'),
+                      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                    })}
+                  >
+                    {t.active ? 'Desligar' : 'Ligar'}
+                  </Button>
+                  {!ehDoSistema(t) && (
+                    <Button variant="ghost" size="sm" class="text-danger hover:text-danger" onClick={() => setDeleting(t)}>Excluir</Button>
+                  )}
                 </div>
               </Card>
             )
@@ -353,6 +377,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
           <option value="whatsapp">WhatsApp</option>
           <option value="email">E-mail</option>
           <option value="sms">SMS</option>
+          {channel === 'texto' && <option value="texto">Texto do sistema</option>}
         </Select>
         <Select label="Categoria" value={category ?? 'general'} onChange={(e) => setCategory((e.target as HTMLSelectElement).value)}>
           {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c] ?? c}</option>)}
@@ -377,6 +402,14 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
         </div>
       </div>
 
+      {category === 'system' && (
+        <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info">
+          Modelo usado pelo sistema num envio automático. Desligado, o envio não acontece.
+          Variáveis entre chaves duplas; <code>{'{{#campo}}'}…{'{{/campo}}'}</code> só aparece quando o campo tem valor,
+          e <code>{'{{^campo}}'}…{'{{/campo}}'}</code> só quando está vazio. <code>{'{{marca}}'}</code> é o nome da sua empresa.
+        </div>
+      )}
+
       {channel === 'email' ? (
         <EmailPanel
           subject={subject}
@@ -388,7 +421,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
           setBuilderJson={setBuilderJson}
           varKeys={varKeys}
         />
-      ) : channel === 'whatsapp' ? (
+      ) : channel === 'whatsapp' || channel === 'texto' ? (
         <ChatPanel kind="whatsapp" body={body} setBody={setBody} varKeys={varKeys} />
       ) : (
         <ChatPanel kind="sms" body={body} setBody={setBody} varKeys={varKeys} />

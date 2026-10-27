@@ -8,6 +8,7 @@ import { lerSeoTelas, marcaDoSeo } from '../lib/portalSeo.js'
 import { renderPixels } from '../lib/portalPixels.js'
 import { renderBrandingHead, renderBrandHeader, renderBrandHero, renderBrandFooter } from '../lib/portalBranding.js'
 import { lerEduGeral, vestirMarca } from '../lib/eduGeral.js'
+import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 function esc(s: string | null | undefined): string {
   if (!s) return ''
@@ -171,16 +172,7 @@ function renderPortalHtml(portal: any, req: FastifyRequest, offeringsForSchema?:
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
 <meta charset="UTF-8">
@@ -296,16 +288,7 @@ ${portal.customBodyJs ? `<script>${portal.customBodyJs}</script>` : ''}
 
 function renderNotFound(): string {
   return `<!DOCTYPE html><html lang="pt-BR"><head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 <meta charset="UTF-8"><title>Portal não encontrado</title><meta name="robots" content="noindex,nofollow"><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f6f7fb;color:#1a2332;text-align:center}.box{padding:40px;max-width:480px}.box h1{font-size:48px;margin:0 0 8px;color:#6b7280}.box p{color:#6b7280}</style></head><body><div class="box"><h1>404</h1><p>Portal de matrículas indisponível ou desativado.</p></div></body></html>`
 }

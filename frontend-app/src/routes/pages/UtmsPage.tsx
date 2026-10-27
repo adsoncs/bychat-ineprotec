@@ -251,7 +251,7 @@ export function UtmsPage() {
         tip={{
           tone: 'info',
           title: '💡 Dica',
-          body: <>Combine UTMs com <strong>Links Rastreáveis</strong>. Links rastreáveis dão URLs curtas (bychat.ia.br/l/x) + UTM padrão por baixo + integração com Pixel. Pra anúncios pagos, prefira Links Rastreáveis; pra posts orgânicos longos, UTM direto.</>,
+          body: <>Combine UTMs com <strong>Links Rastreáveis</strong>. Links rastreáveis dão URLs curtas ({typeof window !== 'undefined' ? window.location.host : ''}/l/x) + UTM padrão por baixo + integração com Pixel. Pra anúncios pagos, prefira Links Rastreáveis; pra posts orgânicos longos, UTM direto.</>,
         }}
       />
     </Page>

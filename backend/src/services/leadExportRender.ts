@@ -140,7 +140,7 @@ function blockHtml(block: Block, leadId: number): string {
 }
 
 export async function renderHtml(dossier: Dossier): Promise<string> {
-  const brand = await getBranding().catch(() => ({ brandName: 'BeyondHub' } as any))
+  const brand = await getBranding().catch(() => ({ brandName: '' } as any))
   const gen = dossier.generatedAt.toLocaleString('pt-BR')
 
   const leadSections = dossier.leads.map(l => {

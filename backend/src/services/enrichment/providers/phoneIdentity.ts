@@ -86,7 +86,7 @@ async function lookupCustomHttp(
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
-      'User-Agent': 'bychat-beyond/phone-identity',
+      'User-Agent': 'crm-integracao/phone-identity',
     },
     body: JSON.stringify({ phone: phoneE164, purpose }),
     signal: AbortSignal.timeout(12_000),

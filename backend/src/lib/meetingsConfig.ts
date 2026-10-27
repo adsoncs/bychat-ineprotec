@@ -5,6 +5,7 @@
 // notificação de agendamento para dar TRANSPARÊNCIA/consentimento ao participante.
 
 import { prisma } from './prisma.js'
+import { textoDoSistema } from '../services/modelosDoSistema.js'
 
 export const MEETINGS_NOTICE_DEFAULT =
   'Esta reunião poderá ser gravada e transcrita para fins de registro do atendimento. ' +
@@ -81,7 +82,7 @@ export async function getMeetingsSettings(): Promise<MeetingsSettings> {
   const s = (k: string): string => unwrap(g.get(k))
   const n = (k: string, def: number): number => { const v = parseInt(unwrap(g.get(k)), 10); return Number.isFinite(v) ? v : def }
   _ms = {
-    botName: s('meetings.bot_name') || 'ByChat Transcritor',
+    botName: s('meetings.bot_name') || await textoDoSistema('reuniao_nome_robo'),
     language: s('meetings.language') || 'pt',
     transcriptMode: s('meetings.transcript_mode') === 'corrigida' ? 'corrigida' : 'fiel',
     analysisEnabled: g.has('meetings.analysis_enabled') ? b('meetings.analysis_enabled') : true,

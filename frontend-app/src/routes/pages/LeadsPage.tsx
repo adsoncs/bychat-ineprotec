@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Plus, Users, Filter as FilterIcon, X as XIcon, Columns3, Trash2, ArrowRight,
-  Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap, Send,
+  Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
   Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon, ChevronDown,
   ExternalLink,
@@ -45,7 +45,6 @@ import {
   useLeadDuplicates,
   useQualifyLead,
   useUnqualifyLead,
-  useResendLeadReport,
   useRescoreLeadAi,
   useLeadSources,
   type AiScoreReason,
@@ -216,7 +215,6 @@ export function LeadsPage() {
 
   const { data, isLoading, error } = useLeads(filters)
   const delMut = useDeleteLead()
-  const resendReportMut = useResendLeadReport()
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -271,12 +269,6 @@ export function LeadsPage() {
       }
       case 'kanban': setMoveToKanbanLead(lead.id); break
       case 'whatsapp': setWhatsappLead({ id: lead.id, whatsapp: lead.whatsapp }); break
-      case 'resend':
-        resendReportMut.mutate(lead.id, {
-          onSuccess: () => toast('Relatório reenviado', 'success'),
-          onError: (e: unknown) => toast((e as Error).message, 'danger'),
-        })
-        break
       case 'delete':
         setConfirmDeleteLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
         break
@@ -330,7 +322,6 @@ export function LeadsPage() {
     copias.push({ tipo: 'separador', id: 'c-sep' })
     copias.push({ id: 'c-tudo', rotulo: 'Todos os dados', aoEscolher: () => executarAcaoLead('copy', lead) })
     add({ id: 'copiar', rotulo: 'Copiar', icone: <Copy size={I} />, submenu: copias })
-    if (webChat) add({ id: 'reenviar', rotulo: 'Reenviar relatório', icone: <Send size={I} />, aoEscolher: () => executarAcaoLead('resend', lead) })
 
     sep('s3')
     add({ id: 'excluir', rotulo: `Excluir ${rotulo.length > 24 ? 'lead' : `"${rotulo}"`}`, icone: <Trash2 size={I} />, perigo: true, aoEscolher: () => executarAcaoLead('delete', lead) })
@@ -1468,7 +1459,7 @@ function LeadsFooter({
 }
 
 type LeadSortBy = NonNullable<LeadsListFilters['sortBy']>
-type LeadRowAction = 'view' | 'answers' | 'edit' | 'copy' | 'kanban' | 'whatsapp' | 'resend' | 'delete' | 'transfer'
+type LeadRowAction = 'view' | 'answers' | 'edit' | 'copy' | 'kanban' | 'whatsapp' | 'delete' | 'transfer'
 
 const COL_TO_SORT: Partial<Record<LeadColumnKey, LeadSortBy>> = {
   empresa: 'empresa',
@@ -1689,14 +1680,6 @@ function LeadRowActionsMenu({
               onSelect={() => onAction('whatsapp', lead)}
             >
               <MessageCircle size={14} /> WhatsApp
-            </DropdownMenu.Item>
-          )}
-          {isWebChat && (
-            <DropdownMenu.Item
-              class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
-              onSelect={() => onAction('resend', lead)}
-            >
-              <Send size={14} /> Reenviar relatório
             </DropdownMenu.Item>
           )}
           <DropdownMenu.Separator class="h-px bg-border my-1" />
@@ -1987,21 +1970,13 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
   }
   const qualify = useQualifyLead()
   const unqualify = useUnqualifyLead()
-  const resendReport = useResendLeadReport()
 
   function copyBriefing() {
     if (!lead) return
-    const sc = lead.scores ?? {}
-    const fd: Record<string, unknown> = lead.formData ?? {}
-    const maturidade = (fd.maturidade as { label?: string } | string | undefined)
-    const matLabel = typeof maturidade === 'string' ? maturidade : (maturidade?.label ?? '–')
-    const solucao = fd.solucao as { nome?: string } | undefined
     const txt = [
-      `BRIEFING — ${lead.empresa ?? '–'}`,
+      `BRIEFING — ${lead.empresa ?? lead.nome ?? '–'}`,
       `Contato: ${lead.nome ?? '–'} | WhatsApp: ${lead.whatsapp ?? '–'} | ${lead.email ?? '–'}`,
       `Segmento: ${lead.segmento ?? '–'} | ${lead.cidade ?? '–'}`,
-      `Score: ${sc.geral ?? 0}/100 | Maturidade: ${matLabel}`,
-      `Solução: ${solucao?.nome ?? '–'}`,
       `Status: ${lead.status ?? '–'}`,
     ].join('\n')
     navigator.clipboard.writeText(txt)
@@ -2051,19 +2026,6 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
             <Button variant="ghost" size="sm" onClick={handleEnrollmentLink} disabled={!lead || enrollLink.isPending}>
               <GraduationCap size={12} /> {enrollLink.isPending ? 'Buscando…' : 'Link matrícula'}
             </Button>
-            {lead?.source === 'web_chat' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => resendReport.mutate(id, {
-                  onSuccess: () => toast('Relatório reenviado por e-mail', 'success'),
-                  onError: (e: unknown) => toast((e as Error).message, 'danger'),
-                })}
-                disabled={resendReport.isPending}
-              >
-                <Send size={12} /> {resendReport.isPending ? 'Enviando…' : 'Reenviar relatório'}
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="sm"

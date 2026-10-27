@@ -1,7 +1,7 @@
 /**
  * Mockup estilizado do produto (placeholder profissional, sem dependências).
  * Substituível por screenshot real do sistema depois — a estrutura imita
- * uma tela de conversas + KPIs do ByChat.
+ * uma tela de conversas + KPIs do painel.
  */
 export function DashboardMock() {
   return (

@@ -60,7 +60,8 @@ export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
   const content = String(input.message || '').trim()
   if (!content) return { ok: false, error: 'Mensagem vazia' }
 
-  const sender = input.sender || cfg['sms.comtele.default_sender'] || 'bychat'
+  // Sem remetente configurado, a Comtele usa o padrão da conta.
+  const sender = input.sender || cfg['sms.comtele.default_sender'] || ''
 
   try {
     const r = await fetch(COMTELE_ENDPOINT, {
@@ -69,7 +70,7 @@ export async function sendSms(input: SmsSendInput): Promise<SmsSendResult> {
         'content-type': 'application/json',
         'auth-key': apiKey,
       },
-      body: JSON.stringify({ Sender: sender, Receivers: to, Content: content }),
+      body: JSON.stringify({ ...(sender ? { Sender: sender } : {}), Receivers: to, Content: content }),
     })
     const data: any = await r.json().catch(() => ({}))
     if (!r.ok || data?.Success !== true) {

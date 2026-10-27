@@ -109,7 +109,9 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.post('/api/admin/sms/test', { preHandler: adminOnly }, async (req, reply) => {
     const body = req.body as any
     const to = String(body?.to || '').trim()
-    const message = String(body?.message || '').trim() || 'Teste de SMS via ByChat (Comtele).'
+    const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+    const message = String(body?.message || '').trim() || await textoDoSistema('teste_sms')
+    if (!message) return reply.code(400).send({ error: 'Modelo "Teste — SMS de teste" desligado e nenhuma mensagem informada' })
     if (!to) return reply.code(400).send({ error: 'Telefone (to) obrigatório' })
     const { sendSms } = await import('../services/smsProvider.js')
     const r = await sendSms({ to, message })
@@ -331,7 +333,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       const { getDefaultProvider } = await import('../services/whatsappProvider.js')
       const provider = await getDefaultProvider()
       const phone = String(to).replace(/\D/g, '')
-      await provider.sendText(phone, `[teste] ${message}`)
+      const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+      await provider.sendText(phone, (await textoDoSistema('teste_prefixo', { texto: message })) || message)
       return { ok: true }
     } catch (e: any) {
       return reply.code(500).send({ error: e.message || 'Falha ao enviar mensagem de teste' })
@@ -427,12 +430,8 @@ export async function settingsRoutes(app: FastifyInstance) {
       const cfg = await getEmailConfig()
       const brand = await getBranding()
       const rendered = await renderSystemEmail('email_test', { brand, ...nowVars() })
-      const subject = rendered?.subject || `[teste] ${brand.brandName} — Email funcionando`
-      const html = rendered?.html || `<div style="font-family:system-ui,sans-serif;padding:24px">
-        <h2 style="margin:0 0 12px">Email de teste enviado com sucesso ✓</h2>
-        <p>Provedor de email do ${brand.brandName} está corretamente configurado.</p>
-      </div>`
-      await sendEmailGeneric({ from: getFromAddress(cfg, 'Teste'), to, subject, html })
+      if (!rendered?.enabled) return reply.code(400).send({ error: 'O modelo "E-mail de teste" está desligado em Configurações › E-mails do Sistema' })
+      await sendEmailGeneric({ from: getFromAddress(cfg), to, subject: rendered.subject, html: rendered.html })
       return { ok: true }
     } catch (e: any) {
       return reply.code(500).send({ error: e.message || 'Falha ao enviar email de teste' })
@@ -712,7 +711,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   // injetados em window.__LANDING_CONTACT__ pelo serveLandingPage (server.ts).
   const LANDING_CONTACT_DEFAULTS = {
     whatsappNumber: '5511944742843',
-    whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
+    whatsappMessage: 'Olá! Quero agendar uma demonstração.',
     loginUrl: '/app',
   }
 

@@ -1250,21 +1250,14 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // Notificação (idempotência leve: só dispara se houver problema e notify=1)
     let notified = false
     if (wantNotify && problems.length > 0) {
-      const brandHost = process.env.APP_URL || 'o painel'
-      const lines = problems.map(p =>
-        `• *${p.pageName}* (#${p.integrationId}): ${p.status.toUpperCase()} — ${p.issues.join('; ')}`)
-      const body = [
-        `⚠️ *Meta Ads — token com problema*`,
-        ``,
-        ...lines,
-        ``,
-        `Reconecte em Configurações › Meta Ads (${brandHost}). O relatório de investimento fica defasado até resolver.`,
-      ].join('\n')
+      const { renderizarModelo } = await import('../services/modelosDoSistema.js')
+      const integracoes = problems.map(p => ({ pagina: p.pageName, id: p.integrationId, status: p.status.toUpperCase(), problemas: p.issues.join('; ') }))
+      const body = (await renderizarModelo('meta_ads_token_problema_wa', { integracoes, painel: process.env.APP_URL || '' }))?.body.trim() || ''
 
       // WhatsApp via Evolution (mesmo caminho de notify.ts)
       try {
         const { whatsapps } = await getNotificationTargets()
-        if (whatsapps.length > 0) {
+        if (body && whatsapps.length > 0) {
           const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
           const provider = createEvolutionProvider()
           for (const num of whatsapps) {
@@ -1277,13 +1270,14 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       try {
         const targets = await getNotificationTargets()
         const to = targets.emails.join(', ')
-        if (to) {
+        const esc = (t: string) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+        const em = to ? await renderizarModelo('meta_ads_token_problema_email', {
+          integracoes: integracoes.map((i) => ({ ...i, pagina: esc(i.pagina), problemas: esc(i.problemas) })),
+          painel: process.env.APP_URL || '',
+        }) : null
+        if (to && em?.body.trim()) {
           const cfg = await getEmailConfig()
-          const from = getFromAddress(cfg, 'Alertas')
-          const html = `<h2>Meta Ads — token com problema</h2><ul>${
-            problems.map(p => `<li><b>${p.pageName}</b> (#${p.integrationId}): <b>${p.status}</b> — ${p.issues.join('; ')}</li>`).join('')
-          }</ul><p>Reconecte em Configurações › Meta Ads. O relatório de investimento fica defasado até resolver.</p>`
-          await sendEmailGeneric({ from, to, subject: '⚠️ Meta Ads: token com problema', html })
+          await sendEmailGeneric({ from: getFromAddress(cfg), to, subject: em.subject, html: em.body })
         }
       } catch (e: any) { app.log.warn(`[token-health] email falhou: ${e.message}`) }
 

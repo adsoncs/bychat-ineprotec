@@ -37,30 +37,39 @@ type SendChoicesFn = (
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const MAX_SLOTS = 10
 
-// Mensagens interativas do runner. Editáveis por chatbot em Chatbot.scriptedMessages
-// (override por chave); estes são os defaults usados quando a chave não foi ajustada.
-// Variáveis disponíveis por chave estão indicadas nos comentários.
-export const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
-  invalidSelect: 'Não entendi. 🙂 Por favor, responda com o *número* da opção.',
-  invalidAnswer: '{{erro}}. Vamos tentar de novo:', // {{erro}}
-  noMeetingType: 'Perfeito! Em breve entraremos em contato para agendar. 😊',
-  noSlots: 'No momento não há horários disponíveis. Nossa equipe vai entrar em contato para combinar o melhor horário com você. 😊',
-  slotPrompt: '{{titulo}}:\n\n{{horarios}}\n\n_Responda com o número do horário._', // {{titulo}} {{horarios}}
-  invalidSlot: 'Não entendi o horário. Responda com o número:\n\n{{horarios}}', // {{horarios}}
-  slotTaken: '{{erro}}. Escolha outro:\n\n{{horarios}}', // {{erro}} {{horarios}}
-  bookingUnavailable: 'Agendamento indisponível no momento. Nossa equipe entrará em contato.',
-  bookingConfirmed: '✅ Reunião agendada para *{{horario}}*!\n\nVocê vai receber os detalhes por aqui. Até lá! 🚀', // {{horario}} {{nome}}
-  disqualifiedFallback: 'Obrigado pelas respostas! Em breve entraremos em contato. 😊',
-  qualifiedDone: 'Obrigado! Em breve entraremos em contato. 😊',
-  // Escape do roteiro: usado quando o contato não consegue responder a opção.
-  handoffAfterFallback: 'Sem problema! Vou te passar para uma pessoa da equipe continuar daqui. 😊',
+// Mensagens do runner. Ordem: texto do próprio chatbot (Chatbot.scriptedMessages)
+// → modelo do sistema `chatbot_roteiro_<chave>` (Modelos). Modelo desligado e
+// chatbot sem texto = a mensagem não sai. Nenhum texto mora aqui.
+export const CHAVES_DO_ROTEIRO = [
+  'invalidSelect', 'invalidAnswer', 'noMeetingType', 'noSlots', 'slotPrompt', 'invalidSlot', 'invalidSlotList',
+  'slotTaken', 'slotTakenList', 'slotTakenErro', 'bookingUnavailable', 'bookingConfirmed', 'disqualifiedFallback',
+  'qualifiedDone', 'handoffAfterFallback', 'flowIntro', 'flowNudge', 'flowCta', 'slotTitulo',
+] as const
+
+/**
+ * Carrega os textos do roteiro para este chatbot (uma vez por mensagem) e os
+ * deixa no próprio objeto — `msg()` é chamado em callbacks síncronos.
+ */
+export async function prepararMensagensDoRoteiro(chatbot: any): Promise<void> {
+  if (!chatbot || typeof chatbot !== 'object') return
+  const { modeloCru } = await import('./modelosDoSistema.js')
+  const { getBranding } = await import('../lib/branding.js')
+  const overrides = (chatbot.scriptedMessages as Record<string, string> | null) || {}
+  const mapa: Record<string, string> = {}
+  for (const k of CHAVES_DO_ROTEIRO) {
+    const proprio = overrides[k] && String(overrides[k]).trim()
+    mapa[k] = proprio || (await modeloCru(`chatbot_roteiro_${k}`)) || ''
+  }
+  chatbot.__mensagensRoteiro = mapa
+  chatbot.__marca = (await getBranding().catch(() => null))?.brandName || ''
 }
 
-// Resolve a mensagem de uma chave: override do chatbot → default; interpola variáveis.
-export function msg(chatbot: any, key: keyof typeof DEFAULT_SCRIPTED_MESSAGES | string, vars: Record<string, any> = {}): string {
+// Resolve a mensagem de uma chave e interpola variáveis ('' = não enviar).
+export function msg(chatbot: any, key: string, vars: Record<string, any> = {}): string {
+  const mapa = chatbot?.__mensagensRoteiro as Record<string, string> | undefined
   const overrides = (chatbot?.scriptedMessages as Record<string, string> | null) || {}
-  const tpl = (overrides[key] && String(overrides[key]).trim()) || DEFAULT_SCRIPTED_MESSAGES[key] || ''
-  return interpolate(tpl, vars)
+  const tpl = mapa?.[key] ?? ((overrides[key] && String(overrides[key]).trim()) || '')
+  return interpolate(tpl, { marca: chatbot?.__marca || '', ...vars })
 }
 
 interface ScriptState {
@@ -145,7 +154,8 @@ async function _process(
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[scriptedChatbot] form sem fields'); return }
   const fields: any[] = form.fields
   const settings: any = form.settings || {}
-  const attendantName = chatbot?.name || 'Atendimento'
+  await prepararMensagensDoRoteiro(chatbot)
+  const attendantName = chatbot?.name || chatbot?.__marca || ''
 
   // Dedup de messageId (rajada / reentrega do webhook).
   if (messageId) {
@@ -177,6 +187,7 @@ async function _process(
     } catch (e) { app.log.warn(`[scriptedChatbot] save incoming: ${e}`) }
   }
   const send = async (leadId: number, body: string) => {
+    if (!String(body ?? '').trim()) return // modelo desligado: nada sai
     const r = await sendFn(phone, body)
     await saveOutgoing(leadId, body, r.messageId)
   }
@@ -221,10 +232,10 @@ async function _process(
     const welcome = stripTags(form?.settings?.conversational?.welcomeText)
     const editedBody = (flowRow.bodyText && flowRow.bodyText.trim()) || ''
     const body = nudge
-      ? (editedBody ? `${editedBody}` : 'Por favor, toque no botão abaixo e preencha o formulário. 🙂')
-      : (editedBody || welcome || 'Para começar, toque no botão e preencha rapidamente:')
+      ? (editedBody || msg(chatbot, 'flowNudge'))
+      : (editedBody || welcome || msg(chatbot, 'flowIntro'))
     const payload = buildFlowSendPayload(flowRow.metaFlowId, flowRow.screenId, {
-      bodyText: body, cta: (flowRow.cta && flowRow.cta.trim()) || 'Preencher', flowToken: `lead_${leadId}_${Date.now()}`,
+      bodyText: body, cta: (flowRow.cta && flowRow.cta.trim()) || msg(chatbot, 'flowCta'), flowToken: `lead_${leadId}_${Date.now()}`,
     })
     try {
       const r = await sendInteractiveFn!(phone, payload)
@@ -599,7 +610,7 @@ async function enterSchedulingPhase(
     const ld = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true } })
     await send(leadId, interpolate(String(chatbot.schedulingIntro), { nome: ld?.nome || state.answers?.nome || '', reuniao: mt.name }))
   }
-  const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento' ? stripTags(schedField.label) : 'Escolha o melhor horário para a nossa conversa'
+  const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento' ? stripTags(schedField.label) : msg(chatbot, 'slotTitulo')
   const choices: Choice[] = flat.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
   await sendChoices(
     leadId, label, choices,
@@ -628,7 +639,7 @@ async function handleSchedulingReply(
   if (!chosen) {
     const choices: Choice[] = slots.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
     await sendChoices(
-      leadId, 'Não entendi o horário. Escolha um:', choices,
+      leadId, msg(chatbot, 'invalidSlotList'), choices,
       (cs) => msg(chatbot, 'invalidSlot', { horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
       { button: 'Ver horários', sectionTitle: 'Horários' },
     )
@@ -661,8 +672,8 @@ async function handleSchedulingReply(
     state.slots = flat
     const choices: Choice[] = flat.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
     await sendChoices(
-      leadId, 'Esse horário ficou indisponível. Escolha outro:', choices,
-      (cs) => msg(chatbot, 'slotTaken', { erro: result.error || 'Horário indisponível', horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
+      leadId, msg(chatbot, 'slotTakenList'), choices,
+      (cs) => msg(chatbot, 'slotTaken', { erro: result.error || msg(chatbot, 'slotTakenErro'), horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
       { button: 'Ver horários', sectionTitle: 'Horários' },
     )
     await persistFn(leadId, state)

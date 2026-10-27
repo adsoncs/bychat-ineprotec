@@ -201,8 +201,10 @@ export async function buildDossier(leadId: number): Promise<Dossier> {
 }
 
 export async function renderDossierPdf(dossier: Dossier): Promise<Buffer> {
+  const { getBranding } = await import('../../lib/branding.js')
+  const marcaDoDossie = (await getBranding().catch(() => null))?.brandName || ''
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Dossie ${dossier.lead.nome || dossier.lead.id}`, Author: 'ByChat Beyond' } })
+    const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Dossie ${dossier.lead.nome || dossier.lead.id}`, Author: marcaDoDossie } })
     const chunks: Buffer[] = []
     doc.on('data', c => chunks.push(c as Buffer))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
@@ -210,7 +212,7 @@ export async function renderDossierPdf(dossier: Dossier): Promise<Buffer> {
 
     // Cabeçalho
     doc.fontSize(20).fillColor('#1a73e8').text('Dossie de Lead', { align: 'left' })
-    doc.fontSize(10).fillColor('#5f6368').text(`Gerado em ${new Date().toLocaleString('pt-BR')} | Fonte: ByChat Beyond`, { align: 'left' })
+    doc.fontSize(10).fillColor('#5f6368').text(`Gerado em ${new Date().toLocaleString('pt-BR')}${marcaDoDossie ? ` | Fonte: ${marcaDoDossie}` : ''}`, { align: 'left' })
     doc.moveDown()
 
     // Score

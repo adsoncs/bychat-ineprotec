@@ -27,6 +27,7 @@ import { escolherOperadorDaRota } from './teamRouting.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
 import { eduSdrLigado, EDU_TOOLS, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera, type EduState } from './journey/eduSdr.js'
+import { textoDoSistema } from './modelosDoSistema.js'
 
 const MAX_TOOL_ITERS = 6
 const HISTORY_LIMIT = 24
@@ -1037,7 +1038,8 @@ async function _process(
     const fp: string = state.phase
     if (fp === 'disqualified') {
       app.log.warn('[aiJourney] desqualificado sem resposta — encerrando cordialmente')
-      await send(leadId, 'Obrigado pelas suas respostas! No momento não seguimos com o agendamento, mas qualquer novidade a nossa equipe entra em contato. 😊', []).catch(() => {})
+      const t = await textoDoSistema('chatbot_ia_desqualificado')
+      if (t) await send(leadId, t, []).catch(() => {})
     } else if (indisponivel) {
       // Silêncio deliberado: a mensagem do lead já está gravada e a conversa
       // aparece nas Conversas para o time atender. A gestão foi avisada pelo
@@ -1045,13 +1047,12 @@ async function _process(
       app.log.error(`[aiJourney] lead ${leadId}: IA indisponível (crédito/credencial) — bot em silêncio, conversa entregue ao atendimento humano`)
     } else if (failed) {
       app.log.warn('[aiJourney] sem resposta final — enviando fallback')
-      await send(leadId, 'Tive uma instabilidade aqui 😕 Pode repetir a sua última mensagem, por favor?', []).catch(() => {})
-    } else if (failed) {
-      app.log.warn('[aiJourney] sem resposta final — enviando fallback')
-      await send(leadId, 'Tive uma instabilidade aqui 😕 Pode repetir a sua última mensagem, por favor?', []).catch(() => {})
+      const t = await textoDoSistema('chatbot_ia_instabilidade')
+      if (t) await send(leadId, t, []).catch(() => {})
     } else {
       app.log.warn('[aiJourney] loop sem resposta final (limite de iterações)')
-      await send(leadId, 'Deixa eu verificar isso e já te respondo. 🙂', []).catch(() => {})
+      const t = await textoDoSistema('chatbot_ia_verificando')
+      if (t) await send(leadId, t, []).catch(() => {})
     }
   }
 

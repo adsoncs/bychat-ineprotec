@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify'
 import { rotaManualDeDono } from '../lib/donoDoLead.js'
 import { prisma } from '../lib/prisma.js'
 import { applyStageOutcome } from '../services/stageOutcome.js'
-import { notifyNewLead, sendReportToLead } from '../services/notify.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { buildLeadAccessWhere, canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
@@ -15,7 +14,6 @@ import { broadcastRealtimeEvent } from './realtime.js'
 import { markLeadWon, markLeadLost, reopenLead } from '../services/leadOutcome.js'
 import { moveToTrash, snapshotLead, snapshotLeads } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
-import { queues } from '../lib/queues.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { assertLeadSlotAvailableTx, SlotFullError } from '../services/educationalSlots.js'
 import { Prisma } from '@prisma/client'
@@ -85,242 +83,6 @@ export async function leadsRoutes(app: FastifyInstance) {
       },
     }).catch(() => {})
   }
-
-  // ── POST /api/bychat/leads ─── Criar lead (etapa 0) ou salvar completo ──
-  app.post('/api/bychat/leads', async (req, reply) => {
-    const ip = getIp(req)
-    const nowRl = Date.now()
-    const rl = leadCreateCounts.get(ip) || { count: 0, reset: nowRl + 60000 }
-    if (nowRl > rl.reset) { rl.count = 0; rl.reset = nowRl + 60000 }
-    rl.count++
-    leadCreateCounts.set(ip, rl)
-    if (rl.count > 20) return reply.code(429).send({ error: 'Muitas requisições. Aguarde 1 minuto.' })
-
-    const body = req.body as any
-    const fd = body?.formData
-
-    if (!fd?.empresa || !fd?.whatsapp) {
-      return reply.code(400).send({ error: 'Dados incompletos' })
-    }
-
-    // Dedup: buscar lead existente por WhatsApp ou email
-    const { lead: existingLead } = await findDuplicate(fd.whatsapp, fd.email)
-    let lead: any
-
-    if (existingLead) {
-      // Atualizar lead existente com novos dados
-      const upd: any = {
-        formData: fd,
-        scores: body.scores || existingLead.scores || {},
-        analysis: body.analysis || existingLead.analysis,
-        lastStep: body.lastStep ?? existingLead.lastStep,
-        completed: body.completed ?? existingLead.completed,
-      }
-      if (body.solucao?.nome) upd.solucaoNome = body.solucao.nome
-      if (body.maturidade?.label) upd.maturidade = body.maturidade.label
-      if (fd.nome && !existingLead.nome) upd.nome = fd.nome
-      if (fd.empresa && !existingLead.empresa) upd.empresa = fd.empresa
-      if (fd.segmento && !existingLead.segmento) upd.segmento = fd.segmento
-      if (fd.cidade && !existingLead.cidade) upd.cidade = fd.cidade
-      if (fd.email && !existingLead.email) upd.email = fd.email
-      lead = await prisma.lead.update({ where: { id: existingLead.id }, data: upd })
-      // Promove se o lead concluiu o fluxo agora ou deu consentimento.
-      if ((upd.completed === true || fd.lgpdConsent || body.lgpdConsent) && !existingLead.qualifiedAt) {
-        const { qualifyLead } = await import('../services/leadQualification.js')
-        qualifyLead(existingLead.id, { source: upd.completed ? 'web_chat_completed' : 'chatbot_completed' }).catch(() => {})
-      }
-    } else {
-      const lgpdConsent = !!(fd.lgpdConsent || body.lgpdConsent)
-      const isCompleted = !!body.completed
-      // Qualifica se o usuário completou o fluxo ou deu consentimento LGPD —
-      // ambos são sinal claro de intenção real (não é só uma sessão de chat vazia).
-      const qualifiesNow = isCompleted || lgpdConsent
-      const routedTeamId = await resolveDefaultTeamId()
-      lead = await prisma.lead.create({
-        data: {
-          uid:         await generateUid(),
-          empresa:     fd.empresa,
-          nome:        fd.nome || '',
-          whatsapp:    fd.whatsapp,
-          email:       fd.email || '',
-          segmento:    fd.segmento,
-          cidade:      fd.cidade,
-          formData:    fd,
-          scores:      body.scores || {},
-          analysis:    body.analysis || {},
-          solucaoNome: body.solucao?.nome,
-          maturidade:  body.maturidade?.label,
-          lastStep:    body.lastStep ?? 0,
-          completed:   isCompleted,
-          status:      'NOVO',
-          teamId:      routedTeamId,
-          lgpdConsent,
-          lgpdConsentAt: lgpdConsent ? new Date() : null,
-          enrichmentStatus: lgpdConsent ? 'pending' : null,
-          qualifiedAt: qualifiesNow ? new Date() : null,
-          qualificationSource: qualifiesNow ? (isCompleted ? 'web_chat_completed' : 'chatbot_completed') : null,
-          source: 'web_chat',
-          originType: 'web_chat',
-        }
-      })
-
-      // Se o lead autorizou LGPD, dispara enriquecimento em background
-      if (lgpdConsent) {
-        queues.enrichment.add('enrich', { leadId: lead.id }, {
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 5000 },
-          delay: 3000,  // pequeno delay para o lead terminar de ser salvo
-        }).catch(err => console.error('[enrichment enqueue]', err))
-      }
-    }
-
-    // Log: lead criado
-    logEvent({
-      leadId: lead.id,
-      type: EVENT_TYPES.LEAD_CREATED,
-      category: 'lifecycle',
-      title: 'Lead criado via formulário',
-      channel: 'web_form',
-      source: 'form',
-      actorType: 'lead',
-      description: `Lead "${fd.empresa}" criado${body.completed ? ' com diagnóstico completo' : ''}`,
-      metadata: { empresa: fd.empresa, whatsapp: fd.whatsapp, email: fd.email, segmento: fd.segmento, completed: body.completed ?? false },
-      ipAddress: getIp(req),
-    })
-
-    broadcastRealtimeEvent({
-      type: 'lead:created',
-      payload: { id: lead.id, nome: lead.nome, empresa: lead.empresa, status: lead.status },
-    })
-
-    if (body.completed) {
-      logEvent({
-        leadId: lead.id,
-        type: EVENT_TYPES.DIAGNOSIS_COMPLETED,
-        category: 'lifecycle',
-        title: 'Diagnóstico completo via formulário',
-        channel: 'web_form',
-        source: 'form',
-        actorType: 'lead',
-        metadata: { scores: body.scores, maturidade: body.maturidade?.label, solucao: body.solucao?.nome },
-      })
-    }
-
-    // Vincular com tracking visitor (se existir)
-    try {
-      let tVisitor = null
-      if (fd.email) {
-        tVisitor = await prisma.trackingVisitor.findFirst({ where: { identifiedEmail: fd.email } })
-      }
-      if (!tVisitor && fd.whatsapp) {
-        const phone = String(fd.whatsapp).replace(/\D/g, '')
-        if (phone.length >= 8) {
-          tVisitor = await prisma.trackingVisitor.findFirst({ where: { identifiedPhone: { contains: phone.slice(-8) } } })
-        }
-      }
-      // Tentar por cookie bt_vid enviado no body
-      if (!tVisitor && body.bt_vid) {
-        tVisitor = await prisma.trackingVisitor.findUnique({ where: { visitorId: String(body.bt_vid) } })
-      }
-      if (tVisitor) {
-        await prisma.trackingVisitor.update({ where: { id: tVisitor.id }, data: { leadId: lead.id } })
-        await prisma.lead.update({ where: { id: lead.id }, data: { trackingVisitorId: tVisitor.visitorId } })
-      }
-    } catch (e) { /* silently ignore tracking errors */ }
-
-    // Notificação assíncrona apenas para leads completos
-    if (body.completed) {
-      notifyNewLead(lead).catch((err: Error) =>
-        console.error('Notify error:', err.message)
-      )
-      // Enviar diagnóstico por email ao lead
-      sendReportToLead(lead).catch((err: Error) =>
-        console.error('Send report error:', err.message)
-      )
-    }
-
-    return reply.code(201).send({ ok: true, id: lead.id })
-  })
-
-  // ── PUT /api/bychat/leads/:id/progress ─── Atualizar a cada etapa ──
-  app.put('/api/bychat/leads/:id/progress', async (req, reply) => {
-    const { id } = req.params as any
-    const leadId = parseInt(id)
-    if (!leadId || isNaN(leadId)) return reply.code(400).send({ error: 'ID inválido' })
-
-    const body = req.body as any
-    const fd = body?.formData
-
-    if (!fd) return reply.code(400).send({ error: 'formData obrigatório' })
-
-    // Verificar se lead existe e não foi completado (impede reescrita de dados)
-    const existing = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, completed: true, whatsapp: true } })
-    if (!existing) return reply.code(404).send({ error: 'Lead não encontrado' })
-    if (existing.completed) return reply.code(409).send({ error: 'Diagnóstico já finalizado' })
-
-    // Binding anti-IDOR: este endpoint é público e o :id é sequencial. Sem prova de
-    // posse, qualquer um sobrescreveria o lead de outra pessoa por enumeração.
-    // O fluxo legítimo continua com o MESMO whatsapp informado na criação — exigimos
-    // que o whatsapp do corpo bata com o do lead (comparação só por dígitos).
-    const onlyDigits = (s: any) => String(s || '').replace(/\D/g, '')
-    const existingWa = onlyDigits(existing.whatsapp)
-    const incomingWa = onlyDigits(fd.whatsapp)
-    if (existingWa && incomingWa !== existingWa) {
-      return reply.code(403).send({ error: 'Não autorizado a alterar este registro' })
-    }
-
-    const data: any = {
-      formData:  fd,
-      lastStep:  body.lastStep ?? 0,
-      empresa:   fd.empresa || undefined,
-      nome:      fd.nome || undefined,
-      whatsapp:  fd.whatsapp || undefined,
-      email:     fd.email || undefined,
-      segmento:  fd.segmento || undefined,
-      cidade:    fd.cidade || undefined,
-    }
-
-    // Se completou o diagnóstico, salva scores/analysis/solucao
-    if (body.completed) {
-      data.completed   = true
-      data.scores      = body.scores || {}
-      data.analysis    = body.analysis || {}
-      data.solucaoNome = body.solucao?.nome
-      data.maturidade  = body.maturidade?.label
-    }
-
-    const lead = await prisma.lead.update({
-      where: { id: leadId },
-      data
-    })
-
-    // Log: progresso do diagnóstico
-    logEvent({
-      leadId: lead.id,
-      type: body.completed ? EVENT_TYPES.DIAGNOSIS_COMPLETED : EVENT_TYPES.DIAGNOSIS_PROGRESS,
-      category: 'lifecycle',
-      title: body.completed ? 'Diagnóstico completo via formulário' : `Diagnóstico avançou para etapa ${body.lastStep ?? 0}`,
-      channel: 'web_form',
-      source: 'form',
-      actorType: 'lead',
-      oldValue: String(lead.lastStep - (body.lastStep ?? 0)),
-      newValue: String(body.lastStep ?? 0),
-      metadata: body.completed ? { scores: body.scores, maturidade: body.maturidade?.label } : { step: body.lastStep },
-      ipAddress: getIp(req),
-    })
-
-    // Notificação apenas quando o diagnóstico é finalizado
-    if (body.completed) {
-      notifyNewLead(lead).catch((err: Error) =>
-        console.error('Notify error:', err.message)
-      )
-      sendReportToLead(lead).catch((err: Error) =>
-        console.error('Send report error:', err.message)
-      )
-    }
-
-    return { ok: true, id: lead.id, lastStep: lead.lastStep }
-  })
 
   // ── GET /api/bychat/leads ─── Listar com filtros avançados ──
   app.get('/api/bychat/leads', { preHandler: authMiddleware }, async (req) => {
@@ -1682,36 +1444,6 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
   })
 
-  // ── POST /api/bychat/leads/:id/send-report ─── Enviar diagnóstico por email ao lead ──
-  app.post('/api/bychat/leads/:id/send-report', { preHandler: authMiddleware }, async (req, reply) => {
-    const { id } = req.params as any
-    if (!await assertLeadAccess(req, reply, parseInt(id))) return
-    try {
-      const lead = await prisma.lead.findUnique({ where: { id: parseInt(id) } })
-      if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
-      if (!lead.email) return reply.code(400).send({ error: 'Lead sem e-mail cadastrado' })
-      await sendReportToLead(lead)
-
-      logEvent({
-        leadId: parseInt(id),
-        type: EVENT_TYPES.REPORT_SENT,
-        category: 'communication',
-        title: 'Relatório de diagnóstico enviado por email',
-        channel: 'email',
-        source: 'panel',
-        ...getOperator(req),
-        description: `Relatório enviado para ${lead.email}`,
-        metadata: { email: lead.email },
-        ipAddress: getIp(req),
-      })
-
-      return { ok: true, message: 'Relatório enviado' }
-    } catch (err: any) {
-      app.log.error(`Send report error: ${err.message}`)
-      return reply.code(500).send({ error: 'Erro ao enviar relatório' })
-    }
-  })
-
   // ── POST /api/bychat/leads/:id/ai-sentiment ─── Análise IA de sentimento e fechamento ──
   app.post('/api/bychat/leads/:id/ai-sentiment', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
@@ -2114,7 +1846,7 @@ export async function leadsRoutes(app: FastifyInstance) {
     }).join('\n')
 
     reply.header('Content-Type', 'text/csv; charset=utf-8')
-    reply.header('Content-Disposition', `attachment; filename="leads_beyond_${new Date().toISOString().slice(0,10)}.csv"`)
+    reply.header('Content-Disposition', `attachment; filename="leads_${new Date().toISOString().slice(0,10)}.csv"`)
     return header + rows
   })
 

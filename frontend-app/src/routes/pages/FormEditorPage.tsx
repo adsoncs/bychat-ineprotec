@@ -744,7 +744,7 @@ function SchedulingSection({ schedulingOn, hasField, fieldHasMeeting, selectedMt
 function ShareSection({ slug, formId, displayMode }: { slug: string; formId: number; displayMode: string }) {
   const ref = slug || String(formId)
   const hosted = `${location.origin}/f/${ref}`
-  const embed = `<script src="${location.origin}/api/forms/embed/${formId}.js" defer></script>\n<beyond-form form-id="${formId}"></beyond-form>`
+  const embed = `<script src="${location.origin}/api/forms/embed/${formId}.js" defer></script>\n<lead-form form-id="${formId}"></lead-form>`
   // Mesmo código do backend (routes/forms.ts → iframeDoFormulario): UTMs da página
   // repassadas ao quadro e, no clássico, altura ajustada ao conteúdo.
   const fid = String(formId)

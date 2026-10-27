@@ -36,7 +36,7 @@ interface BizField {
 }
 
 const BUSINESS_FIELDS: BizField[] = [
-  { key: 'business.company_name', label: 'Nome da empresa', type: 'text', placeholder: 'Ex.: Agência Beyond' },
+  { key: 'business.company_name', label: 'Nome da empresa', type: 'text', placeholder: 'Ex.: Sua Empresa' },
   { key: 'business.industry', label: 'Ramo / segmento de atuação', type: 'text', placeholder: 'Ex.: Agência de marketing e publicidade' },
   { key: 'business.offer_description', label: 'O que vende (oferta principal)', type: 'textarea', placeholder: 'Ex.: Gestão de tráfego pago, criação e estratégia de marketing para PMEs.' },
   { key: 'business.target_audience', label: 'Público-alvo / cliente ideal (ICP)', type: 'textarea', placeholder: 'Ex.: PMEs de serviço com faturamento de R$50k–500k/mês que já investem em anúncios.' },

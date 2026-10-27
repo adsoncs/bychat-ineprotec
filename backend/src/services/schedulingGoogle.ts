@@ -6,6 +6,7 @@
 // para não bloquear a agenda de todos com o calendário corporativo.
 import { prisma } from '../lib/prisma.js'
 import { listCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '../lib/google.js'
+import { textoDoSistema } from './modelosDoSistema.js'
 
 export type ExternalEvent = {
   eventId: string
@@ -48,7 +49,7 @@ export async function getExternalGoogleEvents(userId: number | null | undefined,
     if (hit && Date.now() - hit.at < TTL) return hit.events
     const raw = await listCalendarEvents(cal.connectionId, cal.calendarId, from, to)
     const events: ExternalEvent[] = raw
-      .filter((e) => !e.bychatSource) // exclui o que o próprio bychat empurrou (já aparece nativo)
+      .filter((e) => !e.bychatSource) // exclui o que o próprio sistema empurrou (já aparece nativo)
       .filter((e) => e.transparency !== 'transparent') // ignora eventos marcados como "disponível"
       .filter((e) => e.start && e.end)
       .map((e) => ({
@@ -76,7 +77,7 @@ export async function pushBlockToGoogle(blockId: number): Promise<void> {
     if (!cal) { console.warn(`[scheduling:gcal] bloco #${blockId}: operador ${b.operatorUserId} sem conta Google conectada — não espelhado`); return }
     const res = await createCalendarEvent(cal.connectionId, cal.calendarId, {
       summary: b.title || (b.kind === 'busy' ? 'Bloqueado' : 'Compromisso'),
-      description: b.note || 'Criado no bychat (Agenda).',
+      description: b.note || await textoDoSistema('agenda_bloqueio_descricao'),
       start: b.startAt,
       end: b.endAt,
       allDay: b.allDay,

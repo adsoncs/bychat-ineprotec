@@ -140,7 +140,7 @@ export function EnrollmentPortalsPage() {
         steps={[
           {
             title: '🏗️ Crie um portal',
-            body: <>Cada portal tem um <strong>slug</strong> (URL pública: bychat.ia.br/p/seu-portal) e uma <strong>unidade</strong> associada. Pode ter um portal por curso, por unidade ou um geral — depende da sua operação.</>,
+            body: <>Cada portal tem um <strong>slug</strong> (URL pública: {typeof window !== 'undefined' ? window.location.host : ''}/p/seu-portal) e uma <strong>unidade</strong> associada. Pode ter um portal por curso, por unidade ou um geral — depende da sua operação.</>,
           },
           {
             title: '🧱 Modo do formulário',

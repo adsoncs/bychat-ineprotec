@@ -64,7 +64,7 @@ export async function getLatestVersion(): Promise<{ tag: string; publishedAt: st
   try {
     const res = await fetch('https://api.github.com/repos/EvolutionAPI/evolution-api/releases/latest', {
       signal: AbortSignal.timeout(10000),
-      headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'bychat-beyond' },
+      headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'crm-integracao' },
     })
     if (!res.ok) return null
     const d: any = await res.json()

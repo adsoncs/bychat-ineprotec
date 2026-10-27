@@ -71,7 +71,7 @@ export async function ga4Routes(app: FastifyInstance) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_id: 'bychat_test_client',
-          events: [{ name: 'test_event', params: { source: 'bychat_beyond', test: true } }],
+          events: [{ name: 'test_event', params: { source: 'teste', test: true } }],
         }),
       })
       const result = await resp.json()

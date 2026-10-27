@@ -113,7 +113,7 @@ export async function dispatchMeetingBot(input: DispatchBotInput): Promise<Dispa
   // Nome/idioma do bot: override explícito → configuração do tenant → padrão.
   const settings = await getMeetingsSettings()
   const cfg = await getVexaConfig()
-  const botName = input.botName || settings.botName || 'ByChat Transcritor'
+  const botName = input.botName || settings.botName
   // Modo autenticado: bot entra LOGADO (evita reCAPTCHA/sala de espera). Só quando
   // a sessão da conta já foi semeada no MinIO (users/{id}/browser-userdata).
   const authenticated = input.authenticated ?? cfg.authenticated

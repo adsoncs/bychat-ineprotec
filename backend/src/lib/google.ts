@@ -4,6 +4,7 @@
 import { google } from 'googleapis'
 import { prisma } from './prisma.js'
 import { encryptToken, decryptToken } from '../services/cloudApi.js'
+import { textoDoSistema } from '../services/modelosDoSistema.js'
 
 // Helper seguro para decriptar tokens (suporta tokens legados não criptografados)
 function safeDecrypt(token: string): string {
@@ -384,7 +385,7 @@ export async function createCalendarEvent(connectionId: number, calendarId: stri
 
   if (event.addMeetLink) {
     body.conferenceData = {
-      createRequest: { requestId: `bychat-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
+      createRequest: { requestId: `meet-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
     }
   }
 
@@ -738,11 +739,11 @@ export async function createMeetLink(connectionId: number): Promise<string> {
   const res = await calendar.events.insert({
     calendarId: 'primary',
     requestBody: {
-      summary: 'Reuniao ByChat',
+      summary: (await textoDoSistema('agenda_reuniao_instantanea_titulo')) || undefined,
       start: { dateTime: now.toISOString(), timeZone: 'America/Sao_Paulo' },
       end: { dateTime: end.toISOString(), timeZone: 'America/Sao_Paulo' },
       conferenceData: {
-        createRequest: { requestId: `bychat-meet-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
+        createRequest: { requestId: `meet-${Date.now()}`, conferenceSolutionKey: { type: 'hangoutsMeet' } },
       },
     },
     conferenceDataVersion: 1,

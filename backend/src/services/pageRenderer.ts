@@ -3,8 +3,9 @@
 // Produz HTML puro sem dependência de frameworks JS
 
 import sanitizeHtml from 'sanitize-html'
-import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
+import { rastreamentoSnippet } from '../lib/rastreamento.js'
 import { scriptDeSelectsDependentes } from './formFlow.js'
+import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 // Sanitização permissiva para conteúdo rich-text (renderText, FAQ, columns, custom HTML section)
 const RICH_HTML_OPTS: sanitizeHtml.IOptions = {
@@ -1835,16 +1836,7 @@ export function renderPage(
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
   <meta charset="utf-8">
@@ -1900,7 +1892,7 @@ window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window
 
   ${hasForm ? getFormScript(baseUrl) : ''}
 
-  ${page.trackingEnabled && !options.preview ? beyondTrackingSnippet(baseUrl) : ''}
+  ${page.trackingEnabled && !options.preview ? rastreamentoSnippet(baseUrl) : ''}
   ${fxScripts}
   ${options.edit ? LP_EDIT_SCRIPT : ''}
 </body>
@@ -1913,16 +1905,7 @@ export function render404(): string {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
   <meta charset="utf-8">

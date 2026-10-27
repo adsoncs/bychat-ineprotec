@@ -84,9 +84,12 @@ export async function templatesRoutes(app: FastifyInstance) {
     const configurado = cfg['email.provider'] === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
     if (!configurado) return reply.code(400).send({ error: 'O envio de e-mail não está configurado (Configurações › E-mail).' })
     try {
+      const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+      const assuntoBase = replaceVariables(String(b.subject || await textoDoSistema('teste_sem_assunto')), exemplos)
+      const assuntoTeste = (await textoDoSistema('teste_prefixo', { texto: assuntoBase })) || assuntoBase
       await sendEmailGeneric({
-        from: getFromAddress(cfg, 'Teste'), to,
-        subject: `[Teste] ${replaceVariables(String(b.subject || 'Sem assunto'), exemplos)}`,
+        from: getFromAddress(cfg), to,
+        subject: assuntoTeste,
         html: replaceVariables(String(b.html), exemplos), origem: 'teste',
       })
     } catch (e) { return reply.code(502).send({ error: (e as Error).message }) }
@@ -165,6 +168,13 @@ export async function templatesRoutes(app: FastifyInstance) {
   app.delete('/api/templates/:id', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
     const user = (req as any).user as JwtPayload
+    // Modelo do sistema não se apaga: ele é a única fonte de um envio automático.
+    // Desligar (ativo = não) é o que faz o envio parar.
+    const alvo = await prisma.messageTemplate.findUnique({ where: { id: parseInt(id) }, select: { key: true } })
+    const { chavesDoSistema } = await import('../services/modelosDoSistema.js')
+    if (alvo?.key && chavesDoSistema().includes(alvo.key)) {
+      return reply.code(400).send({ error: 'Este é um modelo do sistema e não pode ser excluído. Para parar o envio, desligue o modelo.' })
+    }
     const snapshot = await snapshotEntity('template', parseInt(id))
     if (snapshot) {
       await moveToTrash({

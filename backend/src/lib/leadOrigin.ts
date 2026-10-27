@@ -10,7 +10,7 @@
 // retorno. Se nada conhecido bate, cai em 'direct' (fallback explícito).
 
 export const ORIGIN_TYPES = [
-  'trackable_link',   // clicou em link encurtado bychat e foi p/ canal
+  'trackable_link',   // clicou em link encurtado do sistema e foi p/ canal
   'meta_ctwa',        // Click-to-WhatsApp Ad (Meta Ads → WhatsApp)
   'google_ads',       // veio com gclid ou utm_source=google/google_ads
   'meta_lead_ads',    // formulário interno do Facebook (Lead Ads)

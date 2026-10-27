@@ -254,12 +254,3 @@ export function useReorderChatQuestions(chatbotId: number) {
   })
 }
 
-// Embed code do chatbot (usa GET /api/chatbots/:id/embed-code)
-export function useChatbotEmbedCode(id: number | null) {
-  return useQuery({
-    queryKey: ['chatbot-embed', id],
-    queryFn: () => api.get<{ snippet: string; baseUrl: string }>(`/chatbots/${id}/embed-code`),
-    enabled: id !== null,
-    staleTime: 5 * 60_000,
-  })
-}

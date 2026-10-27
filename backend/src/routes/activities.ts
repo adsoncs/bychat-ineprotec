@@ -631,7 +631,7 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
   const brand = await getBranding()
   const provider = cfg['email.provider'] || 'resend'
 
-  const fromAddress = getFromAddress(cfg, 'Atividades')
+  const fromAddress = getFromAddress(cfg)
 
   // Se nao tem HTML formatado, wrapa em template basico
   const isHtml = html.includes('<') && html.includes('>')

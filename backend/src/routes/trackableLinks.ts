@@ -8,6 +8,7 @@ import QRCode from 'qrcode'
 import { dispatchStandaloneEvent } from '../services/webhookDispatcher.js'
 import { fireCapiLeadNoLead } from '../services/metaCapi.js'
 import crypto from 'crypto'
+import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 // Parâmetros conhecidos de atribuição capturados na query string.
 // Meta injeta fbclid; Google, gclid. ctwaClid vem de click-to-WhatsApp.
@@ -174,16 +175,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
-gtag('js', new Date());
-gtag('config', 'G-S4VLV24XH3');
-window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
-</script>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
 
 <meta charset="utf-8">

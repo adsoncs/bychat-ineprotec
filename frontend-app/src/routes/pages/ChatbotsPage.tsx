@@ -1,12 +1,11 @@
 import { useState } from 'preact/hooks'
-import { Bot, Plus, Pencil, Trash2, ListChecks, Play, Code, Sparkles, Download, Upload, FileJson, Copy, Power, HelpCircle } from '@/components/ui/icon-set'
+import { Bot, Plus, Pencil, Trash2, ListChecks, Play, Sparkles, Download, Upload, FileJson, Copy, Power, HelpCircle } from '@/components/ui/icon-set'
 import {
   useChatbots,
   useCreateChatbot,
   useUpdateChatbot,
   useDeleteChatbot,
   useDuplicateChatbot,
-  useChatbotEmbedCode,
   useImportChatbot,
   exportChatbot,
   type ChatbotItem,
@@ -50,19 +49,20 @@ const INACTIVITY_ACTIONS = [
 ]
 
 // Mensagens interativas editáveis do chatbot em modo Roteiro (scripted). As chaves
-// batem com DEFAULT_SCRIPTED_MESSAGES no backend (scriptedChatbotFlow.ts).
-const SCRIPTED_MSG_FIELDS: { key: string; label: string; vars?: string; placeholder: string }[] = [
-  { key: 'invalidSelect', label: 'Opção não reconhecida', placeholder: 'Não entendi. 🙂 Por favor, responda com o número da opção.' },
-  { key: 'invalidAnswer', label: 'Resposta inválida', vars: '{{erro}}', placeholder: '{{erro}}. Vamos tentar de novo:' },
-  { key: 'slotPrompt', label: 'Pedir horário', vars: '{{titulo}} {{horarios}}', placeholder: '{{titulo}}:\n\n{{horarios}}\n\n_Responda com o número do horário._' },
-  { key: 'invalidSlot', label: 'Horário não reconhecido', vars: '{{horarios}}', placeholder: 'Não entendi o horário. Responda com o número:\n\n{{horarios}}' },
-  { key: 'slotTaken', label: 'Horário indisponível', vars: '{{erro}} {{horarios}}', placeholder: '{{erro}}. Escolha outro:\n\n{{horarios}}' },
-  { key: 'bookingConfirmed', label: 'Reunião confirmada', vars: '{{horario}} {{nome}}', placeholder: '✅ Reunião agendada para *{{horario}}*! Você vai receber os detalhes por aqui. 🚀' },
-  { key: 'noSlots', label: 'Sem horários disponíveis', placeholder: 'No momento não há horários disponíveis. Nossa equipe vai entrar em contato. 😊' },
-  { key: 'noMeetingType', label: 'Agendamento não configurado', placeholder: 'Perfeito! Em breve entraremos em contato para agendar. 😊' },
-  { key: 'bookingUnavailable', label: 'Agendamento indisponível', placeholder: 'Agendamento indisponível no momento. Nossa equipe entrará em contato.' },
-  { key: 'qualifiedDone', label: 'Encerramento (qualificado, sem agenda)', placeholder: 'Obrigado! Em breve entraremos em contato. 😊' },
-  { key: 'disqualifiedFallback', label: 'Encerramento (desqualificado, sem redirect)', placeholder: 'Obrigado pelas respostas! Em breve entraremos em contato. 😊' },
+// batem com CHAVES_DO_ROTEIRO no backend (scriptedChatbotFlow.ts); vazio aqui =
+// vale o modelo do sistema `chatbot_roteiro_<chave>` (Modelos).
+const SCRIPTED_MSG_FIELDS: { key: string; label: string; vars?: string }[] = [
+  { key: 'invalidSelect', label: 'Opção não reconhecida' },
+  { key: 'invalidAnswer', label: 'Resposta inválida', vars: '{{erro}}' },
+  { key: 'slotPrompt', label: 'Pedir horário', vars: '{{titulo}} {{horarios}}' },
+  { key: 'invalidSlot', label: 'Horário não reconhecido', vars: '{{horarios}}' },
+  { key: 'slotTaken', label: 'Horário indisponível', vars: '{{erro}} {{horarios}}' },
+  { key: 'bookingConfirmed', label: 'Reunião confirmada', vars: '{{horario}} {{nome}}' },
+  { key: 'noSlots', label: 'Sem horários disponíveis' },
+  { key: 'noMeetingType', label: 'Agendamento não configurado' },
+  { key: 'bookingUnavailable', label: 'Agendamento indisponível' },
+  { key: 'qualifiedDone', label: 'Encerramento (qualificado, sem agenda)' },
+  { key: 'disqualifiedFallback', label: 'Encerramento (desqualificado, sem redirect)' },
 ]
 
 export function ChatbotsPage() {
@@ -74,7 +74,6 @@ export function ChatbotsPage() {
   const [deleting, setDeleting] = useState<ChatbotItem | null>(null)
   const [questionsOf, setQuestionsOf] = useState<ChatbotItem | null>(null)
   const [testingOf, setTestingOf] = useState<ChatbotItem | null>(null)
-  const [embedOf, setEmbedOf] = useState<ChatbotItem | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [exportingId, setExportingId] = useState<number | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
@@ -185,9 +184,6 @@ export function ChatbotsPage() {
                     <Button variant="secondary" size="sm" onClick={() => setTestingOf(b)} aria-label="Testar chatbot" title="Testar conversa">
                       <Play size={12} /> Testar
                     </Button>
-                    <Button variant="secondary" size="sm" onClick={() => setEmbedOf(b)} aria-label="Código de embed" title="Código de embed">
-                      <Code size={12} /> Embed
-                    </Button>
                     <Button variant="secondary" size="sm" onClick={() => setQuestionsOf(b)} aria-label="Editar perguntas" title="Editar perguntas">
                       <ListChecks size={12} /> Perguntas
                     </Button>
@@ -275,7 +271,6 @@ export function ChatbotsPage() {
         </Modal>
       )}
 
-      {embedOf && <EmbedCodeModal chatbot={embedOf} onClose={() => setEmbedOf(null)} />}
 
       {importOpen && <ImportChatbotModal onClose={() => setImportOpen(false)} />}
 
@@ -304,7 +299,7 @@ function ImportChatbotModal({ onClose }: { onClose: () => void }) {
     try {
       const data = JSON.parse(text)
       if (data?.kind !== 'bychat-chatbot-export' || !data?.chatbot) {
-        throw new Error('Arquivo não é um export de chatbot do bychat.')
+        throw new Error('Arquivo não é um export de chatbot.')
       }
       setPayload(data as ChatbotImportPayload)
       setParseError(null)
@@ -441,60 +436,6 @@ function ImportChatbotModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function EmbedCodeModal({ chatbot, onClose }: { chatbot: ChatbotItem; onClose: () => void }) {
-  const { data, isLoading } = useChatbotEmbedCode(chatbot.id)
-  const [copied, setCopied] = useState(false)
-
-  function copy(text: string) {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      toast('Copiado', 'success')
-      setTimeout(() => setCopied(false), 1800)
-    })
-  }
-
-  return (
-    <Modal
-      open
-      onOpenChange={(o) => { if (!o) onClose() }}
-      title={`Código de embed — ${chatbot.name}`}
-      description="Cole o código antes do </body> da sua página."
-      size="lg"
-      footer={<Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>}
-    >
-      {isLoading && <Skeleton class="h-32 w-full" />}
-      {data && (
-        <div class="space-y-3">
-          <div class="relative rounded-md bg-zinc-900 border border-zinc-800 p-4">
-            <button
-              type="button"
-              onClick={() => copy(data.snippet)}
-              class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-2xs font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors"
-            >
-              <Code size={10} /> {copied ? 'Copiado!' : 'Copiar'}
-            </button>
-            <pre class="text-xs font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">
-              {data.snippet}
-            </pre>
-          </div>
-          <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info">
-            <strong>Web Component com Shadow DOM.</strong> O widget aparece no canto inferior direito da página, sem conflito de CSS.
-          </div>
-          {data.baseUrl && (
-            <a
-              href={`${data.baseUrl}/api/chatbots/embed/preview/${chatbot.id}`}
-              target="_blank"
-              rel="noreferrer"
-              class="text-xs text-accent hover:underline inline-flex items-center gap-1"
-            >
-              Abrir preview ↗
-            </a>
-          )}
-        </div>
-      )}
-    </Modal>
-  )
-}
 
 type Tab = 'general' | 'prompts' | 'inactivity'
 
@@ -811,14 +752,14 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
           {form.mode === 'scripted' && (
             <details class="rounded-md border border-border bg-surface-2 p-3">
               <summary class="cursor-pointer text-sm font-medium text-fg">Mensagens da conversa (editáveis)</summary>
-              <p class="mt-1 mb-3 text-2xs text-fg-muted">Deixe em branco para usar o texto padrão. Use as variáveis indicadas entre chaves.</p>
+              <p class="mt-1 mb-3 text-2xs text-fg-muted">Deixe em branco para usar o modelo do sistema (Modelos › Automático do sistema), que vale para todos os chatbots. Use as variáveis indicadas entre chaves.</p>
               <div class="space-y-3">
                 {SCRIPTED_MSG_FIELDS.map((m) => (
                   <Textarea
                     key={m.key}
                     label={m.label + (m.vars ? `  ·  ${m.vars}` : '')}
                     value={form.scriptedMessages[m.key] ?? ''}
-                    placeholder={m.placeholder}
+                    placeholder="Em branco: vale o modelo do sistema (Modelos › Automático do sistema)"
                     rows={2}
                     onInput={(e) => {
                       const v = (e.target as HTMLTextAreaElement).value

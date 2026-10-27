@@ -44,15 +44,13 @@ export function resolveNpsKey(survey: any): string | null {
   return qs.find((q) => q?.isNps)?.key ?? null
 }
 
-const DEFAULT_MESSAGES: Record<string, string> = {
-  intro: 'Sua opinião é muito importante para nós. Leva menos de 3 minutos.',
-  cta: 'Responder pesquisa',
-  thanks: 'Obrigado por participar! 💚\n\nSua resposta foi registrada — cada opinião nos ajuda a melhorar os próximos encontros.',
-  alreadyAnswered: 'Já recebemos a sua resposta desta pesquisa. Obrigado pela participação! 💚',
-}
-export function surveyMsg(survey: any, key: string): string {
+/** Texto da pesquisa: o dela → modelo do sistema `pesquisa_<chave>` ('' = desligado). */
+export async function surveyMsg(survey: any, key: string): Promise<string> {
   const over = (survey?.messages as Record<string, string> | null) || {}
-  return (over[key] && String(over[key]).trim()) || DEFAULT_MESSAGES[key] || ''
+  const proprio = over[key] && String(over[key]).trim()
+  if (proprio) return proprio
+  const { textoDoSistema } = await import('./modelosDoSistema.js')
+  return textoDoSistema(`pesquisa_${key}`)
 }
 
 // ─── Publicação do Flow ───────────────────────────────────────────────────────
@@ -71,8 +69,8 @@ export async function publishSurveyFlow(surveyId: number, connectionId: number):
   const { json, screenId } = buildFlowJson(form, {
     multiScreen: true,
     title: survey.name,
-    cta: surveyMsg(survey, 'submitLabel') || 'Enviar respostas',
-    navLabel: 'Continuar',
+    cta: await surveyMsg(survey, 'submitLabel'),
+    navLabel: await surveyMsg(survey, 'navLabel'),
   })
 
   // formId fica NULO de propósito: o editor de Flows do painel busca por formId e
@@ -177,7 +175,7 @@ export async function dispatchSurvey(
       } else {
         await sendInteractiveMessage(conn.phoneNumberId, token, phone, buildFlowSendPayload(
           flowRow.metaFlowId, flowRow.screenId,
-          { bodyText: surveyMsg(survey, 'intro'), cta: surveyMsg(survey, 'cta'), flowToken: session.flowToken! },
+          { bodyText: await surveyMsg(survey, 'intro'), cta: await surveyMsg(survey, 'cta'), flowToken: session.flowToken! },
         ))
       }
       res.sent++
@@ -238,7 +236,8 @@ export async function tryHandleSurveyFlowReply(
 
   if (session.status === 'answered') {
     // Reenvio da mesma resposta (retry da Meta ou toque duplo): não duplica.
-    if (ctx.sendText) await ctx.sendText(phone, surveyMsg(survey, 'alreadyAnswered')).catch(() => {})
+    const ja = await surveyMsg(survey, 'alreadyAnswered')
+    if (ctx.sendText && ja) await ctx.sendText(phone, ja).catch(() => {})
     return true
   }
 
@@ -267,7 +266,8 @@ export async function tryHandleSurveyFlowReply(
     if (cat === 'detractor') await tagLead(leadId, 'Detrator').catch(() => {})
   }
 
-  if (ctx.sendText) await ctx.sendText(phone, surveyMsg(survey, 'thanks')).catch(() => {})
+  const obrigado = await surveyMsg(survey, 'thanks')
+  if (ctx.sendText && obrigado) await ctx.sendText(phone, obrigado).catch(() => {})
   ctx.app?.log.info(`[surveys] resposta registrada: pesquisa ${survey.id}, ${phone}, NPS ${npsScore ?? '-'}`)
   return true
 }

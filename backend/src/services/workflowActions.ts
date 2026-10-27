@@ -8,11 +8,7 @@ import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
 import { templateBodyTokens } from '../lib/waTemplateParams.js'
 import { ORDEM_CONEXAO_PADRAO } from './whatsappProvider.js'
-
-// Último recurso para um parâmetro de template HSM vazio. Neutro de propósito:
-// cabe tanto em "olá, {{1}}" quanto em "o(a) {{2}} participando", e é melhor do
-// que perder a mensagem — a Meta recusa o disparo com parâmetro em branco.
-const DEFAULT_TEMPLATE_PARAM_FALLBACK = 'você'
+import { aplicarBlocos } from '../lib/interpolate.js'
 
 /** Heurística simples pra decidir se um corpo é HTML — se contém tags. */
 function looksLikeHtml(s: string): boolean {
@@ -181,8 +177,10 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {})
       }
     }
   }
+  // Blocos {{#x}}…{{/x}} / {{^x}}…{{/x}} / listas (mesma regra dos Modelos do Sistema).
+  const comBlocos = aplicarBlocos(String(text), { ...(root && typeof root === 'object' ? root : {}), ...flat })
   // Substitui {{path.to.value}} suportando 1 nível de aninhamento.
-  return String(text).replace(/\{\{([\w.]+)\}\}/g, (_, key) => {
+  return comBlocos.replace(/\{\{([\w.]+)\}\}/g, (_, key) => {
     const k = String(key).trim()
     if (k in flat) return String(flat[k] ?? '')
     if (k.includes('.')) {
@@ -194,6 +192,49 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {})
   })
 }
 
+/** Rótulo legível da origem do lead captado ({{origem}} nos modelos). */
+const ROTULO_ORIGEM: Record<string, string> = {
+  formulario: 'Formulário',
+  webhook: 'Webhook / integração',
+  meta_lead_ads: 'Anúncio (Meta Lead Ads)',
+  chat_web: 'Chat do site',
+  chatbot: 'Chatbot',
+}
+
+/**
+ * Variáveis que todo modelo de fluxo pode usar, além das do lead e do evento:
+ * {{marca}} (nome do dono da instalação), {{funil}}, {{etapa_nome}} e
+ * {{link_lead}}. O payload do evento tem precedência — se ele já traz uma
+ * chave com o mesmo nome, vale a dele.
+ */
+export async function comVariaveisGlobais(triggerData: any, lead: any): Promise<any> {
+  const { getBranding } = await import('../lib/branding.js')
+  const { urlNoPainel } = await import('../lib/appUrl.js')
+  const marca = (await getBranding().catch(() => null))?.brandName || ''
+  let funil = ''
+  let etapa = ''
+  if (lead?.funnelId) {
+    const f = await prisma.funnel.findUnique({ where: { id: lead.funnelId }, select: { name: true } }).catch(() => null)
+    funil = f?.name || ''
+    if (lead.status) {
+      const st = await prisma.stage.findFirst({ where: { funnelId: lead.funnelId, key: lead.status }, select: { name: true } }).catch(() => null)
+      etapa = st?.name || lead.status
+    }
+  }
+  const extras: Record<string, string> = {
+    marca,
+    funil,
+    etapa_nome: etapa,
+    link_lead: lead?.id ? urlNoPainel(`/app/leads/${lead.id}`) || '' : '',
+  }
+  const raiz = triggerData?.payload && typeof triggerData.payload === 'object' ? triggerData.payload : null
+  if (raiz) {
+    const origem = typeof raiz.origem === 'string' ? (ROTULO_ORIGEM[raiz.origem] || raiz.origem) : undefined
+    return { ...triggerData, payload: { ...extras, ...raiz, ...(origem !== undefined ? { origem } : {}) } }
+  }
+  return { ...extras, ...(triggerData || {}) }
+}
+
 export async function dispatchAction(
   config: ActionConfig,
   executionId: number,
@@ -203,6 +244,7 @@ export async function dispatchAction(
 ): Promise<void> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId } })
   if (!lead) throw new Error(`Lead ${leadId} não encontrado`)
+  triggerData = await comVariaveisGlobais(triggerData, lead)
 
   // Criar step execution
   const stepExec = await prisma.workflowStepExecution.create({
@@ -273,6 +315,10 @@ export async function dispatchAction(
         // usamos um texto neutro para não perder a mensagem por um campo em
         // branco. Também colapsamos quebras de linha e espaços múltiplos, que a
         // Cloud API recusa dentro de parâmetros (132000/131008).
+        // Último recurso para parâmetro vazio: modelo `hsm_parametro_vazio` (Modelos).
+        // A Meta recusa o disparo com parâmetro em branco.
+        const { textoDoSistema } = await import('./modelosDoSistema.js')
+        const reservaHsm = await textoDoSistema('hsm_parametro_vazio')
         const values = (config.templateParams || []).map((p) => {
           let raw = ''
           if (p.type === 'fixed') {
@@ -287,7 +333,7 @@ export async function dispatchAction(
           const clean = raw.replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim()
           if (clean) return clean
           const fb = (p.fallback || '').replace(/[\r\n\t]+/g, ' ').trim()
-          return fb || DEFAULT_TEMPLATE_PARAM_FALLBACK
+          return fb || reservaHsm
         })
         // Templates nomeados ({{nome}}) exigem `parameter_name` em cada parâmetro; a
         // configuração do fluxo é uma lista ordenada, então casamos posição a posição
@@ -961,8 +1007,9 @@ export async function dispatchAction(
         const u = await prisma.user.findUnique({ where: { id: lead.assignedUserId }, select: { name: true } })
         opName = u?.name || ''
       }
-      const origem = triggerData?.payload?.metadata?.formName || triggerData?.payload?.metadata?.formId || ''
-      const enriched = { ...triggerData, payload: { ...(triggerData?.payload || {}), operador: opName, origem, etapa: lead.status || '' } }
+      const pl = triggerData?.payload || {}
+      const origem = pl.origem || pl.metadata?.formName || pl.metadata?.formId || ''
+      const enriched = { ...triggerData, payload: { ...pl, operador: opName, origem, etapa: pl.etapa_nome || lead.status || '' } }
 
       // WhatsApp → todos os números gerais
       if (generalPhones.length > 0 && config.waTemplateId) {
@@ -995,12 +1042,12 @@ export async function dispatchAction(
       if (email && config.emailTemplateId) {
         const tpl = await prisma.messageTemplate.findUnique({ where: { id: config.emailTemplateId } })
         const { decodeHtmlIfEscaped } = await import('../lib/interpolate.js')
-        const subject = resolveVariables(tpl?.subject || 'Novo lead', lead, enriched)
+        const subject = resolveVariables(tpl?.subject || tpl?.name || '', lead, enriched)
         const html = resolveVariables(decodeHtmlIfEscaped(tpl?.bodyHtml) || tpl?.body || '', lead, enriched)
         if (html.trim()) {
           try {
             const cfg = await getEmailConfig()
-            await sendEmailGeneric({ from: getFromAddress(cfg, 'Novo lead'), to: email, ...(ccList ? { cc: ccList } : {}), subject, html })
+            await sendEmailGeneric({ from: getFromAddress(cfg), to: email, ...(ccList ? { cc: ccList } : {}), subject, html })
             prisma.messageTemplate.update({ where: { id: config.emailTemplateId }, data: { usageCount: { increment: 1 } } }).catch(() => {})
           } catch (e: any) { console.warn('[notify_operator] e-mail falhou:', e?.message) }
         }

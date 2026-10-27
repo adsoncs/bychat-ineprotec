@@ -18,7 +18,7 @@ function parseDeviceType(ua: string): string {
   return /mobile|android|iphone|ipad/i.test(ua) ? (/ipad|tablet/i.test(ua) ? 'tablet' : 'mobile') : 'desktop'
 }
 
-const PIXEL_JS = (origin: string) => `/* ByChat Beyond Pixel — v1.0 */
+const PIXEL_JS = (origin: string) => `/* Pixel — v1.1 */
 (function(){
   var API = '${origin}/api/pixel';
   var KEY = 'bc_vid';
@@ -76,8 +76,9 @@ const PIXEL_JS = (origin: string) => `/* ByChat Beyond Pixel — v1.0 */
   try { sessionStorage.setItem(LSKEY, JSON.stringify({ vid: vid, t: Date.now() })); } catch(e){}
   post('/track', payload);
 
-  // API pública: bychat.trackableHref(slug) devolve a URL com sid embutido
-  window.bychat = {
+  // API pública: pixel.trackableHref(slug) devolve a URL com sid embutido.
+  // window.bychat continua apontando para o mesmo objeto (código já colado).
+  var api = {
     visitorId: vid,
     track: function(name, data) { post('/track', { visitorId: vid, event: name, url: location.href, data: data || null }); },
     trackableHref: function(href) {
@@ -87,20 +88,23 @@ const PIXEL_JS = (origin: string) => `/* ByChat Beyond Pixel — v1.0 */
         return u.toString();
       } catch(e) { return href; }
     },
-    // Auto-rewrite: percorre <a data-bychat-track> e adiciona sid na URL
+    // Auto-rewrite: percorre <a data-pixel-track> (e o antigo data-bychat-track)
+    // e adiciona sid na URL
     rewriteLinks: function(selector) {
-      var sel = selector || 'a[data-bychat-track]';
+      var sel = selector || 'a[data-pixel-track],a[data-bychat-track]';
       var nodes = document.querySelectorAll(sel);
       for (var i=0;i<nodes.length;i++) {
-        nodes[i].href = window.bychat.trackableHref(nodes[i].href);
+        nodes[i].href = api.trackableHref(nodes[i].href);
       }
     }
   };
+  window.pixel = api;
+  window.bychat = api;
   // Auto-rewrite ao DOMContentLoaded
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function(){ window.bychat.rewriteLinks(); });
+    document.addEventListener('DOMContentLoaded', function(){ api.rewriteLinks(); });
   } else {
-    window.bychat.rewriteLinks();
+    api.rewriteLinks();
   }
 })();
 `
@@ -121,14 +125,17 @@ export async function pixelRoutes(app: FastifyInstance) {
     return reply.code(204).send()
   })
 
-  // ─── GET /pixel/bychat.js ───────────────────────
-  app.get('/pixel/bychat.js', async (req, reply) => {
+  // ─── GET /pixel/p.js ────────────────────────────
+  // /pixel/bychat.js é o mesmo script (endereço antigo, já colado em sites).
+  const servirPixel = async (req: any, reply: any) => {
     const origin = process.env.APP_URL || `${req.protocol}://${req.headers.host}`
     reply.header('Content-Type', 'application/javascript; charset=utf-8')
     reply.header('Cache-Control', 'public, max-age=300')
     reply.header('Access-Control-Allow-Origin', '*')
     return reply.send(PIXEL_JS(origin))
-  })
+  }
+  app.get('/pixel/p.js', servirPixel)
+  app.get('/pixel/bychat.js', servirPixel)
 
   // ─── POST /api/pixel/track ──────────────────────
   app.post('/api/pixel/track', async (req, reply) => {

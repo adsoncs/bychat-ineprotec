@@ -257,14 +257,14 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
             label="Domínio de e-mail"
             value={draft['notification.email_domain'] ?? ''}
             onInput={(e) => patch('notification.email_domain', (e.target as HTMLInputElement).value)}
-            placeholder="beyondhub.com.br"
+            placeholder="suaempresa.com.br"
           />
 
           <Input
             label="Nome do remetente"
             value={draft['notification.sender_name'] ?? ''}
             onInput={(e) => patch('notification.sender_name', (e.target as HTMLInputElement).value)}
-            placeholder="BeyondHub"
+            placeholder="Vazio = nome da marca (Aparência)"
           />
 
           <Input
@@ -391,7 +391,7 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
               label="Nome do remetente"
               value={draft['smtp.from_name'] ?? ''}
               onInput={(e) => patch('smtp.from_name', (e.target as HTMLInputElement).value)}
-              placeholder="BeyondHub"
+              placeholder="Vazio = nome da marca (Aparência)"
             />
             <Input
               label="E-mail do remetente"
@@ -617,14 +617,14 @@ function nonEmpty(value: string | undefined, fallback: string): string {
 }
 
 function resendFrom(draft: Record<string, string>): string {
-  const name = nonEmpty(draft['notification.sender_name'], 'BeyondHub')
-  const domain = nonEmpty(draft['notification.email_domain'], 'beyondhub.com.br')
+  const name = nonEmpty(draft['notification.sender_name'], '(nome da marca)')
+  const domain = nonEmpty(draft['notification.email_domain'], '(domínio)')
   const caixa = (draft['notification.email_local'] ?? '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '')
-  return `${name} <${caixa || 'noreply'}@${domain}>`
+  return `${name} <${caixa || 'nao-responda'}@${domain}>`
 }
 
 function smtpFrom(draft: Record<string, string>): string {
-  const name = nonEmpty(draft['smtp.from_name'], 'BeyondHub')
+  const name = nonEmpty(draft['smtp.from_name'], '(nome da marca)')
   const fromEmail = (draft['smtp.from_email'] ?? '').trim()
   const userEmail = (draft['smtp.user'] ?? '').trim()
   const email = fromEmail !== '' ? fromEmail : userEmail !== '' ? userEmail : '—'

@@ -31,7 +31,7 @@ import { prisma } from '../lib/prisma.js'
 import { isModuleEnabled } from '../lib/moduleManager.js'
 
 const INDEX_URL = 'https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/censo-escolar'
-const UA = 'Mozilla/5.0 (compatible; ByChatRadar/1.0)'
+const UA = 'Mozilla/5.0 (compatible; Radar/1.0)'
 const DEP_PRIVADA = '4'
 const SITUACAO_ATIVA = '1'
 

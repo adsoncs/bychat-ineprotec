@@ -22,7 +22,7 @@ function extractCnpj(text?: string | null): string | null {
 export async function fetchCnpj(cnpj: string) {
   try {
     const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
-      headers: { 'User-Agent': 'ByChatBeyond/1.0' }
+      headers: { 'User-Agent': 'crm-integracao/1.0' }
     })
     if (!resp.ok) return null
     return await resp.json() as any

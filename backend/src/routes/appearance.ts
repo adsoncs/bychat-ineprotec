@@ -28,8 +28,9 @@ const APPEARANCE_DEFAULTS: Record<string, string> = {
   // Admin
   'appearance.admin_logo_mode': 'text',       // text | image
   'appearance.admin_logo_url': '',
-  'appearance.admin_brand_name': 'BeyondHub',
-  'appearance.admin_brand_accent': 'Hub',
+  // Vazio = o painel usa a razão social (Configurações › Empresa).
+  'appearance.admin_brand_name': '',
+  'appearance.admin_brand_accent': '',
   'appearance.favicon_url': '',
   'appearance.primary_color': '#1a73e8',
   'appearance.primary_hover': '#1557b0',
@@ -50,32 +51,13 @@ const APPEARANCE_DEFAULTS: Record<string, string> = {
   'appearance.text_secondary': '#5f6368',
   'appearance.font_family': 'Google Sans, Poppins, sans-serif',
   'appearance.border_radius': '8',
-  // Landing Page
-  'appearance.lp_logo_mode': 'text',          // text | image
-  'appearance.lp_logo_url': '',
-  'appearance.lp_brand_name': 'BeyondHub',
-  'appearance.lp_brand_accent': 'Hub',
-  'appearance.landing_bg': '#0a0a0a',
-  'appearance.landing_gold': '#d1ae60',
-  'appearance.landing_gold_light': '#e8cc8a',
-  'appearance.landing_gold_dark': '#a88a3d',
-  'appearance.landing_text': '#ffffff',
-  'appearance.landing_text_light': '#000000',
-  'appearance.landing_font': 'Montserrat, sans-serif',
   // Tamanho do logotipo
   'appearance.admin_logo_size': '16',
-  'appearance.lp_logo_size': '18',
-  // Conteúdo da Landing Page
-  'appearance.lp_title': 'Descubra o que está <br><span class="gold">travando o crescimento</span><br><span class="dim">da sua empresa.</span>',
-  'appearance.lp_description': 'Preencha o diagnóstico em 5 minutos e receba uma análise estratégica completa gerada por IA — identificando seus gargalos, oportunidades e próximos passos com clareza.',
   // SEO Admin
-  'appearance.admin_page_title': 'BeyondHub — Painel Admin',
-  'appearance.admin_page_description': 'Painel administrativo do sistema BeyondHub',
+  // Vazio = título da aba é a marca.
+  'appearance.admin_page_title': '',
+  'appearance.admin_page_description': '',
   'appearance.admin_robots_index': 'noindex',
-  // SEO Landing
-  'appearance.lp_page_title': 'BeyondHub — Diagnóstico Estratégico',
-  'appearance.lp_page_description': 'Diagnóstico estratégico gratuito com IA para sua empresa',
-  'appearance.lp_robots_index': 'index',
   // Códigos externos Admin
   'appearance.custom_head_code': '',
   'appearance.custom_body_code': '',

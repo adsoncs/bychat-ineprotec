@@ -78,7 +78,7 @@ function LandingInstitucionalBody() {
       <div>
         <h2 class="text-base font-semibold text-fg">Landing Institucional</h2>
         <p class="text-xs text-fg-muted mt-0.5">
-          Contatos da vitrine pública (<strong>bychat.ia.br</strong>). Os textos e seções
+          Contatos da vitrine pública (<strong>{typeof window !== 'undefined' ? window.location.host : ''}</strong>). Os textos e seções
           continuam no código — aqui você ajusta só os canais, sem precisar de rebuild.
         </p>
       </div>

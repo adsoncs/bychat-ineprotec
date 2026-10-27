@@ -139,15 +139,19 @@ export async function acaPortalLoginRoutes(app: FastifyInstance) {
     // vírgula é obrigatório, senão o evento chega truncado no celular.
     const txt = (s: string) => String(s || '').replace(/\\/g, '\\\\').replace(/[,;]/g, (m) => `\\${m}`).replace(/\n/g, '\\n')
 
+    const { getBranding } = await import('../lib/branding.js')
+    const { textoDoSistema } = await import('../services/modelosDoSistema.js')
+    const marca = (await getBranding().catch(() => null))?.brandName || ''
+    const dominio = String(req.hostname || 'portal').toLowerCase()
     const linhas = [
-      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ByChat//Portal do Aluno//PT-BR',
-      'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Calendário acadêmico',
+      'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${txt(marca || dominio)}//Portal do Aluno//PT-BR`,
+      'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:${txt(await textoDoSistema('calendario_aluno_nome'))}`,
     ]
     for (const e of eventos as any[]) {
       const ini = new Date(e.dataInicio)
       const fim = e.dataFim ? new Date(e.dataFim) : ini
       linhas.push('BEGIN:VEVENT')
-      linhas.push(`UID:aca-evento-${e.id}@bychat`)
+      linhas.push(`UID:aca-evento-${e.id}@${dominio}`)
       linhas.push(`DTSTAMP:${stamp(new Date())}`)
       if (e.diaInteiro) {
         // Em evento de dia inteiro o DTEND é EXCLUSIVO — sem o +1 o último dia

@@ -120,7 +120,7 @@ export async function toolsRoutes(app: FastifyInstance) {
           method: 'GET',
           redirect: 'manual',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; ByChatBeyond URL Inspector/1.0)',
+            'User-Agent': 'Mozilla/5.0 (compatible; URLInspector/1.0)',
             'Accept': 'text/html,*/*;q=0.8',
           },
           signal: AbortSignal.timeout(8_000),

@@ -19,7 +19,7 @@ import { cn } from '@/lib/cn'
  *
  * Os tokens do `styling` espelham exatamente os do `getDefaultFormStyling`
  * no backend (`backend/src/routes/forms.ts`) — o preview aqui usa o mesmo
- * conjunto de valores que o `<beyond-form>` Web Component aplica em produção,
+ * conjunto de valores que o `<lead-form>` Web Component aplica em produção,
  * então o que se vê é o que sai.
  */
 

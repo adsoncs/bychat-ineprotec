@@ -261,15 +261,15 @@ function AdminTab({ draft, patch }: TabProps) {
               <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 <Input
                   label="Nome da marca"
-                  placeholder="Ex: BeyondHub"
-                  hint="Nome completo exibido no logotipo"
+                  placeholder="Ex: Sua Empresa"
+                  hint="Nome completo exibido no logotipo — e usado em e-mails, mensagens e páginas"
                   value={draft['appearance.admin_brand_name'] ?? ''}
                   onInput={(e) => patch('appearance.admin_brand_name', (e.target as HTMLInputElement).value)}
                 />
                 <Input
                   label="Parte em destaque"
-                  placeholder="Ex: Hub"
-                  hint='Em "Beyond<b>Hub</b>", o destaque é "Hub"'
+                  placeholder="Ex: Empresa"
+                  hint='Em "Sua<b>Empresa</b>", o destaque é "Empresa"'
                   value={draft['appearance.admin_brand_accent'] ?? ''}
                   onInput={(e) => patch('appearance.admin_brand_accent', (e.target as HTMLInputElement).value)}
                 />
@@ -665,7 +665,7 @@ function AdminTab({ draft, patch }: TabProps) {
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
           <Input
             label="Título da página (tag title)"
-            placeholder="Ex: BeyondHub — Painel Admin"
+            placeholder="Ex: Sua Empresa — Painel"
             hint="Título que aparece na aba do navegador"
             value={draft['appearance.admin_page_title'] ?? ''}
             onInput={(e) => patch('appearance.admin_page_title', (e.target as HTMLInputElement).value)}
@@ -727,8 +727,8 @@ function AdminPreview({ draft }: { draft: Draft }) {
 
   const logoMode = draft['appearance.admin_logo_mode'] ?? 'text'
   const logoUrl = draft['appearance.admin_logo_url'] ?? ''
-  const brandName = draft['appearance.admin_brand_name'] ?? 'Beyond'
-  const brandAccent = draft['appearance.admin_brand_accent'] ?? 'Hub'
+  const brandName = draft['appearance.admin_brand_name'] ?? ''
+  const brandAccent = draft['appearance.admin_brand_accent'] ?? ''
   const brandText = brandName.replace(brandAccent, '')
   const logoSizePx = Number.parseInt(draft['appearance.admin_logo_size'] ?? '16', 10) || 16
   const previewLogoTextPx = Math.round(logoSizePx * 0.7)

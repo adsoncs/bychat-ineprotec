@@ -112,7 +112,7 @@ export function GoogleAdsPage() {
             <div class="flex-1 min-w-0">
               <div class="text-sm font-semibold text-fg">Configurar Developer Token</div>
               <p class="text-xs text-fg-muted mt-1">
-                Antes de qualquer conta ser conectada, o admin precisa cadastrar UMA VEZ o Developer Token do Google Ads em <strong>Configurações &gt; Integrações &gt; Google Ads</strong>. Esse token é da aplicação (Beyond), não do operador.
+                Antes de qualquer conta ser conectada, o admin precisa cadastrar UMA VEZ o Developer Token do Google Ads em <strong>Configurações &gt; Integrações &gt; Google Ads</strong>. Esse token é da aplicação, não do operador.
               </p>
               <Button variant="primary" size="sm" class="mt-2" onClick={() => window.location.assign('/app/settings?tab=integrations')}>
                 Ir para Configurações

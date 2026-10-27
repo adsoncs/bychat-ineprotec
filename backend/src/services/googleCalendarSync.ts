@@ -173,16 +173,16 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           attendees.push(ownerEmail)
         }
 
-        const description = [
-          activity.description || '',
-          lead ? `\nLead: ${lead.nome || ''} ${lead.empresa ? '(' + lead.empresa + ')' : ''}` : '',
-          lead?.whatsapp ? `WhatsApp: ${lead.whatsapp}` : '',
-          recordingNotice ? `\n⚠️ ${recordingNotice}` : '',
-          `\nCriado via ByChat Beyond`,
-        ].filter(Boolean).join('\n')
+        const { textoDoSistema } = await import('./modelosDoSistema.js')
+        const varsEvento = {
+          atividade: activity.title, descricao: activity.description || '',
+          nome: lead?.nome || '', empresa: lead?.empresa || '', whatsapp: lead?.whatsapp || '',
+          aviso_gravacao: recordingNotice || '',
+        }
+        const description = await textoDoSistema('agenda_evento_descricao', varsEvento)
 
         const result = await createCalendarEvent(integration.connectionId, integration.calendarId, {
-          summary: `${activity.title} — ${lead?.nome || 'Lead'}`,
+          summary: (await textoDoSistema('agenda_evento_titulo', varsEvento)) || activity.title,
           description,
           start,
           end,
@@ -237,10 +237,14 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           try {
             // Notificação pelo número do dono do lead (não pelo default da env)
             // pra preservar identidade do operador no histórico do contato.
-            const { getProviderForLeadOwner } = await import('./whatsappProvider.js')
-            const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
+            const { renderizarModelo } = await import('./modelosDoSistema.js')
             const dateStr = start.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
-            await provider.sendText(lead.whatsapp, `Ola ${lead.nome || ''}! Uma reuniao foi agendada para *${dateStr}*.\n\nLink do Google Meet: ${result.meetLink}\n\nTe esperamos la!`)
+            const msg = await renderizarModelo('agenda_reuniao_lead_wa', { nome: lead.nome || '', quando: dateStr, link: result.meetLink })
+            if (msg?.body.trim()) {
+              const { getProviderForLeadOwner } = await import('./whatsappProvider.js')
+              const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
+              await provider.sendText(lead.whatsapp, msg.body)
+            }
           } catch (err) {
             console.warn('[Calendar] WhatsApp notification failed:', err)
           }

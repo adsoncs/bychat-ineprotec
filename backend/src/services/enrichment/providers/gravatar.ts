@@ -14,7 +14,7 @@ export const gravatarProvider: Provider = async (seed) => {
   // Profile JSON (quando existe)
   try {
     const resp = await fetch(`https://www.gravatar.com/${hash}.json`, {
-      headers: { 'User-Agent': 'ByChatBeyond/1.0 (+https://bychat.ia.br)' }
+      headers: { 'User-Agent': 'crm-integracao/1.0' }
     })
     if (resp.ok) {
       const data = await resp.json() as any

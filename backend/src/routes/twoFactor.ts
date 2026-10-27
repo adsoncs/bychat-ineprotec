@@ -44,7 +44,9 @@ export async function twoFactorRoutes(app: FastifyInstance) {
 
     const segredo = novoSegredo()
     await prisma.user.update({ where: { id: userId }, data: { twoFactorSecret: segredo, twoFactorEnabled: false } })
-    const uri = uriOtpAuth({ segredo, conta: u.email, emissor: 'ByChat' })
+    const { getBranding } = await import('../lib/branding.js')
+    const emissor = (await getBranding().catch(() => null))?.brandName || req.hostname
+    const uri = uriOtpAuth({ segredo, conta: u.email, emissor })
     // O QR é gerado aqui e vai como data-URI: a página de configuração não pode
     // buscar imagem de servidor externo com o segredo dentro da URL.
     let qrDataUrl: string | null = null

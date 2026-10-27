@@ -1012,7 +1012,7 @@ export async function instagramRoutes(app: FastifyInstance) {
         method: 'POST',
         body: {
           recipient: { id: body.recipientId },
-          message: { text: body.text ?? 'Teste de conexão Instagram' },
+          message: { text: body.text ?? (await (await import('../services/modelosDoSistema.js')).textoDoSistema('teste_instagram')) },
           messaging_type: 'RESPONSE',
         },
       })

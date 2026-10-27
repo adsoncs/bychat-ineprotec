@@ -361,10 +361,8 @@ function createEmailWorker() {
         if (!host || !user || !pass) throw new Error('SMTP não configurado')
 
         const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } })
-        const fromName = cfg['smtp.from_name'] || 'BeyondHub'
-        const fromEmail = cfg['smtp.from_email'] || user
         const info = await transporter.sendMail({
-          from: `${fromName} <${fromEmail}>`,
+          from: getFromAddress(cfg),
           to: email,
           headers,
           subject,
@@ -379,12 +377,9 @@ function createEmailWorker() {
         const apiKey = cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY
         if (!apiKey) throw new Error('Resend API key não configurada')
         const resend = new Resend(apiKey)
-        const domain = cfg['notification.email_domain'] || 'agenciabeyond.com.br'
-        const senderName = cfg['notification.sender_name'] || 'BeyondHub'
         const replyTo = getReplyTo(cfg)
         const result = await resend.emails.send({
-          // Com caixa fixa (domínio compartilhado) sai dela; sem, o noreply@ de sempre.
-          from: cfg['notification.email_local'] ? getFromAddress(cfg, '') : `${senderName} <noreply@${domain}>`,
+          from: getFromAddress(cfg),
           to: email,
           ...(replyTo ? { reply_to: replyTo } : {}),
           headers, tags,

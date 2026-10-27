@@ -55,7 +55,7 @@ const CURRENT_FEATURES: { icon: string; name: string; desc: string }[] = [
   { icon: '📝', name: 'Templates de Mensagem', desc: 'Modelos por canal com variáveis dinâmicas, categorias, HTML para email, compositor rico' },
   { icon: '🔄', name: 'Scheduler', desc: 'Execução automática: envia WhatsApp/email no horário agendado, marca atrasadas' },
   { icon: '📘', name: 'Meta Lead Ads', desc: 'Integração Facebook/Instagram: webhook, OAuth, sync de formulários, mapeamento, tracking de campanha, UTM, logs, deduplicação de leads' },
-  { icon: '🔍', name: 'Beyond Tracking', desc: 'Script bt.js com fingerprint, pageviews, cliques, scroll depth, Web Vitals, SPA detection, UTM, heartbeat. Painel com visitantes, páginas com validação de tracking ativo, sites monitorados. Normalização de URLs e limpeza de dados de teste' },
+  { icon: '🔍', name: 'Rastreamento', desc: 'Script bt.js com fingerprint, pageviews, cliques, scroll depth, Web Vitals, SPA detection, UTM, heartbeat. Painel com visitantes, páginas com validação de tracking ativo, sites monitorados. Normalização de URLs e limpeza de dados de teste' },
   { icon: '📄', name: 'Landing Pages Builder', desc: 'Criador de LPs com 27 tipos de seção, 4 templates, editor visual com preview ao vivo, SEO completo, CSS responsivo, HTML semântico. Controle de estilo por seção e por elemento' },
   { icon: '📝', name: 'Formulários Embeddáveis', desc: 'Builder de forms com mapeamento para lead, Web Component Shadow DOM, pipeline form→lead com deduplicação, funil/etapa, BT.identify(), webhook. Painel de conversões' },
   { icon: '🏷', name: 'Campos Personalizados', desc: 'Sistema de custom fields com 11 tipos, 4 grupos, código de integração (API Key) por campo com auto-geração e botão copiar, flags de visibilidade (lista/kanban/form). Integrado com forms, Meta Ads e API' },
@@ -104,7 +104,7 @@ const ROADMAP_PHASES: RoadmapPhase[] = [
   },
   {
     phase: 0, title: 'Marketing, Tracking e Dados (Implementado)', color: '#00c853', items: [
-      { name: 'Beyond Tracking (bt.js)', desc: 'Script de analytics com fingerprint, pageviews, cliques, scroll depth, Web Vitals, SPA detection, UTM, heartbeat. Instalado no próprio sistema', effort: 'Alto', done: true },
+      { name: 'Rastreamento (bt.js)', desc: 'Script de analytics com fingerprint, pageviews, cliques, scroll depth, Web Vitals, SPA detection, UTM, heartbeat. Instalado no próprio sistema', effort: 'Alto', done: true },
       { name: 'Painel de Tracking', desc: '5 tabs: Visão Geral, Visitantes, Páginas (com validação de tracking ativo), Validar URL, Sites Monitorados', effort: 'Alto', done: true },
       { name: 'Vinculação Tracking → Lead', desc: 'BT.identify() automático, merge de histórico anônimo, tab Tracking no detalhe do lead', effort: 'Médio', done: true },
       { name: 'Landing Pages Builder', desc: '27 tipos de seção, 4 templates, editor visual, SEO completo, HTML semântico', effort: 'Alto', done: true },
@@ -121,7 +121,7 @@ const ROADMAP_PHASES: RoadmapPhase[] = [
       { name: 'Gestão de Etapas dentro de Funis', desc: 'Eliminação da página standalone de Etapas, gestão centralizada dentro de Funis com reorder, lead count e CRUD completo', effort: 'Baixo', done: true },
       { name: 'Links Rastreáveis Avançados (Fase A)', desc: 'Página intermediária /l/:slug com delay + pixel, captura de fbclid/gclid/ctwa_clid/tintim_fbid, QR Code por link, gerador de botão flutuante, export CSV de cliques, dois tipos de URL (/r/ direto e /l/ com pixel)', effort: 'Médio', done: true },
       { name: 'Links Rastreáveis — Jornada e Atribuição (Fase B)', desc: 'Lead Journey por link com join de Stage, atribuição automática de venda (totalSales/totalRevenue), webhook trackable_link.click com dispatchStandaloneEvent, 6 cards de stats enriquecidos com receita agregada', effort: 'Médio', done: true },
-      { name: 'Pixel JS Próprio — /pixel/bychat.js', desc: '3.2KB, cookie+localStorage 365d, API window.bychat, auto-reescrita de <a data-bychat-track>, PixelVisitor com first/last attribution sticky, cruzamento anônimo→lead via #ref:slug:sid, endpoints /api/pixel/track e /api/pixel/identify', effort: 'Alto', done: true },
+      { name: 'Pixel JS Próprio — /pixel/p.js', desc: '3.2KB, cookie+localStorage 365d, API window.pixel, auto-reescrita de <a data-pixel-track>, PixelVisitor com first/last attribution sticky, cruzamento anônimo→lead via #ref:slug:sid, endpoints /api/pixel/track e /api/pixel/identify', effort: 'Alto', done: true },
       { name: 'Meta Conversions API — Links Rastreáveis', desc: 'fireCapiLeadNoLead() dispara Lead event server-side com fbc/IP/UA/country hasheado, dedup automático com browser pixel via event_id compartilhado, configurável por link (fbPixelId + fbCapiAccessToken)', effort: 'Alto', done: true },
       { name: 'Origens com Fallback Automático', desc: 'Webhook Meta preenche originType=meta_lead_ads, query usa COALESCE(originType, source, "organic"), backfill executado em 106 leads antigos, frontend ampliado para web_chat/chat/api/import', effort: 'Baixo', done: true },
     ],

@@ -63,7 +63,7 @@ const KEY = ['installations'] as const
 export function useInstallations() {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => api.get<{ installations: Installation[] }>('/admin/installations'),
+    queryFn: () => api.get<{ installations: Installation[]; dominioBase: string; emailPadrao: string }>('/admin/installations'),
     staleTime: 15_000,
     /** lista pode mudar por uso externo (PM2/docker), refetch ao focar */
     refetchOnWindowFocus: true,

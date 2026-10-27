@@ -138,32 +138,19 @@ async function avisar(
     return false
   }
 
-  const html = `
-    <p><strong>O WhatsApp Oficial está recusando envios.</strong></p>
-    <p>${descricao}</p>
-    <table cellpadding="6" style="border-collapse:collapse">
-      <tr><td>Código da Meta</td><td><strong>${codigo}</strong></td></tr>
-      <tr><td>Recusas nas últimas ${JANELA_HORAS}h</td><td>${dados.naJanela}</td></tr>
-      <tr><td>Total acumulado</td><td><strong>${dados.total}</strong></td></tr>
-      <tr><td>Primeira ocorrência</td><td>${fmt(dados.desdeQuando)}</td></tr>
-      <tr><td>Mais recente</td><td>${fmt(dados.ultimo)}</td></tr>
-    </table>
-    <p>Cada recusa é uma mensagem que <strong>não chegou</strong> ao destinatário.
-    Resolver depende de ação no WhatsApp Manager da Meta — o sistema não consegue
-    contornar por conta própria.</p>
-    <p style="color:#666;font-size:12px">Este aviso sai no máximo uma vez a cada ${REAVISO_HORAS}h por código de erro.</p>`
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
+  const vars = {
+    codigo, descricao, janela_horas: JANELA_HORAS, na_janela: dados.naJanela, total: dados.total,
+    desde: fmt(dados.desdeQuando), ultimo: fmt(dados.ultimo), reaviso_horas: REAVISO_HORAS,
+  }
+  const em = await renderizarModelo('cloud_api_recusando_email', vars)
 
   let entregou = false
 
-  try {
+  if (em?.body.trim()) try {
     const { sendEmailGeneric, getEmailConfig, getFromAddress } = await import('./notify.js')
     const cfg = await getEmailConfig()
-    await sendEmailGeneric({
-      from: getFromAddress(cfg, 'Alerta WhatsApp'),
-      to: para.join(', '),
-      subject: `WhatsApp Oficial recusando envios (erro ${codigo})`,
-      html,
-    })
+    await sendEmailGeneric({ from: getFromAddress(cfg), to: para.join(', '), subject: em.subject, html: em.body })
     entregou = true
     console.log(`[cloudApiErrorWatch] erro ${codigo} avisado por e-mail a ${para.length} destinatário(s)`)
   } catch (e: any) {
@@ -173,19 +160,8 @@ async function avisar(
   // Pela Evolution: linha não-oficial, não passa pela Meta, então continua de pé
   // exatamente na situação que este aviso denuncia.
   const numeros = await numerosDeAviso()
-  if (numeros.length) {
-    const texto = [
-      `⚠️ *WhatsApp Oficial recusando envios*`,
-      '',
-      descricao,
-      '',
-      `Código da Meta: *${codigo}*`,
-      `Recusas nas últimas ${JANELA_HORAS}h: ${dados.naJanela}`,
-      `Total acumulado: *${dados.total}*`,
-      `Desde: ${fmt(dados.desdeQuando)}`,
-      '',
-      'Cada recusa é uma mensagem que não chegou. Resolver depende de ação no WhatsApp Manager.',
-    ].join('\n')
+  const texto = (await renderizarModelo('cloud_api_recusando_wa', vars))?.body.trim() || ''
+  if (texto && numeros.length) {
     try {
       // Instância resolvida pelo BANCO, não pelo .env: no severiano o
       // EVOLUTION_INSTANCE aponta para `severiano_n1`, desconectada, enquanto a

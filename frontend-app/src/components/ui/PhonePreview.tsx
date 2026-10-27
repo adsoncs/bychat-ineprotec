@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef } from 'preact/hooks'
 import { Check, CheckCheck } from '@/components/ui/icon-set'
+import { usePublicAppearance } from '@/hooks/useSettings'
+
+/** Nome do remetente no preview: a marca da instalação (Aparência). */
+function MarcaDoPreview() {
+  const { data } = usePublicAppearance()
+  return <>{String(data?.appearance?.['appearance.admin_brand_name'] ?? '').replace(/^"|"$/g, '')}</>
+}
 
 type Channel = 'whatsapp' | 'sms' | 'email'
 
@@ -12,12 +19,9 @@ interface PhonePreviewProps {
 
 const DEFAULT_SAMPLES: Record<string, string> = {
   nome: 'Maria',
-  empresa: 'Beyond',
+  empresa: 'Empresa Exemplo',
   operador: 'Carlos',
   data_hoje: new Date().toLocaleDateString('pt-BR'),
-  score: '82',
-  maturidade: 'alta',
-  solucao: 'plano Pro',
 }
 
 function fillVariables(text: string, sample: Record<string, string>): string {
@@ -109,7 +113,7 @@ export function PhonePreview({ channel, text, subject, sampleValues }: PhonePrev
     <div class="phone-frame">
       <div class="phone-screen sms-screen">
         <div class="sms-header">
-          <div class="sms-name">Beyond</div>
+          <div class="sms-name"><MarcaDoPreview /></div>
           <div class="sms-sub">Mensagem de texto · SMS</div>
         </div>
         <div class="sms-body">

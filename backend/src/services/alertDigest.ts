@@ -52,8 +52,8 @@ async function digestLigado(): Promise<boolean> {
   return String(row?.value ?? '').replace(/"/g, '') === 'true'
 }
 
-/** Monta o texto do resumo. Devolve null quando não há o que dizer. */
-export async function montarDigest(): Promise<string | null> {
+/** Dados do resumo (modelos alertas_resumo_diario_*). null quando não há o que dizer. */
+export async function montarDigest(): Promise<Record<string, any> | null> {
   const abertos = await prisma.alert.findMany({
     where: { status: 'open' },
     select: { kind: true, severity: true, title: true, firstSeenAt: true },
@@ -67,26 +67,17 @@ export async function montarDigest(): Promise<string | null> {
   const criticos = reais.filter((a) => a.severity === 'critical')
   const porTipo = new Map<string, number>()
   for (const a of reais) porTipo.set(rotulo(a.kind), (porTipo.get(rotulo(a.kind)) || 0) + 1)
-
-  const linhas: string[] = ['*Pendências do dia*', '']
-  if (criticos.length) {
-    linhas.push(`🔴 *${criticos.length} crítico(s)* — precisam de alguém hoje:`)
-    // Os cinco mais antigos: crítico que está de pé há mais tempo é o que já
-    // deveria ter sido resolvido.
-    for (const c of criticos.slice(0, 5)) {
-      const d = Math.floor((Date.now() - c.firstSeenAt.getTime()) / 86400_000)
-      linhas.push(`• ${c.title}${d >= 1 ? ` _(há ${d} dia${d > 1 ? 's' : ''})_` : ''}`)
-    }
-    if (criticos.length > 5) linhas.push(`• …e mais ${criticos.length - 5}`)
-    linhas.push('')
+  // Os cinco críticos mais antigos: o que está de pé há mais tempo é o que já
+  // deveria ter sido resolvido.
+  return {
+    criticos_total: criticos.length,
+    criticos: criticos.slice(0, 5).map((c) => {
+      const dias = Math.floor((Date.now() - c.firstSeenAt.getTime()) / 86400_000)
+      return { titulo: c.title, dias, plural: dias > 1 ? 'sim' : '' }
+    }),
+    criticos_restantes: Math.max(0, criticos.length - 5),
+    tipos: [...porTipo.entries()].sort((a, b) => b[1] - a[1]).map(([tipo, quantidade]) => ({ tipo, quantidade })),
   }
-
-  linhas.push('*Em aberto por tipo:*')
-  for (const [tipo, n] of [...porTipo.entries()].sort((a, b) => b[1] - a[1])) {
-    linhas.push(`• ${tipo}: ${n}`)
-  }
-  linhas.push('', '_Detalhes e ações no sino do painel._')
-  return linhas.join('\n')
 }
 
 /**
@@ -96,15 +87,17 @@ export async function montarDigest(): Promise<string | null> {
  * que já roda há tempo: Evolution para o WhatsApp e o e-mail configurado.
  */
 export async function enviarDigest(): Promise<boolean> {
-  const texto = await montarDigest()
-  if (!texto) return false
+  const dados = await montarDigest()
+  if (!dados) return false
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
+  const texto = (await renderizarModelo('alertas_resumo_diario_wa', dados))?.body.trim() || ''
 
   const { getNotificationTargets, sendEmailGeneric, getEmailConfig, getFromAddress } =
     await import('./notify.js')
   const targets = await getNotificationTargets()
 
   let enviou = false
-  if (targets.whatsapps.length) {
+  if (texto && targets.whatsapps.length) {
     // Mesmo caminho do aviso de novo lead: Evolution, porque a Cloud API não
     // entrega texto livre a número fora da janela de 24h e um resumo não cabe
     // nos campos fixos de um template aprovado.
@@ -125,15 +118,14 @@ export async function enviarDigest(): Promise<boolean> {
     }
   }
 
-  if (targets.emails.length) {
+  const esc = (t: string) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+  const em = targets.emails.length
+    ? await renderizarModelo('alertas_resumo_diario_email', { ...dados, criticos: dados.criticos.map((c: any) => ({ ...c, titulo: esc(c.titulo) })) })
+    : null
+  if (em?.body.trim()) {
     try {
       const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'Alertas'),
-        to: targets.emails.join(', '),
-        subject: 'Pendências do dia',
-        html: `<pre style="font-family:inherit;white-space:pre-wrap">${texto.replace(/\*/g, '')}</pre>`,
-      })
+      await sendEmailGeneric({ from: getFromAddress(cfg), to: targets.emails.join(', '), subject: em.subject, html: em.body })
       enviou = true
     } catch (e: any) {
       console.warn('[digest] e-mail falhou:', e?.message)

@@ -437,7 +437,7 @@ function ConnectionFormModal({
           label="Nome da conexão *"
           value={name}
           onInput={(e) => setName((e.target as HTMLInputElement).value)}
-          placeholder="Ex.: Asaas Produção Beyond"
+          placeholder="Ex.: Asaas Produção"
         />
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Select

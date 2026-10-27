@@ -38,7 +38,7 @@ async function asaasFetch(config: AsaasConfig, path: string, method = 'GET', bod
     headers: {
       'Content-Type': 'application/json',
       'access_token': config.apiKey,
-      'User-Agent': 'bychat-beyond/1.0',
+      'User-Agent': 'crm-integracao/1.0',
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),

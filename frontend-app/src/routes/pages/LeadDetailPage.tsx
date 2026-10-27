@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
-  MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
+  MoreHorizontal, GitMerge, GraduationCap, Copy, Trash2, Pencil,
   User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan, MessagesSquare} from '@/components/ui/icon-set'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
@@ -569,15 +569,6 @@ function ActionsMenu({ actions }: { actions: ReturnType<typeof useLeadActions> }
               disabled={actions.isPending.enrollLink}
             >
               {actions.isPending.enrollLink ? 'Buscando link…' : 'Link de matrícula'}
-            </MenuItem>
-          )}
-          {actions.isWebChat && (
-            <MenuItem
-              onSelect={actions.actions.resendReport}
-              icon={Send}
-              disabled={actions.isPending.resendReport}
-            >
-              {actions.isPending.resendReport ? 'Enviando…' : 'Reenviar relatório'}
             </MenuItem>
           )}
           <DropdownMenu.Separator class="h-px bg-border my-1" />

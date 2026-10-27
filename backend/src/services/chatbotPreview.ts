@@ -152,7 +152,7 @@ async function simEnterScheduling(chatbot: any, form: any, schedField: any, stat
     out.push(interpolate(String(chatbot.schedulingIntro), { nome: collectedName(form, state), reuniao: mt.name }))
   }
   const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento'
-    ? stripTags(schedField.label) : 'Escolha o melhor horário para a nossa conversa'
+    ? stripTags(schedField.label) : msg(chatbot, 'slotTitulo')
   out.push(msg(chatbot, 'slotPrompt', { titulo: label, horarios: flat.map((s, i) => `${i + 1}) ${s.text}`).join('\n') }))
   state.slots = flat
   state.phase = 'scheduling'
@@ -364,7 +364,11 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     }
     messages.push({ role: 'user', content: results })
   }
-  if (!replied) out.push('Deixa eu verificar isso e já te respondo. 🙂')
+  if (!replied) {
+    const { textoDoSistema } = await import('./modelosDoSistema.js')
+    const t = await textoDoSistema('chatbot_ia_verificando')
+    if (t) out.push(t)
+  }
 }
 
 // ── API pública ──────────────────────────────────────────────────────────────
@@ -382,6 +386,8 @@ export async function startPreview(
   // mensagem que mentia sobre a causa e deixava o botão Testar inútil no único
   // momento em que ele mais serve.
   if (!chatbot) return { error: 'Chatbot não encontrado' }
+  const { prepararMensagensDoRoteiro } = await import('./scriptedChatbotFlow.js')
+  await prepararMensagensDoRoteiro(chatbot)
 
   const out: string[] = []
   const greet = (chatbot.greetingMessage || '').trim()

@@ -156,7 +156,7 @@ export function SmsSettings() {
             label="Remetente padrão"
             value={draft['sms.comtele.default_sender'] ?? ''}
             onInput={(e) => patch('sms.comtele.default_sender', (e.target as HTMLInputElement).value)}
-            placeholder="bychat"
+            placeholder="Vazio = remetente padrão da conta"
             hint="ID interno usado em relatórios da Comtele. Não aparece para o destinatário (entrega via short codes próprios)."
           />
         </div>

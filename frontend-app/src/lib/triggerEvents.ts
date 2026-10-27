@@ -21,6 +21,7 @@ export interface TriggerEvent {
 export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   // ── Ciclo de vida do lead ────────────────────────────────
   { value: 'lead.created',                  label: '🆕 Lead criado',                  category: 'lead' },
+  { value: 'lead.captured',                 label: '📣 Lead captado (formulário, anúncio, webhook, chat)', description: 'Entrada de lead por captação. Não dispara em importação nem sincronização.', category: 'lead' },
   { value: 'lead.stage_changed',            label: '➡️ Etapa do funil alterada',      category: 'lead' },
   { value: 'lead.summary_changed',          label: '🏷️ Resumo alterado',              category: 'lead' },
   { value: 'lead.funnel_changed',           label: '🔀 Funil alterado',               category: 'lead' },
@@ -42,9 +43,9 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'inactivity.detected',           label: '⏱️ Inatividade detectada',         category: 'message' },
   { value: 'inactivity.closed',             label: '⏱️ Conversa fechada por inatividade', category: 'message' },
 
-  // ── Atividades & diagnóstico ─────────────────────────────
+  // ── Atividades & chatbot ─────────────────────────────────
   { value: 'activity.completed',            label: '✅ Atividade concluída',           category: 'activity' },
-  { value: 'diagnosis.completed',           label: '📋 Diagnóstico concluído',         category: 'activity' },
+  { value: 'diagnosis.completed',           label: '📋 Chatbot / formulário concluído', category: 'activity' },
 
   // ── Vendas ───────────────────────────────────────────────
   { value: 'sale.detected',                 label: '💰 Venda detectada',               category: 'sales' },
@@ -78,7 +79,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
 export const CATEGORY_LABELS: Record<TriggerCategory, string> = {
   lead:              'Ciclo de vida do lead',
   message:           'Mensagens & atendimento',
-  activity:          'Atividades & diagnóstico',
+  activity:          'Atividades & chatbot',
   sales:             'Vendas',
   system:            'Sistema',
   educational:       'Educacional',

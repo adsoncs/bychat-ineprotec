@@ -370,8 +370,8 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
       })
 
       try {
-        const { notifyNewLead } = await import('../services/notify.js')
-        notifyNewLead(lead).catch(() => {})
+        const { emitirLeadCaptado } = await import('../services/notify.js')
+        emitirLeadCaptado(lead, 'webhook').catch(() => {})
       } catch {}
     } catch (e) {
       errMsg = (e as Error).message || 'Erro ao criar lead'

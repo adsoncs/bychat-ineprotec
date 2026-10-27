@@ -98,17 +98,22 @@ export async function candidatos(): Promise<AlertaParaEscalar[]> {
     .map(({ recipients: _r, escalatedAt: _e, ...a }) => a)
 }
 
-/** O texto de UM aviso. Curto: quem recebe está fora do painel. */
-export function textoDoAviso(a: AlertaParaEscalar): string {
+/** Variáveis do aviso de UM alerta (modelos alerta_escalonado_wa/_email). */
+export function variaveisDoAviso(a: AlertaParaEscalar): Record<string, any> {
   const horas = Math.floor((Date.now() - a.firstSeenAt.getTime()) / 3600_000)
-  const idade = horas >= 24 ? `há ${Math.floor(horas / 24)} dia(s)` : `há ${Math.max(1, horas)}h`
-  const reforco = a.escalationCount > 0 ? ' *(segundo aviso)*' : ''
-  return [
-    `🔴 *${a.title}*${reforco}`,
-    a.body || '',
-    '',
-    `Aberto ${idade} e ninguém abriu o alerta no painel.`,
-  ].filter(Boolean).join('\n')
+  return {
+    titulo: a.title,
+    detalhe: a.body || '',
+    reforco: a.escalationCount > 0 ? 'sim' : '',
+    dias: horas >= 24 ? Math.floor(horas / 24) : 0,
+    horas: Math.max(1, horas),
+  }
+}
+
+/** O texto de UM aviso (WhatsApp), ou '' com o modelo desligado. */
+export async function textoDoAviso(a: AlertaParaEscalar): Promise<string> {
+  const { textoDoSistema } = await import('./modelosDoSistema.js')
+  return textoDoSistema('alerta_escalonado_wa', variaveisDoAviso(a))
 }
 
 /**
@@ -131,12 +136,13 @@ export async function escalarPendentes(): Promise<number> {
     return 0
   }
 
+  const { renderizarModelo } = await import('./modelosDoSistema.js')
   let enviados = 0
   for (const a of lista) {
-    const texto = textoDoAviso(a)
+    const texto = await textoDoAviso(a)
     let saiu = false
 
-    if (targets.whatsapps.length) {
+    if (texto && targets.whatsapps.length) {
       const { createEvolutionProvider } = await import('./whatsappProvider.js')
       const provider = createEvolutionProvider()
       const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
@@ -154,15 +160,11 @@ export async function escalarPendentes(): Promise<number> {
       }
     }
 
-    if (targets.emails.length) {
+    const em = targets.emails.length ? await renderizarModelo('alerta_escalonado_email', escaparHtml(variaveisDoAviso(a))) : null
+    if (em?.body.trim()) {
       try {
         const cfg = await getEmailConfig()
-        await sendEmailGeneric({
-          from: getFromAddress(cfg, 'Alertas'),
-          to: targets.emails.join(', '),
-          subject: `🔴 ${a.title}`,
-          html: `<pre style="font-family:inherit;white-space:pre-wrap">${texto.replace(/\*/g, '')}</pre>`,
-        })
+        await sendEmailGeneric({ from: getFromAddress(cfg), to: targets.emails.join(', '), subject: em.subject, html: em.body })
         saiu = true
       } catch (e: any) {
         console.warn('[escalonamento] e-mail falhou:', e?.message)
@@ -181,6 +183,11 @@ export async function escalarPendentes(): Promise<number> {
   }
   if (enviados) console.log(`[escalonamento] ${enviados} crítico(s) avisados fora do painel`)
   return enviados
+}
+
+function escaparHtml(v: Record<string, any>): Record<string, any> {
+  const e = (t: string) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === 'string' ? e(x) : x]))
 }
 
 // ── Vigilante ───────────────────────────────────────────────────────────────

@@ -2051,7 +2051,7 @@ function GmailConfigModal({ config, onClose }: { config: GmailConfig | null; onC
           label="Nome do remetente"
           value={senderName}
           onInput={(e) => setSenderName((e.target as HTMLInputElement).value)}
-          placeholder="Ex.: Equipe Beyond"
+          placeholder="Ex.: Equipe Comercial"
           hint="Aparece como 'Nome <email@dominio>' nos emails."
         />
         <Textarea

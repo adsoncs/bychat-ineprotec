@@ -101,7 +101,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     const funnelId = q.funnelId ? parseInt(q.funnelId, 10) : null
 
     const branding = await getBranding()
-    const brandName = branding.brandName || 'BeyondHub'
+    const brandName = branding.brandName || ''
 
     // Buscar dados
     const [leadsByOrigin, costs, totalLeads, totalSales, totalLost, totalWon, leadsAds] = await Promise.all([
@@ -440,7 +440,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     since.setDate(since.getDate() - days)
 
     const branding = await getBranding()
-    const brandName = branding.brandName || 'BeyondHub'
+    const brandName = branding.brandName || ''
 
     const leads = await prisma.lead.findMany({
       where: { createdAt: { gte: since } },

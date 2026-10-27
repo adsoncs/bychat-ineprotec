@@ -103,9 +103,9 @@ export async function systemEmailsRoutes(app: FastifyInstance) {
     const cfg = await getEmailConfig()
     try {
       await sendEmailGeneric({
-        from: getFromAddress(cfg, 'Teste'),
+        from: getFromAddress(cfg),
         to,
-        subject: `[preview] ${rendered.subject}`,
+        subject: (await (await import('../services/modelosDoSistema.js')).textoDoSistema('teste_prefixo', { texto: rendered.subject })) || rendered.subject,
         html: rendered.html,
       })
       return { ok: true }
@@ -119,42 +119,11 @@ export async function systemEmailsRoutes(app: FastifyInstance) {
 async function defaultPreviewVars(key: string): Promise<Record<string, unknown>> {
   const brand = await getBranding()
   const base = { brand, ...nowVars() }
-  if (key === 'notify_new_lead_admin') {
-    return {
-      ...base,
-      lead: {
-        nome: 'Maria Silva',
-        empresa: 'ACME Solutions',
-        whatsapp: '+55 11 98765-4321',
-        whatsappDigits: '11987654321',
-        email: 'maria@acme.com.br',
-        segmento: 'Educação',
-        cidade: 'São Paulo',
-        maturidade: 'Em crescimento',
-        solucaoNome: 'Captação Ads + Funil de WhatsApp',
-      },
-      scores: { geral: 78, mkt: 82, vnd: 65, oferta: 87 },
-      investmentLabel: 'R$5.000–10.000/mês',
-    }
-  }
-  if (key === 'lead_diagnostic_report') {
-    return {
-      ...base,
-      lead: {
-        nome: 'Maria Silva',
-        empresa: 'ACME Solutions',
-        whatsappDigits: '11987654321',
-        maturidade: 'Em crescimento',
-        solucaoNome: 'Captação Ads + Funil de WhatsApp',
-      },
-      scores: { geral: 78 },
-    }
-  }
   if (key === 'password_reset') {
     return {
       ...base,
-      user: { name: 'João Operador', email: 'joao@beyondhub.com.br' },
-      resetLink: 'https://bychat.ia.br/reset-password?token=abcdef123456',
+      user: { name: 'João Operador', email: 'joao@exemplo.com.br' },
+      resetLink: `${(process.env.APP_URL || '').split(',')[0]?.replace(/\/$/, '') || ''}/reset-password?token=abcdef123456`,
     }
   }
   if (key === 'activity_email_default') {

@@ -23,7 +23,7 @@ import {
   Users,
   Wallet,
 } from '@/components/ui/icon-set'
-import { CONTACT } from '../landing.copy'
+import { CONTACT, MARCA } from '../landing.copy'
 
 /**
  * Landing dedicada ao segmento Educacional (bychat.ia.br/educacional).
@@ -38,7 +38,7 @@ import { CONTACT } from '../landing.copy'
 /** WhatsApp com mensagem específica do segmento educacional. */
 function eduWhatsappHref(): string {
   const msg = encodeURIComponent(
-    'Olá! Quero conhecer o ByChat para a minha instituição de ensino e ver o portal de matrículas.',
+    'Olá! Quero ver o portal de matrículas para a minha instituição de ensino.',
   )
   return `https://wa.me/${CONTACT.whatsappNumber}?text=${msg}`
 }
@@ -157,8 +157,8 @@ const AUDIENCE = [
 
 const FAQ = [
   {
-    q: 'O ByChat substitui meu sistema acadêmico?',
-    a: 'Sim. Além da captação e das matrículas, o ByChat inclui um ERP acadêmico nativo completo: pedagógico (diário, frequência, notas, conselho), financeiro (mensalidades, boleto/PIX, boleto registrado CNAB, renegociação, dívida ativa), secretaria (histórico, declarações, certificados, requerimentos), diploma digital no padrão MEC, portais de aluno/professor/responsável e conformidade (Censo INEP, SISTEC, ENADE, CPA). Tudo num sistema só.',
+    q: `${MARCA} substitui meu sistema acadêmico?`,
+    a: `Sim. Além da captação e das matrículas, ${MARCA} inclui um ERP acadêmico nativo completo: pedagógico (diário, frequência, notas, conselho), financeiro (mensalidades, boleto/PIX, boleto registrado CNAB, renegociação, dívida ativa), secretaria (histórico, declarações, certificados, requerimentos), diploma digital no padrão MEC, portais de aluno/professor/responsável e conformidade (Censo INEP, SISTEC, ENADE, CPA). Tudo num sistema só.`,
   },
   {
     q: 'O sistema emite diploma digital e atende o MEC?',
@@ -186,7 +186,7 @@ const FAQ = [
   },
   {
     q: 'E os candidatos que começam a inscrição e não terminam?',
-    a: 'O portal salva o progresso automaticamente e o ByChat dispara cadências de reengajamento para reduzir a evasão no funil.',
+    a: `O portal salva o progresso automaticamente e ${MARCA} dispara cadências de reengajamento para reduzir a evasão no funil.`,
   },
   {
     q: 'Como contrato para a minha instituição?',
@@ -585,7 +585,7 @@ function StackMapEdu() {
           <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-muted sm:grid">
             <span>O que a instituição contrataria separado</span>
             <span aria-hidden="true" class="w-5" />
-            <span>No ByChat Edu é</span>
+            <span>Em {MARCA} é</span>
           </div>
           <ul class="divide-y divide-line">
             {STACK_EDU.map((row) => (
@@ -681,7 +681,7 @@ function FinalCta() {
             Pronto para encher as turmas com menos esforço?
           </h2>
           <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-fg/85">
-            Veja o portal de matrículas e o funil educacional do ByChat
+            Veja o portal de matrículas e o funil educacional de {MARCA}
             funcionando na sua instituição.
           </p>
           <div class="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
@@ -754,7 +754,7 @@ function Footer() {
       </div>
       <div class="border-t border-line">
         <div class="mx-auto max-w-6xl px-5 py-6 text-sm text-fg-muted">
-          © {new Date().getFullYear()} ByChat. Todos os direitos reservados.
+          © {new Date().getFullYear()} {MARCA}. Todos os direitos reservados.
         </div>
       </div>
     </footer>

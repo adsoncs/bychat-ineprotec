@@ -59,9 +59,10 @@ export async function makeRoutes(app: FastifyInstance) {
     preHandler: requireApiKey('leads:read'),
   }, async (req) => {
     const payload = (req as any).apiKey
+    const { getBranding } = await import('../lib/branding.js')
     return {
       ok: true,
-      product: 'ByChat Beyond',
+      product: (await getBranding().catch(() => null))?.brandName || '',
       version: '1.0',
       apiKeyName: payload?.name,
       permissions: payload?.permissions,
@@ -109,7 +110,7 @@ export async function makeRoutes(app: FastifyInstance) {
     }
     const buf = fs.readFileSync(zipPath)
     reply.header('Content-Type', 'application/zip')
-    reply.header('Content-Disposition', 'attachment; filename="bychat-beyond-make-app.zip"')
+    reply.header('Content-Disposition', 'attachment; filename="make-app.zip"')
     return reply.send(buf)
   })
 

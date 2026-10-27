@@ -162,7 +162,7 @@ async function enviarLote(campanhaId: number): Promise<number> {
     return 0
   }
   const cfg = await getEmailConfig()
-  const from = getFromAddress(cfg, 'Novidades')
+  const from = getFromAddress(cfg)
   let enviados = 0
   for (const e of pendentes) {
     // Pausa/cancelamento no meio do lote: para na hora.

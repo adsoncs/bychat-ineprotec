@@ -330,8 +330,6 @@ const HOOK_BYPASS_PREFIXES = [
   '/api/payment-webhook/',                    // webhooks payment providers
   '/api/public/',                             // qualquer endpoint público
   '/api/chatbots/public/',                    // chatbot embedável
-  '/api/chatbots/embed/',                     // mesmo
-  '/api/bychat/chat/',                        // chat público do widget (lead anônimo)
   '/api/emergency-unblock',                   // bypass de emergência
   '/api/oauth/instagram/callback',
   // Webhooks de canal: quem chama é a Meta e o Telegram, sem JWT, então o gate
