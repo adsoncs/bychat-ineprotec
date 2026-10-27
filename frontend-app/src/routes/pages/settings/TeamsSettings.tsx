@@ -447,7 +447,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
           </label>
           <p class="text-2xs text-fg-muted mt-1 ml-6">
             {liberarAoResolver
-              ? 'Resolvida, a conversa fica sem atendente na fila "Liberadas" do Conversas, que qualquer agente de qualquer equipe vê e pode puxar. Quem vendeu continua sendo o vendedor — comissão e placar não mudam.'
+              ? 'Resolvida, a conversa fica sem atendente na fila "Liberadas" do Conversas, que qualquer agente de qualquer equipe vê e pode puxar, e volta para o chatbot: se o contato escrever de novo, o bot atende e encaminha para a equipe como sempre. Quem vendeu continua sendo o vendedor — comissão e placar não mudam.'
               : 'Resolvida, a conversa continua com quem atendeu; se o contato voltar a escrever, volta para essa pessoa.'}
           </p>
         </div>

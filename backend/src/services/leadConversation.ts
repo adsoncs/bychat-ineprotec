@@ -241,6 +241,9 @@ export const conversationFilters = {
  * fila "Liberadas", que qualquer agente vê e pode puxar. O VENDEDOR do lead
  * (Lead.vendedorUserId) não muda — liberar não tira a venda de ninguém.
  *
+ * O contato voltando a escrever tira a conversa da fila (lib/prisma.ts) e ela
+ * segue o fluxo normal: o chatbot atende (devolverAoBotAoLiberar) e encaminha.
+ *
  * Chamado só pelas rotas do botão Resolver: fechamento automático (inatividade,
  * fluxo) não libera. Tirar o dono é regra configurada pelo admin, então passa
  * pela trava do Dono fixo (comoRegraDeRoteamento).
@@ -268,5 +271,36 @@ export async function liberarAoResolver(leadId: number, opts: OpenOpts = {}): Pr
     ...(opts.byUserName ? { userName: opts.byUserName } : {}),
     metadata: { liberarAoResolver: true, donoAnterior: lead.assignedUserId },
   })
+  await devolverAoBotAoLiberar(leadId)
   return { liberada: true }
+}
+
+/**
+ * Conversa liberada volta para o CHATBOT: se o contato escrever de novo, quem
+ * responde é o bot (e ele encaminha para a equipe como sempre) — não fica
+ * esperando um agente na fila. Tira a pausa de "humano assumiu", o "concluído"
+ * que o Resolver grava (o bot não fala com lead concluído) e reabre a jornada
+ * de IA encerrada; roteiro concluído recomeça. Desqualificado continua calado.
+ */
+async function devolverAoBotAoLiberar(leadId: number): Promise<void> {
+  const l = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+  if (!l) return
+  const fd: any = { ...((l.formData || {}) as object) }
+  const pausado = !!fd._botPaused
+  delete fd._botPaused
+  if (fd._aiJourney && typeof fd._aiJourney === 'object' && fd._aiJourney.phase === 'done') fd._aiJourney = { ...fd._aiJourney, phase: 'active' }
+  if (fd._script && typeof fd._script === 'object' && fd._script.phase === 'done') delete fd._script
+  await prisma.lead.update({ where: { id: leadId }, data: { formData: fd, completed: false } })
+  if (pausado) {
+    const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
+    logEvent({
+      leadId,
+      type: EVENT_TYPES.BOT_RESUMED,
+      category: 'system',
+      title: 'Chatbot reativado — conversa liberada ao resolver',
+      source: 'panel',
+      actorType: 'system',
+      description: 'Se o contato voltar a escrever, o chatbot atende e encaminha para a equipe.',
+    })
+  }
 }

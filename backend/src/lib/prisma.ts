@@ -225,7 +225,19 @@ prisma.$use(async (params, next) => {
     const d = params.action === 'upsert' ? params.args?.create : params.args?.data
     if (Array.isArray(d)) for (const x of d) await redirecionarMensagem(x)
     else await redirecionarMensagem(d)
-    return next(params)
+    const result = await next(params)
+    // O contato escreveu: a conversa sai da fila "Liberadas" e segue o fluxo
+    // normal — chatbot, encaminhamento, rodízio (ver liberarAoResolver).
+    const entrada = (Array.isArray(d) ? d : [d])
+      .filter((x: any) => x && x.fromMe === false && !x.isInternal && Number.isInteger(Number(x.leadId)))
+      .map((x: any) => Number(x.leadId))
+    if (entrada.length) {
+      const sql = `UPDATE bychat_leads SET conversaLiberadaEm = NULL WHERE conversaLiberadaEm IS NOT NULL AND id IN (${[...new Set(entrada)].join(',')})`
+      // Dentro de transação, gravar por fora esperaria o lock dela mesma.
+      if (params.runInTransaction) setImmediate(() => { prisma.$executeRawUnsafe(sql).catch(() => {}) })
+      else await prisma.$executeRawUnsafe(sql).catch(() => {})
+    }
+    return result
   }
 
   if (params.model === 'Setting') {
