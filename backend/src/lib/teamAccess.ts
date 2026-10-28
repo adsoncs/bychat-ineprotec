@@ -70,12 +70,13 @@ export async function isTeamLeader(userId: number, teamId: number): Promise<bool
  * Combine com outras cláusulas via Prisma `AND`.
  */
 /**
- * Conversa liberada ao resolver (Team.liberarAoResolver): sem atendente e
- * marcada com `conversaLiberadaEm`. Qualquer agente de qualquer equipe vê e
- * pode puxar — independe do alcance do papel e de "conversas privadas".
+ * Conversa liberada ao resolver (Team.liberarAoResolver): marcada com
+ * `conversaLiberadaEm`, sem perder o responsável. Qualquer agente de qualquer
+ * equipe vê e pode puxar — independe do alcance do papel e de "conversas
+ * privadas".
  * Números reservados continuam valendo (são filtrados à parte).
  */
-export const CONVERSA_LIBERADA = { assignedUserId: null, conversaLiberadaEm: { not: null } } as const
+export const CONVERSA_LIBERADA = { conversaLiberadaEm: { not: null } } as const
 
 export async function buildLeadAccessWhere(userId: number, role: AccessRole): Promise<any> {
   const scope = await getLeadScope(userId, role)
@@ -143,7 +144,7 @@ export async function canUserAccessLead(
   if (!lead) return false
 
   // Conversa liberada ao resolver: qualquer agente abre e pode puxar.
-  if (lead.assignedUserId == null && lead.conversaLiberadaEm) return true
+  if (lead.conversaLiberadaEm) return true
 
   // Sempre permite o dono do lead, independente de scope (cobre transferências
   // que migraram lead pra setor que o user não participa).

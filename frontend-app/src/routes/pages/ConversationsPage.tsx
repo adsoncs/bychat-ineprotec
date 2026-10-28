@@ -511,11 +511,11 @@ function ConversationsScreen() {
     const resolvida = !!t.conversationClosedAt && !t.conversationReopenedAt
     const crua = !t.conversationOpenedAt && !t.conversationClosedAt
     const temDono = t.assignedUserId != null
-    // Liberada ao resolver: sem atendente e aberta a qualquer agente.
-    const podeAssumir = !temDono && (crua || !!t.conversationReopenedAt || !!t.conversaLiberadaEm)
     const minha = temDono && usuario?.id != null && Number(t.assignedUserId) === Number(usuario.id)
+    // Liberada ao resolver: mantém o responsável, mas fica aberta a qualquer agente.
+    const podeAssumir = (!temDono && (crua || !!t.conversationReopenedAt)) || (!!t.conversaLiberadaEm && !minha)
     // Lead de outra pessoa: só quem tem "pegar leads de outra pessoa".
-    const podePegar = temDono && !minha && permsTransferencia.pegarDeOutros
+    const podePegar = temDono && !minha && !t.conversaLiberadaEm && permsTransferencia.pegarDeOutros
     const adormecida = !!t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()
     const grupo = !!t.isGroup
     const evolution = t.channel?.provider === 'evolution'
@@ -2678,9 +2678,11 @@ function ChatPanel({
   // "Assumir" também na conversa que o contato reabriu e que ninguém pegou:
   // ela está na Caixa como qualquer outra, e sem isto o único jeito de pôr o
   // nome nela seria responder.
-  // E na conversa liberada ao resolver: sem atendente, qualquer agente puxa.
+  // E na conversa liberada ao resolver: mantém o responsável, mas qualquer
+  // outro agente puxa.
   const convLiberada = !!(lead?.conversaLiberadaEm ?? ticket?.conversaLiberadaEm)
-  const podeAssumir = !isAssigned && (isRaw || !!convReopenedAt || convLiberada)
+  const assumidaPorMim = isAssigned && currentUserId != null && Number(lead?.assignedUserId) === Number(currentUserId)
+  const podeAssumir = (!isAssigned && (isRaw || !!convReopenedAt)) || (convLiberada && !assumidaPorMim)
   const snoozedUntil = lead?.snoozedUntil ?? ticket?.snoozedUntil ?? null
   const isSnoozed = snoozedUntil ? new Date(snoozedUntil).getTime() > Date.now() : false
   // Takeover humano: o chatbot para de responder assim que um operador escreve
@@ -2694,7 +2696,7 @@ function ChatPanel({
   // Configurações › Equipes: transferir e pegar de outra pessoa.
   const permsTransferencia = usePermissoesDeTransferencia()
   const pegar = usePegarDeOutro()
-  const podePegarDeOutro = isAssigned && !assignedToMe && permsTransferencia.pegarDeOutros
+  const podePegarDeOutro = isAssigned && !assignedToMe && !convLiberada && permsTransferencia.pegarDeOutros
 
   function snoozeUntilDate(date: Date) {
     snooze.mutate({ leadId, until: date.toISOString() }, {

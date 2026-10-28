@@ -391,11 +391,14 @@ const CATALOG_READ_MODULES = ['catalog', 'negotiations']
 // e quem só tinha Leads/Kanban marcado abria o Kanban sem colunas (papel Polo
 // da FABAD). Liberada a LEITURA a quem vê qualquer um desses; criar, editar e
 // excluir funis, etiquetas e formulários continua no módulo de cada um.
+// A lista de agentes entra pelo filtro "Responsável": para quem não é admin a
+// própria rota devolve só a pessoa (routes/agents.ts).
 const APOIO_LEADS_READ_PATHS = new Set<string>([
   '/api/admin/funnels',
   '/api/admin/stages',
   '/api/tags',
   '/api/forms/source-labels',
+  '/api/admin/agents',
 ])
 const APOIO_LEADS_READ_MODULES = ['leads', 'kanban', 'atendimento', 'contatos']
 

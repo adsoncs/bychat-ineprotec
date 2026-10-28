@@ -363,12 +363,15 @@ prisma.$use(async (params, next) => {
             if (quem == null) continue
             porPessoa.set(quem, [...(porPessoa.get(quem) ?? []), Number(l.id)])
           }
-          if (porPessoa.size) setImmediate(() => {
+          const idsLeads = ids.map(Number)
+          setImmediate(async () => {
             for (const [quem, leadIds] of porPessoa) {
-              prisma.$executeRawUnsafe(
+              await prisma.$executeRawUnsafe(
                 `UPDATE bychat_leads SET ultimoComercialUserId = ? WHERE id IN (${leadIds.join(',')})`, quem,
               ).catch((e) => console.error('[comercial]', e?.message || e))
             }
+            // Etiqueta do vendedor acompanha (services/etiquetaVendedor.ts).
+            import('../services/etiquetaVendedor.js').then((m) => m.sincronizarDepois(idsLeads)).catch(() => {})
           })
         }
       }

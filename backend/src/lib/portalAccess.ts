@@ -131,7 +131,9 @@ export function whereInscricoes(alc: AlcancePortais): Prisma.EnrollmentRegistrat
   if (alc.todos || !alc.restritos.length) return null
   const ramos: Prisma.EnrollmentRegistrationWhereInput[] = [{ portalId: { notIn: alc.restritos } }]
   if (alc.lider.length) ramos.push({ portalId: { in: alc.lider } })
-  if (alc.membro.length) ramos.push({ portalId: { in: alc.membro }, lead: { assignedUserId: alc.userId } })
+  // Membro: os leads com ele — e os que levam a etiqueta de vendedor dele
+  // (services/etiquetaVendedor.ts), mesmo que outra equipe esteja atendendo.
+  if (alc.membro.length) ramos.push({ portalId: { in: alc.membro }, lead: { OR: [{ assignedUserId: alc.userId }, { tags: { some: { tag: { vendedorUserId: alc.userId } } } }] } })
   return { OR: ramos }
 }
 
@@ -148,16 +150,26 @@ export function sqlInscricoes(alc: AlcancePortais, alias: string): Prisma.Sql {
   const ramos: Prisma.Sql[] = [Prisma.sql`${col} NOT IN (${Prisma.join(alc.restritos)})`]
   if (alc.lider.length) ramos.push(Prisma.sql`${col} IN (${Prisma.join(alc.lider)})`)
   if (alc.membro.length) {
-    ramos.push(Prisma.sql`(${col} IN (${Prisma.join(alc.membro)}) AND ${lead} IN (SELECT id FROM bychat_leads WHERE assignedUserId = ${alc.userId}))`)
+    ramos.push(Prisma.sql`(${col} IN (${Prisma.join(alc.membro)}) AND (${lead} IN (SELECT id FROM bychat_leads WHERE assignedUserId = ${alc.userId}) OR ${lead} IN (SELECT lt.leadId FROM bychat_lead_tags lt JOIN bychat_tags t ON t.id = lt.tagId WHERE t.vendedorUserId = ${alc.userId})))`)
   }
   return Prisma.sql`(${Prisma.join(ramos, ' OR ')})`
 }
 
-/** Decide uma inscrição já carregada (portalId + dono do lead). */
-export function podeVerInscricao(alc: AlcancePortais, reg: { portalId: number; donoDoLead: number | null }): boolean {
+/** Decide uma inscrição já carregada (portalId + dono do lead + vendedor da etiqueta). */
+export function podeVerInscricao(alc: AlcancePortais, reg: { portalId: number; donoDoLead: number | null; vendedor?: number | null }): boolean {
   if (alc.todos || !alc.restritos.includes(reg.portalId)) return true
   if (alc.lider.includes(reg.portalId)) return true
-  return alc.membro.includes(reg.portalId) && reg.donoDoLead === alc.userId
+  return alc.membro.includes(reg.portalId) && (reg.donoDoLead === alc.userId || (reg.vendedor != null && reg.vendedor === alc.userId))
+}
+
+/** Select do lead para podeVerInscricao: dono e a etiqueta de vendedor, se houver. */
+export const SELECT_DONO_E_VENDEDOR = {
+  assignedUserId: true,
+  tags: { where: { tag: { vendedorUserId: { not: null } } }, select: { tag: { select: { vendedorUserId: true } } }, take: 1 },
+} as const
+
+export function vendedorDaEtiqueta(lead: { tags?: Array<{ tag: { vendedorUserId: number | null } }> } | null | undefined): number | null {
+  return lead?.tags?.[0]?.tag.vendedorUserId ?? null
 }
 
 export type Veredito = 'ok' | 'nao_encontrada' | 'sem_permissao'
@@ -172,10 +184,10 @@ export async function vereditoDaInscricao(alc: AlcancePortais, registrationId: n
   if (alc.todos) return 'ok'
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
-    select: { portalId: true, lead: { select: { assignedUserId: true } } },
+    select: { portalId: true, lead: { select: SELECT_DONO_E_VENDEDOR } },
   })
   if (!reg) return 'nao_encontrada'
-  if (!podeVerInscricao(alc, { portalId: reg.portalId, donoDoLead: reg.lead?.assignedUserId ?? null })) return 'nao_encontrada'
+  if (!podeVerInscricao(alc, { portalId: reg.portalId, donoDoLead: reg.lead?.assignedUserId ?? null, vendedor: vendedorDaEtiqueta(reg.lead) })) return 'nao_encontrada'
   if (acao === 'operar' && !podeOperarPortal(alc, reg.portalId)) return 'sem_permissao'
   return 'ok'
 }

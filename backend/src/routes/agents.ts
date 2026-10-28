@@ -120,9 +120,15 @@ export async function agentsRoutes(app: FastifyInstance) {
   //   - openLeadCount (leads sem outcome e ainda assignedUserId=user.id)
   //   - teamCount (quantos setores ele participa)
   // A página /app/routing usa pra mostrar grid de agentes.
-  app.get('/api/admin/agents', { preHandler: [authMiddleware, adminOnly] }, async () => {
+  //
+  // Quem não é admin recebe só a si mesmo: é o que faz o próprio nome aparecer
+  // no filtro "Responsável" (Leads, Kanban, Atividades) para o agente filtrar o
+  // que está com ele. Antes era 403 e o filtro ficava vazio.
+  app.get('/api/admin/agents', { preHandler: authMiddleware }, async (req) => {
+    const eu = (req as any).user as JwtPayload
+    const admin = eu.role === 'SUPERADMIN' || eu.role === 'ADMIN' || eu.role === 'MANAGER'
     const users = await prisma.user.findMany({
-      where: { active: true },
+      where: { active: true, ...(admin ? {} : { id: eu.userId }) },
       // Ordena AGENT primeiro, depois MANAGER/ADMIN/SUPERADMIN (atendem), VIEWER por último.
       // Como Prisma não suporta ORDER BY enum CASE diretamente, faz por isAgent (legado)
       // e dentro disso por nome — em F1.7 a ordenação migra para CASE WHEN role IN (...).

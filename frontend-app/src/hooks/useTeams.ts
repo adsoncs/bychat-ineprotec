@@ -24,10 +24,12 @@ export interface Team {
   podeTransferir?: boolean
   /** Membros pegam para si leads de outra pessoa (passa pelo Dono fixo). */
   podePegarDeOutros?: boolean
-  /** Ao resolver, a conversa fica sem atendente na fila "Liberadas". */
+  /** Ao resolver, a conversa entra na fila "Liberadas" (o responsável continua). */
   liberarAoResolver?: boolean
   /** As vendas contam para esta equipe: o vendedor do Ganho sai dela. */
   equipeComercial?: boolean
+  /** Equipe comercial: o lead leva uma etiqueta automática com o nome do vendedor. */
+  etiquetaVendedor?: boolean
   /** Funil da equipe: para onde o lead vai junto quando é mandado para ela. */
   funnelId?: number | null
   /** Abertura automática: lead GANHO que passa para esta equipe ganha card neste funil. */
@@ -53,6 +55,7 @@ export interface TeamInput {
   podePegarDeOutros?: boolean | undefined
   liberarAoResolver?: boolean | undefined
   equipeComercial?: boolean | undefined
+  etiquetaVendedor?: boolean | undefined
   funnelId?: number | null | undefined
   oportunidadeFunnelId?: number | null | undefined
   oportunidadeStageKey?: string | null | undefined

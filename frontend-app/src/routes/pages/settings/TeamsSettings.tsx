@@ -209,6 +209,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
   const [podePegarDeOutros, setPodePegarDeOutros] = useState(team?.podePegarDeOutros ?? false)
   const [liberarAoResolver, setLiberarAoResolver] = useState(team?.liberarAoResolver ?? false)
   const [equipeComercial, setEquipeComercial] = useState(team?.equipeComercial ?? false)
+  const [etiquetaVendedor, setEtiquetaVendedor] = useState(team?.etiquetaVendedor ?? false)
   const [funnelId, setFunnelId] = useState<number | null>(team?.funnelId ?? null)
   const [oportunidadeFunnelId, setOportunidadeFunnelId] = useState<number | null>(team?.oportunidadeFunnelId ?? null)
   const [oportunidadeStageKey, setOportunidadeStageKey] = useState<string | null>(team?.oportunidadeStageKey ?? null)
@@ -232,6 +233,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
       podePegarDeOutros,
       liberarAoResolver,
       equipeComercial,
+      etiquetaVendedor: equipeComercial && etiquetaVendedor,
       funnelId,
       oportunidadeFunnelId,
       oportunidadeStageKey: oportunidadeFunnelId ? oportunidadeStageKey : null,
@@ -438,6 +440,19 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
               ? 'No Ganho, o vendedor é quem está com o lead se for desta equipe; se o lead já foi para outro setor (Financeiro, Secretaria…) ainda em negociação, é a última pessoa daqui que esteve com ele. A proposta aberta também não sai daqui quando o lead vai para uma equipe que não é comercial.'
               : 'Marque nas equipes que vendem. Sem nenhuma marcada, o vendedor é quem estiver com o lead no momento do Ganho.'}
           </p>
+          {equipeComercial && (
+            <div class="mt-2 ml-6">
+              <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+                <input type="checkbox" checked={etiquetaVendedor} onChange={(e) => setEtiquetaVendedor((e.target as HTMLInputElement).checked)} />
+                Etiqueta com o nome do vendedor
+              </label>
+              <p class="text-2xs text-fg-muted mt-1 ml-6">
+                {etiquetaVendedor
+                  ? 'Todo lead que passou por alguém desta equipe leva uma etiqueta com o nome dessa pessoa, mesmo depois de ir para outro setor — todos veem quem é o vendedor, e ele filtra pela etiqueta e continua vendo a inscrição no portal. Muda sozinha quando outra pessoa daqui assume o lead; ninguém tira à mão.'
+                  : 'Desligada, nenhum lead leva etiqueta de vendedor (as que existirem saem dos leads).'}
+              </p>
+            </div>
+          )}
         </div>
 
         <div>
@@ -447,7 +462,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
           </label>
           <p class="text-2xs text-fg-muted mt-1 ml-6">
             {liberarAoResolver
-              ? 'Resolvida, a conversa fica sem atendente na fila "Liberadas" do Conversas, que qualquer agente de qualquer equipe vê e pode puxar, e volta para o chatbot: se o contato escrever de novo, o bot atende e encaminha para a equipe como sempre. Quem vendeu continua sendo o vendedor — comissão e placar não mudam.'
+              ? 'Resolvida, a conversa entra na fila "Liberadas" do Conversas, que qualquer agente de qualquer equipe vê e pode puxar, e volta para o chatbot. O responsável continua o mesmo: se o contato escrever de novo sobre o mesmo assunto, segue com ele; se o bot encaminhar para outra equipe, vai para o rodízio dela. Quem vendeu continua sendo o vendedor — comissão e placar não mudam.'
               : 'Resolvida, a conversa continua com quem atendeu; se o contato voltar a escrever, volta para essa pessoa.'}
           </p>
         </div>

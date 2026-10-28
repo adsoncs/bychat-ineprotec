@@ -27,6 +27,19 @@ export async function usuariosComerciais(): Promise<Set<number> | null> {
   return ids
 }
 
+// Equipe ou membros mudaram: a etiqueta do vendedor (services/etiquetaVendedor.ts)
+// é refeita em todos os leads — em lote, alguns segundos depois, para várias
+// mudanças seguidas na tela de Equipes virarem uma passada só.
+let refazer: NodeJS.Timeout | null = null
+
 export function invalidarEquipeComercial(): void {
   cache = null
+  if (refazer) clearTimeout(refazer)
+  refazer = setTimeout(() => {
+    refazer = null
+    import('../services/etiquetaVendedor.js')
+      .then((m) => m.sincronizarEtiquetaVendedor())
+      .catch((e) => console.error('[etiqueta-vendedor]', e?.message || e))
+  }, 5_000)
+  refazer.unref?.()
 }

@@ -31,7 +31,7 @@ const TEAM_SELECT = {
   color: true, icon: true, active: true, position: true,
   routingMode: true, workingHoursEnabled: true, conversasPrivadas: true, funnelId: true,
   oportunidadeFunnelId: true, oportunidadeStageKey: true,
-  podeTransferir: true, podePegarDeOutros: true, liberarAoResolver: true, equipeComercial: true,
+  podeTransferir: true, podePegarDeOutros: true, liberarAoResolver: true, equipeComercial: true, etiquetaVendedor: true,
   createdAt: true, updatedAt: true,
 }
 
@@ -122,6 +122,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         podePegarDeOutros: body.podePegarDeOutros === true,
         liberarAoResolver: body.liberarAoResolver === true,
         equipeComercial: body.equipeComercial === true,
+        etiquetaVendedor: body.etiquetaVendedor === true,
         funnelId: Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null,
       },
       select: TEAM_SELECT,
@@ -164,6 +165,7 @@ export async function teamsRoutes(app: FastifyInstance) {
     if (body.podePegarDeOutros !== undefined) data.podePegarDeOutros = body.podePegarDeOutros === true
     if (body.liberarAoResolver !== undefined) data.liberarAoResolver = body.liberarAoResolver === true
     if (body.equipeComercial !== undefined) data.equipeComercial = body.equipeComercial === true
+    if (body.etiquetaVendedor !== undefined) data.etiquetaVendedor = body.etiquetaVendedor === true
     // Funil da equipe: equipe e funil andam juntos (services/encaminharEquipe.ts).
     if (body.funnelId !== undefined) data.funnelId = Number.isInteger(Number(body.funnelId)) && Number(body.funnelId) > 0 ? Number(body.funnelId) : null
     // Abertura automática: lead GANHO que passa para esta equipe ganha um card

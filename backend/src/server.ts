@@ -1392,6 +1392,15 @@ try {
       .then((r) => { if (r.distribuidos || r.reserva || r.semNinguem) console.log(`[sem-dono] rodízio ${r.distribuidos}, reserva ${r.reserva}, sem ninguém ${r.semNinguem}`) })
       .catch((err) => console.error('[sem-dono] varredura falhou:', err?.message || err))
   }, 5 * 60_000).unref()
+  // Etiqueta do vendedor (Team.etiquetaVendedor): a passada completa pega o que
+  // os ganchos não veem — lead criado já com dono, gravação por SQL cru, nome
+  // do usuário trocado.
+  setInterval(() => {
+    import('./services/etiquetaVendedor.js')
+      .then((m) => m.sincronizarEtiquetaVendedor())
+      .then((r) => { if (r.postas || r.tiradas) console.log(`[etiqueta-vendedor] postas ${r.postas}, tiradas ${r.tiradas}`) })
+      .catch((err) => console.error('[etiqueta-vendedor] varredura falhou:', err?.message || err))
+  }, 5 * 60_000).unref()
   // Reunião que passou e ninguém disse se aconteceu — vira alerta com a
   // pergunta junto (ver services/meetingOutcome.ts).
   startMeetingOutcomeWatch()

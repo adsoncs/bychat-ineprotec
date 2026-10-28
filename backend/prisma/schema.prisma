@@ -619,14 +619,18 @@ model Team {
   podeTransferir      Boolean  @default(true)
   // Membros pegam para si leads de OUTRA pessoa, mesmo com o Dono fixo ligado.
   podePegarDeOutros   Boolean  @default(false)
-  // Ao resolver no Conversas, a conversa fica sem atendente e vai para a fila
-  // "Liberadas" (qualquer agente vê e puxa). O vendedor não muda.
+  // Ao resolver no Conversas, a conversa vai para a fila "Liberadas" (qualquer
+  // agente vê e puxa). O responsável e o vendedor não mudam.
   liberarAoResolver   Boolean  @default(false)
   // Equipe comercial: as vendas contam para ela. No Ganho, o vendedor é quem
   // está com o lead se for de equipe comercial; senão, a última pessoa de equipe
   // comercial que esteve com ele (Lead.ultimoComercialUserId). Nenhuma marcada
   // = vendedor é quem está com o lead no Ganho.
   equipeComercial     Boolean  @default(false)
+  // Equipe comercial com etiqueta do vendedor: todo lead que passou por um
+  // membro dela leva uma etiqueta automática com o nome dele (Tag.vendedorUserId),
+  // visível a todos e que ninguém tira à mão. Ver services/etiquetaVendedor.ts.
+  etiquetaVendedor    Boolean  @default(false)
   // Acesso por portal: quem integra o setor vê todos os portais do Educacional
   // (Secretaria, Financeiro, Coordenação), mesmo os restritos a outras equipes.
   veTodosOsPortais    Boolean  @default(false)
@@ -2464,6 +2468,9 @@ model Tag {
   description String?  @db.Text
   position    Int      @default(0)
   active      Boolean  @default(true)
+  // Etiqueta automática do vendedor (Team.etiquetaVendedor): o sistema põe e
+  // tira; o nome acompanha o do usuário.
+  vendedorUserId Int?  @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

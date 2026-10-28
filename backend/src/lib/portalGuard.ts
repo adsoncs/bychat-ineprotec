@@ -17,6 +17,7 @@ import { resolveUserFromRequest } from './permissions.js'
 import {
   alcanceDePortais, podeOperarPortal, podeVerInscricao, podeVerPortal,
   type AcaoPortal, type AlcancePortais,
+  SELECT_DONO_E_VENDEDOR, vendedorDaEtiqueta,
 } from './portalAccess.js'
 import { CHAVES_DE_ID, regraDaRota, type Entidade } from './portalRotasTabela.js'
 
@@ -24,11 +25,11 @@ const ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 // POST que só lê (prévia, simulação) não exige OPERAR.
 const POST_LE = /\/(previa|simular|search|export)$/
 
-type Alvo = { portalIds: number[] } | { inscricoes: Array<{ portalId: number; dono: number | null }> } | { semInscricao: true } | { inexistente: true }
+type Alvo = { portalIds: number[] } | { inscricoes: Array<{ portalId: number; dono: number | null; vendedor: number | null }> } | { semInscricao: true } | { inexistente: true }
 
-const selReg = { portalId: true, lead: { select: { assignedUserId: true } } } as const
-const deRegs = (regs: Array<{ portalId: number; lead: { assignedUserId: number | null } | null }>): Alvo =>
-  regs.length ? { inscricoes: regs.map((r) => ({ portalId: r.portalId, dono: r.lead?.assignedUserId ?? null })) } : { semInscricao: true }
+const selReg = { portalId: true, lead: { select: SELECT_DONO_E_VENDEDOR } } as const
+const deRegs = (regs: Array<{ portalId: number; lead: { assignedUserId: number | null; tags?: Array<{ tag: { vendedorUserId: number | null } }> } | null }>): Alvo =>
+  regs.length ? { inscricoes: regs.map((r) => ({ portalId: r.portalId, dono: r.lead?.assignedUserId ?? null, vendedor: vendedorDaEtiqueta(r.lead) })) } : { semInscricao: true }
 
 async function regsDoLead(leadId: number | null | undefined): Promise<Alvo> {
   if (!leadId) return { semInscricao: true }
@@ -125,7 +126,7 @@ function decidir(alc: AlcancePortais, alvo: Alvo, acao: AcaoPortal, todas = fals
     if (acao === 'operar' && alvo.portalIds.some((p) => !podeOperarPortal(alc, p))) return 403
     return 'ok'
   }
-  const visiveis = alvo.inscricoes.filter((r) => podeVerInscricao(alc, { portalId: r.portalId, donoDoLead: r.dono }))
+  const visiveis = alvo.inscricoes.filter((r) => podeVerInscricao(alc, { portalId: r.portalId, donoDoLead: r.dono, vendedor: r.vendedor }))
   if (!visiveis.length) return 404
   if (todas) {
     if (visiveis.length < alvo.inscricoes.length) return 403

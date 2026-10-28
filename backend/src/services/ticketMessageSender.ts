@@ -175,15 +175,20 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   //    que responde carimbaria o nome dele em dezenas deles, e grupo é da
   //    equipe. Para pôr dono num grupo existe o botão Assumir;
   //  - falha aqui não derruba o envio — a mensagem é o que importa.
-  if (!isInternal && !lead.isGroup && (input.origin ?? 'panel') === 'panel' && lead.assignedUserId == null) {
+  // Conversa liberada ao resolver conta como sem dono: está aberta a qualquer
+  // agente, e quem responde fica com ela (o próprio dono respondendo só a tira
+  // da fila "Liberadas").
+  const liberada = !!lead.conversaLiberadaEm
+  if (!isInternal && !lead.isGroup && (input.origin ?? 'panel') === 'panel' && (lead.assignedUserId == null || liberada)) {
     try {
-      const assumido = await prisma.lead.updateMany({
+      const { comoAtorQuePegaDeOutros } = await import('../lib/donoDoLead.js')
+      const assumido = await comoAtorQuePegaDeOutros(user, () => prisma.lead.updateMany({
         // A condição no WHERE fecha a corrida: dois operadores respondendo ao
         // mesmo tempo, o segundo não sobrescreve o dono que o primeiro gravou.
-        where: { id: lead.id, assignedUserId: null },
-        data: { assignedUserId: user.userId, assignedAt: new Date() },
-      })
-      if (assumido.count > 0) {
+        where: liberada ? { id: lead.id, conversaLiberadaEm: { not: null } } : { id: lead.id, assignedUserId: null },
+        data: { assignedUserId: user.userId, assignedAt: new Date(), ...(liberada ? { conversaLiberadaEm: null } : {}) },
+      }))
+      if (assumido.count > 0 && lead.assignedUserId !== user.userId) {
         logEvent({
           leadId: lead.id,
           type: EVENT_TYPES.OPERATOR_ASSIGNED,

@@ -8,7 +8,7 @@ import { requireModule } from '../lib/permissions.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logEvent, EVENT_TYPES, getOperator, getIp } from '../services/leadHistory.js'
 
-const TAG_SELECT = { id: true, name: true, color: true, description: true, position: true, active: true, createdAt: true, updatedAt: true }
+const TAG_SELECT = { id: true, name: true, color: true, description: true, position: true, active: true, vendedorUserId: true, createdAt: true, updatedAt: true }
 const TAG_LEAD_SELECT = { tag: { select: { id: true, name: true, color: true } } }
 
 export async function tagsRoutes(app: FastifyInstance) {
@@ -74,8 +74,10 @@ export async function tagsRoutes(app: FastifyInstance) {
     if (body.active !== undefined) data.active = body.active
 
     // Tag inexistente e nome repetido viravam erro 500 do banco.
-    const atual = await prisma.tag.findUnique({ where: { id: parseInt(id) }, select: { id: true } })
+    const atual = await prisma.tag.findUnique({ where: { id: parseInt(id) }, select: { id: true, vendedorUserId: true } })
     if (!atual) return reply.code(404).send({ error: 'Tag não encontrada' })
+    // Etiqueta do vendedor: nome e ativa seguem o usuário; cor e ordem podem mudar.
+    if (atual.vendedorUserId != null) { delete data.name; delete data.active }
     if (data.name) {
       const mesmoNome = await prisma.tag.findFirst({ where: { name: data.name, NOT: { id: parseInt(id) } }, select: { id: true } })
       if (mesmoNome) return reply.code(409).send({ error: `Tag "${data.name}" já existe` })
@@ -91,6 +93,9 @@ export async function tagsRoutes(app: FastifyInstance) {
     const user = (req as any).user as JwtPayload
     const snapshot = await snapshotEntity('tag', parseInt(id))
     if (!snapshot) return reply.code(404).send({ error: 'Tag não encontrada' })
+    if ((snapshot as any).vendedorUserId != null) {
+      return reply.code(409).send({ error: 'A etiqueta do vendedor é do sistema. Para tirá-la, desligue "Etiqueta com o nome do vendedor" na equipe.' })
+    }
     {
       await moveToTrash({
         entityType: 'tag',
@@ -126,8 +131,9 @@ export async function tagsRoutes(app: FastifyInstance) {
     const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
 
-    const tags = await prisma.tag.findMany({ where: { id: { in: tagIds.map(Number) }, active: true } })
-    if (tags.length === 0) return reply.code(400).send({ error: 'Nenhuma tag válida' })
+    // Etiqueta do vendedor é do sistema (services/etiquetaVendedor.ts): não vai à mão.
+    const tags = await prisma.tag.findMany({ where: { id: { in: tagIds.map(Number) }, active: true, vendedorUserId: null } })
+    if (tags.length === 0) return reply.code(400).send({ error: 'Nenhuma tag válida (a etiqueta do vendedor é posta pelo sistema)' })
 
     // Buscar tags já associadas para não duplicar
     const existing = await prisma.leadTag.findMany({
@@ -171,7 +177,10 @@ export async function tagsRoutes(app: FastifyInstance) {
     const lt = await prisma.leadTag.findUnique({ where: { leadId_tagId: { leadId, tagId: tId } } })
     if (!lt) return reply.code(404).send({ error: 'Tag não associada a este lead' })
 
-    const tag = await prisma.tag.findUnique({ where: { id: tId }, select: { name: true } })
+    const tag = await prisma.tag.findUnique({ where: { id: tId }, select: { name: true, vendedorUserId: true } })
+    if (tag?.vendedorUserId != null) {
+      return reply.code(409).send({ error: 'A etiqueta do vendedor é do sistema: muda sozinha quando outra pessoa da equipe comercial assume o lead.' })
+    }
     await prisma.leadTag.delete({ where: { id: lt.id } })
 
     const operator = getOperator(req)
@@ -198,8 +207,8 @@ export async function tagsRoutes(app: FastifyInstance) {
     }
     if (leadIds.length > 100) return reply.code(400).send({ error: 'Máximo 100 leads por operação' })
 
-    const tags = await prisma.tag.findMany({ where: { id: { in: tagIds.map(Number) } }, select: { id: true, name: true } })
-    if (tags.length === 0) return reply.code(400).send({ error: 'Nenhuma tag válida' })
+    const tags = await prisma.tag.findMany({ where: { id: { in: tagIds.map(Number) }, vendedorUserId: null }, select: { id: true, name: true } })
+    if (tags.length === 0) return reply.code(400).send({ error: 'Nenhuma tag válida (a etiqueta do vendedor é posta pelo sistema)' })
 
     const operator = getOperator(req)
     let affected = 0

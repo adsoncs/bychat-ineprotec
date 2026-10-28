@@ -2381,7 +2381,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { permissoesDeTransferencia } = await import('../lib/permissoesDeTransferencia.js')
       const permsClaim = await permissoesDeTransferencia(user.userId, user.role)
       const deOutro = !!lead.assignedUserId && lead.assignedUserId !== user.userId
-      if (deOutro) {
+      // Conversa liberada ao resolver: qualquer agente puxa, de qualquer equipe,
+      // mesmo com responsável — liberar é exatamente abrir para os outros.
+      const liberada = !!lead.conversaLiberadaEm
+      if (deOutro && !liberada) {
         if (!force) {
           return reply.code(409).send({
             error: 'Lead já atribuído a outro operador',
@@ -2399,8 +2402,6 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           })
         }
       }
-      // Conversa liberada ao resolver: qualquer agente puxa, de qualquer equipe.
-      const liberada = !lead.assignedUserId && !!lead.conversaLiberadaEm
 
       // Permissão: admin OU membro da equipe (ou lead sem equipe — fila geral).
       //

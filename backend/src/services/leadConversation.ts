@@ -237,16 +237,17 @@ export const conversationFilters = {
 
 /**
  * Resolver numa equipe com "Ao resolver, liberar a conversa para qualquer
- * agente" (Team.liberarAoResolver): a conversa fica sem atendente e entra na
- * fila "Liberadas", que qualquer agente vê e pode puxar. O VENDEDOR do lead
- * (Lead.vendedorUserId) não muda — liberar não tira a venda de ninguém.
+ * agente" (Team.liberarAoResolver): a conversa entra na fila "Liberadas", que
+ * qualquer agente vê e pode puxar. O RESPONSÁVEL continua o mesmo: sem dono, a
+ * inscrição sumia da tela do agente no portal e o retorno do contato caía no
+ * rodízio com outra pessoa. O VENDEDOR (Lead.vendedorUserId) também não muda.
  *
  * O contato voltando a escrever tira a conversa da fila (lib/prisma.ts) e ela
- * segue o fluxo normal: o chatbot atende (devolverAoBotAoLiberar) e encaminha.
+ * segue o fluxo normal: o chatbot atende (devolverAoBotAoLiberar) e encaminha —
+ * mesma equipe fica com o mesmo responsável; outra equipe vai ao rodízio dela.
  *
  * Chamado só pelas rotas do botão Resolver: fechamento automático (inatividade,
- * fluxo) não libera. Tirar o dono é regra configurada pelo admin, então passa
- * pela trava do Dono fixo (comoRegraDeRoteamento).
+ * fluxo) não libera.
  */
 export async function liberarAoResolver(leadId: number, opts: OpenOpts = {}): Promise<{ liberada: boolean }> {
   const lead = await prisma.lead.findUnique({
@@ -254,11 +255,7 @@ export async function liberarAoResolver(leadId: number, opts: OpenOpts = {}): Pr
     select: { assignedUserId: true, isGroup: true, team: { select: { liberarAoResolver: true } } },
   })
   if (!lead || lead.isGroup || !lead.team?.liberarAoResolver) return { liberada: false }
-  const { comoRegraDeRoteamento } = await import('../lib/donoDoLead.js')
-  await comoRegraDeRoteamento(() => prisma.lead.update({
-    where: { id: leadId },
-    data: { assignedUserId: null, assignedAt: null, conversaLiberadaEm: new Date() },
-  }))
+  await prisma.lead.update({ where: { id: leadId }, data: { conversaLiberadaEm: new Date() } })
   const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
   logEvent({
     leadId,
