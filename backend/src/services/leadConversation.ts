@@ -283,6 +283,9 @@ async function devolverAoBotAoLiberar(leadId: number): Promise<void> {
   const l = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
   if (!l) return
   const fd: any = { ...((l.formData || {}) as object) }
+  // Caso sensível (insatisfação passada à equipe pela IA) não volta para o bot
+  // nem resolvido: quem decide é a pessoa, pelo botão de devolver ao bot.
+  if (fd._botPaused?.sensivel === true || fd._botPaused?.setor === 'caso sensível') return
   const pausado = !!fd._botPaused
   delete fd._botPaused
   if (fd._aiJourney && typeof fd._aiJourney === 'object' && fd._aiJourney.phase === 'done') fd._aiJourney = { ...fd._aiJourney, phase: 'active' }
