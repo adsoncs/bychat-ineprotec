@@ -10,7 +10,7 @@ import { replaceVariables, buildLeadVars } from './templates.js'
 import { getEmailConfig, getFromAddress, getReplyTo, registrarEnvioDeEmail } from '../services/notify.js'
 import { getBranding } from '../lib/branding.js'
 import { canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
-import { OPEN_ACTIVITY_STATUSES, whereActivityOpen, whereActivityOverdue, whereActivityOwnedBy, whereActivityUnowned } from '../lib/activityStatus.js'
+import { OPEN_ACTIVITY_STATUSES, whereActivityOpen, whereActivityOverdue, whereActivityOwnedBy, whereActivityUnowned, whereActivityVisibleTo, canUserSeeActivity } from '../lib/activityStatus.js'
 
 const ACTIVITY_TYPES = ['whatsapp', 'email', 'sms', 'call', 'meeting', 'task', 'note', 'follow_up']
 const ACTIVITY_STATUSES = ['pending', 'completed', 'cancelled', 'overdue', 'sent', 'failed']
@@ -111,12 +111,16 @@ export async function activitiesRoutes(app: FastifyInstance) {
   app.get('/api/activities', { preHandler: authMiddleware }, async (req, reply) => {
     try {
       const q = req.query as any
+      const user = (req as any).user as JwtPayload
       const limit = Math.min(parseInt(q.limit) || 50, 200)
       const offset = parseInt(q.offset) || 0
 
       const where: any = {}
       // Filtros com OR (atrasada, responsável) entram aqui para não se sobrescreverem.
       const and: any[] = []
+      // Alcance: agente só as suas, líder as do setor, admin todas.
+      const visivel = await whereActivityVisibleTo(user.userId, user.role)
+      if (visivel) and.push(visivel)
       if (q.status) where.status = q.status
       if (q.type) where.type = q.type
       if (q.leadId) where.leadId = parseInt(q.leadId)
@@ -202,12 +206,15 @@ export async function activitiesRoutes(app: FastifyInstance) {
       const todayStart = new Date(); todayStart.setHours(0,0,0,0)
       const todayEnd = new Date(); todayEnd.setHours(23,59,59,999)
       const weekEnd = new Date(todayStart.getTime() + 7 * 86400000)
+      const user = (req as any).user as JwtPayload
+      const visivel = await whereActivityVisibleTo(user.userId, user.role)
+      const vis = (w: any) => (visivel ? { AND: [w, visivel] } : w)
 
       const [overdue, today, week, byType] = await Promise.all([
-        prisma.activity.count({ where: whereActivityOverdue(now) }),
-        prisma.activity.count({ where: { ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: todayEnd } } }),
-        prisma.activity.count({ where: { ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: weekEnd } } }),
-        prisma.activity.groupBy({ by: ['type'], where: whereActivityOpen, _count: true }),
+        prisma.activity.count({ where: vis(whereActivityOverdue(now)) }),
+        prisma.activity.count({ where: vis({ ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: todayEnd } }) }),
+        prisma.activity.count({ where: vis({ ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: weekEnd } }) }),
+        prisma.activity.groupBy({ by: ['type'], where: vis(whereActivityOpen), _count: true }),
       ])
 
       return { overdue, today, week, byType: byType.map(t => ({ type: t.type, count: t._count })) }
@@ -253,6 +260,12 @@ export async function activitiesRoutes(app: FastifyInstance) {
 
       const existing = await prisma.activity.findUnique({ where: { id: parseInt(id) } })
       if (!existing) return reply.code(404).send({ error: 'Atividade nao encontrada' })
+      {
+        const _user = (req as any).user as JwtPayload
+        if (!(await canUserSeeActivity(_user.userId, _user.role, parseInt(id)))) {
+          return reply.code(403).send({ error: 'Sem permissão sobre esta atividade' })
+        }
+      }
 
       const data: any = {}
       if (body.title !== undefined) data.title = body.title
@@ -362,6 +375,12 @@ export async function activitiesRoutes(app: FastifyInstance) {
       const { id } = req.params as any
       const existing = await prisma.activity.findUnique({ where: { id: parseInt(id) } })
       if (!existing) return reply.code(404).send({ error: 'Atividade nao encontrada' })
+      {
+        const _user = (req as any).user as JwtPayload
+        if (!(await canUserSeeActivity(_user.userId, _user.role, parseInt(id)))) {
+          return reply.code(403).send({ error: 'Sem permissão sobre esta atividade' })
+        }
+      }
 
       const protectedStatuses = ['completed', 'sent']
       if (protectedStatuses.includes(existing.status)) {
@@ -396,6 +415,12 @@ export async function activitiesRoutes(app: FastifyInstance) {
         include: { lead: { select: { whatsapp: true, email: true, empresa: true } } }
       })
       if (!activity) return reply.code(404).send({ error: 'Atividade nao encontrada' })
+      {
+        const _user = (req as any).user as JwtPayload
+        if (!(await canUserSeeActivity(_user.userId, _user.role, parseInt(id)))) {
+          return reply.code(403).send({ error: 'Sem permissão sobre esta atividade' })
+        }
+      }
 
       const result = await executeActivity(activity, app)
 

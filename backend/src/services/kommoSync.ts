@@ -732,7 +732,9 @@ export async function importTasksPage(page: number, since?: number, cfg?: KommoC
       userName: 'Kommo',
     }
     if (existing) {
-      await prisma.activity.update({ where: { id: existing.localId }, data: { status: payload.status, completedAt } }).catch(() => {})
+      // Cancelada aqui (ex.: limpeza de tarefa vencida) não volta a abrir
+      // porque a Kommo ainda a tem como aberta.
+      await prisma.activity.updateMany({ where: { id: existing.localId, status: { not: 'cancelled' } }, data: { status: payload.status, completedAt } }).catch(() => {})
     } else {
       const act = await prisma.activity.create({ data: { leadId: lead.localId, ...payload, createdAt: unix(t.created_at) ?? new Date() } as any })
       await setMapping('task', t.id, act.id)
