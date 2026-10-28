@@ -171,6 +171,13 @@ prisma.$use(async (params, next) => {
   if (a === 'create' && params.args?.data && params.args.data.funnelId != null && params.args.data.funnelEntradaId == null) {
     params.args.data.funnelEntradaId = params.args.data.funnelId
   }
+  // Lead = ficha com funil e etapa; sem funil é contato. Entrou no funil por
+  // qualquer caminho (manual, WhatsApp, formulário, importação), virou lead —
+  // é o que a tela de Leads e os cards da Visão Geral contam (qualifiedAt).
+  if (a === 'create' && params.args?.data && params.args.data.funnelId != null && params.args.data.qualifiedAt == null) {
+    params.args.data.qualifiedAt = new Date()
+    if (params.args.data.qualificationSource == null) params.args.data.qualificationSource = 'funil'
+  }
 
   const data = a === 'update' || a === 'updateMany' ? params.args?.data : null
   const trocaEquipe = !!data && 'teamId' in data
@@ -200,6 +207,10 @@ prisma.$use(async (params, next) => {
       // novo por este middleware.
       prisma.$executeRawUnsafe(
         `UPDATE bychat_leads SET funnelEntradaId = funnelId WHERE funnelEntradaId IS NULL AND funnelId IS NOT NULL AND id IN (${ids.map(Number).join(',')})`,
+      ).catch(() => {})
+      // Contato que entrou num funil virou lead agora (ver o create acima).
+      prisma.$executeRawUnsafe(
+        `UPDATE bychat_leads SET qualifiedAt = NOW(3), qualificationSource = COALESCE(qualificationSource, 'funil') WHERE qualifiedAt IS NULL AND funnelId IS NOT NULL AND id IN (${ids.map(Number).join(',')})`,
       ).catch(() => {})
     }
     if (trocaEquipe) {

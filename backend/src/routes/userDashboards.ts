@@ -30,13 +30,13 @@ const HD_CHANNEL_LABEL: Record<string, string> = { email: 'E-mail', web: 'Web', 
 function previousRange(cfg: any): { gte: Date; lte: Date } | null {
   if (cfg?.prevFrom && cfg?.prevTo) {
     return {
-      gte: new Date(cfg.prevFrom + 'T00:00:00.000Z'),
-      lte: new Date(cfg.prevTo + 'T23:59:59.999Z'),
+      gte: new Date(cfg.prevFrom + 'T00:00:00.000'),
+      lte: new Date(cfg.prevTo + 'T23:59:59.999'),
     }
   }
   if (!cfg?.dateFrom || !cfg?.dateTo) return null
-  const from = new Date(cfg.dateFrom + 'T00:00:00.000Z')
-  const to = new Date(cfg.dateTo + 'T23:59:59.999Z')
+  const from = new Date(cfg.dateFrom + 'T00:00:00.000')
+  const to = new Date(cfg.dateTo + 'T23:59:59.999')
   const span = to.getTime() - from.getTime()
   if (!Number.isFinite(span) || span <= 0) return null
   return { gte: new Date(from.getTime() - span - 1), lte: new Date(from.getTime() - 1) }
@@ -212,12 +212,19 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     if (recorteInsc) cfg.recorteInscricoes = recorteInsc
 
     // Build date filter
+    // Dia no fuso do servidor (America/Sao_Paulo). Com 'Z' o dia terminava às
+    // 21h e o card perdia as últimas 3 horas — não batia com a tela de Leads.
     const dateFilter: any = {}
-    if (cfg.dateFrom) dateFilter.gte = new Date(cfg.dateFrom + 'T00:00:00.000Z')
-    if (cfg.dateTo) dateFilter.lte = new Date(cfg.dateTo + 'T23:59:59.999Z')
+    if (cfg.dateFrom) dateFilter.gte = new Date(cfg.dateFrom + 'T00:00:00.000')
+    if (cfg.dateTo) dateFilter.lte = new Date(cfg.dateTo + 'T23:59:59.999')
     const hasDate = cfg.dateFrom || cfg.dateTo
-    const leadWhere: any = {}
-    if (hasDate) leadWhere.createdAt = dateFilter
+    // Lead = entrou em funil e etapa (lib/prisma.ts qualifica ao entrar no
+    // funil); conversa é contato e não conta. O período dos cards de entrada
+    // vale pela data em que VIROU lead (qualifiedAt): contato antigo convertido
+    // hoje conta hoje. Ganho/Perdido trocam isso por outcomeAt (ENTRE_LEADS).
+    // Antes "Novos leads" contava toda ficha criada: 101 no card × 42 na lista.
+    const ENTRE_LEADS = { not: null }
+    const leadWhere: any = { qualifiedAt: hasDate ? dateFilter : ENTRE_LEADS }
     if (cfg.funnelId) leadWhere.funnelId = Number(cfg.funnelId)
     // Recorte por permissão (`scoped`): a Tela Inicial serve o MESMO painel a
     // papéis diferentes, então o número precisa vir pelo scope do módulo leads —
@@ -244,7 +251,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         // Com filtro de data, devolve também o período anterior pra UI mostrar Δ%.
         const prevRange = previousRange(cfg)
         if (!prevRange) return { value: total }
-        const prev = await prisma.lead.count({ where: { ...leadWhere, createdAt: prevRange } })
+        const prev = await prisma.lead.count({ where: { ...leadWhere, qualifiedAt: prevRange } })
         return { value: total, prev }
       }
 
@@ -254,7 +261,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       // quando o lead entrou.
       case 'leads_won': {
         const where: any = { ...leadWhere, outcome: 'won' }
-        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        if (hasDate) { where.qualifiedAt = ENTRE_LEADS; where.outcomeAt = dateFilter }
         const value = await prisma.lead.count({ where })
         const prevRange = previousRange(cfg)
         const prev = prevRange ? await prisma.lead.count({ where: { ...where, outcomeAt: prevRange } }) : undefined
@@ -264,7 +271,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'leads_won_revenue': {
         // Soma de saleValue dos negócios marcados como ganhos no período.
         const where: any = { ...leadWhere, outcome: 'won' }
-        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        if (hasDate) { where.qualifiedAt = ENTRE_LEADS; where.outcomeAt = dateFilter }
         const agg = await prisma.lead.aggregate({ where, _sum: { saleValue: true }, _count: { _all: true } })
         const value = agg._sum.saleValue ? Number(agg._sum.saleValue) : 0
         const count = agg._count._all
@@ -278,7 +285,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'leads_lost': {
         // Negócios perdidos no período + maior objeção (contexto acionável no card).
         const where: any = { ...leadWhere, outcome: 'lost' }
-        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        if (hasDate) { where.qualifiedAt = ENTRE_LEADS; where.outcomeAt = dateFilter }
         const value = await prisma.lead.count({ where })
         const prevRange = previousRange(cfg)
         const prev = prevRange ? await prisma.lead.count({ where: { ...where, outcomeAt: prevRange } }) : undefined
@@ -314,7 +321,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         // só sobe conforme aquelas propostas fecham. Recortar numerador por data
         // de ganho e denominador por abertura deixaria a razão passar de 100%.
         const base: any = { ...leadWhere }
-        if (hasDate) delete base.createdAt
+        if (hasDate) base.qualifiedAt = ENTRE_LEADS
 
         const negotiatedLeadIds = async (range: any) => {
           const rows = await prisma.negotiation.findMany({
@@ -522,9 +529,9 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
 
       case 'leads_new': {
         const today = new Date(); today.setHours(0, 0, 0, 0)
-        const todayCount = await prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: today } } })
+        const todayCount = await prisma.lead.count({ where: { ...leadWhere, qualifiedAt: { gte: today } } })
         const weekAgo = new Date(Date.now() - 7 * 86400000)
-        const weekCount = await prisma.lead.count({ where: { ...leadWhere, createdAt: hasDate ? dateFilter : { gte: weekAgo } } })
+        const weekCount = await prisma.lead.count({ where: { ...leadWhere, qualifiedAt: hasDate ? dateFilter : { gte: weekAgo } } })
         return { today: todayCount, week: weekCount }
       }
 
@@ -598,22 +605,23 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         const defaultRange = groupBy === 'week' ? 90 : groupBy === 'month' ? 365 : 30
         const range = hasDate ? dateFilter : { gte: new Date(Date.now() - defaultRange * 86400000) }
         const leads = await prisma.lead.findMany({
-          where: { ...leadWhere, createdAt: range },
-          select: { createdAt: true },
-          orderBy: { createdAt: 'asc' },
+          where: { ...leadWhere, qualifiedAt: range },
+          select: { qualifiedAt: true },
+          orderBy: { qualifiedAt: 'asc' },
         })
         const buckets: Record<string, number> = {}
         leads.forEach(l => {
           let key: string
           if (groupBy === 'week') {
-            const d = new Date(l.createdAt)
+            const d = new Date(l.qualifiedAt!)
             const day = d.getDay()
             const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-            key = new Date(d.setDate(diff)).toISOString().split('T')[0]
+            key = new Date(d.setDate(diff)).toLocaleDateString('sv-SE')
           } else if (groupBy === 'month') {
-            key = l.createdAt.toISOString().substring(0, 7)
+            key = l.qualifiedAt!.toLocaleDateString('sv-SE').substring(0, 7)
           } else {
-            key = l.createdAt.toISOString().split('T')[0]
+            // Dia de Brasília (fuso do servidor); toISOString jogava 21h–24h no dia seguinte.
+            key = l.qualifiedAt!.toLocaleDateString('sv-SE')
           }
           buckets[key] = (buckets[key] || 0) + 1
         })
@@ -682,7 +690,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'leads_loss_reasons': {
         // Fase 23.1: distribuição de leads perdidos por objeção (usa outcomeAt p/ período).
         const where: any = { ...leadWhere, outcome: 'lost' }
-        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        if (hasDate) { where.qualifiedAt = ENTRE_LEADS; where.outcomeAt = dateFilter }
         const grouped = await prisma.lead.groupBy({
           by: ['lostReasonId'],
           where,
@@ -707,7 +715,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'leads_lost_revenue_by_reason': {
         // Fase 23.1: soma saleValue agrupada por objeção (lead perdido com valor estimado).
         const where: any = { ...leadWhere, outcome: 'lost' }
-        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        if (hasDate) { where.qualifiedAt = ENTRE_LEADS; where.outcomeAt = dateFilter }
         const grouped = await prisma.lead.groupBy({
           by: ['lostReasonId'],
           where,
@@ -742,7 +750,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           orderBy: { createdAt: 'asc' },
         })
         const funnelLeadWhere: any = {}
-        if (hasDate) funnelLeadWhere.createdAt = dateFilter
+        if (hasDate) funnelLeadWhere.qualifiedAt = dateFilter
         const data = await Promise.all(funnels.map(async f => {
           const stageCounts = await prisma.lead.groupBy({
             by: ['status'],

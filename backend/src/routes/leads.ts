@@ -188,11 +188,17 @@ export async function leadsRoutes(app: FastifyInstance) {
       }
     }
 
-    // Filtro por data de criação
+    // Período: na lista de leads vale a data em que a ficha VIROU lead (contato
+    // antigo convertido hoje entra hoje) — a mesma dos cards da Visão Geral.
+    // Listando conversas/contatos, vale o cadastro.
     if (q.dateFrom || q.dateTo) {
-      where.createdAt = {}
-      if (q.dateFrom) where.createdAt.gte = new Date(q.dateFrom)
-      if (q.dateTo) where.createdAt.lte = new Date(q.dateTo + 'T23:59:59')
+      const campo = q.onlyUnqualified === '1' || q.includeUnqualified === '1' ? 'createdAt' : 'qualifiedAt'
+      const faixa: any = {}
+      // Sem hora, `new Date('AAAA-MM-DD')` é meia-noite UTC = 21h do dia anterior aqui.
+      if (q.dateFrom) faixa.gte = new Date(String(q.dateFrom).length === 10 ? q.dateFrom + 'T00:00:00' : q.dateFrom)
+      if (q.dateTo) faixa.lte = new Date(q.dateTo + 'T23:59:59')
+      // Sobrescreve o `qualifiedAt: { not: null }` acima — a faixa já exige data.
+      where[campo] = faixa
     }
 
     // Filtro por data de entrada na etapa
@@ -1262,7 +1268,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     const user = (req as any).user as JwtPayload
     const lead = await prisma.lead.findUnique({ where: { id }, select: { id: true, qualifiedAt: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
-    await prisma.lead.update({ where: { id }, data: { qualifiedAt: null, qualificationSource: null } })
+    // Volta a ser contato: sai do funil. Lead com funil e sem qualificação era
+    // o que fazia lead "sumir" da lista e dos cards (e o middleware de
+    // lib/prisma.ts o requalificaria ao mexer no funil).
+    await prisma.lead.update({ where: { id }, data: { qualifiedAt: null, qualificationSource: null, funnelId: null } })
     logEvent({
       leadId: id,
       type: 'lead_unqualified' as any,

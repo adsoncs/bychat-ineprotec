@@ -1192,7 +1192,7 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
         </Select>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-fg-muted">Período (cadastro)</span>
+          <span class="text-xs font-medium text-fg-muted" title="Data em que a ficha virou lead (entrou no funil)">Período (entrada como lead)</span>
           <div class="flex gap-1">
             <input
               type="date"
