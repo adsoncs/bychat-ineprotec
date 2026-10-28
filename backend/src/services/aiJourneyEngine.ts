@@ -174,7 +174,17 @@ const TOOLS = [
   {
     name: 'transferir_humano',
     description: 'Transfere a conversa para um atendente humano (lead pediu, caso complexo, ou fora do escopo). A IA para de responder.',
-    input_schema: { type: 'object', properties: { motivo: { type: 'string' } }, required: [] },
+    input_schema: {
+      type: 'object',
+      properties: {
+        motivo: { type: 'string' },
+        sensivel: {
+          type: 'boolean',
+          description: 'true em caso sensível: reclamação ou insatisfação com a empresa, ameaça de processo/Procon/denúncia, pedido de reembolso ou indenização, ou problema que você não tem autonomia para resolver. A transferência é imediata, fica registrada como insatisfação e você NÃO responde mais nesta conversa até a equipe devolver. Escreva em `motivo` o que a pessoa relatou, nas palavras dela.',
+        },
+      },
+      required: [],
+    },
   },
   {
     name: 'consultar_catalogo',
@@ -624,10 +634,24 @@ async function executeTool(
 
     if (name === 'transferir_humano') {
       // Mesma trava: captura os dados de contato antes de passar para o humano.
-      const missing = await missingContactData(leadId, form)
+      const sensivel = input?.sensivel === true
+      const missing = sensivel ? [] : await missingContactData(leadId, form)
       if (missing.length) {
         return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
           instrucao: `Antes de transferir para um atendente, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Uma pergunta por vez. Só depois chame transferir_humano novamente.` })
+      }
+      // Caso sensível: a IA sai da conversa (mesmo que já estivesse em handoff) e
+      // só a equipe responde — até alguém devolver a conversa ao bot.
+      if (sensivel) {
+        const nome = chatbot?.name || 'Chatbot'
+        const relato = String(input?.motivo ?? '').trim().slice(0, 600) || 'não descrito'
+        state.phase = 'handoff'
+        await prisma.message.create({ data: { leadId, fromMe: true, isInternal: true, body: `⚠️ ${nome}: caso sensível passado à equipe\nRelato: ${relato}`, senderName: nome, timestamp: new Date() } }).catch(() => {})
+        await prisma.leadNote.create({ data: { leadId, userId: null, userName: nome, content: `⚠️ Insatisfação registrada pela IA\n${relato}\n\nA IA saiu desta conversa; só a equipe responde. Para o bot voltar, devolva a conversa ao bot.` } }).catch(() => {})
+        const { pauseBotForHuman } = await import('./botTakeover.js')
+        await pauseBotForHuman(leadId, { userId: null, userName: `${nome} (caso sensível)` }, { sensivel: true }).catch(() => {})
+        logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: caso sensível passado à equipe — ${relato.slice(0, 80)}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+        return JSON.stringify({ ok: true, sensivel: true, instrucao: 'Responda UMA única mensagem curta: acolha sem julgar ("entendo o quanto isso te preocupa"), diga que uma pessoa da equipe vai assumir o atendimento por aqui e encerre. NÃO concorde com acusações nem dê razão contra a instituição, NÃO avalie o mérito, NÃO sugira outros canais, órgãos ou medidas, NÃO prometa prazo. Depois disso você não responde mais nesta conversa.' })
       }
       // Já avisou antes e o lead continuou falando: não repete o aviso nem trata como
       // nova transferência — o operador entra quando entrar (aí `_botPaused` cala o bot).

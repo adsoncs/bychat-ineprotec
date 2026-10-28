@@ -22,6 +22,8 @@ export interface BotPauseMark {
   at: string           // ISO da intervenção
   byUserId?: number | null
   byName?: string | null
+  /** Pausado pela própria IA num caso sensível (reclamação): não volta sozinho. */
+  sensivel?: boolean
 }
 
 /** Lê o marcador de pausa do lead (null = bot liberado). */
@@ -45,6 +47,7 @@ export async function isBotPaused(leadId: number): Promise<boolean> {
 export async function pauseBotForHuman(
   leadId: number,
   operator: { userId?: number | null; userName?: string | null },
+  opts: { sensivel?: boolean } = {},
 ): Promise<boolean> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
   if (!lead) return false
@@ -55,6 +58,7 @@ export async function pauseBotForHuman(
     at: new Date().toISOString(),
     byUserId: operator.userId ?? null,
     byName: operator.userName ?? null,
+    ...(opts.sensivel ? { sensivel: true } : {}),
   }
   await prisma.lead.update({
     where: { id: leadId },
@@ -65,7 +69,7 @@ export async function pauseBotForHuman(
     leadId,
     type: EVENT_TYPES.BOT_PAUSED_HUMAN,
     category: 'system',
-    title: 'Chatbot pausado — atendimento assumido por humano',
+    title: opts.sensivel ? 'Chatbot pausado — caso sensível passado à equipe' : 'Chatbot pausado — atendimento assumido por humano',
     source: 'panel',
     actorType: operator.userId ? 'operator' : 'system',
     userId: operator.userId ?? undefined,
@@ -124,7 +128,8 @@ export async function autoResumeIfStale(leadId: number): Promise<boolean> {
 
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
   const mark = readBotPause(lead?.formData)
-  if (!mark) return false
+  // Caso sensível não volta para o bot por tempo: só quando alguém da equipe devolver.
+  if (!mark || mark.sensivel) return false
 
   const pausedAt = new Date(mark.at)
   if (isNaN(pausedAt.getTime())) return false

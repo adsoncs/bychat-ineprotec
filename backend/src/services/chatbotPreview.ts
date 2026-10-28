@@ -285,8 +285,12 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
     }
     if (name === 'encerrar') { state.phase = input?.qualificado === false ? 'disqualified' : 'done'; return JSON.stringify({ ok: true }) }
     if (name === 'transferir_humano') {
-      const missing = missingContactPreview(form, state.answers)
+      const missing = input?.sensivel === true ? [] : missingContactPreview(form, state.answers)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de transferir, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
+      if (input?.sensivel === true) {
+        state.phase = 'done'
+        return JSON.stringify({ ok: true, sensivel: true, simulacao: true, noWhatsAppReal: 'nota de insatisfação gravada e IA pausada nesta conversa', instrucao: 'Responda UMA única mensagem curta: acolha sem julgar, diga que uma pessoa da equipe vai assumir o atendimento por aqui e encerre. NÃO concorde com acusações nem dê razão contra a instituição, NÃO avalie o mérito, NÃO sugira outros canais, órgãos ou medidas, NÃO prometa prazo.' })
+      }
       state.phase = 'done'
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
