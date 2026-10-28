@@ -11,6 +11,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { applyStatusSummary } from './statusSummaryEngine.js'
+import { whereActivityOpen } from '../lib/activityStatus.js'
 
 const TICK_MS = 15 * 60 * 1000 // 15 min — a granularidade útil é de dias, não de minutos
 const MAX_PER_TICK = 200
@@ -65,7 +66,9 @@ export async function runAdvanceSweep(): Promise<{ advanced: number; skipped: nu
     const open = await prisma.activity.findMany({
       where: {
         leadId: lead.id,
-        status: 'pending',
+        // Vencida há mais de 30 min já está 'overdue' — é justamente a que
+        // o avanço espera. Só 'pending' aqui travava a escada para sempre.
+        ...whereActivityOpen,
         metadata: { path: '$.summaryId', equals: summary.id },
       },
       select: { id: true, scheduledAt: true },

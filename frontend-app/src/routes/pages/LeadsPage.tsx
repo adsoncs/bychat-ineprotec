@@ -2522,7 +2522,7 @@ type LeadActivityStatusFilter = 'all' | 'overdue' | 'today' | 'upcoming' | 'comp
 function bucketOf(a: Activity): LeadActivityStatusFilter | 'other' {
   if (a.status === 'completed' || a.status === 'sent') return 'completed'
   if (a.status === 'cancelled' || a.status === 'failed') return 'other'
-  // status pending — classifica pela data
+  // pending/overdue — 'overdue' gravado pelo scheduler ou vencida há pouco
   if (isActivityOverdue(a)) return 'overdue'
   const d = new Date(a.scheduledAt)
   const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999)

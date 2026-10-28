@@ -4,6 +4,7 @@
 // type-to-confirm. Tudo paralelo, conta barato (índices existem).
 
 import { prisma } from '../lib/prisma.js'
+import { whereActivityOpen } from '../lib/activityStatus.js'
 
 // Cada item do array vira uma linha tipo "X cursos" no resumo da UI.
 // total = soma dos counts (decide se mostra modal type-to-confirm).
@@ -164,7 +165,7 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
 
     case 'activities': {
       const [pending, recent] = await Promise.all([
-        safeCount(prisma.activity.count({ where: { status: 'pending' } }) as any),
+        safeCount(prisma.activity.count({ where: whereActivityOpen }) as any),
         safeCount(prisma.activity.count({ where: { createdAt: { gte: SINCE_30D() } } }) as any),
       ])
       return pack([

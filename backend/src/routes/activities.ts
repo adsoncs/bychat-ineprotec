@@ -10,6 +10,7 @@ import { replaceVariables, buildLeadVars } from './templates.js'
 import { getEmailConfig, getFromAddress, getReplyTo, registrarEnvioDeEmail } from '../services/notify.js'
 import { getBranding } from '../lib/branding.js'
 import { canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
+import { OPEN_ACTIVITY_STATUSES, whereActivityOpen, whereActivityOverdue, whereActivityOwnedBy, whereActivityUnowned } from '../lib/activityStatus.js'
 
 const ACTIVITY_TYPES = ['whatsapp', 'email', 'sms', 'call', 'meeting', 'task', 'note', 'follow_up']
 const ACTIVITY_STATUSES = ['pending', 'completed', 'cancelled', 'overdue', 'sent', 'failed']
@@ -114,6 +115,8 @@ export async function activitiesRoutes(app: FastifyInstance) {
       const offset = parseInt(q.offset) || 0
 
       const where: any = {}
+      // Filtros com OR (atrasada, responsável) entram aqui para não se sobrescreverem.
+      const and: any[] = []
       if (q.status) where.status = q.status
       if (q.type) where.type = q.type
       if (q.leadId) where.leadId = parseInt(q.leadId)
@@ -122,10 +125,11 @@ export async function activitiesRoutes(app: FastifyInstance) {
       // Módulo Resumo: filtro por quem EXECUTA (não por quem criou). É o que
       // separa a fila da Secretaria da fila do Comercial quando o handoff é
       // feito por atividade. `assignedTeamId` sem `assignedUserId` = fila do
-      // setor, sem dono — o operador puxa.
-      if (q.assignedUserId) where.assignedUserId = parseInt(q.assignedUserId)
+      // setor, sem dono — o operador puxa. Sem designado, vale quem criou e,
+      // sem ninguém (Kommo, IA), o dono do lead — ver whereActivityOwnedBy.
+      if (q.assignedUserId) and.push(whereActivityOwnedBy(parseInt(q.assignedUserId)))
       if (q.assignedTeamId) where.assignedTeamId = parseInt(q.assignedTeamId)
-      if (q.unassigned === 'true') where.assignedUserId = null
+      if (q.unassigned === 'true') and.push(whereActivityUnowned)
       if (q.templateCode) where.templateCode = String(q.templateCode).toUpperCase()
 
       // Filtro rapido: hoje, semana, atrasadas, agendadas (amanha+), concluidas
@@ -140,12 +144,13 @@ export async function activitiesRoutes(app: FastifyInstance) {
         const end = new Date(start.getTime() + 7 * 86400000)
         where.scheduledAt = { gte: start, lte: end }
       } else if (q.view === 'overdue') {
-        where.status = 'pending'
-        where.scheduledAt = { lt: new Date() }
+        // O scheduler grava 'overdue' 30 min depois do horário; antes disso
+        // ela ainda está 'pending'. As duas contam como atrasadas.
+        and.push(whereActivityOverdue())
       } else if (q.view === 'upcoming') {
         // Pendentes agendadas para AMANHA em diante (exclui hoje e atrasadas)
         const tomorrow = new Date(); tomorrow.setHours(0,0,0,0); tomorrow.setDate(tomorrow.getDate() + 1)
-        where.status = 'pending'
+        where.status = { in: OPEN_ACTIVITY_STATUSES }
         where.scheduledAt = { gte: tomorrow }
       } else if (q.view === 'completed') {
         where.status = 'completed'
@@ -166,6 +171,7 @@ export async function activitiesRoutes(app: FastifyInstance) {
         }
         where[dateField] = existing
       }
+      if (and.length) where.AND = and
 
       const [activities, total] = await Promise.all([
         prisma.activity.findMany({
@@ -198,10 +204,10 @@ export async function activitiesRoutes(app: FastifyInstance) {
       const weekEnd = new Date(todayStart.getTime() + 7 * 86400000)
 
       const [overdue, today, week, byType] = await Promise.all([
-        prisma.activity.count({ where: { status: 'pending', scheduledAt: { lt: now } } }),
-        prisma.activity.count({ where: { status: 'pending', scheduledAt: { gte: todayStart, lte: todayEnd } } }),
-        prisma.activity.count({ where: { status: 'pending', scheduledAt: { gte: todayStart, lte: weekEnd } } }),
-        prisma.activity.groupBy({ by: ['type'], where: { status: 'pending' }, _count: true }),
+        prisma.activity.count({ where: whereActivityOverdue(now) }),
+        prisma.activity.count({ where: { ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: todayEnd } } }),
+        prisma.activity.count({ where: { ...whereActivityOpen, scheduledAt: { gte: todayStart, lte: weekEnd } } }),
+        prisma.activity.groupBy({ by: ['type'], where: whereActivityOpen, _count: true }),
       ])
 
       return { overdue, today, week, byType: byType.map(t => ({ type: t.type, count: t._count })) }
@@ -274,6 +280,13 @@ export async function activitiesRoutes(app: FastifyInstance) {
       }
 
       if (body.result !== undefined) data.result = body.result
+
+      // Reagendar uma atrasada para o futuro devolve ela para a fila de
+      // pendentes; sem isso ela seguia "Atrasada" com data futura e sumia das
+      // Próximas. O inverso (pendente para o passado) o scheduler resolve.
+      if (data.scheduledAt && data.status === undefined && existing.status === 'overdue' && data.scheduledAt.getTime() > Date.now()) {
+        data.status = 'pending'
+      }
 
       const activity = await prisma.activity.update({
         where: { id: parseInt(id) },
@@ -721,11 +734,15 @@ async function processScheduledActivities(): Promise<void> {
   try {
     const now = new Date()
 
-    // 1. Marcar atividades atrasadas
+    // 1. Marcar atividades atrasadas. Envio automático (whatsapp/email com
+    // mensagem) fica de fora: quem decide o status dele é o executor abaixo
+    // (sent/failed). Antes, com fila acumulada ou servidor parado por mais de
+    // 30 min, a mensagem virava 'overdue' e nunca era enviada.
     await prisma.activity.updateMany({
       where: {
         status: 'pending',
-        scheduledAt: { lt: new Date(now.getTime() - 30 * 60 * 1000) } // 30min de tolerancia
+        scheduledAt: { lt: new Date(now.getTime() - 30 * 60 * 1000) }, // 30min de tolerancia
+        NOT: { type: { in: ['whatsapp', 'email'] }, messageBody: { not: null } },
       },
       data: { status: 'overdue' }
     })

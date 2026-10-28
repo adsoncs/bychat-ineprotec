@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly } from '../lib/auth.js'
 import { getScoringConfig } from '../services/scoring.js'
+import { whereActivityOpen, whereActivityOverdue } from '../lib/activityStatus.js'
 
 export async function dashboardRoutes(app: FastifyInstance) {
 
@@ -102,12 +103,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
       // Atividades pendentes
       prisma.activity.count({
-        where: { status: 'pending' },
+        where: whereActivityOpen,
       }),
 
       // Atividades atrasadas
       prisma.activity.count({
-        where: { status: 'pending', scheduledAt: { lt: new Date() } },
+        where: whereActivityOverdue(),
       }),
 
       // Landing pages

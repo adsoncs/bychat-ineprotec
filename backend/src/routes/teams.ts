@@ -8,6 +8,7 @@ import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { isAdminRole, isTeamLeader } from '../lib/teamAccess.js'
 import { invalidarAcessoPortais } from '../lib/portalAccess.js'
 import { invalidarEquipeComercial } from '../lib/equipeComercial.js'
+import { whereActivityOpen } from '../lib/activityStatus.js'
 
 // Guard: permite ADMIN/SUPERADMIN OU líder do setor específico (rota tem :id).
 // Para uso em endpoints de gestão de membros (POST/PUT/DELETE /admin/teams/:id/members[/:userId]).
@@ -848,7 +849,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       }),
       prisma.activity.groupBy({
         by: ['userId'],
-        where: { status: 'pending', userId: { not: null } },
+        where: { ...whereActivityOpen, userId: { not: null } },
         _count: { _all: true },
       }),
       prisma.activity.groupBy({

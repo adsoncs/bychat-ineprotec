@@ -17,6 +17,7 @@ import { resolvePermissions } from '../lib/permissions.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import * as edu from '../services/educationalMetrics.js'
 import { painelComercial, lerConfig, salvarConfig, funisDoPainel, PONTOS_PADRAO, type Visao } from '../services/painelComercial.js'
+import { whereActivityOpen, whereActivityOwnedBy } from '../lib/activityStatus.js'
 
 const ROLES = ['SUPERADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER'] as const
 
@@ -287,13 +288,15 @@ export async function homeScreensRoutes(app: FastifyInstance) {
 
     const [todayActivities, overdue, staleLeads] = await Promise.all([
       prisma.activity.findMany({
-        where: { userId: user.userId, status: 'pending', scheduledAt: { gte: dayStart, lte: dayEnd } },
+        // Do dia, ainda em aberto (a que passou 30 min do horário vira 'overdue'
+        // e continua sendo do dia), de quem EXECUTA — não de quem criou.
+        where: { AND: [whereActivityOwnedBy(user.userId), whereActivityOpen], scheduledAt: { gte: dayStart, lte: dayEnd } },
         select: { id: true, type: true, title: true, scheduledAt: true, leadId: true, lead: { select: { nome: true } } },
         orderBy: { scheduledAt: 'asc' },
         take: 20,
       }),
       prisma.activity.count({
-        where: { userId: user.userId, status: 'pending', scheduledAt: { lt: dayStart } },
+        where: { AND: [whereActivityOwnedBy(user.userId), whereActivityOpen], scheduledAt: { lt: dayStart } },
       }),
       prisma.lead.count({
         where: {

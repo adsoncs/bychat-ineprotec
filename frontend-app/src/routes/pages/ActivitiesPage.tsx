@@ -126,11 +126,17 @@ export function ActivitiesPage() {
   }, [view, typeFilter, dateFrom, dateTo, dateField, dateRangeDisabled, ownerFilter, teamFilter, currentUserId])
 
   const { data, isLoading } = useActivities(filters as any)
-  const todayQ = useActivities({ view: 'today', limit: 1 })
-  const upcomingQ = useActivities({ view: 'upcoming', limit: 1 })
-  const overdueQ = useActivities({ view: 'overdue', limit: 1 })
-  const completedQ = useActivities({ view: 'completed', limit: 1 })
-  const allQ = useActivities({ limit: 1 })
+  // Os cartões contam com o mesmo responsável/setor/tipo da lista; sem isso
+  // "Minhas atividades" mostrava a lista dela com os números da empresa toda.
+  const kpiBase = useMemo(() => {
+    const { view: _v, from: _f, to: _t, dateField: _d, limit: _l, ...rest } = filters as any
+    return { ...rest, limit: 1 }
+  }, [filters])
+  const todayQ = useActivities({ ...kpiBase, view: 'today' })
+  const upcomingQ = useActivities({ ...kpiBase, view: 'upcoming' })
+  const overdueQ = useActivities({ ...kpiBase, view: 'overdue' })
+  const completedQ = useActivities({ ...kpiBase, view: 'completed' })
+  const allQ = useActivities(kpiBase)
 
   const filteredActivities = useMemo(() => {
     const list = data?.activities ?? []
@@ -395,7 +401,10 @@ export function ActivitiesPage() {
 
 export { CreateActivityModal, EditActivityModal, ActivityRow, DeleteActivityDialog, TYPE_META as ACTIVITY_TYPE_META, isOverdue as isActivityOverdue }
 
+// O scheduler grava 'overdue' 30 min depois do horário; antes disso a
+// atividade vencida ainda está 'pending'. As duas são atrasadas.
 function isOverdue(activity: Activity): boolean {
+  if (activity.status === 'overdue') return true
   if (activity.status !== 'pending') return false
   return new Date(activity.scheduledAt).getTime() < Date.now()
 }

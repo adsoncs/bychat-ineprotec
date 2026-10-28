@@ -6,6 +6,7 @@ import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import { computeHelpdeskReport } from '../services/helpdesk.js'
 import * as edu from '../services/educationalMetrics.js'
 import { alcanceDaRequisicao, whereInscricoes, wherePortais } from '../lib/portalAccess.js'
+import { whereActivityOpen, whereActivityOverdue } from '../lib/activityStatus.js'
 
 // Rótulos PT p/ os widgets do helpdesk (espelham a UI do módulo).
 const HD_STATUS_LABEL: Record<string, string> = { new: 'Novo', open: 'Aberto', pending: 'Pendente', on_hold: 'Em espera', solved: 'Resolvido', closed: 'Fechado' }
@@ -817,12 +818,9 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         // que a atividade foi cadastrada. "Atrasadas" = vencidas até agora, mas
         // só as agendadas dentro do período escolhido.
         const at = hasDate ? { scheduledAt: dateFilter } : {}
-        const overdueAt = hasDate
-          ? { scheduledAt: { ...dateFilter, lt: new Date() } }
-          : { scheduledAt: { lt: new Date() } }
         const [pending, overdue, completed, total] = await Promise.all([
-          prisma.activity.count({ where: { status: 'pending', ...at } }),
-          prisma.activity.count({ where: { status: 'pending', ...overdueAt } }),
+          prisma.activity.count({ where: { ...whereActivityOpen, ...at } }),
+          prisma.activity.count({ where: { ...whereActivityOverdue(), ...at } }),
           prisma.activity.count({ where: { status: 'completed', ...at } }),
           prisma.activity.count({ where: at }),
         ])

@@ -18,6 +18,7 @@ import { moveLeadStage } from './leadStageMove.js'
 import { markLeadWon, markLeadLost } from './leadOutcome.js'
 import { getBusinessHoursConfig, nextBusinessTime } from './businessHours.js'
 import { pickOperatorForTeam } from './teamRouting.js'
+import { whereActivityOpen } from '../lib/activityStatus.js'
 
 export const STATUS_SUMMARY_EVENT = 'lead.summary_changed'
 
@@ -286,7 +287,7 @@ export async function applyStatusSummary(
   //    aplicado pelo cron (sem operador) e com lead sem dono, a atividade nova
   //    nasceria órfã e a cobrança perderia o responsável no meio do caminho.
   const previousAssignee = await prisma.activity.findFirst({
-    where: { leadId, status: 'pending', OR: [{ assignedUserId: { not: null } }, { assignedTeamId: { not: null } }] },
+    where: { leadId, ...whereActivityOpen, OR: [{ assignedUserId: { not: null } }, { assignedTeamId: { not: null } }] },
     orderBy: { createdAt: 'desc' },
     select: { assignedUserId: true, assignedTeamId: true },
   })
@@ -294,7 +295,7 @@ export async function applyStatusSummary(
   let closedActivities = 0
   if (summary.closeOpenActivities) {
     const res = await prisma.activity.updateMany({
-      where: { leadId, status: 'pending' },
+      where: { leadId, ...whereActivityOpen },
       data: { status: 'completed', completedAt: now, result: `Concluída ao aplicar ${summary.code}` },
     })
     closedActivities = res.count

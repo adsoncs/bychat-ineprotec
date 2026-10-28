@@ -6,6 +6,7 @@
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES, type ActorType } from './leadHistory.js'
 import { sendLeadQualityFeedback, classifyLossAsQuality } from './metaLeadQualityFeedback.js'
+import { whereActivityOpen } from '../lib/activityStatus.js'
 
 export type OutcomeKind = 'won' | 'lost'
 
@@ -94,7 +95,8 @@ async function autoMoveToTerminalStage(
 // ── Cancela activities pendentes do lead (Ganho/Perdido) ─
 async function cancelPendingActivities(leadId: number, reason: 'lead_won' | 'lead_lost'): Promise<number> {
   const pending = await prisma.activity.findMany({
-    where: { leadId, status: 'pending' },
+    // Inclui as atrasadas: são as que mais sobravam abertas em lead fechado.
+    where: { leadId, ...whereActivityOpen },
     select: { id: true, metadata: true },
   })
   if (pending.length === 0) return 0
