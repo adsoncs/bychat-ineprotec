@@ -22,6 +22,8 @@ export interface ImportOptions {
   overrideFilled: boolean
   createMissingFields: boolean
   migrationMode: boolean
+  /** Funil de quem vier sem funil na planilha. Obrigatório para importar. */
+  defaultFunnelId?: number | null
 }
 
 export interface PreviewResponse {

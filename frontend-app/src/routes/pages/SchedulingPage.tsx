@@ -58,6 +58,7 @@ export function MeetingTypesPanel() {
 
   function handleSave() {
     if (!editing?.name?.trim()) { toast('Dê um nome ao tipo de reunião', 'danger'); return }
+    if (editing.funnelId == null) { toast('Escolha o funil para onde vai quem agendar', 'danger'); return }
     save.mutate(editing, {
       onSuccess: () => { toast('Tipo de reunião salvo', 'success'); setEditing(null) },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -267,8 +268,8 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
         <div class="pt-2 border-t border-border">
           <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Integração com o funil (ao agendar)</div>
           <div class="grid gap-3 sm:grid-cols-2">
-            <Select label="Funil" value={form.funnelId == null ? '' : String(form.funnelId)} onChange={(e) => set({ funnelId: numInput((e.target as HTMLSelectElement).value), stageKey: null })}>
-              <option value="">— nenhum —</option>
+            <Select label="Funil *" value={form.funnelId == null ? '' : String(form.funnelId)} onChange={(e) => set({ funnelId: numInput((e.target as HTMLSelectElement).value), stageKey: null })}>
+              <option value="" disabled>Escolha o funil (obrigatório)</option>
               {(funnelsData?.funnels ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </Select>
             <Select label="Etapa ao agendar" value={form.stageKey ?? ''} onChange={(e) => set({ stageKey: (e.target as HTMLSelectElement).value || null })} disabled={!form.funnelId}>

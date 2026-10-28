@@ -132,6 +132,8 @@ export async function schedulingRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Nome é obrigatório' })
     }
     const data = buildData(body, true)
+    // Quem agenda vira lead, e lead sem funil não existe.
+    if (data.funnelId == null) return reply.code(400).send({ error: 'Escolha o funil para onde vai quem agendar' })
     const baseSlug = body.slug ? slugify(body.slug) : slugify(body.name)
     data.slug = await uniqueSlug(baseSlug)
     const created = await prisma.meetingType.create({ data })
@@ -141,10 +143,14 @@ export async function schedulingRoutes(app: FastifyInstance) {
   // ── UPDATE ──
   app.patch('/api/admin/scheduling/meeting-types/:id', { preHandler: adminOnly }, async (req, reply) => {
     const id = parseInt((req.params as any).id, 10)
-    const exists = await prisma.meetingType.findUnique({ where: { id }, select: { id: true } })
+    const exists = await prisma.meetingType.findUnique({ where: { id }, select: { id: true, funnelId: true, active: true } })
     if (!exists) return reply.code(404).send({ error: 'Tipo de reunião não encontrado' })
     const body = (req.body as any) || {}
     const data = buildData(body, false)
+    // Ativo sem funil não salva (desativar continua livre).
+    const funilFinal = data.funnelId !== undefined ? data.funnelId : exists.funnelId
+    const ativoFinal = data.active !== undefined ? data.active : exists.active
+    if (ativoFinal && funilFinal == null) return reply.code(400).send({ error: 'Escolha o funil para onde vai quem agendar' })
     if (body.slug !== undefined && body.slug) data.slug = await uniqueSlug(slugify(body.slug), id)
     const updated = await prisma.meetingType.update({ where: { id }, data })
     return { item: updated }

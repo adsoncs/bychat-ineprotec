@@ -57,6 +57,9 @@ export interface ImportOptions {
   //   - tags: sempre MERGE (adiciona; nunca remove tags existentes)
   // Em CREATE não tem efeito (todos os campos já são gravados).
   migrationMode: boolean
+  // Funil de quem vier sem funil na planilha (sem coluna "Funil" ou com a
+  // célula vazia/desconhecida). Lead sem funil não existe — ver lib/prisma.ts.
+  defaultFunnelId?: number | null
 }
 
 export interface PreviewRow {
@@ -226,6 +229,7 @@ export function suggestMapping(headers: string[]): MappingEntry[] {
 interface LookupCaches {
   funnelsByName: Map<string, number>
   stagesByName: Map<string, { key: string; funnelId: number }>
+  firstStageByFunnel: Map<number, string>
   lossReasonsByName: Map<string, number>
   usersByEmail: Map<string, number>
   // Fallback quando "Proprietário" vem como NOME (CRM antigo). Chave: nome sem acentos lowercase.
@@ -244,7 +248,7 @@ function stripAccents(s: string): string {
 async function buildLookups(): Promise<LookupCaches> {
   const [funnels, stages, lossReasons, users, customFields, tags] = await Promise.all([
     prisma.funnel.findMany({ where: { active: true }, select: { id: true, name: true } }),
-    prisma.stage.findMany({ where: { active: true }, select: { key: true, name: true, funnelId: true } }),
+    prisma.stage.findMany({ where: { active: true }, select: { key: true, name: true, funnelId: true }, orderBy: { position: 'asc' } }),
     prisma.lossReason.findMany({ where: { active: true }, select: { id: true, name: true } }),
     prisma.user.findMany({ where: { active: true }, select: { id: true, email: true, name: true } }),
     prisma.customField.findMany({ where: { active: true }, select: { key: true, label: true, type: true } }),
@@ -253,7 +257,9 @@ async function buildLookups(): Promise<LookupCaches> {
   const funnelsByName = new Map<string, number>()
   for (const f of funnels) funnelsByName.set(f.name.toLowerCase().trim(), f.id)
   const stagesByName = new Map<string, { key: string; funnelId: number }>()
+  const firstStageByFunnel = new Map<number, string>()
   for (const s of stages) {
+    if (!firstStageByFunnel.has(s.funnelId)) firstStageByFunnel.set(s.funnelId, s.key)
     stagesByName.set(`${s.funnelId}::${s.name.toLowerCase().trim()}`, { key: s.key, funnelId: s.funnelId })
   }
   const lossReasonsByName = new Map<string, number>()
@@ -268,7 +274,7 @@ async function buildLookups(): Promise<LookupCaches> {
   for (const cf of customFields) customFieldsByKey.set(cf.key, cf)
   const tagsByName = new Map<string, number>()
   for (const t of tags) tagsByName.set(t.name.toLowerCase().trim(), t.id)
-  return { funnelsByName, stagesByName, lossReasonsByName, usersByEmail, usersByName, customFieldsByKey, tagsByName }
+  return { funnelsByName, stagesByName, firstStageByFunnel, lossReasonsByName, usersByEmail, usersByName, customFieldsByKey, tagsByName }
 }
 
 function getCellValue(row: Record<string, string>, sourceCol: string): string {
@@ -825,6 +831,9 @@ async function processRow(
     return
   }
 
+  // CREATE — sem funil na linha, vai para o funil escolhido na importação.
+  const funilDoLead = parsedRow.funnelId ?? options.defaultFunnelId ?? null
+
   // CREATE — resolve team padrão se não veio
   let teamId: number | null = null
   if (parsedRow.ownerUserId) {
@@ -853,8 +862,9 @@ async function processRow(
       scores: {},
       lastStep: 0,
       completed: false,
-      status: (parsedRow.stageKey as string) || 'NOVO',
-      funnelId: parsedRow.funnelId,
+      status: (parsedRow.funnelId ? parsedRow.stageKey as string : null)
+        || lookups.firstStageByFunnel.get(funilDoLead ?? -1) || 'NOVO',
+      funnelId: funilDoLead,
       teamId,
       assignedUserId: parsedRow.ownerUserId,
       assignedAt: parsedRow.ownerUserId ? new Date() : null,

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { toast } from '@/lib/toast'
+import { useFunnels } from '@/hooks/useFunnels'
 import { ApiError } from '@/lib/apiClient'
 import {
   useUploadImport, useComputePlan, useCommitImport, useImportHistory,
@@ -67,6 +68,7 @@ export function LeadsImportPage() {
     overrideFilled: false,
     createMissingFields: true,
     migrationMode: false,
+    defaultFunnelId: null,
   })
   const [plan, setPlan] = useState<ImportPlan | null>(null)
   const [rejectedIndices, setRejectedIndices] = useState<Set<number>>(new Set())
@@ -106,6 +108,10 @@ export function LeadsImportPage() {
       .filter((r) => (r.action === 'create' || r.action === 'update') && !rejectedIndices.has(r.lineIndex))
       .map((r) => r.lineIndex)
 
+    if (!options.defaultFunnelId) {
+      toast('Escolha o funil para onde vão os leads que vierem sem funil na planilha', 'danger')
+      return
+    }
     const confirmText = window.prompt(
       `Confirma a importação de ${acceptedLineIndices.length} leads?\nDigite "IMPORTAR" para confirmar.`,
     )
@@ -385,6 +391,7 @@ function MappingStep({
       <Card>
         <div class="p-4 space-y-3">
           <h3 class="text-sm font-semibold">Opções</h3>
+          <FunilPadraoSelect value={options.defaultFunnelId ?? null} onChange={(id) => setOptions({ ...options, defaultFunnelId: id })} />
           <Select
             label="Critério para identificar lead existente"
             value={options.matchBy}
@@ -443,7 +450,7 @@ function MappingStep({
         <Button variant="ghost" onClick={onBack} disabled={pending}>
           <ArrowLeft size={14} /> Voltar
         </Button>
-        <Button onClick={onNext} disabled={pending}>
+        <Button onClick={onNext} disabled={pending || !options.defaultFunnelId} title={options.defaultFunnelId ? undefined : 'Escolha o funil nas Opções'}>
           {pending ? 'Calculando…' : 'Pré-visualizar plano'}
           <ArrowRight size={14} />
         </Button>
@@ -607,6 +614,26 @@ function PlanRow({ row, rejected, onToggle }: { row: any; rejected: boolean; onT
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Lead sem funil não existe: sem coluna "Funil" (ou com a célula vazia), o lead
+// entra no funil escolhido aqui, na primeira etapa.
+function FunilPadraoSelect({ value, onChange }: { value: number | null; onChange: (id: number | null) => void }) {
+  const { data } = useFunnels()
+  const funis = (data?.funnels ?? []).filter((f) => f.active)
+  return (
+    <div>
+      <Select
+        label="Funil * (para quem vier sem funil na planilha)"
+        value={value == null ? '' : String(value)}
+        onChange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; onChange(v ? Number(v) : null) }}
+      >
+        <option value="" disabled>Escolha o funil (obrigatório)</option>
+        {funis.map((f) => <option key={f.id} value={f.id}>{f.name}{f.isDefault ? ' (padrão)' : ''}</option>)}
+      </Select>
+      <div class="text-xs text-fg-muted mt-1">Todo lead precisa de um funil. Quem não tiver a coluna "Funil" preenchida entra aqui, na primeira etapa.</div>
     </div>
   )
 }

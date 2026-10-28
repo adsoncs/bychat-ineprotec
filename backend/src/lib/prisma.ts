@@ -164,10 +164,39 @@ function avisarTrava(ids: number[], novoDono: number | null): void {
 // · Troca de equipe de lead GANHO pode abrir um card no funil da nova equipe
 //   (services/oportunidadeAutomatica.ts). São 16 caminhos que gravam teamId;
 //   este é o único por onde todos passam.
+
+/** Funil de quem chega sem funil: o padrão ativo; senão o único ativo; senão nenhum. */
+async function funilParaLeadSemFunil(): Promise<{ id: number; etapas: string[] } | null> {
+  const ativos = await prisma.funnel.findMany({
+    where: { active: true },
+    select: { id: true, isDefault: true, stages: { where: { active: true }, orderBy: { position: 'asc' }, select: { key: true } } },
+  })
+  const f = ativos.find((x) => x.isDefault) ?? (ativos.length === 1 ? ativos[0] : null)
+  if (!f || !f.stages.length) return null
+  return { id: f.id, etapas: f.stages.map((s) => s.key) }
+}
+
 prisma.$use(async (params, next) => {
   if (params.model !== 'Lead') return next(params)
   const a = params.action
 
+  // Lead sem funil não existe (regra de 28/10/2026). Quem cria já qualificado e
+  // sem funil (formulário, agendamento, importação, API mal configurados) cai no
+  // funil padrão; sem padrão, no único funil ativo; sem nenhum dos dois, nasce
+  // contato e vai para triagem em Conversas — nunca "lead" fora de funil.
+  if (a === 'create' && params.args?.data && params.args.data.qualifiedAt != null
+      && params.args.data.funnelId == null && params.args.data.funnel == null) {
+    const d = params.args.data
+    const funil = await funilParaLeadSemFunil()
+    if (funil) {
+      d.funnelId = funil.id
+      if (!d.status || !funil.etapas.includes(d.status)) d.status = funil.etapas[0]
+    } else {
+      console.warn(`[lead sem funil] criado como contato (origem ${d.source ?? '?'}): sem funil padrão e com mais de um funil ativo`)
+      d.qualifiedAt = null
+      d.qualificationSource = null
+    }
+  }
   if (a === 'create' && params.args?.data && params.args.data.funnelId != null && params.args.data.funnelEntradaId == null) {
     params.args.data.funnelEntradaId = params.args.data.funnelId
   }

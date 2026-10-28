@@ -137,6 +137,13 @@ export async function leadsImportRoutes(app: FastifyInstance) {
       if (typeof importId !== 'number') return reply.code(400).send({ error: 'importId inválido' })
       if (!Array.isArray(mapping)) return reply.code(400).send({ error: 'mapping inválido' })
       if (!Array.isArray(acceptedLineIndices)) return reply.code(400).send({ error: 'acceptedLineIndices inválido' })
+      // Lead sem funil não existe: quem vier sem funil na planilha (sem coluna
+      // ou com a célula vazia) vai para o funil escolhido aqui.
+      const funilPadrao = Number(options?.defaultFunnelId)
+      if (!Number.isInteger(funilPadrao) || funilPadrao <= 0
+          || !(await prisma.funnel.findFirst({ where: { id: funilPadrao, active: true }, select: { id: true } }))) {
+        return reply.code(400).send({ error: 'Escolha o funil para onde vão os leads que vierem sem funil na planilha' })
+      }
 
       const importRow = await prisma.leadImport.findUnique({ where: { id: importId } })
       if (!importRow) return reply.code(404).send({ error: 'Import não encontrado' })
