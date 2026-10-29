@@ -136,7 +136,10 @@ export interface WorkloadItem {
   capacity: number
   workStatus: 'available' | 'away' | 'busy' | 'offline'
   lastSeenAt: string | null
+  /** Conversas abertas no nome do agente (mesma conta do rodízio justo). */
   activeLeads: number
+  /** Leads com funil no nome do agente, sem ganho/perdido. */
+  carteira: number
   activitiesPending: number
   activitiesOverdue: number
   utilization: number // 0-100+

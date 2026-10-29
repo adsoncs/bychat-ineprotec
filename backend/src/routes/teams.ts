@@ -831,22 +831,35 @@ export async function teamsRoutes(app: FastifyInstance) {
   )
 
   // ── GET /api/admin/team-metrics/workload — Carga de trabalho atual ──
-  // Leads ativos (sem outcome), atividades pendentes/overdue, capacidade
+  // Em atendimento (conversas abertas — mesma conta do rodízio justo), carteira
+  // (leads com funil, sem desfecho), atividades pendentes/overdue, capacidade
   // utilizada. Usa o estado AGORA — não depende de período.
+  // Antes contava todo lead sem outcome: conversa resolvida e contato sem funil
+  // entravam e o número só crescia (severiano: Rhayssa com 330 "ativos" e 4
+  // conversas abertas).
   app.get('/api/admin/team-metrics/workload', { preHandler: authMiddleware }, async (req) => {
     const q = req.query as any
     const teamFilter = q.teamId ? Number(q.teamId) : null
 
-    const leadWhere: any = {
-      assignedUserId: { not: null },
-      outcome: null, // ativo = sem outcome ainda
+    const doAgente: any = { assignedUserId: { not: null }, outcome: null }
+    if (teamFilter) doAgente.teamId = teamFilter
+    const emAtendimentoWhere: any = {
+      ...doAgente,
+      isGroup: false,
+      conversationOpenedAt: { not: null },
+      conversationClosedAt: null,
     }
-    if (teamFilter) leadWhere.teamId = teamFilter
+    const carteiraWhere: any = { ...doAgente, funnelId: { not: null } }
 
-    const [activeLeads, pendingActivities, overdueActivities, allUsers] = await Promise.all([
+    const [activeLeads, carteiraLeads, pendingActivities, overdueActivities, allUsers] = await Promise.all([
       prisma.lead.groupBy({
         by: ['assignedUserId'],
-        where: leadWhere,
+        where: emAtendimentoWhere,
+        _count: { _all: true },
+      }),
+      prisma.lead.groupBy({
+        by: ['assignedUserId'],
+        where: carteiraWhere,
         _count: { _all: true },
       }),
       prisma.activity.groupBy({
@@ -873,6 +886,8 @@ export async function teamsRoutes(app: FastifyInstance) {
 
     const activeMap = new Map<number, number>()
     for (const r of activeLeads) if (r.assignedUserId !== null) activeMap.set(r.assignedUserId, r._count._all)
+    const carteiraMap = new Map<number, number>()
+    for (const r of carteiraLeads) if (r.assignedUserId !== null) carteiraMap.set(r.assignedUserId, r._count._all)
     const pendingMap = new Map<number, number>()
     for (const r of pendingActivities) if (r.userId !== null) pendingMap.set(r.userId, r._count._all)
     const overdueMap = new Map<number, number>()
@@ -890,14 +905,15 @@ export async function teamsRoutes(app: FastifyInstance) {
           workStatus: u.workStatus ?? 'offline',
           lastSeenAt: u.lastSeenAt?.toISOString() ?? null,
           activeLeads: active,
+          carteira: carteiraMap.get(u.id) ?? 0,
           activitiesPending: pendingMap.get(u.id) ?? 0,
           activitiesOverdue: overdueMap.get(u.id) ?? 0,
           utilization: cap > 0 ? Math.round((active / cap) * 100) : 0,
         }
       })
       // Mostra só quem tem alguma carga ou tá disponível recente
-      .filter((i) => i.activeLeads > 0 || i.activitiesPending > 0 || i.activitiesOverdue > 0 || i.workStatus === 'available')
-      .sort((a, b) => b.activeLeads - a.activeLeads || b.activitiesPending - a.activitiesPending)
+      .filter((i) => i.activeLeads > 0 || i.carteira > 0 || i.activitiesPending > 0 || i.activitiesOverdue > 0 || i.workStatus === 'available')
+      .sort((a, b) => b.activeLeads - a.activeLeads || b.carteira - a.carteira || b.activitiesPending - a.activitiesPending)
 
     return { items }
   })

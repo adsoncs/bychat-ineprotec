@@ -304,7 +304,7 @@ export function TeamPerformancePage() {
             <h2 class="text-sm font-semibold text-fg">Carga de trabalho agora</h2>
             <span
               class="text-2xs text-fg-muted ml-auto"
-              title="Esta seção mostra o estado neste instante: leads em aberto que cada operador está carregando agora. Não responde ao filtro de período acima."
+              title="Esta seção mostra o estado neste instante: conversas abertas e carteira de leads de cada operador. Não responde ao filtro de período acima."
             >
               Snapshot agora · independe do filtro de período
             </span>
@@ -317,19 +317,25 @@ export function TeamPerformancePage() {
                   <th class="text-left px-4 py-2 font-semibold">Status</th>
                   <th
                     class="text-right px-4 py-2 font-semibold"
-                    title="Leads atualmente atribuídos ao operador e ainda sem resultado (não foram ganhos nem perdidos)."
+                    title="Conversas abertas no nome do operador agora (conversa resolvida não conta). É a carga usada pela utilização e pelo roteamento com Rodízio justo."
                   >
-                    Leads ativos
+                    Em atendimento
                   </th>
                   <th
                     class="text-right px-4 py-2 font-semibold"
-                    title="Quantos leads em aberto o operador pode carregar ao mesmo tempo. É um teto de concorrência, não uma meta diária/mensal. Usado pelo roteamento automático (least_loaded) e pelo cálculo de utilização."
+                    title="Leads com funil no nome do operador, ainda sem ganho nem perdido — inclui os de conversa resolvida. Contato sem funil não entra."
+                  >
+                    Carteira
+                  </th>
+                  <th
+                    class="text-right px-4 py-2 font-semibold"
+                    title="Quantas conversas abertas o operador pode carregar ao mesmo tempo. É um teto de concorrência, não uma meta diária/mensal. Usado pelo roteamento automático (least_loaded) e pelo cálculo de utilização."
                   >
                     Limite simultâneo
                   </th>
                   <th
                     class="text-right px-4 py-2 font-semibold"
-                    title="Leads ativos ÷ Limite simultâneo. 80%+ amarelo, 100%+ vermelho (operador saturado, roteamento automático pula)."
+                    title="Em atendimento ÷ Limite simultâneo. 80%+ amarelo, 100%+ vermelho (operador saturado, roteamento automático pula)."
                   >
                     Utilização
                   </th>
@@ -348,13 +354,14 @@ export function TeamPerformancePage() {
                       </span>
                     </td>
                     <td class="px-4 py-2 text-right tabular-nums font-semibold">{w.activeLeads}</td>
+                    <td class="px-4 py-2 text-right tabular-nums text-fg-muted">{w.carteira}</td>
                     <td class="px-4 py-2 text-right">
                       <EditableCapacity userId={w.userId} value={w.capacity} />
                     </td>
                     <td class="px-4 py-2">
                       <div
                         class="inline-flex items-center gap-2 justify-end w-full"
-                        title={`${w.activeLeads} de ${w.capacity} leads em aberto (${w.utilization}%)`}
+                        title={`${w.activeLeads} de ${w.capacity} conversas abertas (${w.utilization}%)`}
                       >
                         <div class="h-1.5 w-20 rounded-full bg-surface-2 overflow-hidden">
                           <div
