@@ -73,6 +73,33 @@ export interface LeadListItem {
   assignedUser?: { id: number; name: string; email?: string } | null
   teamId?: number | null
   team?: { id: number; name: string; color?: string } | null
+  // Colunas "Educacional" — ausente quando o módulo Educacional está desligado.
+  educacional?: LeadEducacional
+}
+
+export interface LeadEducacional {
+  /** Inscrições nos portais de matrícula, da mais recente para a mais antiga. */
+  inscricoes: {
+    id: number
+    codigo: string
+    curso: string | null
+    portal: string
+    polo: string | null
+    formaIngresso: string | null
+    processo: string | null
+    status: string
+    pagamento: string | null
+    criadaEm: string
+  }[]
+  /** Matrículas efetivadas (vínculo do aluno com o curso). */
+  matriculas: {
+    curso: string | null
+    ra: string | null
+    situacao: string
+    periodo: number | null
+    turno: string | null
+    ingresso: string | null
+  }[]
 }
 
 export interface LeadDetail extends LeadListItem {

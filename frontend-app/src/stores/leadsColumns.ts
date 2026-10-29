@@ -19,6 +19,26 @@ export type LeadFixedColumnKey =
   | 'data'
   | 'uid'
   | 'assignee'
+  | EduColumnKey
+
+/** Colunas do grupo "Educacional": inscrições dos portais de matrícula e a
+ * matrícula de fato (vínculo do aluno). Só são oferecidas com o módulo
+ * Educacional ligado — os dados vêm em `lead.educacional` (backend:
+ * services/leadEducacional.ts). */
+export type EduColumnKey =
+  | 'eduCursoInscricao'
+  | 'eduStatusInscricao'
+  | 'eduPagamento'
+  | 'eduFormaIngresso'
+  | 'eduPolo'
+  | 'eduPortal'
+  | 'eduProcesso'
+  | 'eduDataInscricao'
+  | 'eduCodigo'
+  | 'eduCursoMatricula'
+  | 'eduSituacaoMatricula'
+  | 'eduRa'
+  | 'eduPeriodo'
 
 /** Coluna da lista: nativa ou um campo personalizado (`cf:<key>`), que o
  * usuário liga em Configurações → Campos personalizados (showInList). */
@@ -49,6 +69,19 @@ export const LEAD_COLUMN_LABELS: Record<LeadFixedColumnKey, string> = {
   data: 'Criado',
   uid: 'ID',
   assignee: 'Responsável',
+  eduCursoInscricao: 'Curso (inscrição)',
+  eduStatusInscricao: 'Situação da inscrição',
+  eduPagamento: 'Taxa de inscrição',
+  eduFormaIngresso: 'Forma de ingresso',
+  eduPolo: 'Polo / campus',
+  eduPortal: 'Portal de matrícula',
+  eduProcesso: 'Processo seletivo',
+  eduDataInscricao: 'Data da inscrição',
+  eduCodigo: 'Código do candidato',
+  eduCursoMatricula: 'Curso (matrícula)',
+  eduSituacaoMatricula: 'Situação da matrícula',
+  eduRa: 'RA',
+  eduPeriodo: 'Período / turno',
 }
 
 export const ALL_LEAD_COLUMNS: LeadFixedColumnKey[] = [
@@ -56,6 +89,16 @@ export const ALL_LEAD_COLUMNS: LeadFixedColumnKey[] = [
   'status', 'score', 'aiScore', 'tags', 'funil', 'origem', 'data', 'uid',
   'assignee',
 ]
+
+export const EDU_LEAD_COLUMNS: EduColumnKey[] = [
+  'eduCursoInscricao', 'eduStatusInscricao', 'eduPagamento', 'eduFormaIngresso',
+  'eduPolo', 'eduPortal', 'eduProcesso', 'eduDataInscricao', 'eduCodigo',
+  'eduCursoMatricula', 'eduSituacaoMatricula', 'eduRa', 'eduPeriodo',
+]
+
+export function isEduColumn(col: LeadColumnKey): col is EduColumnKey {
+  return (EDU_LEAD_COLUMNS as string[]).includes(col)
+}
 
 const DEFAULT_VISIBLE: LeadColumnKey[] = ['nome', 'status', 'aiScore', 'assignee', 'origem', 'data']
 

@@ -294,9 +294,14 @@ export async function leadsRoutes(app: FastifyInstance) {
       })
       stageLabelMap = new Map(stages.map(s => [`${s.funnelId}::${s.key}`, s.name]))
     }
+    // Colunas "Educacional": inscrições dos portais e matrículas de cada lead
+    // da página. Sem o módulo ligado o mapa vem vazio e o campo nem aparece.
+    const { educacionalDosLeads } = await import('../services/leadEducacional.js')
+    const eduMap = await educacionalDosLeads(filtered.map(l => l.id))
     const enriched = filtered.map(l => ({
       ...l,
       statusLabel: (l.funnelId && l.status ? stageLabelMap.get(`${l.funnelId}::${l.status}`) : null) ?? l.status,
+      ...(eduMap.size > 0 ? { educacional: eduMap.get(l.id) ?? { inscricoes: [], matriculas: [] } } : {}),
     }))
 
     return { leads: enriched, total, limit, offset }

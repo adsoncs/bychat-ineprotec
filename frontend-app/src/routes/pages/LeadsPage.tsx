@@ -91,7 +91,8 @@ import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
 import { useModuleAccess } from '@/hooks/usePermissions'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
-import { useLeadsColumnsStore, leadColumnLabel, isCustomColumn, customColumnKey, type LeadColumnKey } from '@/stores/leadsColumns'
+import { useLeadsColumnsStore, leadColumnLabel, isCustomColumn, customColumnKey, isEduColumn, type LeadColumnKey } from '@/stores/leadsColumns'
+import { eduCellText, useEducacionalAtivo } from '@/components/leads/eduColumns'
 import { formatDateTime } from '@/lib/format'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
@@ -1495,7 +1496,11 @@ function LeadsTable({
   /** Botão direito (ou toque longo) na linha: abre o menu na posição da tela. */
   onMenu: (lead: LeadListItem, x: number, y: number) => void
 }) {
-  const visible = useLeadsColumnsStore((s) => s.visible)
+  const visibleSalvas = useLeadsColumnsStore((s) => s.visible)
+  // Coluna do grupo Educacional escolhida quando o módulo estava ligado não
+  // aparece vazia depois que ele é desligado.
+  const eduAtivo = useEducacionalAtivo()
+  const visible = eduAtivo ? visibleSalvas : visibleSalvas.filter((c) => !isEduColumn(c))
   // Etapas para o trilho da coluna "status".
   //
   // Um lead pode estar em vários funis e a lista mistura funis, então o trilho
@@ -1835,6 +1840,15 @@ function LeadCell({
         </td>
       )
     default:
+      // Grupo Educacional: inscrições dos portais e matrículas (lead.educacional).
+      if (isEduColumn(col)) {
+        const { text, title } = eduCellText(lead, col)
+        return (
+          <td class="px-4 py-1.5 text-xs text-fg-muted truncate max-w-[14rem]" title={title}>
+            {text}
+          </td>
+        )
+      }
       // Campo personalizado (`cf:<key>`): valor cru do lead, formatado no mínimo
       // necessário — listas viram "a, b" e objetos caem para JSON.
       if (isCustomColumn(col)) {
