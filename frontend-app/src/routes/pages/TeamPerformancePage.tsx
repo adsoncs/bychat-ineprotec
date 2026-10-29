@@ -764,8 +764,8 @@ function EditableCapacity({ userId, value }: { userId: number; value: number }) 
 
   function commit() {
     const n = Math.floor(Number(draft))
-    if (!Number.isFinite(n) || n < 0 || n > 1000) {
-      toast('Limite simultâneo deve ser um número entre 0 e 1000.', 'danger')
+    if (!Number.isFinite(n) || n < 1 || n > 2147483647) {
+      toast('Limite simultâneo deve ser um número inteiro a partir de 1.', 'danger')
       setDraft(String(value))
       setEditing(false)
       return
@@ -815,8 +815,7 @@ function EditableCapacity({ userId, value }: { userId: number; value: number }) 
       <input
         ref={inputRef}
         type="number"
-        min={0}
-        max={1000}
+        min={1}
         step={1}
         value={draft}
         onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
@@ -825,7 +824,7 @@ function EditableCapacity({ userId, value }: { userId: number; value: number }) 
           if (e.key === 'Escape') cancel()
         }}
         disabled={update.isPending}
-        class="w-14 h-7 px-1.5 rounded border border-border bg-surface text-fg text-sm text-right tabular-nums focus:outline-none focus:border-accent"
+        class="w-20 h-7 px-1.5 rounded border border-border bg-surface text-fg text-sm text-right tabular-nums focus:outline-none focus:border-accent"
       />
       <button
         type="button"

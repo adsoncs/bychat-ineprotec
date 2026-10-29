@@ -510,11 +510,13 @@ export async function usersRoutes(app: FastifyInstance) {
       data.passwordHash = await bcrypt.hash(password, 12)
     }
     if (capacity !== undefined) {
-      const c = Number(capacity)
-      if (!Number.isFinite(c) || c < 1 || c > 200) {
-        return reply.code(400).send({ error: 'Capacidade deve ser um inteiro entre 1 e 200' })
+      // Sem teto de negócio: cada empresa decide quantos o time carrega.
+      // 2147483647 é só o limite da coluna INT.
+      const c = Math.floor(Number(capacity))
+      if (!Number.isFinite(c) || c < 1 || c > 2147483647) {
+        return reply.code(400).send({ error: 'Limite simultâneo deve ser um número inteiro a partir de 1' })
       }
-      data.capacity = Math.floor(c)
+      data.capacity = c
     }
     if (notifyWhatsapp !== undefined) data.notifyWhatsapp = notifyWhatsapp ? String(notifyWhatsapp).replace(/\D/g, '').slice(0, 30) || null : null
 
