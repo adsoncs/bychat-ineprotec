@@ -68,6 +68,8 @@ export interface Portal {
   formMode: string
   /** Aparência do formulário limpo (embed) — aba Branding › Formulário limpo. */
   brandFormStyle?: {
+    /** Resumo do preço no card do curso: 'curto' = só parcelado + à vista. */
+    resumoPreco?: 'completo' | 'curto'
     bordaCampo?: string; corBorda?: string; corFundoCampo?: string; raioCampo?: number; alturaCampo?: string
     espacoCampos?: number; respiro?: number; moldura?: boolean; raioMoldura?: number; corFundo?: string
   } | null

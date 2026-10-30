@@ -12,6 +12,8 @@ export interface FormLimpoEstilo {
   corFundoCampo?: string
   raioCampo?: number
   alturaCampo?: 'compacta' | 'padrao' | 'ampla'
+  /** Resumo do preço no card do curso: 'curto' = só parcelado + à vista. */
+  resumoPreco?: 'completo' | 'curto'
   espacoCampos?: number
   respiro?: number
   moldura?: boolean
@@ -20,7 +22,7 @@ export interface FormLimpoEstilo {
 }
 
 /** Padrões — iguais aos do portal-app, para a prévia bater com a página. */
-export const PADRAO_FORM_LIMPO: Required<Omit<FormLimpoEstilo, 'corFundo'>> & { corFundo: string } = {
+export const PADRAO_FORM_LIMPO: Required<Omit<FormLimpoEstilo, 'corFundo' | 'resumoPreco'>> & { corFundo: string } = {
   bordaCampo: 'fina', corBorda: '#dcdfe4', corFundoCampo: '#ffffff', raioCampo: 10,
   alturaCampo: 'padrao', espacoCampos: 14, respiro: 4, moldura: false, raioMoldura: 12, corFundo: '',
 }

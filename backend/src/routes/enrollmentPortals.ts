@@ -229,6 +229,8 @@ function applyBrandFields(body: any, data: any, mode: 'create' | 'update'): void
         moldura: typeof e.moldura === 'boolean' ? e.moldura : undefined,
         raioMoldura: num(e.raioMoldura, 0, 40),
         corFundo: hex(e.corFundo),
+        // Resumo do preço no card do curso: 'curto' = só parcelado + à vista.
+        resumoPreco: um(e.resumoPreco, ['completo', 'curto']),
       }
       for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k]
       data.brandFormStyle = Object.keys(out).length ? out : null

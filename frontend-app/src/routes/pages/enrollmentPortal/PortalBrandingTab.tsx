@@ -412,6 +412,17 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
                 />
                 Resumo visível desde o começo
               </label>
+              <label class="flex items-center gap-2 text-sm text-fg-muted" title="No card do curso, mostra só “A partir de Nx de R$…” e “Curso à vista”, em vez do plano e de cada opção de pagamento.">
+                <input
+                  type="checkbox"
+                  checked={brandFormStyle.resumoPreco === 'curto'}
+                  onChange={(e) => {
+                    const { resumoPreco: _antes, ...resto } = brandFormStyle
+                    markDirty(setBrandFormStyle)((e.target as HTMLInputElement).checked ? { ...resto, resumoPreco: 'curto' } : resto)
+                  }}
+                />
+                Preço resumido (parcelado e à vista)
+              </label>
             </div>
           </div>
 
