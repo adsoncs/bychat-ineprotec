@@ -1434,9 +1434,9 @@ try {
   ligarEspelhoDoCatalogo()
   startWorkers()
   startCadenceScheduler().catch(err => console.error('[cadenceScheduler] init falhou:', err))
-import('./services/scheduledMessageScheduler.js')
-  .then(m => m.startScheduledMessageScheduler())
-  .catch(err => console.error('[scheduledMessages] init falhou:', err?.message || err))
+// O agendador antigo do Conversas (scheduledMessageScheduler) saiu em 29/10/2026:
+// o agendamento virou atividade (services/atividadeWhatsapp.ts), disparada pelo
+// startActivityScheduler.
 import('./services/chatImportRunner.js')
   .then(m => m.startChatImportWorker())
   .catch(err => console.error('[chatImport] init falhou:', err?.message || err))

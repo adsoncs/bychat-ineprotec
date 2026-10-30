@@ -39,6 +39,8 @@ import { useUserStore } from '@/stores/user'
 import { useModuleAccess } from '@/hooks/usePermissions'
 import { useAgents } from '@/hooks/useRouting'
 import { useTeams } from '@/hooks/useTeams'
+import { AgendarWhatsappForm, agendamentoNovo, agendamentoDaAtividade, validarAgendamento, payloadDoAgendamento, type AgendamentoWhatsapp } from '@/components/AgendarWhatsappForm'
+import { useSenderChannels } from '@/hooks/useChat'
 
 type View = 'overdue' | 'today' | 'upcoming' | 'completed' | 'all'
 
@@ -70,6 +72,7 @@ const STATUS_TONE: Record<ActivityStatus, 'info' | 'success' | 'neutral' | 'dang
   overdue: 'danger',
   sent: 'success',
   failed: 'danger',
+  sending: 'info',
 }
 
 const STATUS_LABEL: Record<ActivityStatus, string> = {
@@ -79,6 +82,7 @@ const STATUS_LABEL: Record<ActivityStatus, string> = {
   overdue: 'Atrasada',
   sent: 'Enviada',
   failed: 'Falhou',
+  sending: 'Enviando',
 }
 
 export function ActivitiesPage() {
@@ -575,6 +579,14 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
           {activity.description && (
             <div class="text-2xs text-fg-muted truncate mt-0.5">{activity.description}</div>
           )}
+          {activity.type === 'whatsapp' && activity.messageBody && (
+            <div class="text-2xs text-fg-muted truncate mt-0.5" title={activity.messageBody}>
+              <MessageSquare size={10} class="inline mr-1" />{activity.messageBody}
+            </div>
+          )}
+          {(activity.status === 'failed' || activity.status === 'cancelled') && activity.result && (
+            <div class={cn('text-2xs mt-0.5', activity.status === 'failed' ? 'text-danger' : 'text-fg-muted')}>{activity.result}</div>
+          )}
 
           {/* Ações do CONTATO: ficam junto do nome dele, que é o assunto
               da tarefa. As ações da própria tarefa moram à direita, onde o
@@ -627,6 +639,17 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
                 onClick={() => changeStatus('cancelled')}
               />
             </>
+          ) : activity.status === 'failed' && activity.type === 'whatsapp' && (activity.messageBody ?? '').trim() ? (
+            // Falhou (janela fechada, número desconectado…): corrigida em
+            // Editar, ou reenviada daqui depois de resolver o motivo.
+            <ActionPill
+              icone={<Send size={11} />}
+              rotulo={exec.isPending ? 'Enviando…' : 'Tentar de novo'}
+              titulo="Enviar agora esta mensagem"
+              tone="info"
+              disabled={exec.isPending}
+              onClick={handleExecute}
+            />
           ) : (
             <span class="inline-flex items-center gap-1 px-2 py-1 text-2xs text-fg-muted">
               <Lock size={11} /> Finalizada
@@ -750,6 +773,11 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
   const [recipientEmail, setRecipientEmail] = useState(preselectedLead?.email ?? '')
 
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  // WhatsApp: o MESMO formulário do "Agendar envio" do Conversas.
+  const [agenda, setAgenda] = useState<AgendamentoWhatsapp>(() => agendamentoNovo())
+  const scQ = useSenderChannels(lead?.id ?? null, type === 'whatsapp')
+  useEffect(() => { setAgenda((a) => ({ ...a, envio: { ...a.envio, channelId: null, modelo: null } })) }, [lead?.id])
+  const ehWhatsapp = type === 'whatsapp'
 
   const channelForType = type === 'whatsapp' ? 'whatsapp' : type === 'email' ? 'email' : type === 'sms' ? 'sms' : null
   const templatesQ = useTemplates({ channel: channelForType ?? undefined })
@@ -771,23 +799,37 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
 
   async function handleSubmit() {
     if (!lead) { toast('Selecione um lead', 'danger'); return }
-    if (!title.trim()) { toast('Título é obrigatório', 'danger'); return }
-    if (!scheduledAt) { toast('Data/hora é obrigatória', 'danger'); return }
+    // WhatsApp: mesmas regras e mesmo payload do Conversas.
+    const envioWa = ehWhatsapp ? payloadDoAgendamento(agenda, scQ.data) : null
+    if (ehWhatsapp) {
+      const erro = validarAgendamento(agenda, scQ.data)
+      if (erro) { setTab('general'); toast(erro, 'danger'); return }
+    } else {
+      if (!title.trim()) { toast('Título é obrigatório', 'danger'); return }
+      if (!scheduledAt) { toast('Data/hora é obrigatória', 'danger'); return }
+    }
 
     const payload: ActivityInput = {
       leadId: lead.id,
       type,
-      title: title.trim(),
+      title: title.trim() || (envioWa?.kind === 'template_hsm' ? `Modelo agendado: ${envioWa.hsmPayload?.name}` : 'Mensagem agendada'),
       description: description.trim() || null,
-      scheduledAt: new Date(scheduledAt).toISOString(),
-      reminderAt: reminderAt ? new Date(reminderAt).toISOString() : null,
-      messageBody: messageBody.trim() || null,
+      scheduledAt: envioWa ? envioWa.scheduledAt : new Date(scheduledAt).toISOString(),
+      reminderAt: !envioWa && reminderAt ? new Date(reminderAt).toISOString() : null,
+      messageBody: envioWa ? envioWa.body : (messageBody.trim() || null),
       messageSubject: messageSubject.trim() || null,
-      templateId: templateId === '' ? null : Number(templateId),
+      templateId: envioWa ? envioWa.templateId : (templateId === '' ? null : Number(templateId)),
       recipientPhone: recipientPhone.trim() || null,
       recipientEmail: recipientEmail.trim() || null,
       notifyLead: (type === 'meeting' || type === 'call') ? notifyLead : undefined,
       recordMeeting: type === 'meeting' ? recordMeeting : undefined,
+      ...(envioWa ? {
+        channelId: envioWa.channelId,
+        cancelIfReplied: envioWa.cancelIfReplied,
+        kind: envioWa.kind,
+        ...(envioWa.kind === 'template_hsm' ? { hsmPayload: envioWa.hsmPayload } : {}),
+        recipientPhone: null,
+      } : {}),
     }
 
     let createdActivity: Activity
@@ -823,7 +865,8 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
     onClose()
   }
 
-  const showMessageTab = type === 'whatsapp' || type === 'email' || type === 'sms'
+  // WhatsApp não usa a aba Mensagem: o formulário de envio inteiro fica em Geral.
+  const showMessageTab = type === 'email' || type === 'sms'
 
   return (
     <Modal
@@ -922,9 +965,25 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
               })}
             </div>
           </div>
-          <Input label="Título *" value={title} onInput={(e) => setTitle((e.target as HTMLInputElement).value)} placeholder="Ex.: Enviar proposta" />
+          <Input
+            label={ehWhatsapp ? 'Título (opcional)' : 'Título *'}
+            value={title}
+            onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
+            placeholder={ehWhatsapp ? 'Mensagem agendada' : 'Ex.: Enviar proposta'}
+          />
           <Textarea label="Descrição (opcional)" value={description} onInput={(e) => setDescription((e.target as HTMLTextAreaElement).value)} rows={2} />
-          <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          {ehWhatsapp && (
+            lead ? (
+              <div class="rounded-lg border border-border bg-surface p-3">
+                <AgendarWhatsappForm leadId={lead.id} valor={agenda} onChange={setAgenda} sc={scQ.data} nomeDoContato={lead.label} />
+              </div>
+            ) : (
+              <p class="rounded-lg border border-dashed border-border p-3 text-xs text-fg-muted">
+                Selecione o lead acima para escrever a mensagem e escolher o número de envio.
+              </p>
+            )
+          )}
+          {!ehWhatsapp && <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
             <Input label="Quando *" type="datetime-local" value={scheduledAt} onInput={(e) => setScheduledAt((e.target as HTMLInputElement).value)} />
             <Input
               label="Lembrete (opcional)"
@@ -933,7 +992,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
               onInput={(e) => setReminderAt((e.target as HTMLInputElement).value)}
               hint="Notifica antes da execução"
             />
-          </div>
+          </div>}
           {(type === 'meeting' || type === 'call') && (
             <label class="flex items-start gap-2 rounded-lg border border-border bg-surface p-3 cursor-pointer">
               <input
@@ -1034,6 +1093,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
           <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info">
             <Paperclip size={12} class="inline mr-1" />
             Os arquivos são salvos junto com esta atividade e exibidos no histórico do lead. Imagens ganham miniatura clicável; outros formatos abrem em nova aba.
+            {ehWhatsapp && <strong class="block mt-1">Eles não vão na mensagem de WhatsApp — ficam guardados na ficha.</strong>}
           </div>
         </div>
       )}
@@ -1075,11 +1135,43 @@ function EditActivityModal({ activity, onClose }: { activity: Activity; onClose:
   const [recipientEmail, setRecipientEmail] = useState(activity.recipientEmail ?? '')
   const update = useUpdateActivity()
 
-  const showMessage = type === 'whatsapp' || type === 'email' || type === 'sms'
+  // WhatsApp: o mesmo formulário do "Agendar envio" do Conversas, carregado
+  // com o número, o modelo e o "cancelar se responder" gravados.
+  const ehWhatsapp = type === 'whatsapp'
+  const [agenda, setAgenda] = useState<AgendamentoWhatsapp>(() => agendamentoDaAtividade(activity))
+  const scQ = useSenderChannels(activity.leadId, ehWhatsapp)
+  const jaEnviada = activity.status === 'sent' || activity.status === 'sending'
+
+  const showMessage = type === 'email' || type === 'sms'
   const syncsGoogle = (type === 'meeting' || type === 'call') && !!(activity.metadata as Record<string, unknown> | null)?.googleCalendarEventId
 
   async function handleSave() {
     if (!title.trim()) { toast('Título é obrigatório', 'danger'); return }
+    if (ehWhatsapp && !jaEnviada) {
+      const erro = validarAgendamento(agenda, scQ.data)
+      if (erro) { toast(erro, 'danger'); return }
+      const p = payloadDoAgendamento(agenda, scQ.data)
+      try {
+        await update.mutateAsync({
+          id: activity.id,
+          type,
+          title: title.trim(),
+          description: description.trim() || null,
+          scheduledAt: p.scheduledAt,
+          messageBody: p.body,
+          templateId: p.templateId,
+          channelId: p.channelId,
+          cancelIfReplied: p.cancelIfReplied,
+          kind: p.kind,
+          ...(p.kind === 'template_hsm' ? { hsmPayload: p.hsmPayload } : {}),
+        })
+        toast('Atividade atualizada', 'success')
+        onClose()
+      } catch (e: unknown) {
+        toast((e as Error).message, 'danger')
+      }
+      return
+    }
     if (!scheduledAt) { toast('Data/hora é obrigatória', 'danger'); return }
     try {
       await update.mutateAsync({
@@ -1147,10 +1239,26 @@ function EditActivityModal({ activity, onClose }: { activity: Activity; onClose:
         </Select>
         <Input label="Título *" value={title} onInput={(e) => setTitle((e.target as HTMLInputElement).value)} />
         <Textarea label="Descrição (opcional)" value={description} onInput={(e) => setDescription((e.target as HTMLTextAreaElement).value)} rows={2} />
+        {ehWhatsapp ? (
+          <div class="rounded-lg border border-border bg-surface p-3 space-y-2">
+            {jaEnviada && (
+              <p class="text-xs text-fg-muted"><Lock size={11} class="inline mr-1" />Esta mensagem já foi enviada — fica só para consulta.</p>
+            )}
+            <AgendarWhatsappForm
+              leadId={activity.leadId}
+              valor={agenda}
+              onChange={setAgenda}
+              sc={scQ.data}
+              nomeDoContato={activity.lead?.nome ?? activity.lead?.empresa ?? null}
+              desabilitado={jaEnviada}
+            />
+          </div>
+        ) : (
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
           <Input label="Quando *" type="datetime-local" value={scheduledAt} onInput={(e) => setScheduledAt((e.target as HTMLInputElement).value)} />
           <Input label="Lembrete (opcional)" type="datetime-local" value={reminderAt} onInput={(e) => setReminderAt((e.target as HTMLInputElement).value)} />
         </div>
+        )}
         {showMessage && (
           <>
             {type === 'email' && <Input label="Assunto" value={messageSubject} onInput={(e) => setMessageSubject((e.target as HTMLInputElement).value)} />}

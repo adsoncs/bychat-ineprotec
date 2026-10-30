@@ -3824,29 +3824,70 @@ function ChatPanel({
                     <LayoutTemplate size={ICON_SIZE.md} />
                   </button>
                 )}
-                <button
-                  type="button"
-                  class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
-                  onClick={() => setScheduleOpen(true)}
-                  disabled={send.isPending || isInternalNote || semWhatsApp}
-                  aria-label="Agendar mensagem"
-                  title={isInternalNote ? 'Nota interna não pode ser agendada' : 'Agendar mensagem para depois'}
-                >
-                  <ClockIcon size={ICON_SIZE.md} />
-                </button>
                 {draft.trim() || pendingFile || pendingTplAttachment ? (
-                  <Button
-                    variant="primary"
-                    size="md"
-                    onClick={handleSend}
-                    // Só o upload trava o botão: o envio em si já saiu da frente
-                    // do operador (bolha otimista + fila que preserva a ordem).
-                    disabled={upload.isPending || (semWhatsApp && !isInternalNote)}
-                    aria-label="Enviar mensagem"
-                    title="Enviar mensagem"
-                  >
-                    <Send size={ICON_SIZE.md} />
-                  </Button>
+                  // Botão dividido: o clique envia agora (o gesto de sempre); a
+                  // setinha oferece "Agendar envio". Agendar só texto: anexo
+                  // e nota interna não entram na agenda.
+                  <div class="flex shrink-0 items-stretch">
+                    <Button
+                      variant="primary"
+                      size="md"
+                      class={cn(!isInternalNote && 'rounded-r-none')}
+                      onClick={handleSend}
+                      // Só o upload trava o botão: o envio em si já saiu da frente
+                      // do operador (bolha otimista + fila que preserva a ordem).
+                      disabled={upload.isPending || (semWhatsApp && !isInternalNote)}
+                      aria-label="Enviar mensagem"
+                      title="Enviar agora"
+                    >
+                      <Send size={ICON_SIZE.md} />
+                    </Button>
+                    {!isInternalNote && (
+                      <Popover.Root>
+                        <Popover.Trigger asChild>
+                          <button
+                            type="button"
+                            class="h-9 w-7 grid place-items-center rounded-r-md border-l border-fg-on-brand/25 bg-accent text-fg-on-brand hover:brightness-110 disabled:opacity-50"
+                            disabled={upload.isPending || semWhatsApp}
+                            aria-label="Mais opções de envio"
+                            title="Enviar agora ou agendar"
+                          >
+                            <ChevronDown size={ICON_SIZE.sm} />
+                          </button>
+                        </Popover.Trigger>
+                        <Popover.Portal>
+                          <Popover.Content
+                            align="end"
+                            side="top"
+                            sideOffset={6}
+                            class="w-52 rounded-lg border border-border bg-surface-2 p-1 shadow-xl"
+                            style={{ zIndex: 'var(--z-dropdown)' }}
+                          >
+                            <Popover.Close asChild>
+                              <button
+                                type="button"
+                                class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3"
+                                onClick={handleSend}
+                              >
+                                <Send size={ICON_SIZE.sm} /> Enviar agora
+                              </button>
+                            </Popover.Close>
+                            <Popover.Close asChild>
+                              <button
+                                type="button"
+                                class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3 disabled:opacity-50 disabled:hover:bg-transparent"
+                                onClick={() => setScheduleOpen(true)}
+                                disabled={!!pendingFile || !!pendingTplAttachment}
+                                title={pendingFile || pendingTplAttachment ? 'Anexo não pode ser agendado — envie agora ou remova o anexo' : undefined}
+                              >
+                                <ClockIcon size={ICON_SIZE.sm} /> Agendar envio
+                              </button>
+                            </Popover.Close>
+                          </Popover.Content>
+                        </Popover.Portal>
+                      </Popover.Root>
+                    )}
+                  </div>
                 ) : (
                   <button
                     type="button"
@@ -3907,7 +3948,7 @@ function ChatPanel({
         onOpenChange={setScheduleOpen}
         leadId={leadId}
         textoInicial={draft}
-        channelId={channelId ?? undefined}
+        nomeDoContato={nomeDoContato}
         onAgendado={() => { setDraft(''); encolherCaixa() }}
       />
     </GaleriaDeMidiaProvider>

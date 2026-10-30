@@ -10,10 +10,13 @@ import { replaceVariables, buildLeadVars } from './templates.js'
 import { getEmailConfig, getFromAddress, getReplyTo, registrarEnvioDeEmail } from '../services/notify.js'
 import { getBranding } from '../lib/branding.js'
 import { canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
+import { validarEnvioWhatsapp, enviarAtividadeWhatsapp, temEnvioWhatsapp, migrarAgendadasAntigas, type MetaEnvioWhatsapp } from '../services/atividadeWhatsapp.js'
 import { OPEN_ACTIVITY_STATUSES, whereActivityOpen, whereActivityOverdue, whereActivityOwnedBy, whereActivityUnowned, whereActivityVisibleTo, canUserSeeActivity } from '../lib/activityStatus.js'
 
 const ACTIVITY_TYPES = ['whatsapp', 'email', 'sms', 'call', 'meeting', 'task', 'note', 'follow_up']
 const ACTIVITY_STATUSES = ['pending', 'completed', 'cancelled', 'overdue', 'sent', 'failed']
+// 'sending' é interno: a atividade foi tomada pelo executor e está saindo.
+// Ninguém grava esse status pela API.
 
 export async function activitiesRoutes(app: FastifyInstance) {
 
@@ -53,6 +56,31 @@ export async function activitiesRoutes(app: FastifyInstance) {
         }
       }
 
+      // WhatsApp com mensagem = envio de verdade: número e janela de 24h são
+      // validados AGORA, para o erro aparecer a quem agenda e não no histórico.
+      const hsmPayload = body.kind === 'template_hsm' ? body.hsmPayload : null
+      let envioWhatsapp: MetaEnvioWhatsapp | null = null
+      if (temEnvioWhatsapp({ type: body.type, messageBody, attachmentUrl: body.attachmentUrl, metadata: { kind: body.kind, hsmPayload } })) {
+        if (hsmPayload && (!hsmPayload.name || !hsmPayload.language)) {
+          return reply.code(400).send({ error: 'Modelo aprovado inválido (name e language obrigatórios).' })
+        }
+        if (!(await canUserAccessLead(user.userId, user.role as AccessRole, body.leadId))) {
+          return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+        }
+        const v = await validarEnvioWhatsapp({
+          leadId: body.leadId, user: { userId: user.userId, role: user.role },
+          channelId: body.channelId ?? null, kind: hsmPayload ? 'template_hsm' : 'text',
+          scheduledAt: new Date(body.scheduledAt),
+        })
+        if (!v.ok) return reply.code(v.status).send({ error: v.error, code: v.code, lockedChannelId: v.lockedChannelId })
+        envioWhatsapp = {
+          channelId: v.channelId,
+          cancelIfReplied: body.cancelIfReplied !== false,
+          kind: hsmPayload ? 'template_hsm' : 'text',
+          ...(hsmPayload ? { hsmPayload } : {}),
+        }
+      }
+
       const activity = await prisma.activity.create({
         data: {
           leadId: body.leadId,
@@ -80,7 +108,7 @@ export async function activitiesRoutes(app: FastifyInstance) {
           // Default OFF — só notifica se vier true explícito do painel.
           // recordMeeting: opt-OUT de gravação por reunião (F0.5). Grava false só na
           // recusa explícita; ausência = segue a policy do tenant (shouldRecordMeeting).
-          metadata: { ...(body.metadata || {}), bodyHtml: bodyHtml || undefined, notifyLead: body.notifyLead === true ? true : undefined, recordMeeting: body.recordMeeting === false ? false : undefined },
+          metadata: { ...(body.metadata || {}), ...(envioWhatsapp || {}), bodyHtml: bodyHtml || undefined, notifyLead: body.notifyLead === true ? true : undefined, recordMeeting: body.recordMeeting === false ? false : undefined },
         }
       })
 
@@ -267,6 +295,12 @@ export async function activitiesRoutes(app: FastifyInstance) {
         }
       }
 
+      const mexeNoEnvio = ['messageBody', 'channelId', 'kind', 'hsmPayload', 'cancelIfReplied', 'attachmentUrl', 'scheduledAt']
+        .some((k) => body[k] !== undefined)
+      if (existing.type === 'whatsapp' && ['sent', 'sending'].includes(existing.status) && mexeNoEnvio) {
+        return reply.code(409).send({ error: 'Esta mensagem já foi enviada (ou está saindo) e não pode mais ser alterada.' })
+      }
+
       const data: any = {}
       if (body.title !== undefined) data.title = body.title
       if (body.description !== undefined) data.description = body.description
@@ -274,6 +308,7 @@ export async function activitiesRoutes(app: FastifyInstance) {
       if (body.reminderAt !== undefined) data.reminderAt = body.reminderAt ? new Date(body.reminderAt) : null
       if (body.messageBody !== undefined) data.messageBody = body.messageBody
       if (body.messageSubject !== undefined) data.messageSubject = body.messageSubject
+      if (body.templateId !== undefined) data.templateId = body.templateId || null
       if (body.recipientPhone !== undefined) data.recipientPhone = body.recipientPhone
       if (body.recipientEmail !== undefined) data.recipientEmail = body.recipientEmail
       if (body.type !== undefined && ACTIVITY_TYPES.includes(body.type)) data.type = body.type
@@ -293,6 +328,41 @@ export async function activitiesRoutes(app: FastifyInstance) {
       }
 
       if (body.result !== undefined) data.result = body.result
+
+      // WhatsApp que vai ser ENVIADO: número e janela revalidados com os
+      // valores finais (o que mudou por cima do que já estava gravado).
+      const metaAtual = ((existing.metadata as any) || {}) as MetaEnvioWhatsapp
+      const tipoFinal = data.type ?? existing.type
+      const hsmFinal = body.kind !== undefined
+        ? (body.kind === 'template_hsm' ? body.hsmPayload : null)
+        : (metaAtual.kind === 'template_hsm' ? metaAtual.hsmPayload : null)
+      const finalAtv = {
+        type: tipoFinal,
+        messageBody: data.messageBody !== undefined ? data.messageBody : existing.messageBody,
+        attachmentUrl: data.attachmentUrl !== undefined ? data.attachmentUrl : existing.attachmentUrl,
+        metadata: { kind: hsmFinal ? 'template_hsm' : 'text', hsmPayload: hsmFinal },
+      }
+      const statusFinal = data.status ?? existing.status
+      if (mexeNoEnvio && ['pending', 'overdue', 'failed'].includes(statusFinal) && temEnvioWhatsapp(finalAtv)) {
+        const _user = (req as any).user as JwtPayload
+        const v = await validarEnvioWhatsapp({
+          leadId: existing.leadId, user: { userId: _user.userId, role: _user.role },
+          channelId: body.channelId !== undefined ? body.channelId : metaAtual.channelId,
+          kind: hsmFinal ? 'template_hsm' : 'text',
+          scheduledAt: data.scheduledAt ?? existing.scheduledAt,
+        })
+        if (!v.ok) return reply.code(v.status).send({ error: v.error, code: v.code, lockedChannelId: v.lockedChannelId })
+        data.metadata = {
+          ...metaAtual,
+          channelId: v.channelId,
+          cancelIfReplied: body.cancelIfReplied !== undefined ? body.cancelIfReplied !== false : metaAtual.cancelIfReplied !== false,
+          kind: hsmFinal ? 'template_hsm' : 'text',
+          hsmPayload: hsmFinal ?? undefined,
+          attempts: 0,
+        }
+        // Falhou e foi corrigida: volta para a fila.
+        if (statusFinal === 'failed' && data.status === undefined) data.status = 'pending'
+      }
 
       // Reagendar uma atrasada para o futuro devolve ela para a fila de
       // pendentes; sem isso ela seguia "Atrasada" com data futura e sumia das
@@ -422,6 +492,21 @@ export async function activitiesRoutes(app: FastifyInstance) {
         }
       }
 
+      if (temEnvioWhatsapp(activity)) {
+        const _user = (req as any).user as JwtPayload
+        if (['sent', 'sending'].includes(activity.status)) {
+          return reply.code(409).send({ error: 'Esta mensagem já foi enviada.' })
+        }
+        // Toma a atividade antes de enviar: o executor de 1 minuto não pode
+        // pegar a mesma ao mesmo tempo e mandar em dobro.
+        const tomada = await prisma.activity.updateMany({ where: { id: activity.id, status: activity.status }, data: { status: 'sending' } })
+        if (tomada.count !== 1) return reply.code(409).send({ error: 'Esta mensagem já está sendo enviada.' })
+        const result = await enviarAtividadeWhatsapp(activity, { manual: { userId: _user.userId, role: _user.role } })
+        const final = await prisma.activity.findUnique({ where: { id: activity.id }, select: { status: true } })
+        if (final?.status !== 'sent') return reply.code(422).send({ error: result })
+        return { ok: true, result }
+      }
+
       const result = await executeActivity(activity, app)
 
       return { ok: true, result }
@@ -440,28 +525,12 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
     select: { id: true, whatsapp: true, email: true, empresa: true, nome: true, segmento: true, cidade: true, scores: true, maturidade: true, solucaoNome: true, status: true }
   })
   let result = ''
-  const results: string[] = []
 
   try {
-    if (activity.type === 'whatsapp') {
-      const phone = activity.recipientPhone || lead?.whatsapp
-      if (!phone) throw new Error('Numero de WhatsApp nao encontrado')
-
-      // 1. Enviar texto se houver — passa leadId pra escolher instância do dono
-      if (activity.messageBody) {
-        const textResult = await sendWhatsAppText(phone, activity.messageBody, activity.leadId)
-        results.push(textResult)
-      }
-
-      // 2. Enviar anexo se houver (PDF, imagem, documento)
-      if (activity.attachmentUrl) {
-        const mediaResult = await sendWhatsAppMedia(phone, activity.attachmentUrl, activity.attachmentName, activity.attachmentType, activity.messageBody ? undefined : activity.title, activity.leadId)
-        results.push(mediaResult)
-      }
-
-      if (results.length === 0) throw new Error('Nenhum conteudo para enviar (sem mensagem e sem anexo)')
-      result = results.join(' | ')
-
+    if (activity.type === 'whatsapp' && temEnvioWhatsapp(activity)) {
+      // Caminho único do envio de WhatsApp (número da conversa, janela, opt-out,
+      // tiques). Ele mesmo grava o desfecho na atividade.
+      return await enviarAtividadeWhatsapp(activity)
     } else if (activity.type === 'email') {
       const email = activity.recipientEmail || lead?.email
       if (!email) throw new Error('Email nao encontrado')
@@ -496,28 +565,6 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
       data: { status: 'sent', completedAt: new Date(), result }
     })
 
-    // Salvar mensagem no historico de conversa do lead (whatsapp)
-    if (activity.type === 'whatsapp' && activity.messageBody) {
-      prisma.message.create({
-        data: {
-          leadId: activity.leadId,
-          fromMe: true,
-          body: activity.messageBody,
-          mediaType: activity.attachmentType?.startsWith('image') ? 'image' : activity.attachmentUrl ? 'document' : 'text',
-          mediaUrl: activity.attachmentUrl || null,
-          mediaName: activity.attachmentName || null,
-          senderName: activity.userName || 'Sistema',
-          ack: 1,
-          timestamp: new Date(),
-        }
-      }).catch(() => {})
-
-      prisma.lead.update({
-        where: { id: activity.leadId },
-        data: { lastMessageAt: new Date() }
-      }).catch(() => {})
-    }
-
     logEvent({
       leadId: activity.leadId,
       type: 'activity_executed',
@@ -540,127 +587,6 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
     if (app) app.log.error(`Activity execution failed #${activity.id}: ${errMsg}`)
     return `Falha: ${errMsg}`
   }
-}
-
-// ── Normalizacao de numero de WhatsApp ──
-function normalizePhone(phone: string): string {
-  // Remove tudo que nao e digito
-  let num = phone.replace(/\D/g, '')
-
-  // Se ja e um JID (contém @), extrair numero
-  if (phone.includes('@')) {
-    num = phone.split('@')[0].replace(/\D/g, '')
-  }
-
-  // Se comeca com 0, remove (ex: 062991138484 -> 62991138484)
-  if (num.startsWith('0')) num = num.substring(1)
-
-  // Se tem 10-11 digitos (DDD + numero BR sem codigo pais), adiciona 55
-  if (num.length >= 10 && num.length <= 11 && !num.startsWith('55')) {
-    num = '55' + num
-  }
-
-  // Correcao: numeros BR com 9o digito — alguns ficam com 13 digitos (5562991138484)
-  // Formato correto: 55 + DDD(2) + 9 + numero(8) = 13 digitos
-  // Formato antigo:  55 + DDD(2) + numero(8) = 12 digitos (fixo sem 9)
-
-  return num
-}
-
-// ── Evolution API helpers ──
-function getEvoConfig() {
-  const url = process.env.EVOLUTION_API_URL
-  const key = process.env.EVOLUTION_API_KEY
-  if (!url || !key) throw new Error('Evolution API nao configurada')
-  return { url, key }
-}
-
-/**
- * Resolve a instância WhatsApp correta pra enviar mensagem deste lead:
- *   1. Se o lead tem assignedUserId E o agente tem instância dedicada
- *      (ownerUserId), usa a do agente — preserva a identidade ("número
- *      do dono do lead").
- *   2. Senão, primeira ativa (comportamento legado, evita quebrar
- *      tenants single-instance).
- *
- * Bug fix: antes, findFirst({active:true}) sem ordem retornava sempre
- * a 1ª instância (geralmente terram_n1/Luiz). Resultado: msg da Flavia
- * pra lead dela saía pelo número do Luiz.
- */
-async function getInstanceForLead(leadId: number | null | undefined): Promise<string> {
-  if (leadId) {
-    const lead = await prisma.lead.findUnique({
-      where: { id: leadId },
-      select: { assignedUserId: true },
-    })
-    if (lead?.assignedUserId) {
-      const ownInst = await prisma.whatsAppInstance.findFirst({
-        where: { ownerUserId: lead.assignedUserId, active: true },
-        orderBy: { id: 'asc' },
-        select: { instanceName: true },
-      })
-      if (ownInst) return ownInst.instanceName
-    }
-  }
-  const fallback = await prisma.whatsAppInstance.findFirst({
-    where: { active: true },
-    orderBy: { id: 'asc' },
-  })
-  if (!fallback) throw new Error('Nenhuma instancia WhatsApp ativa')
-  return fallback.instanceName
-}
-
-// ── WhatsApp: texto ──
-async function sendWhatsAppText(phone: string, text: string, leadId?: number | null): Promise<string> {
-  const { url, key } = getEvoConfig()
-  const inst = await getInstanceForLead(leadId ?? null)
-  const number = normalizePhone(phone)
-
-  const resp = await fetch(`${url}/message/sendText/${inst}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: key },
-    body: JSON.stringify({ number, text })
-  })
-
-  const data = await resp.json().catch(() => null) as any
-  if (!resp.ok) {
-    const errDetail = data?.response?.message?.[0]?.exists === false
-      ? `Numero ${number} nao encontrado no WhatsApp`
-      : JSON.stringify(data?.response || data?.error || resp.status)
-    throw new Error(`Evolution sendText: ${errDetail}`)
-  }
-  return `Texto enviado para ${number} (${data?.key?.id || 'ok'})`
-}
-
-// ── WhatsApp: midia (PDF, imagem, documento) ──
-async function sendWhatsAppMedia(phone: string, mediaUrl: string, fileName?: string | null, mimeType?: string | null, caption?: string, leadId?: number | null): Promise<string> {
-  const { url, key } = getEvoConfig()
-  const inst = await getInstanceForLead(leadId ?? null)
-  const number = normalizePhone(phone)
-
-  const mediatype = mimeType?.startsWith('image') ? 'image'
-    : mimeType?.startsWith('video') ? 'video'
-    : mimeType?.startsWith('audio') ? 'audio'
-    : 'document'
-
-  const resp = await fetch(`${url}/message/sendMedia/${inst}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: key },
-    body: JSON.stringify({
-      number,
-      mediatype,
-      media: mediaUrl,
-      fileName: fileName || undefined,
-      caption: caption || undefined,
-    })
-  })
-
-  const data = await resp.json().catch(() => null) as any
-  if (!resp.ok) {
-    const errDetail = JSON.stringify(data?.response || data?.error || resp.status)
-    throw new Error(`Evolution sendMedia: ${errDetail}`)
-  }
-  return `${mediatype} enviado para ${number} (${data?.key?.id || 'ok'})`
 }
 
 // ── Email: com suporte a HTML e anexos ──
@@ -749,13 +675,28 @@ async function sendEmailActivity(to: string, subject: string, html: string, atta
 
 export function startActivityScheduler(): void {
   setTimeout(async () => {
+    // O agendador do Conversas virou atividade: o que ficou pendente na tabela
+    // antiga vem para cá antes do primeiro ciclo.
+    await migrarAgendadasAntigas().catch((e) => console.error('[Activities] migração dos agendamentos falhou:', e?.message || e))
+    // Servidor caiu no meio de um envio: a atividade ficou em 'sending'. Não
+    // dá para saber se saiu — vira falha com aviso, e a pessoa confere.
+    await prisma.activity.updateMany({
+      where: { status: 'sending' },
+      data: { status: 'failed', result: 'Envio interrompido (o servidor reiniciou). Confira na conversa se a mensagem saiu antes de reenviar.' },
+    }).catch(() => {})
     await processScheduledActivities()
     setInterval(processScheduledActivities, 60 * 1000)
     console.log('[Activities] Scheduler started — checking every 1min')
   }, 15000)
 }
 
+// Um ciclo por vez: um ciclo lento não pode se sobrepor ao seguinte e pegar
+// a mesma mensagem duas vezes.
+let processando = false
+
 async function processScheduledActivities(): Promise<void> {
+  if (processando) return
+  processando = true
   try {
     const now = new Date()
 
@@ -785,6 +726,12 @@ async function processScheduledActivities(): Promise<void> {
     })
 
     for (const activity of toExecute) {
+      // Toma a atividade antes de enviar: o "Enviar agora" manual pode estar
+      // pegando a mesma neste instante.
+      if (temEnvioWhatsapp(activity)) {
+        const tomada = await prisma.activity.updateMany({ where: { id: activity.id, status: 'pending' }, data: { status: 'sending' } })
+        if (tomada.count !== 1) continue
+      }
       await executeActivity(activity)
     }
 
@@ -793,5 +740,7 @@ async function processScheduledActivities(): Promise<void> {
     }
   } catch (err) {
     console.error('[Activities] Scheduler error:', err)
+  } finally {
+    processando = false
   }
 }

@@ -25,6 +25,9 @@ interface Props {
   numero?: string | null | undefined
   /** Nome do lead: preenche a variável de nome do modelo ("Olá, {{1}}!"). */
   nomeDoContato?: string | null | undefined
+  /** Rótulo do botão de confirmar. Agendamento usa "Usar este modelo": nada
+   *  sai agora, o modelo só fica escolhido para o horário marcado. */
+  rotuloAcao?: string | undefined
 }
 
 /** Primeiro nome legível: sem emoji nem pontuação, com a 1ª letra maiúscula.
@@ -63,7 +66,7 @@ function interpolar(texto: string, variables: string[], vars: string[]): string 
  * envia mensagem interativa (o provider lança erro explícito). Por isso o botão
  * que abre este seletor só aparece quando a conversa sai por um número Cloud API.
  */
-export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId, numero, nomeDoContato }: Props) {
+export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId, numero, nomeDoContato, rotuloAcao }: Props) {
   // Pede ao backend só os modelos da conta deste número; o filtro repetido
   // abaixo cobre a lista que já estava em cache de outro número.
   const { data, isLoading } = useCloudApiTemplates(wabaId ? { wabaId } : undefined)
@@ -130,7 +133,7 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId
     <Modal
       open={open}
       onOpenChange={fechar}
-      title="Enviar modelo aprovado"
+      title={rotuloAcao ? 'Escolher modelo aprovado' : 'Enviar modelo aprovado'}
       description={
         numero
           ? `Modelos do número ${numero} — aprovados pela Meta e entregues mesmo fora da janela de 24h. Modelo de outro número a Meta recusa.`
@@ -146,7 +149,7 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId
             <Button variant="secondary" size="md" onClick={() => fechar(false)}>Cancelar</Button>
             <Button variant="primary" size="md" onClick={enviar} disabled={!escolhido || enviando}>
               <Send size={14} />
-              {enviando ? 'Enviando…' : 'Enviar'}
+              {enviando ? 'Enviando…' : (rotuloAcao ?? 'Enviar')}
             </Button>
           </div>
         </div>

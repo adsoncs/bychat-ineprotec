@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
 export type ActivityType = 'whatsapp' | 'email' | 'sms' | 'call' | 'meeting' | 'task' | 'note' | 'follow_up'
-export type ActivityStatus = 'pending' | 'completed' | 'cancelled' | 'overdue' | 'sent' | 'failed'
+// 'sending': tomada pelo executor, saindo agora (interno, ninguém grava pela API).
+export type ActivityStatus = 'pending' | 'completed' | 'cancelled' | 'overdue' | 'sent' | 'failed' | 'sending'
 
 export interface Activity {
   id: number
@@ -27,6 +28,8 @@ export interface Activity {
   attachmentName: string | null
   attachmentType: string | null
   metadata: Record<string, unknown> | null
+  /** Desfecho da execução (motivo da falha ou do cancelamento automático). */
+  result?: string | null
   // Módulo Resumo: responsável pela execução e código da atividade padrão.
   assignedUserId?: number | null
   assignedTeamId?: number | null
@@ -56,6 +59,14 @@ export interface ActivityInput {
   /** Gravar/transcrever esta reunião — opt-OUT por reunião (F0.5). Só p/ meeting.
    *  Envie false para NÃO gravar; ausência = segue a policy do tenant. */
   recordMeeting?: boolean | undefined
+  // ── Envio de WhatsApp (só type 'whatsapp' com mensagem) ──
+  /** Número de saída; obrigatório quando o contato ainda não tem conversa. */
+  channelId?: string | null | undefined
+  /** Cancela sozinha se o contato responder antes do horário. */
+  cancelIfReplied?: boolean | undefined
+  /** 'template_hsm' = modelo aprovado (fora da janela de 24h da Cloud API). */
+  kind?: 'text' | 'template_hsm' | undefined
+  hsmPayload?: { name: string; language: string; components?: unknown[] | undefined } | undefined
 }
 
 export interface ActivitiesListResponse {
@@ -141,6 +152,12 @@ export function useUpdateActivity() {
       messageSubject?: string | null | undefined
       recipientPhone?: string | null | undefined
       recipientEmail?: string | null | undefined
+      // Envio de WhatsApp (mesmos campos do ActivityInput)
+      channelId?: string | null | undefined
+      cancelIfReplied?: boolean | undefined
+      kind?: 'text' | 'template_hsm' | undefined
+      hsmPayload?: { name: string; language: string; components?: unknown[] | undefined } | undefined
+      templateId?: number | null | undefined
     }) =>
       api.put<{ ok: true; activity: Activity }>(`/activities/${id}`, input),
     onSuccess: () => invalidateActivityQueries(qc),

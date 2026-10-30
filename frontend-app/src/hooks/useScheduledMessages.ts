@@ -33,10 +33,10 @@ export function useScheduledMessages(leadId: number | null, status?: string) {
 export interface CreateScheduledInput {
   scheduledAt: string
   body?: string | undefined
-  templateId?: number
+  templateId?: number | undefined
   kind?: 'text' | 'template_hsm'
   hsmPayload?: unknown
-  channelId?: string
+  channelId?: string | undefined
   cancelIfReplied?: boolean
 }
 
