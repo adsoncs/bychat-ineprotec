@@ -601,10 +601,16 @@ function TriggerFiltersEditor({
     const linhas = (v: string) => (v.trim() ? v.split('\n') : undefined)
     return (
       <div class="space-y-3">
-        <Select label="Canal da mensagem" value={value.channel ?? ''} onChange={(e) => patch('channel', (e.target as HTMLSelectElement).value || undefined)} hint={`Filtrar por canal de ${verb}`}>
+        <Select label="Canal da mensagem" value={typeof value.channel === 'string' ? value.channel : ''} onChange={(e) => patch('channel', (e.target as HTMLSelectElement).value || undefined)} hint={`Filtrar por canal de ${verb}`}>
           <option value="">Qualquer canal</option>
           {MESSAGE_CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </Select>
+        {triggerEvent === 'message.sent' && (
+          <SentByTriggerEditor
+            value={Array.isArray(value.source) ? value.source : value.source ? [value.source] : []}
+            onChange={(next) => onChange(next.length > 0 ? { ...value, source: next } : { ...value, source: undefined })}
+          />
+        )}
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
           <Textarea
             label="A mensagem contém (opcional)"
@@ -748,6 +754,63 @@ function LossReasonsTriggerEditor({
  * novo nascia sem aviso e ninguém percebia — o agendamento acontecia e a equipe
  * não era avisada. Sem seleção = qualquer formulário.
  */
+/** Quem mandou a mensagem, no gatilho "Mensagem enviada".
+ *
+ *  Sem isso o gatilho não distinguia um atendente digitando no Conversas de uma
+ *  mensagem que o PRÓPRIO sistema disparou — inclusive a de outro fluxo, que
+ *  fazia um workflow acionar o outro em cascata. */
+const SENT_BY_OPTIONS = [
+  { value: 'panel', label: 'Atendente (Conversas)' },
+  { value: 'scheduled', label: 'Mensagem agendada' },
+  { value: 'chatbot', label: 'Chatbot' },
+  { value: 'ai_journey', label: 'Jornada de IA' },
+  { value: 'workflow', label: 'Outro fluxo' },
+]
+
+function SentByTriggerEditor({
+  value, onChange,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+}) {
+  const selected = new Set(value)
+
+  function toggle(v: string) {
+    const next = new Set(selected)
+    if (next.has(v)) next.delete(v)
+    else next.add(v)
+    onChange(Array.from(next))
+  }
+
+  return (
+    <div>
+      <label class="text-xs font-medium text-fg block mb-1.5">Enviada por (opcional)</label>
+      <p class="text-[0.6875rem] text-fg-subtle mb-2">
+        Sem seleção = qualquer mensagem que sai para o contato dispara o fluxo, inclusive as automáticas.
+        Com seleção = só as marcadas.
+      </p>
+      <div class="flex flex-wrap gap-1.5">
+        {SENT_BY_OPTIONS.map((o) => {
+          const on = selected.has(o.value)
+          return (
+            <button
+              key={o.value}
+              type="button"
+              class={cn(
+                'inline-flex items-center gap-1 px-2 h-7 rounded-md border text-xs transition-colors',
+                on ? 'border-transparent bg-accent text-fg-on-brand' : 'border-border bg-surface-2 text-fg-muted hover:bg-surface-3',
+              )}
+              onClick={() => toggle(o.value)}
+            >
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function MeetingFormsTriggerEditor({
   value, onChange,
 }: {

@@ -3,6 +3,27 @@
 // (mensagens do chatbot scripted, templates de notificação de reunião, etc.).
 // Valores nulos/indefinidos viram string vazia; chave desconhecida é removida.
 
+const TZ_PADRAO = 'America/Sao_Paulo'
+
+/** "Bom dia" / "Boa tarde" / "Boa noite" pelo horário de Brasília. Mensagem de
+ *  abordagem quase sempre abre com a saudação, e escrevê-la fixa no texto erra
+ *  toda vez que o envio atrasa (fila, janela de silêncio, fim de semana). */
+export function saudacaoAgora(agora: Date = new Date()): string {
+  const h = Number(new Intl.DateTimeFormat('pt-BR', { timeZone: TZ_PADRAO, hour: '2-digit', hour12: false }).format(agora))
+  if (h < 12) return 'Bom dia'
+  if (h < 18) return 'Boa tarde'
+  return 'Boa noite'
+}
+
+/** Primeiro nome, pro texto não sair "Olá, Elbert Cassio Ribeiro Torres!".
+ *  Preposição isolada ("de Souza") não vira nome. */
+export function primeiroNome(nome: string | null | undefined): string {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean)
+  if (!partes.length) return ''
+  const p = partes[0]
+  return /^(de|da|do|dos|das|e)$/i.test(p) ? (partes[1] || p) : p
+}
+
 export function interpolate(tpl: string, vars: Record<string, any>): string {
   if (!tpl) return ''
   return aplicarBlocos(tpl, vars).replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {

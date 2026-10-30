@@ -4,7 +4,9 @@
 import { prisma } from '../lib/prisma.js'
 
 interface ConditionConfig {
-  type?: string       // has_tag, not_has_tag, time_since, stage_is, source_is, lost_reason_in, message_contains
+  type?: string       // has_tag, not_has_tag, time_since, stage_is, source_is, lost_reason_in, funnel_is,
+                      // outcome_is, has_outcome, not_has_outcome, ab_split, never_contacted, no_outbound_yet, no_inbound_yet,
+                      // message_contains, message_not_contains
   field?: string      // lead.status, lead.source, lead.originType, lead.funnelId, lead.customFields.cargo, lead.lostReason.name
   operator?: string   // equals, not_equals, contains, gt, lt, gte, lte, in
   value?: any
@@ -98,6 +100,39 @@ export async function evaluateCondition(
     return config.type === 'source_is' ? bate : !bate
   }
 
+  // Funil: as mesmas chaves de etapa existem em vários funis (LEAD, QUALIFICACAO
+  // e CONEXAO se repetem em PET, PASTO e Remarketing), então `stage_is` sozinho
+  // não distingue a operação principal das que estão paradas. Sem isto, uma
+  // automação escrita para um funil age em todos.
+  if (config.type === 'funnel_is') {
+    return matchesAny(lead.funnelId, config.value)
+  }
+
+  // "Ninguém falou com este lead ainda" — a trava de qualquer primeira abordagem
+  // automática. Campo personalizado preenchido NÃO serve para isso: lead de
+  // formulário do Meta nasce com todos os campos respondidos e mesmo assim nunca
+  // recebeu mensagem. Mensagem interna (anotação, encaminhamento ao RH) não conta
+  // como contato com o lead.
+  if (config.type === 'no_outbound_yet' || config.type === 'no_inbound_yet' || config.type === 'never_contacted') {
+    const wantsOutbound = config.type !== 'no_inbound_yet'
+    const wantsInbound = config.type !== 'no_outbound_yet'
+    if (wantsOutbound) {
+      const sent = await prisma.message.findFirst({
+        where: { leadId: lead.id, fromMe: true, isInternal: false },
+        select: { id: true },
+      })
+      if (sent) return false
+    }
+    if (wantsInbound) {
+      const received = await prisma.message.findFirst({
+        where: { leadId: lead.id, fromMe: false },
+        select: { id: true },
+      })
+      if (received) return false
+    }
+    return true
+  }
+
   // Contato recente: o lead entrou há no máximo N dias OU escreveu para nós nos
   // últimos N dias. É o freio da reativação de base fria: follow-up automático
   // para quem não fala conosco há meses, por linha QR Code, é o padrão que o
@@ -122,6 +157,20 @@ export async function evaluateCondition(
   }
 
   // Fase 23.1: lead perdido com objeção em uma lista
+  // Desfecho: um lead Ganho já é cliente e um Perdido já disse não. Nos dois
+  // casos, automação que aborda ou movimenta o funil não deve tocá-lo — mandar
+  // "primeira abordagem" para quem fechou negócio, ou para quem pediu para não
+  // ser procurado, é pior do que não mandar nada.
+  if (config.type === 'has_outcome') {
+    return lead.outcome != null
+  }
+  if (config.type === 'not_has_outcome') {
+    return lead.outcome == null
+  }
+  if (config.type === 'outcome_is') {
+    return matchesAny(lead.outcome, config.value)
+  }
+
   if (config.type === 'lost_reason_in') {
     if (lead.outcome !== 'lost' || lead.lostReasonId == null) return false
     const ids = (config.reasonIds || []).map(Number)
@@ -131,6 +180,19 @@ export async function evaluateCondition(
     if (lead.outcome !== 'lost' || lead.lostReasonId == null) return true
     const ids = (config.reasonIds || []).map(Number)
     return !ids.includes(Number(lead.lostReasonId))
+  }
+
+  // Rodízio A/B. `value` = porcentagem que vai para o ramo VERDADEIRO (padrão 50).
+  // O sorteio é DETERMINÍSTICO por lead: o mesmo lead cai sempre no mesmo braço,
+  // então reprocessar o fluxo não troca a variante nem contamina a medição — e o
+  // relatório pode reconstruir a divisão a qualquer momento a partir do leadId.
+  // O id é embaralhado antes do módulo porque leads chegam em ordem sequencial:
+  // `leadId % 100` agruparia a divisão por blocos de tempo (uma variante levaria
+  // as manhãs, a outra as tardes) e o teste mediria o horário, não a mensagem.
+  if (config.type === 'ab_split') {
+    const pct = Number(config.value ?? 50)
+    const limite = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 50
+    return espalharId(leadId) < limite
   }
 
   // Time since conditions
@@ -179,6 +241,17 @@ function getLeadField(lead: any, field: string): any {
   return lead[field]
 }
 
+/** Casa um valor do lead contra um único valor OU uma lista (array ou "a,b,c").
+ *  O editor grava um valor só, mas a lista permite uma allowlist de origens/etapas
+ *  num passo de ramificação, sem empilhar condições em cascata. */
+function matchesAny(actual: any, expected: any): boolean {
+  if (actual === undefined || actual === null || expected === undefined || expected === null) return false
+  const list = Array.isArray(expected)
+    ? expected.map(v => String(v).trim())
+    : String(expected).split(',').map(s => s.trim())
+  return list.filter(Boolean).includes(String(actual).trim())
+}
+
 function compareValues(actual: any, operator: string, expected: any): boolean {
   if (actual === undefined || actual === null) {
     return operator === 'not_equals' ? expected !== null : false
@@ -205,4 +278,9 @@ function compareValues(actual: any, operator: string, expected: any): boolean {
     default:
       return String(actual) === String(expected)
   }
+}
+
+/** Espalha ids sequenciais em 0..99 (Knuth) para o rodízio A/B não sair por blocos. */
+function espalharId(id: number): number {
+  return (Math.imul(id, 2654435761) >>> 0) % 100
 }

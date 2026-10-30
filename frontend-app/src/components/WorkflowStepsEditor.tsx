@@ -16,6 +16,8 @@ import { useStages } from '@/hooks/useFunnels'
 import { useTags } from '@/hooks/useTags'
 import { useModules } from '@/hooks/useModules'
 import { useTemplates } from '@/hooks/useTemplates'
+import { useCloudApiTemplates } from '@/hooks/useCloudApi'
+import { useCustomFields } from '@/hooks/useCustomFields'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
 import { useTeams } from '@/hooks/useTeams'
 import { useUsers } from '@/hooks/useUsers'
@@ -58,6 +60,7 @@ const ACTION_TYPES = [
   { value: 'assign_to_user', label: 'Atribuir a operador' },
   { value: 'transfer_to_team', label: 'Transferir para equipe' },
   { value: 'set_summary', label: 'Aplicar resumo' },
+  { value: 'notify_operator', label: 'Avisar equipe (Config › Notificações)' },
   { value: 'qualify_lead', label: 'Qualificar lead' },
   { value: 'set_campaign', label: 'Definir campanha' },
 ]
@@ -93,9 +96,29 @@ const CONDITION_TYPES = [
   { value: 'source_is', label: 'A origem do lead é' },
   { value: 'message_contains', label: 'A mensagem recebida contém' },
   { value: 'message_not_contains', label: 'A mensagem recebida NÃO contém' },
+  { value: 'funnel_is', label: 'O lead está em um funil específico' },
   { value: 'lost_reason_in', label: 'Lead perdido por uma destas objeções' },
   { value: 'lost_reason_not_in', label: 'Lead NÃO perdido por estas objeções' },
+  { value: 'has_booking', label: 'O lead tem reunião agendada' },
+  { value: 'not_has_booking', label: 'O lead NÃO tem reunião agendada' },
+  { value: 'not_has_outcome', label: 'O lead ainda está em andamento (nem Ganho, nem Perdido)' },
+  { value: 'has_outcome', label: 'O lead já foi classificado (Ganho ou Perdido)' },
+  { value: 'never_contacted', label: 'Ninguém falou com este lead ainda' },
+  { value: 'no_outbound_yet', label: 'Nunca enviamos mensagem a este lead' },
+  { value: 'no_inbound_yet', label: 'O lead nunca respondeu' },
+  { value: 'ab_split', label: 'Rodízio A/B — sorteia entre os dois caminhos' },
 ]
+
+// Condições sem nenhum campo a preencher — a pergunta já é a regra inteira.
+const CONDITION_HINTS: Record<string, string> = {
+  has_booking: 'Segue se houver uma reunião agendada (reserva cancelada não conta)',
+  not_has_booking: 'Segue se o lead não tiver nenhuma reunião agendada',
+  never_contacted: 'Segue só se não houver NENHUMA mensagem na conversa — nem nossa, nem dele. É a trava de uma primeira abordagem automática: campo personalizado preenchido não significa que já falamos com a pessoa',
+  no_outbound_yet: 'Segue se nunca enviamos mensagem a este lead (anotação interna não conta)',
+  no_inbound_yet: 'Segue se o lead nunca respondeu, mesmo que já tenhamos escrito',
+  not_has_outcome: 'Segue só enquanto o lead está em aberto. Ganho já é cliente e Perdido já disse não — abordar ou movimentar qualquer um dos dois é pior que não fazer nada',
+  has_outcome: 'Segue apenas se o lead já foi classificado como Ganho ou Perdido',
+}
 
 const OPERATORS: { value: string; label: string }[] = [
   { value: 'equals', label: 'Igual a' },
@@ -123,7 +146,8 @@ const TIME_SINCE_OPERATORS = [
 
 const FIELD_OPTIONS = [
   { value: 'lead.status', label: 'Etapa atual' },
-  { value: 'lead.source', label: 'Origem' },
+  { value: 'lead.originType', label: 'Origem detalhada (campanha/canal)' },
+  { value: 'lead.source', label: 'Origem (canal genérico)' },
   { value: 'lead.segmento', label: 'Segmento' },
   { value: 'lead.cidade', label: 'Cidade' },
   { value: 'lead.completed', label: 'Concluído' },
@@ -136,13 +160,26 @@ const BRANCH_FIELD_OPTIONS = [
   { value: 'lead.channel', label: 'Canal' },
 ]
 
+// Espelha ORIGIN_TYPES (backend/src/lib/leadOrigin.ts) — é contra `originType`
+// (e, por retro-compatibilidade, `source`) que a condição `source_is` compara.
 const SOURCE_OPTIONS = [
-  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'meta_ctwa', label: 'Meta Ads — Click to WhatsApp' },
   { value: 'meta_lead_ads', label: 'Meta Lead Ads' },
-  { value: 'web_chat', label: 'Chat Web' },
-  { value: 'web_form', label: 'Formulário Web' },
-  { value: 'manual', label: 'Manual' },
+  { value: 'google_ads', label: 'Google Ads' },
+  { value: 'trackable_link', label: 'Link rastreável' },
+  { value: 'web_form', label: 'Formulário / Landing page' },
+  { value: 'scheduling', label: 'Agendamento' },
+  { value: 'enrollment_portal', label: 'Portal de matrículas' },
+  { value: 'web_chat', label: 'Chat do site' },
+  { value: 'whatsapp', label: 'WhatsApp direto' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'telegram', label: 'Telegram' },
   { value: 'api', label: 'API' },
+  { value: 'make', label: 'Make' },
+  { value: 'import', label: 'Importação' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'organic', label: 'Orgânico' },
+  { value: 'direct', label: 'Direto (sem origem)' },
 ]
 
 const TASK_TYPE_OPTIONS = [
@@ -207,6 +244,15 @@ function stepSummary(s: WorkflowStep): string {
       const ids = (cfg.reasonIds as number[] | undefined) ?? []
       return `Perdido NÃO por ${ids.length} objeção(ões)`
     }
+    if (ct === 'stage_is') return `Está na etapa "${getStr(cfg, 'value')}"`
+    if (ct === 'source_is') return `Veio de "${getStr(cfg, 'value')}"`
+    if (ct === 'ab_split') return `Rodízio A/B — ${getNum(cfg, 'value', 50)}% pelo caminho "Sim"`
+    if (ct === 'funnel_is') return `Está no funil ${getStr(cfg, 'value')}`
+    if (ct === 'never_contacted') return 'Ninguém falou com o lead ainda'
+    if (ct === 'no_outbound_yet') return 'Nunca enviamos mensagem'
+    if (ct === 'no_inbound_yet') return 'O lead nunca respondeu'
+    const semCampo = CONDITION_TYPES.find((c) => c.value === ct && CONDITION_HINTS[ct])
+    if (semCampo) return semCampo.label
     return `${getStr(cfg, 'field') || '?'} ${getStr(cfg, 'operator') || ''} ${getStr(cfg, 'value') || ''}`.trim()
   }
   if (s.type === 'trigger' || s.type === 'goal') {
@@ -710,6 +756,7 @@ function ConditionFields({
       <Select
         label="Verificar se..."
         value={condType}
+        hint={CONDITION_HINTS[condType] ?? ''}
         onChange={(e) => changeType((e.target as HTMLSelectElement).value)}
       >
         {CONDITION_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -731,6 +778,18 @@ function ConditionFields({
             : 'Segue se o lead NÃO foi marcado como Perdido com estas objeções (inclui leads em andamento e ganhos)'}
           value={(config.reasonIds as number[] | undefined) ?? []}
           onChange={(ids) => onPatch({ reasonIds: ids })}
+        />
+      )}
+
+      {condType === 'ab_split' && (
+        <Input
+          label="% que segue pelo caminho “Sim”"
+          type="number"
+          min={0}
+          max={100}
+          value={getNum(config, 'value', 50)}
+          onInput={(e) => onPatch({ value: Math.min(100, Math.max(0, Number((e.target as HTMLInputElement).value) || 0)) })}
+          hint="Divide os leads entre os dois caminhos para comparar duas mensagens. O sorteio é fixo por lead: o mesmo lead cai sempre do mesmo lado, então reprocessar o fluxo não troca a variante nem estraga a medição. Ligue o caminho “Sim” numa variante e o “Se NÃO atender” na outra"
         />
       )}
 
@@ -756,15 +815,43 @@ function ConditionFields({
       )}
 
       {condType === 'source_is' && (
-        <Select
-          label="Origem"
-          value={getStr(config, 'value')}
-          hint="Segue se o lead veio desta origem"
-          onChange={(e) => onPatch({ value: (e.target as HTMLSelectElement).value })}
-        >
-          <option value="">Selecione a origem</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </Select>
+        <SourcesConditionField
+          value={config.value}
+          onChange={(next) => onPatch({ value: next })}
+        />
+      )}
+
+      {condType === 'contato_recente' && (
+        <Input
+          label="Dias"
+          type="number"
+          min={1}
+          value={getNum(config, 'value', 30)}
+          onInput={(e) => onPatch({ value: Number((e.target as HTMLInputElement).value) || 30 })}
+          hint="Segue se o lead entrou nesse período ou escreveu para nós nele. Quem não fala com a gente há mais tempo não recebe o follow-up — envio automático para base fria é o que leva número QR Code a ser bloqueado."
+        />
+      )}
+
+      {condType === 'contato_recente' && (
+        <Input
+          label="Dias"
+          type="number"
+          min={1}
+          value={getNum(config, 'value', 30)}
+          onInput={(e) => onPatch({ value: Number((e.target as HTMLInputElement).value) || 30 })}
+          hint="Segue se o lead entrou nesse período ou escreveu para nós nele. Quem não fala com a gente há mais tempo não recebe o follow-up — envio automático para base fria é o que leva número QR Code a ser bloqueado."
+        />
+      )}
+
+      {condType === 'contato_recente' && (
+        <Input
+          label="Dias"
+          type="number"
+          min={1}
+          value={getNum(config, 'value', 30)}
+          onInput={(e) => onPatch({ value: Number((e.target as HTMLInputElement).value) || 30 })}
+          hint="Segue se o lead entrou nesse período ou escreveu para nós nele. Quem não fala com a gente há mais tempo não recebe o follow-up — envio automático para base fria é o que leva número QR Code a ser bloqueado."
+        />
       )}
 
       {condType === 'contato_recente' && (
@@ -942,6 +1029,7 @@ function ActionFields({
         </>
       )}
 
+      {actionType === 'notify_operator' && <NotifyOperatorFields config={config} onPatch={onPatch} />}
       {actionType === 'set_campaign' && (
         <Input
           label="Nome da campanha"
@@ -951,6 +1039,42 @@ function ActionFields({
         />
       )}
     </div>
+  )
+}
+
+// ─── notify_operator ──────────────────────────────────────────────────────────
+// Avisa a EQUIPE (não o lead). Destinatários = Configurações › Empresa ›
+// Notificações (WhatsApp por Evolution + e-mail). Cada canal usa seu template;
+// deixar um template vazio desliga aquele canal. Variáveis extras: {{etapa}}
+// (nome da etapa), {{operador}}, {{origem}}.
+function NotifyOperatorFields({ config, onPatch }: { config: Record<string, unknown>; onPatch: (p: Record<string, unknown>) => void }) {
+  const waRaw = config.waTemplateId
+  const waId = typeof waRaw === 'number' ? waRaw : (typeof waRaw === 'string' && waRaw !== '' ? Number(waRaw) : undefined)
+  const emRaw = config.emailTemplateId
+  const emId = typeof emRaw === 'number' ? emRaw : (typeof emRaw === 'string' && emRaw !== '' ? Number(emRaw) : undefined)
+  return (
+    <>
+      <p class="text-xs text-slate-500">
+        Envia para os contatos de <b>Configurações › Empresa › Notificações</b>. Variáveis:{' '}
+        {'{{nome}}, {{whatsapp}}, {{email}}, {{empresa}}, {{cidade}}, {{etapa}}, {{origem}}'}
+      </p>
+      <div class="space-y-1">
+        <span class="text-xs font-semibold text-fg">📱 WhatsApp (deixe vazio para não enviar)</span>
+        <TemplateSelector
+          channel="whatsapp"
+          value={waId}
+          onChange={(v) => onPatch({ waTemplateId: v })}
+        />
+      </div>
+      <div class="space-y-1">
+        <span class="text-xs font-semibold text-fg">✉️ E-mail (deixe vazio para não enviar)</span>
+        <TemplateSelector
+          channel="email"
+          value={emId}
+          onChange={(v) => onPatch({ emailTemplateId: v })}
+        />
+      </div>
+    </>
   )
 }
 
@@ -1023,6 +1147,59 @@ function StageSelectField({ label, hint, value, onChange }: { label: string; hin
       <option value="">Selecione a etapa</option>
       {data?.stages.map((s) => <option key={s.id} value={s.key}>{s.name}</option>)}
     </Select>
+  )
+}
+
+/** Origens do lead na condição "A origem do lead é".
+ *
+ *  Era um Select de uma origem só, e cobrir "veio de campanha paga" (seis
+ *  origens diferentes) exigia seis condições encadeadas. O motor já compara
+ *  lista, então aqui a seleção é múltipla — vale como "qualquer uma destas". */
+function SourcesConditionField({
+  value, onChange,
+}: {
+  value: unknown
+  onChange: (next: string[]) => void
+}) {
+  const selecionadas = Array.isArray(value)
+    ? value.map(String)
+    : typeof value === 'string' && value
+      ? value.split(',').map((v) => v.trim()).filter(Boolean)
+      : []
+  const selected = new Set(selecionadas)
+
+  function toggle(v: string) {
+    const next = new Set(selected)
+    if (next.has(v)) next.delete(v)
+    else next.add(v)
+    onChange(Array.from(next))
+  }
+
+  return (
+    <div>
+      <label class="text-xs font-medium text-fg block mb-1.5">Origens</label>
+      <p class="text-[0.6875rem] text-fg-subtle mb-2">
+        Segue se o lead veio de QUALQUER uma das origens marcadas. Sem nenhuma marcada a condição nunca é atendida.
+      </p>
+      <div class="flex flex-wrap gap-1.5">
+        {SOURCE_OPTIONS.map((s) => {
+          const on = selected.has(s.value)
+          return (
+            <button
+              key={s.value}
+              type="button"
+              class={cn(
+                'inline-flex items-center gap-1 px-2 h-7 rounded-md border text-xs transition-colors',
+                on ? 'border-transparent bg-accent text-fg-on-brand' : 'border-border bg-surface-2 text-fg-muted hover:bg-surface-3',
+              )}
+              onClick={() => toggle(s.value)}
+            >
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -1130,6 +1307,9 @@ function SendMessageFields({
   const tplId = typeof tplRaw === 'number' ? tplRaw : (typeof tplRaw === 'string' && tplRaw !== '' ? Number(tplRaw) : undefined)
   return (
     <>
+      {/* API Oficial (Cloud API): quando há conexão ativa, o disparo p/ lead frio
+          exige um template HSM aprovado. Só faz sentido no canal WhatsApp. */}
+      {channel === 'whatsapp' && <CloudTemplateFields config={config} onPatch={onPatch} />}
       <TemplateSelector
         channel={channel}
         value={tplId}
@@ -1143,6 +1323,139 @@ function SendMessageFields({
         hint={messageHint}
       />
     </>
+  )
+}
+
+type TemplateParam = { type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }
+
+/** Conta as variáveis posicionais {{1}}..{{n}} num template HSM (header TEXT + body). */
+function countTemplateVars(components: unknown): number {
+  let max = 0
+  if (Array.isArray(components)) {
+    for (const c of components as any[]) {
+      const t = String(c?.type || '').toUpperCase()
+      const text = (t === 'BODY' || (t === 'HEADER' && c?.format === 'TEXT')) ? String(c?.text || '') : ''
+      for (const m of text.matchAll(/\{\{(\d+)\}\}/g)) max = Math.max(max, Number(m[1]))
+    }
+  }
+  return max
+}
+
+const LEAD_FIELDS = [
+  { value: 'nome', label: 'Nome do lead' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'email', label: 'E-mail' },
+  { value: 'empresa', label: 'Empresa' },
+]
+
+function CloudTemplateFields({ config, onPatch }: { config: Record<string, unknown>; onPatch: (p: Record<string, unknown>) => void }) {
+  const { data } = useCloudApiTemplates()
+  const { data: cfData } = useCustomFields()
+  const approved = (data?.templates ?? []).filter((t) => t.status === 'APPROVED')
+
+  const rawId = config.cloudTemplateId
+  const cloudTemplateId = typeof rawId === 'number' ? rawId : (typeof rawId === 'string' && rawId !== '' ? Number(rawId) : undefined)
+  const selected = approved.find((t) => t.id === cloudTemplateId)
+  const varCount = selected ? countTemplateVars(selected.components) : 0
+  const params = (Array.isArray(config.templateParams) ? config.templateParams : []) as TemplateParam[]
+
+  function setTemplate(id: number | undefined) {
+    if (id === undefined) { onPatch({ cloudTemplateId: undefined, templateParams: [] }); return }
+    const tpl = approved.find((t) => t.id === id)
+    const n = tpl ? countTemplateVars(tpl.components) : 0
+    // Preserva mapeamentos já feitos; completa/apara para n variáveis.
+    const next: TemplateParam[] = Array.from({ length: n }, (_, i) => params[i] ?? { type: 'lead_field', value: 'nome' })
+    onPatch({ cloudTemplateId: id, templateParams: next })
+  }
+
+  function setParam(i: number, patch: Partial<TemplateParam>) {
+    const next = params.slice()
+    next[i] = { ...(next[i] ?? { type: 'lead_field', value: '' }), ...patch }
+    onPatch({ templateParams: next })
+  }
+
+  return (
+    <div class="rounded-md border border-success/30 bg-success/10 p-3 space-y-2">
+      <label class="text-xs font-medium text-success block" for="cloud-hsm">
+        API Oficial — Template aprovado (Cloud API)
+      </label>
+      <select
+        id="cloud-hsm"
+        value={cloudTemplateId === undefined ? '' : String(cloudTemplateId)}
+        onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setTemplate(v ? Number(v) : undefined) }}
+        class="h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg w-full focus:outline-none focus:border-accent"
+      >
+        <option value="">— não usar API Oficial (envio por texto via QR Code) —</option>
+        {approved.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.language})</option>)}
+      </select>
+      {approved.length === 0 && (
+        <p class="text-[0.6875rem] text-warning">
+          Nenhum template aprovado. Crie e aprove em <strong>WhatsApp → Templates</strong>.
+        </p>
+      )}
+
+      {selected && varCount > 0 && (
+        <div class="space-y-2 pt-1">
+          <p class="text-[0.6875rem] text-fg-muted">
+            Preencha cada variável do template com um campo do lead, campo personalizado ou valor fixo:
+          </p>
+          {Array.from({ length: varCount }, (_, i) => {
+            const p = params[i] ?? { type: 'lead_field', value: '' }
+            return (
+              <div key={i} class="space-y-1">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-mono text-fg-muted w-9 shrink-0">{`{{${i + 1}}}`}</span>
+                <select
+                  value={p.type}
+                  onChange={(e) => setParam(i, { type: (e.target as HTMLSelectElement).value as TemplateParam['type'], value: '' })}
+                  class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg shrink-0 focus:outline-none focus:border-accent"
+                >
+                  <option value="lead_field">Campo do lead</option>
+                  <option value="custom_field">Campo personalizado</option>
+                  <option value="fixed">Valor fixo</option>
+                </select>
+                {p.type === 'fixed' ? (
+                  <input
+                    value={p.value}
+                    onInput={(e) => setParam(i, { value: (e.target as HTMLInputElement).value })}
+                    placeholder="Texto fixo"
+                    class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg w-full focus:outline-none focus:border-accent"
+                  />
+                ) : (
+                  <select
+                    value={p.value}
+                    onChange={(e) => setParam(i, { value: (e.target as HTMLSelectElement).value })}
+                    class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg w-full focus:outline-none focus:border-accent"
+                  >
+                    <option value="">Selecione…</option>
+                    {(p.type === 'lead_field' ? LEAD_FIELDS : (cfData?.fields ?? []).map((f) => ({ value: f.key, label: f.label }))).map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {/* A Meta recusa o disparo inteiro quando uma variável chega vazia.
+                  Este texto substitui o campo em branco e salva a mensagem. */}
+              {p.type !== 'fixed' && (
+                <div class="flex items-center gap-1.5 pl-[2.625rem]">
+                  <span class="text-[0.6875rem] text-fg-subtle shrink-0">Se vazio, usar:</span>
+                  <input
+                    value={p.fallback ?? ''}
+                    onInput={(e) => setParam(i, { fallback: (e.target as HTMLInputElement).value })}
+                    placeholder="ex.: candidato(a)"
+                    class="h-7 px-2 rounded-md bg-surface border border-border text-xs text-fg w-full focus:outline-none focus:border-accent"
+                  />
+                </div>
+              )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <p class="text-[0.6875rem] text-fg-subtle">
+        Com um template selecionado, este passo envia pela <strong>API Oficial</strong>. Vazio = envio por texto livre (QR Code).
+      </p>
+    </div>
   )
 }
 

@@ -10,7 +10,7 @@ import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
 import { templateBodyTokens } from '../lib/waTemplateParams.js'
 import { ORDEM_CONEXAO_PADRAO } from './whatsappProvider.js'
-import { aplicarBlocos } from '../lib/interpolate.js'
+import { aplicarBlocos, primeiroNome, saudacaoAgora } from '../lib/interpolate.js'
 
 /** Heurística simples pra decidir se um corpo é HTML — se contém tags. */
 function looksLikeHtml(s: string): boolean {
@@ -94,6 +94,8 @@ interface ActionConfig {
   // cloudTemplateId → CloudApiTemplate; templateParams resolve {{1}}, {{2}}, ... na
   // ordem, a partir de campos do lead / customFields / valor fixo.
   cloudTemplateId?: number
+  // resume_bot: janela de proteção — não devolve ao bot se um humano falou nesse prazo.
+  skipIfRecentOperatorMin?: number
   // `fallback`: texto usado quando o campo do lead está vazio — a Meta rejeita o
   // disparo inteiro se algum parâmetro chegar em branco (erro 131008).
   templateParams?: Array<{ type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }>
@@ -156,7 +158,7 @@ function describeAssignment(
 // {{segmento}}, {{cidade}}, {{status}} (do lead) e qualquer chave do triggerData
 // (payload do evento que disparou o workflow). Permite chaves aninhadas com
 // notação de ponto (ex: {{enrollment.candidateCode}}, {{document.reviewNote}}).
-export function resolveVariables(text: string, lead: any, triggerData: any = {}): string {
+export function resolveVariables(text: string, lead: any, triggerData: any = {}, extras: Record<string, string> = {}): string {
   if (!text) return ''
   // Achata uma única camada do triggerData pra acesso direto: {{candidateCode}}.
   const flat: Record<string, any> = {
@@ -168,7 +170,20 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {})
     cidade: lead?.cidade || '',
     status: lead?.status || '',
     data_hoje: new Date().toLocaleDateString('pt-BR'),
+    primeiro_nome: primeiroNome(lead?.nome),
+    saudacao: saudacaoAgora(),
   }
+  // Valores calculados por quem chama (ex.: {{agente}}, que depende do banco).
+  for (const [k, v] of Object.entries(extras)) {
+    if (v !== undefined && v !== null) flat[k] = v
+  }
+  // Campos personalizados do lead (JSON lead.customFields) por chave: ex.
+  // {{filho_1_nome}}, {{ano_ingresso}}; + alias {{aluno}}=filho_1_nome.
+  const cf = (lead?.customFields || {}) as Record<string, any>
+  for (const [k, v] of Object.entries(cf)) {
+    if (v != null && v !== '' && !(k in flat)) flat[k] = v
+  }
+  if (cf.filho_1_nome && !('aluno' in flat)) flat.aluno = cf.filho_1_nome
   // Trigger payload pode vir como { event, payload } (formato do workflowEngine)
   // ou direto. Suportamos ambos.
   const root = triggerData?.payload && typeof triggerData.payload === 'object' ? triggerData.payload : triggerData
@@ -192,6 +207,20 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {})
     }
     return ''
   })
+}
+
+/** {{agente}}: primeiro nome do responsável pelo lead; sem responsável, o nome
+ *  de atendente configurado na empresa (`company.agent_name`); senão vazio. */
+export async function resolveNomeDoAgente(lead: { assignedUserId: number | null }): Promise<string> {
+  if (lead?.assignedUserId) {
+    const dono = await prisma.user.findFirst({
+      where: { id: lead.assignedUserId, active: true },
+      select: { name: true },
+    }).catch(() => null)
+    if (dono?.name) return primeiroNome(dono.name)
+  }
+  const row = await prisma.setting.findUnique({ where: { key: 'company.agent_name' } }).catch(() => null)
+  return row ? String(row.value ?? '').replace(/^"|"$/g, '').trim() : ''
 }
 
 /** Rótulo legível da origem do lead captado ({{origem}} nos modelos). */
@@ -393,7 +422,7 @@ export async function dispatchAction(
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
         message = tpl.body || ''
       }
-      message = resolveVariables(message, lead, triggerData)
+      message = resolveVariables(message, lead, triggerData, { agente: await resolveNomeDoAgente(lead) })
       if (!message.trim()) {
         await prisma.workflowStepExecution.update({
           where: { id: stepExec.id },
@@ -456,8 +485,9 @@ export async function dispatchAction(
         // bodyHtml tem prioridade pra email; cai no body texto se vazio.
         body = tpl.bodyHtml || tpl.body || body
       }
-      subject = resolveVariables(subject, lead, triggerData)
-      body = resolveVariables(body, lead, triggerData)
+      const extrasEmail = { agente: await resolveNomeDoAgente(lead) }
+      subject = resolveVariables(subject, lead, triggerData, extrasEmail)
+      body = resolveVariables(body, lead, triggerData, extrasEmail)
       const gov = await enforceGovernance(leadId, 'email', stepExec.id)
       if (!gov.allow) return
       // A7: rodapé com link da central de preferências (LGPD).
@@ -497,7 +527,7 @@ export async function dispatchAction(
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
         message = tpl.body || ''
       }
-      message = resolveVariables(message, lead, triggerData)
+      message = resolveVariables(message, lead, triggerData, { agente: await resolveNomeDoAgente(lead) })
       if (!message.trim()) {
         await prisma.workflowStepExecution.update({
           where: { id: stepExec.id },
@@ -979,8 +1009,33 @@ export async function dispatchAction(
     case 'resume_bot': {
       // Devolve a conversa ao chatbot antes de uma retomada automática. Sem isto, o
       // fluxo cutuca um lead que o bot está proibido de atender (a pausa por takeover
-      // é definitiva): a pessoa responde e ninguém do outro lado responde.
-      const minutes = Number((config as any).skipIfRecentOperatorMin ?? 24 * 60)
+      // é definitiva): a pessoa responde "quero sim" e ninguém do outro lado responde
+      // — pior do que não ter mandado nada.
+      //
+      // Não força nada: se um operador respondeu há pouco, `skipIfRecentOperatorMin`
+      // (padrão 24h) aborta o passo e o atendimento humano segue intocado.
+      // REGRA DE NEGÓCIO (18/08/2026): conversa entregue a uma pessoa só volta ao
+      // chatbot quando alguém da equipe devolve, pelo botão das Conversas. Nenhum
+      // fluxo reabre sozinho — nem depois de dias de silêncio. Antes disto, um
+      // toque de recuperação podia devolver o lead ao bot em cima de um
+      // atendimento humano em andamento (aconteceu uma vez, lead 57 em 05/08).
+      {
+        const { readBotPause } = await import('./botTakeover.js')
+        const lead0 = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+        const mark = readBotPause(lead0?.formData)
+        if (mark) {
+          await prisma.workflowStepExecution.update({
+            where: { id: stepExec.id },
+            data: {
+              status: 'skipped',
+              result: { reason: 'conversa com atendimento humano — devolução ao bot só manual', pausedAt: mark.at, pauseReason: (mark as { sensivel?: boolean; reason?: string }).sensivel ? 'sensivel' : ((mark as { reason?: string }).reason || 'human') },
+              completedAt: new Date(),
+            },
+          })
+          return
+        }
+      }
+      const minutes = Number(config.skipIfRecentOperatorMin ?? 24 * 60)
       const since = new Date(Date.now() - minutes * 60000)
       const recentOutbound = await prisma.message.findFirst({
         where: { leadId, fromMe: true, isInternal: false, createdAt: { gt: since } },
