@@ -2738,6 +2738,75 @@ model TrackableLinkClick {
   @@map("bychat_trackable_link_clicks")
 }
 
+// ───── QR Codes dinâmicos (Ferramentas › QR Code) ─────
+// O QR impresso aponta para /q/<slug> e o link curto para /c/<slug>; o destino
+// fica aqui, então dá para trocar depois sem reimprimir. Wi-Fi é o único tipo
+// estático (o celular lê o conteúdo direto, sem passar pelo servidor).
+model QrCode {
+  id             Int       @id @default(autoincrement())
+  slug           String    @unique @db.VarChar(64)
+  name           String    @db.VarChar(191)
+  description    String?   @db.Text
+  kind           String    @default("url") @db.VarChar(20) // url|whatsapp|text|vcard|email|sms|tel|wifi
+  destinationUrl String?   @db.Text
+  payload        Json?     @db.Json // campos do tipo (telefone, mensagem, vCard, Wi-Fi...)
+  style          Json?     @db.Json // cores, módulos, olhos, logo, moldura
+  utmSource      String?   @db.VarChar(100)
+  utmMedium      String?   @db.VarChar(100)
+  utmCampaign    String?   @db.VarChar(191)
+  utmContent     String?   @db.VarChar(191)
+  utmTerm        String?   @db.VarChar(191)
+  folder         String?   @db.VarChar(100)
+  active         Boolean   @default(true)
+  expiresAt      DateTime?
+  expiredUrl     String?   @db.Text
+  totalScans     Int       @default(0)
+  uniqueScans    Int       @default(0)
+  totalClicks    Int       @default(0)
+  uniqueClicks   Int       @default(0)
+  lastAccessAt   DateTime?
+  createdBy      Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accesses QrCodeAccess[]
+
+  @@index([active])
+  @@index([folder])
+  @@index([createdAt])
+  @@map("bychat_qr_codes")
+}
+
+model QrCodeAccess {
+  id          Int      @id @default(autoincrement())
+  qrId        Int
+  qr          QrCode   @relation(fields: [qrId], references: [id], onDelete: Cascade)
+  via         String   @db.VarChar(8) // qr = leitura do código | link = clique no link curto
+  visitorHash String   @db.VarChar(64) // sha256(ip|user-agent) — separa visitante único
+  isUnique    Boolean  @default(false)
+  ip          String?  @db.VarChar(45)
+  userAgent   String?  @db.Text
+  referer     String?  @db.Text
+  deviceType  String?  @db.VarChar(20)
+  browser     String?  @db.VarChar(50)
+  os          String?  @db.VarChar(50)
+  language    String?  @db.VarChar(20)
+  country     String?  @db.VarChar(8)
+  city        String?  @db.VarChar(100)
+  utmSource   String?  @db.VarChar(100)
+  utmMedium   String?  @db.VarChar(100)
+  utmCampaign String?  @db.VarChar(191)
+  utmContent  String?  @db.VarChar(191)
+  utmTerm     String?  @db.VarChar(191)
+  queryParams Json?    @db.Json
+  createdAt   DateTime @default(now())
+
+  @@index([qrId, createdAt])
+  @@index([qrId, visitorHash])
+  @@index([createdAt])
+  @@map("bychat_qr_code_accesses")
+}
+
 // ───── Pixel JS (bychat-pixel) — visitante anônimo ─────
 model PixelVisitor {
   id               Int       @id @default(autoincrement())

@@ -319,13 +319,15 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
     }
 
     case 'tools': {
-      const [utms, personas] = await Promise.all([
+      const [utms, personas, qrcodes] = await Promise.all([
         safeCount(prisma.utmLink.count({ where: { archived: false } }) as any),
         safeCount(prisma.persona.count({ where: { active: true } }) as any),
+        safeCount(prisma.qrCode.count({ where: { active: true } }) as any),
       ])
       return pack([
         { label: 'UTMs salvas', count: utms },
         { label: 'personas/ICPs', count: personas },
+        { label: 'QR Codes ativos', count: qrcodes },
       ])
     }
 

@@ -71,7 +71,7 @@ function generateSlug(length = 8): string {
   return result
 }
 
-function parseUA(ua: string): { deviceType: string; browser: string; os: string } {
+export function parseUA(ua: string): { deviceType: string; browser: string; os: string } {
   const deviceType = /mobile|android|iphone|ipad/i.test(ua) ? (/ipad|tablet/i.test(ua) ? 'tablet' : 'mobile') : 'desktop'
   let browser = 'other'
   if (/chrome/i.test(ua) && !/edge|opr/i.test(ua)) browser = 'Chrome'
@@ -80,10 +80,11 @@ function parseUA(ua: string): { deviceType: string; browser: string; os: string 
   else if (/edge/i.test(ua)) browser = 'Edge'
   else if (/opr|opera/i.test(ua)) browser = 'Opera'
   let os = 'other'
+  // iPhone/iPad antes de macOS: o UA deles traz "like Mac OS X".
   if (/windows/i.test(ua)) os = 'Windows'
-  else if (/macintosh|mac os/i.test(ua)) os = 'macOS'
+  else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS'
   else if (/android/i.test(ua)) os = 'Android'
-  else if (/iphone|ipad|ios/i.test(ua)) os = 'iOS'
+  else if (/macintosh|mac os/i.test(ua)) os = 'macOS'
   else if (/linux/i.test(ua)) os = 'Linux'
   return { deviceType, browser, os }
 }
@@ -100,7 +101,7 @@ const BOT_PATTERNS = [
   /phantom/i, /headless/i, /selenium/i, /puppeteer/i,
 ]
 
-function isBotUA(ua: string): boolean {
+export function isBotUA(ua: string): boolean {
   if (!ua || ua.length < 10) return true
   for (const p of BOT_PATTERNS) { if (p.test(ua)) return true }
   return false

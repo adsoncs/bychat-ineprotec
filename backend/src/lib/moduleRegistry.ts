@@ -939,7 +939,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     // Personas saiu: as outras quatro são calculadoras que não guardam nada, e
     // a persona é cadastro — alimenta a IA e o lead score. Coisas com vida
     // diferente não devem morrer no mesmo interruptor.
-    description: 'Utilitários do dia-a-dia: UTM Builder, Link de WhatsApp, QR Code e URL Inspector. Não guardam dado — podem ser desativados sem impacto operacional.',
+    description: 'Utilitários do dia-a-dia: UTM Builder, Link de WhatsApp, QR Code e URL Inspector. Os QR Codes salvos guardam o destino e os acessos; desligar o módulo esconde as telas, mas os QR impressos continuam funcionando.',
     pages: ['utms', 'whatsapp-link', 'qr', 'url-inspector'],
     routePrefixes: ['/api/admin/utms', '/api/admin/tools'],
     actions: ['view', 'create', 'edit', 'delete'],

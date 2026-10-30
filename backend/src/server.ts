@@ -139,6 +139,7 @@ import { legalRoutes } from './routes/legal.js'
 import { consentRoutes } from './routes/consent.js'
 import { titularRoutes } from './routes/titular.js'
 import { toolsRoutes } from './routes/tools.js'
+import { qrCodesRoutes } from './routes/qrCodes.js'
 import { personasRoutes } from './routes/personas.js'
 import { conversationAuditsRoutes } from './routes/conversationAudits.js'
 import { aiJourneyRoutes } from './routes/aiJourney.js'
@@ -910,6 +911,7 @@ await app.register(legalRoutes)
 await app.register(consentRoutes)
 await app.register(titularRoutes)
 await app.register(toolsRoutes)
+await app.register(qrCodesRoutes)
 await app.register(personasRoutes)
 await app.register(conversationAuditsRoutes)
 await app.register(aiJourneyRoutes)
