@@ -1,4 +1,4 @@
-import type { LeadListItem } from '@/hooks/useLeads'
+import type { LeadEducacional } from '@/hooks/useLeads'
 import type { EduColumnKey } from '@/stores/leadsColumns'
 import { useMyPermissions } from '@/hooks/usePermissions'
 import { formatDateTime } from '@/lib/format'
@@ -63,7 +63,7 @@ function distintos(vs: (string | null | undefined)[]): string[] {
  * inscrições/matrículas: a célula mostra a mais recente e "+N", e o `title`
  * (dica ao passar o mouse) lista todas.
  */
-export function eduCellText(lead: LeadListItem, col: EduColumnKey): { text: string; title: string } {
+export function eduCellText(lead: { educacional?: LeadEducacional | undefined }, col: EduColumnKey): { text: string; title: string } {
   const insc = lead.educacional?.inscricoes ?? []
   const mats = lead.educacional?.matriculas ?? []
   let vs: string[]

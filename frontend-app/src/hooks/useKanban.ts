@@ -1,3 +1,4 @@
+import type { LeadEducacional } from '@/hooks/useLeads'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { comJustificativa } from '@/lib/justificativa'
@@ -82,6 +83,14 @@ export interface KanbanLead {
   _metaFormName: string | null
   /** A negociação que o card mostra: aberta de maior valor, preferindo a deste funil. */
   _negociacao?: { titulo: string; valor: number | null; moeda: string; prazo: string | null; aberta: boolean } | null
+  // Dados que o agente pode escolher mostrar no card (Personalizar card).
+  uid?: string | null
+  segmento?: string | null
+  cidade?: string | null
+  aiScore?: number | null
+  aiScoreLabel?: string | null
+  /** Só vem quando o quadro é pedido com `edu` (algum dado educacional escolhido). */
+  educacional?: LeadEducacional
   /** Mais de uma inscrição aberta: cada uma com a sua etapa (o card fica na da mais adiantada). */
   _inscricoes?: Array<{ codigo: string; curso: string | null; etapa: string }> | null
   /** Já houve mensagem trocada — é o que autoriza o atalho para o Conversas. */
@@ -127,6 +136,8 @@ export interface KanbanBoardFilters {
   dateFrom?: string | undefined
   dateTo?: string | undefined
   hideLost?: boolean | undefined
+  /** Traz o Educacional de cada lead — só quando o card do agente mostra algum dado dele. */
+  edu?: boolean | undefined
 }
 
 function buildKanbanQuery(f: KanbanBoardFilters): string {
@@ -142,6 +153,7 @@ function buildKanbanQuery(f: KanbanBoardFilters): string {
   if (f.dateFrom) p.set('dateFrom', f.dateFrom)
   if (f.dateTo) p.set('dateTo', f.dateTo)
   if (f.hideLost) p.set('hideLost', '1')
+  if (f.edu) p.set('edu', '1')
   const qs = p.toString()
   return qs ? `?${qs}` : ''
 }

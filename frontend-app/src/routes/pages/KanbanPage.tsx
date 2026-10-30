@@ -31,7 +31,9 @@ import {
   MoreHorizontal,
   Phone,
   Plus,
+  FormInput,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   StickyNote,
   Trophy,
@@ -62,6 +64,9 @@ import { SavedFiltersBar } from '@/components/leads/SavedFiltersBar'
 import { KanbanFiltersPanel } from '@/components/leads/KanbanFiltersPanel'
 import { useDuplicateLead, useSendLeadsToKanban } from '@/hooks/useLeads'
 import { useCustomFields } from '@/hooks/useCustomFields'
+import { useKanbanCardStore, useBlocoVisivel, type KanbanCardDado } from '@/stores/kanbanCard'
+import { KanbanCardDados, valorDoDado } from '@/components/kanban/kanbanCardCatalogo'
+import { KanbanCardSettings } from '@/components/kanban/KanbanCardSettings'
 import { useFunnel } from '@/hooks/useFunnels'
 import { useAuth } from '@/hooks/useAuth'
 import { Page } from '@/components/ui/Page'
@@ -292,6 +297,10 @@ export function KanbanPage() {
   const [, navigate] = useLocation()
   const [activityFor, setActivityFor] = useState<{ id: number; label: string; whatsapp?: string | null; email?: string | null | undefined } | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
+  // Personalizar card: o que aparece em cada card, escolha deste agente.
+  const [cardSettingsOpen, setCardSettingsOpen] = useState(false)
+  const cardDados = useKanbanCardStore((st) => st.dados)
+  const cardPersonalizado = useKanbanCardStore((st) => st.dados.length > 0 || st.ocultos.length > 0)
   const [markWonFor, setMarkWonFor] = useState<number | null>(null)
   const [markLostFor, setMarkLostFor] = useState<number | null>(null)
   // Menu de contexto (botão direito) do card, na posição do mouse — o mesmo
@@ -299,7 +308,11 @@ export function KanbanPage() {
   const [menuCard, setMenuCard] = useState<{ lead: KanbanLead; x: number; y: number } | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
-  const kanbanQueryFilters: KanbanBoardFilters = { ...boardFilters, funnelId, search: search || undefined, hideLost: hideLost && !boardFilters.outcome ? true : undefined }
+  const kanbanQueryFilters: KanbanBoardFilters = {
+    ...boardFilters, funnelId, search: search || undefined, hideLost: hideLost && !boardFilters.outcome ? true : undefined,
+    // O Educacional de cada lead só é buscado quando o card dele mostra algum dado educacional.
+    edu: cardDados.some((d) => d.startsWith('edu:')) || undefined,
+  }
   const { data, isLoading, isFetching } = useKanbanBoard(kanbanQueryFilters)
   const move = useMoveLeadStage(funnelId)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
@@ -504,6 +517,17 @@ export function KanbanPage() {
               {compact ? 'Confortável' : 'Compacto'}
             </Button>
             <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setCardSettingsOpen(true)}
+              title={cardPersonalizado
+                ? 'Card personalizado por você — clique para ajustar (só neste navegador)'
+                : 'Escolher o que aparece nos cards (só para você, neste navegador)'}
+            >
+              <SlidersHorizontal size={12} /> Personalizar card
+              {cardPersonalizado && <span class="size-1.5 rounded-full bg-accent" aria-label="personalizado" />}
+            </Button>
+            <Button
               variant={hideLost && !boardFilters.outcome ? 'primary' : 'secondary'}
               size="sm"
               onClick={toggleHideLost}
@@ -642,6 +666,16 @@ export function KanbanPage() {
       )}
       {permissionsOpen && (
         <KanbanPermissionsModal onClose={() => setPermissionsOpen(false)} />
+      )}
+      {cardSettingsOpen && (
+        <KanbanCardSettings
+          open
+          onOpenChange={setCardSettingsOpen}
+          leads={Object.values(data?.leads ?? {}).flat()}
+          // Prévia sem cliques: os botões do card (WhatsApp, Conversas) não
+          // devem disparar nada de dentro da configuração.
+          renderPrevia={(l) => <div class="pointer-events-none"><LeadCard lead={l} mostrarVazios /></div>}
+        />
       )}
       {activityFor && (
         <Suspense fallback={null}>
@@ -903,14 +937,17 @@ function DraggableCard({
 }
 
 /** Campos personalizados marcados "mostrar no Kanban" que o lead tem preenchidos.
- * Máximo de 3 linhas — o card é denso e precisa continuar legível. */
+ * Máximo de 3 linhas — o card é denso e precisa continuar legível. O que o
+ * agente já pôs entre os dados dele sai daqui: o mesmo campo duas vezes é ruído. */
 function useKanbanCardFields(lead: KanbanLead): Array<{ key: string; label: string; value: string }> {
   const { data } = useCustomFields()
+  const dadosDoAgente = useKanbanCardStore((st) => st.dados)
   return useMemo(() => {
     const values = (lead.customFields ?? {}) as Record<string, unknown>
     const out: Array<{ key: string; label: string; value: string }> = []
     for (const f of data?.fields ?? []) {
       if (!f.active || !f.showInKanban) continue
+      if (dadosDoAgente.includes(`cf:${f.key}`)) continue
       const v = values[f.key]
       if (v === null || v === undefined || v === '') continue
       const text = Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
@@ -918,7 +955,12 @@ function useKanbanCardFields(lead: KanbanLead): Array<{ key: string; label: stri
       if (out.length === 3) break
     }
     return out
-  }, [data?.fields, lead.customFields])
+  }, [data?.fields, lead.customFields, dadosDoAgente])
+}
+
+/** O card tem alguma linha de dado escolhido pelo agente para mostrar? */
+function temDadosDoAgente(lead: KanbanLead, dados: KanbanCardDado[], mostrarVazios: boolean): boolean {
+  return dados.length > 0 && (mostrarVazios || dados.some((id) => !!valorDoDado(lead, id).text))
 }
 
 function isStale(updatedAt: string): boolean {
@@ -1022,8 +1064,8 @@ function Sep() {
  * (responsável, marcadores, data). Telefone e e-mail saíram do corpo: ninguém
  * lê um telefone no quadro — clica.
  */
-function LeadCard({
-  lead, dragging = false, compact = false, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost, onMenu,
+export function LeadCard({
+  lead, dragging = false, compact = false, mostrarVazios = false, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost, onMenu,
 }: {
   lead: KanbanLead
   dragging?: boolean | undefined
@@ -1036,8 +1078,11 @@ function LeadCard({
   onMarkLost?: (() => void) | undefined
   /** Ausente na prévia do arrasto (DragOverlay), que não recebe eventos. */
   onMenu?: ((x: number, y: number) => void) | undefined
+  /** Prévia do Personalizar card: mostra as linhas de dados mesmo sem valor. */
+  mostrarVazios?: boolean | undefined
 }) {
   const stale = isStale(lead.updatedAt)
+  const dadosEscolhidos = useKanbanCardStore((st) => st.dados)
   // Toque longo (celular) abre o mesmo menu do botão direito. O arrasto do
   // quadro começa depois de 4px, então mover o dedo cancela o menu e o card
   // segue para a etapa — um gesto não atropela o outro.
@@ -1060,6 +1105,153 @@ function LeadCard({
   const tags = lead.tags ?? []
   // A faixa é UMA: desfecho vence "parado", porque lead classificado não está
   // parado — está terminado.
+  // O que o agente escolheu ver (Personalizar card — salvo no navegador dele).
+  const vis = useBlocoVisivel()
+
+  // A régua de sinais. Cada item só existe quando é verdade — régua vazia é
+  // card sem nada a cobrar, e isso também é informação. Os divisores ficam
+  // ENTRE os itens presentes: com um item oculto, não sobra traço solto.
+  const sinais: preact.JSX.Element[] = []
+  if (vis('score') && score !== null) sinais.push(
+    <span key="score" class="inline-flex items-center gap-2">
+      <ScoreBar value={score} class="w-11 !h-1" />
+      <span class="tabular-nums">{Math.round(score)}</span>
+    </span>,
+  )
+  if (vis('atividades') && lead._activityCount > 0) sinais.push(
+    <span key="ativ" class="inline-flex items-center gap-1" title={`${lead._activityCount} atividade(s) pendente(s)`}>
+      <ListChecks size={10} /> {lead._activityCount}
+    </span>,
+  )
+  if (vis('situacao') && lead.statusSummary) sinais.push(
+    <span key="sit" class="inline-flex items-center gap-1 min-w-0" title={`${lead.statusSummary.code} — ${lead.statusSummary.name}`}>
+      <span class="size-1.5 rounded-full shrink-0" style={{ background: lead.statusSummary.color || 'currentColor' }} />
+      <span class="font-mono truncate">{lead.statusSummary.code}</span>
+    </span>,
+  )
+  if (vis('resultado') && lead.outcome) sinais.push(
+    <span key="res" class={lead.outcome === 'won' ? 'text-success font-medium' : 'text-danger font-medium'}>
+      {lead.outcome === 'won' ? 'Ganho' : 'Perdido'}
+    </span>,
+  )
+  if (vis('parado') && stale && !lead.outcome) sinais.push(
+    <span key="parado" class="text-danger">{daysSince(lead.updatedAt)}d parado</span>,
+  )
+
+  // Rodapé: o que só se consulta. Mesma regra dos divisores.
+  const rodapeEsq: preact.JSX.Element[] = []
+  if (vis('responsavel')) rodapeEsq.push(responsavel
+    ? <span key="resp" class="truncate max-w-[6rem]" title={responsavel}>{responsavel.split(/\s+/)[0]}</span>
+    : <span key="resp" class="italic" title="Sem responsável">Fila</span>)
+  if (vis('tags') && tags.length > 0) rodapeEsq.push(
+    <span key="tags" class="inline-flex items-center gap-0.5 shrink-0" title={tags.map(({ tag }) => tag.name).join(' · ')}>
+      {tags.slice(0, 4).map(({ tag }) => (
+        <span key={tag.id} class="size-1.5 rounded-full" style={{ background: tag.color }} />
+      ))}
+      {tags.length > 4 && <span class="ml-0.5">+{tags.length - 4}</span>}
+    </span>,
+  )
+  if (vis('anotacao') && lead.annotation) rodapeEsq.push(
+    <span key="nota" class="inline-flex items-center gap-1 shrink-0" title={lead.annotation}>
+      <StickyNote size={10} /> nota
+    </span>,
+  )
+  if (vis('formulario') && lead._metaFormName) rodapeEsq.push(
+    <span key="form" class="inline-flex items-center gap-1 min-w-0" title={`Veio do formulário ${lead._metaFormName}`}>
+      <Sparkles size={10} class="shrink-0" />
+      <span class="truncate max-w-[6rem]">{lead._metaFormName}</span>
+    </span>,
+  )
+  const mostraCriado = vis('criado')
+
+  const corpo: preact.JSX.Element[] = []
+  if (sinais.length > 0) corpo.push(
+    <div key="sinais" class="flex items-center gap-2 text-2xs text-fg-muted min-w-0">
+      {sinais.flatMap((el, k) => (k === 0 ? [el] : [<Sep key={`s${k}`} />, el]))}
+    </div>,
+  )
+  // Contato à vista: no dia a dia o operador confere número e e-mail sem
+  // abrir o lead. Discreto — texto secundário, sem pastilha colorida.
+  const mostraZap = vis('whatsapp') && !!lead.whatsapp
+  const mostraEmail = vis('email') && !!lead.email
+  if (mostraZap || mostraEmail) corpo.push(
+    <div key="contato" class={cn('flex items-center gap-2 text-2xs text-fg-muted flex-wrap', corpo.length > 0 && 'mt-1.5')}>
+      {mostraZap && (
+        <span class="inline-flex items-center gap-1 min-w-0" title={lead.whatsapp!}>
+          <Phone size={10} class="shrink-0" />
+          <span class="truncate">{lead.whatsapp}</span>
+        </span>
+      )}
+      {mostraEmail && (
+        <a
+          href={`mailto:${lead.email}`}
+          class="inline-flex items-center gap-1 min-w-0 hover:text-fg"
+          title={lead.email!}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Mail size={10} class="shrink-0" />
+          <span class="truncate max-w-[10rem]">{lead.email}</span>
+        </a>
+      )}
+    </div>,
+  )
+  // Duas inscrições abertas (ex.: Redação e ENEM): o card está na etapa da
+  // mais adiantada; esta linha mostra que existe a outra.
+  if (vis('inscricoes') && lead._inscricoes && lead._inscricoes.length > 1) corpo.push(
+    <div key="insc" class={cn('text-2xs text-fg-muted truncate', corpo.length > 0 && 'mt-1.5')} title={lead._inscricoes.map((i) => `${i.codigo} — ${i.curso ?? ''}: ${i.etapa}`).join('\n')}>
+      {lead._inscricoes.map((i) => `${i.curso ?? i.codigo}: ${i.etapa}`).join(' · ')}
+    </div>,
+  )
+  // A negociação: o VALOR tem peso tipográfico, não cor. Prazo vencido é a
+  // exceção — aí vira decisão, e decisão pode acender.
+  if (vis('negociacao') && lead._negociacao) {
+    const n = lead._negociacao
+    corpo.push(
+      <div key="neg" class={cn('flex items-baseline gap-1.5 text-2xs min-w-0', corpo.length > 0 && 'mt-1.5')}>
+        <span class="text-fg-muted truncate" title={n.titulo}>{n.titulo}</span>
+        {n.valor != null && (
+          <span class="text-fg font-semibold tabular-nums shrink-0">{formatarValor(n.valor, n.moeda)}</span>
+        )}
+        {n.prazo && (
+          <span
+            class={cn('shrink-0 inline-flex items-center gap-1', prazoVencido(n.prazo) ? 'text-danger' : 'text-fg-muted')}
+            title={`Fechamento previsto para ${new Date(n.prazo).toLocaleDateString('pt-BR')}`}
+          >
+            <CalendarClock size={10} /> {formatarPrazo(n.prazo)}
+          </span>
+        )}
+      </div>,
+    )
+  }
+  // Campos que a casa marcou "mostrar no Kanban".
+  if (vis('camposDaEmpresa') && kanbanFields.length > 0) corpo.push(
+    <div key="cfEmpresa" class={cn('space-y-0.5', corpo.length > 0 && 'mt-1.5')}>
+      {kanbanFields.map((f) => (
+        <div key={f.key} class="flex items-center gap-1.5 text-2xs leading-snug min-w-0" title={`${f.label}: ${f.value}`}>
+          <FormInput size={10} class="shrink-0 text-fg-muted" />
+          <span class="shrink-0 text-fg-muted">{f.label}:</span>
+          <span class="truncate text-fg">{f.value}</span>
+        </div>
+      ))}
+    </div>,
+  )
+  // Dados que o agente acrescentou (lead, Educacional, campos personalizados).
+  const dadosDoAgente = <KanbanCardDados key="dados" lead={lead} mostrarVazios={mostrarVazios} />
+  if (temDadosDoAgente(lead, dadosEscolhidos, mostrarVazios)) corpo.push(dadosDoAgente)
+  if (rodapeEsq.length > 0 || mostraCriado) corpo.push(
+    <div key="rodape" class={cn('flex items-center justify-between gap-2 text-2xs text-fg-muted', corpo.length > 0 && 'mt-2 pt-1.5 border-t border-border')}>
+      <span class="flex items-center gap-1.5 min-w-0">
+        {rodapeEsq.flatMap((el, k) => (k === 0 ? [el] : [<Sep key={`r${k}`} />, el]))}
+      </span>
+      {mostraCriado && (
+        <span class={cn('shrink-0', stale && !lead.outcome && 'text-danger')} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
+          {timeAgo(lead.createdAt)}
+        </span>
+      )}
+    </div>,
+  )
+
   const trilho = lead.outcome === 'won'
     ? 'border-l-success'
     : lead.outcome === 'lost'
@@ -1116,7 +1308,7 @@ function LeadCard({
                 </span>
               )}
             </span>
-            {!compact && lead.empresa && lead.nome && (
+            {!compact && vis('empresa') && lead.empresa && lead.nome && (
               <span class="block text-2xs text-fg-muted truncate leading-tight">{lead.empresa}</span>
             )}
           </span>
@@ -1140,179 +1332,10 @@ function LeadCard({
         </div>
       </div>
 
-      {!compact && (
-        <div class="px-2.5 pb-2 pt-2">
-          {/* A régua de sinais. Cada item só existe quando é verdade — régua
-            * vazia é card sem nada a cobrar, e isso também é informação. */}
-          {(score !== null || lead._activityCount > 0 || lead.statusSummary || lead.outcome || stale) && (
-            <div class="flex items-center gap-2 text-2xs text-fg-muted">
-              {score !== null && (
-                <>
-                  <ScoreBar value={score} class="w-11 !h-1" />
-                  <span class="tabular-nums">{Math.round(score)}</span>
-                </>
-              )}
-              {lead._activityCount > 0 && (
-                <>
-                  {score !== null && <Sep />}
-                  <span class="inline-flex items-center gap-1" title={`${lead._activityCount} atividade(s) pendente(s)`}>
-                    <ListChecks size={10} /> {lead._activityCount}
-                  </span>
-                </>
-              )}
-              {lead.statusSummary && (
-                <>
-                  <Sep />
-                  <span
-                    class="inline-flex items-center gap-1 min-w-0"
-                    title={`${lead.statusSummary.code} — ${lead.statusSummary.name}`}
-                  >
-                    <span
-                      class="size-1.5 rounded-full shrink-0"
-                      style={{ background: lead.statusSummary.color || 'currentColor' }}
-                    />
-                    <span class="font-mono truncate">{lead.statusSummary.code}</span>
-                  </span>
-                </>
-              )}
-              {lead.outcome && (
-                <>
-                  <Sep />
-                  <span class={lead.outcome === 'won' ? 'text-success font-medium' : 'text-danger font-medium'}>
-                    {lead.outcome === 'won' ? 'Ganho' : 'Perdido'}
-                  </span>
-                </>
-              )}
-              {stale && !lead.outcome && (
-                <>
-                  <Sep />
-                  <span class="text-danger">{daysSince(lead.updatedAt)}d parado</span>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Contato à vista. Voltou ao corpo por decisão do usuário: no dia a
-            * dia o operador confere o número e o e-mail sem abrir o lead, e
-            * escondê-los atrás de um ícone obrigava um clique a mais para uma
-            * conferência que é constante. Segue discreto — texto secundário,
-            * sem pastilha colorida. */}
-          {(lead.whatsapp || lead.email) && (
-            <div class="flex items-center gap-2 mt-1.5 text-2xs text-fg-muted flex-wrap">
-              {lead.whatsapp && (
-                <span class="inline-flex items-center gap-1 min-w-0" title={lead.whatsapp}>
-                  <Phone size={10} class="shrink-0" />
-                  <span class="truncate">{lead.whatsapp}</span>
-                </span>
-              )}
-              {lead.email && (
-                <a
-                  href={`mailto:${lead.email}`}
-                  class="inline-flex items-center gap-1 min-w-0 hover:text-fg"
-                  title={lead.email}
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <Mail size={10} class="shrink-0" />
-                  <span class="truncate max-w-[10rem]">{lead.email}</span>
-                </a>
-              )}
-            </div>
-          )}
-
-          {/* Duas inscrições abertas (ex.: Redação e ENEM): o card está na etapa
-            * da mais adiantada; esta linha mostra que existe a outra. */}
-          {lead._inscricoes && lead._inscricoes.length > 1 && (
-            <div class="mt-1.5 text-2xs text-fg-muted truncate" title={lead._inscricoes.map((i) => `${i.codigo} — ${i.curso ?? ''}: ${i.etapa}`).join('\n')}>
-              {lead._inscricoes.map((i) => `${i.curso ?? i.codigo}: ${i.etapa}`).join(' · ')}
-            </div>
-          )}
-          {/* A negociação. É o dado pelo qual o funil existe, então o VALOR tem
-            * peso tipográfico — não cor. Prazo vencido é a exceção: aí vira
-            * decisão, e decisão pode acender. */}
-          {lead._negociacao && (
-            <div class="flex items-baseline gap-1.5 mt-1.5 text-2xs min-w-0">
-              <span class="text-fg-muted truncate" title={lead._negociacao.titulo}>
-                {lead._negociacao.titulo}
-              </span>
-              {lead._negociacao.valor != null && (
-                <span class="text-fg font-semibold tabular-nums shrink-0">
-                  {formatarValor(lead._negociacao.valor, lead._negociacao.moeda)}
-                </span>
-              )}
-              {lead._negociacao.prazo && (
-                <span
-                  class={cn('shrink-0 inline-flex items-center gap-1', prazoVencido(lead._negociacao.prazo) ? 'text-danger' : 'text-fg-muted')}
-                  title={`Fechamento previsto para ${new Date(lead._negociacao.prazo).toLocaleDateString('pt-BR')}`}
-                >
-                  <CalendarClock size={10} /> {formatarPrazo(lead._negociacao.prazo)}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Campos que a casa escolheu mostrar (showInKanban): continuam por
-            * inteiro — são dado de negócio, não enfeite. */}
-          {kanbanFields.length > 0 && (
-            <div class="mt-1.5 space-y-0.5">
-              {kanbanFields.map((f) => (
-                <div key={f.key} class="flex items-baseline gap-1.5 text-2xs leading-snug text-fg-muted">
-                  <span class="shrink-0">{f.label}:</span>
-                  <span class="truncate" title={f.value}>{f.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div class="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-border text-2xs text-fg-muted">
-            <span class="flex items-center gap-1.5 min-w-0">
-              {responsavel ? (
-                <span class="truncate max-w-[6rem]" title={responsavel}>{responsavel.split(/\s+/)[0]}</span>
-              ) : (
-                <span class="italic" title="Sem responsável">Fila</span>
-              )}
-              {tags.length > 0 && (
-                <>
-                  <Sep />
-                  <span
-                    class="inline-flex items-center gap-0.5 shrink-0"
-                    title={tags.map(({ tag }) => tag.name).join(' · ')}
-                  >
-                    {tags.slice(0, 4).map(({ tag }) => (
-                      <span key={tag.id} class="size-1.5 rounded-full" style={{ background: tag.color }} />
-                    ))}
-                    {tags.length > 4 && <span class="ml-0.5">+{tags.length - 4}</span>}
-                  </span>
-                </>
-              )}
-              {lead.annotation && (
-                <>
-                  <Sep />
-                  <span class="inline-flex items-center gap-1 shrink-0" title={lead.annotation}>
-                    <StickyNote size={10} /> nota
-                  </span>
-                </>
-              )}
-              {lead._metaFormName && (
-                <>
-                  <Sep />
-                  <span class="inline-flex items-center gap-1 min-w-0" title={`Veio do formulário ${lead._metaFormName}`}>
-                    <Sparkles size={10} class="shrink-0" />
-                    <span class="truncate max-w-[6rem]">{lead._metaFormName}</span>
-                  </span>
-                </>
-              )}
-            </span>
-            <span
-              class={cn('shrink-0', stale && !lead.outcome && 'text-danger')}
-              title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}
-            >
-              {timeAgo(lead.createdAt)}
-            </span>
-          </div>
-        </div>
+      {!compact && corpo.length > 0 && (
+        <div class="px-2.5 pb-2 pt-2">{corpo}</div>
       )}
-      {stale && compact && (
+      {stale && compact && vis('parado') && !lead.outcome && (
         <div class="px-2.5 py-1.5 text-3xs text-danger">{daysSince(lead.updatedAt)}d parado</div>
       )}
     </div>
@@ -1544,6 +1567,8 @@ function KanbanListRow({
   onMenu: (x: number, y: number) => void
 }) {
   const stale = isStale(lead.updatedAt)
+  // Mesmas escolhas do card (Personalizar card).
+  const vis = useBlocoVisivel()
   return (
     <li
       class={cn(
@@ -1556,30 +1581,39 @@ function KanbanListRow({
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-fg-muted inline-flex shrink-0"><ChannelIcon source={lead.source} /></span>
           <span class="text-sm text-fg truncate">{lead.nome ?? '—'}</span>
-          {lead._activityCount > 0 && (
+          {vis('atividades') && lead._activityCount > 0 && (
             <span class="inline-flex items-center gap-1 text-2xs text-fg-muted" title={`${lead._activityCount} atividade(s) pendente(s)`}>
               <ListChecks size={10} /> {lead._activityCount}
             </span>
           )}
         </div>
         <div class="text-xs text-fg-muted truncate flex items-center gap-2 flex-wrap mt-0.5">
-          <span>{lead.empresa ?? '—'}</span>
-          {lead.whatsapp && (
+          {vis('empresa') && <span>{lead.empresa ?? '—'}</span>}
+          {vis('whatsapp') && lead.whatsapp && (
             <span class="text-fg-muted inline-flex items-center gap-1" title={lead.whatsapp}>
               <Phone size={10} /> {lead.whatsapp}
             </span>
           )}
-          {lead._metaFormName && (
+          {vis('email') && lead.email && (
+            <span class="text-fg-muted inline-flex items-center gap-1 min-w-0 max-w-[12rem]" title={lead.email}>
+              <Mail size={10} class="shrink-0" /> <span class="truncate">{lead.email}</span>
+            </span>
+          )}
+          {vis('formulario') && lead._metaFormName && (
             <span class="inline-flex items-center gap-1 truncate max-w-[140px]" title={`Veio do formulário ${lead._metaFormName}`}>
               <Sparkles size={10} /> {lead._metaFormName}
             </span>
           )}
-          <span class="text-3xs"><AssigneeChip name={lead.assignedUser?.name ?? null} /></span>
+          {vis('responsavel') && <span class="text-3xs"><AssigneeChip name={lead.assignedUser?.name ?? null} /></span>}
+          {/* Dados que o agente acrescentou ao card, em sequência. */}
+          <KanbanCardDados lead={lead} modo="linha" />
         </div>
       </div>
-      <div class={cn('text-2xs whitespace-nowrap', stale ? 'text-danger font-medium' : 'text-fg-muted')} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
-        {timeAgo(lead.createdAt)}
-      </div>
+      {vis('criado') && (
+        <div class={cn('text-2xs whitespace-nowrap', stale ? 'text-danger font-medium' : 'text-fg-muted')} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
+          {timeAgo(lead.createdAt)}
+        </div>
+      )}
       <div class="flex items-center gap-1 shrink-0">
         {lead.whatsapp && <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact tone="neutral" />}
         <AbrirNoConversas lead={lead} />

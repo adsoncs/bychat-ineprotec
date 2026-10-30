@@ -203,6 +203,8 @@ export async function kanbanRoutes(app: FastifyInstance) {
           conversationOpenedAt: true, conversationClosedAt: true, conversationReopenedAt: true,
           // O card exibe os campos personalizados marcados showInKanban.
           customFields: true,
+          // Dados que o agente pode escolher mostrar no card (Personalizar card).
+          uid: true, segmento: true, cidade: true, aiScore: true, aiScoreLabel: true,
           assignedUserId: true, assignedAt: true, teamId: true,
           assignedUser: { select: { id: true, name: true } },
           // Módulo Resumo: o card mostra o código da situação atual.
@@ -289,6 +291,19 @@ export async function kanbanRoutes(app: FastifyInstance) {
         .map((u) => [u.id, u.name ?? ''] as [number, string]),
     )
 
+    // Educacional no card: só quando o agente escolheu algum dado dele
+    // (`edu=1`). Em lotes — um funil grande passa de milhares de leads, e o IN
+    // de uma vez só estoura o limite de parâmetros do MySQL.
+    let eduMap = new Map<number, any>()
+    if (q.edu === '1' && leads.length > 0) {
+      const { educacionalDosLeads } = await import('../services/leadEducacional.js')
+      const ids = leads.map((l) => l.id)
+      for (let i = 0; i < ids.length; i += 2000) {
+        const parte = await educacionalDosLeads(ids.slice(i, i + 2000))
+        parte.forEach((v, k) => eduMap.set(k, v))
+      }
+    }
+
     // Lead classificado (outcome=won/lost) permanece na etapa que o gestor escolheu —
     // o badge/cor no card sinaliza o estado sem o sistema impor uma coluna fixa.
     const grouped: Record<string, any[]> = {}
@@ -316,6 +331,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
         ...l,
         _negociacao: negocMap[l.id] ?? null,
         _inscricoes: inscMap[l.id] ?? null,
+        ...(eduMap.size > 0 ? { educacional: eduMap.get(l.id) ?? { inscricoes: [], matriculas: [] } } : {}),
         _temConversa: temConversa,
         _conversaAberta: temConversa && conversaAberta,
         _naoLidas: l.unreadMessages ?? 0,
