@@ -387,6 +387,8 @@ function ConversationsScreen() {
   const [leitura, setLeitura] = useState<'' | 'unread' | 'read'>('')
   // Tags: o cliente pediu. O servidor casa com QUALQUER uma das escolhidas.
   const [tagsFiltro, setTagsFiltro] = useState<number[]>([])
+  // Período: '' = qualquer data | 'today' = só conversas com mensagem hoje.
+  const [periodo, setPeriodo] = useState<'' | 'today'>('')
   // Ordenação. Sempre existiu (lastMessageAt desc, fixo) — agora é escolha.
   const [ordenacao, setOrdenacao] = useState<'recent' | 'oldest' | 'name'>('recent')
   // Painel de filtros: as listas longas saem do caminho permanente.
@@ -617,6 +619,8 @@ function ConversationsScreen() {
     kind: kindFilter || undefined,
     unread: leitura || undefined,
     tagIds: tagsFiltro.length ? tagsFiltro.join(',') : undefined,
+    // Meia-noite local: muda sozinha na virada do dia, e com ela a consulta.
+    since: periodo === 'today' ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString() : undefined,
     sort: ordenacao,
   })
 
@@ -625,11 +629,11 @@ function ConversationsScreen() {
   // Escopo e leitura NÃO entram na conta: os dois estão à vista na faixa de
   // pílulas, com nome. A bolinha do funil conta só o que está escondido.
   const filtrosAtivos =
-    (senderChannel ? 1 : 0) + (funnelFilter ? 1 : 0) +
+    (senderChannel ? 1 : 0) + (funnelFilter ? 1 : 0) + (periodo ? 1 : 0) +
     tagsFiltro.length + (ordenacao !== 'recent' ? 1 : 0)
 
   function limparFiltros() {
-    setSenderChannel(''); setFunnelFilter('')
+    setSenderChannel(''); setFunnelFilter(''); setPeriodo('')
     setTagsFiltro([]); setOrdenacao('recent')
   }
   // As páginas viram uma lista só: quem rola não deve perceber que existem
@@ -873,6 +877,18 @@ function ConversationsScreen() {
                         <option value="">Todos os funis</option>
                         <option value="none">Sem funil</option>
                         {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+                      </Select>
+                    </div>
+
+                    <div>
+                      <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Período</div>
+                      <Select
+                        value={periodo}
+                        onChange={(e) => setPeriodo((e.target as HTMLSelectElement).value as '' | 'today')}
+                        aria-label="Filtrar por período da última mensagem"
+                      >
+                        <option value="">Qualquer data</option>
+                        <option value="today">Mensagens de hoje</option>
                       </Select>
                     </div>
 

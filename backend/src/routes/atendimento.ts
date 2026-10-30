@@ -651,6 +651,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         filtrosAnd.push({ id: { in: ids.length ? ids : [-1] } })
       }
 
+      // "Mensagens de hoje": `since` é a meia-noite de quem olha, calculada no
+      // navegador — o dia do operador, não o fuso do servidor.
+      if (query.since) {
+        const desde = new Date(String(query.since))
+        if (!Number.isNaN(desde.getTime())) filtrosAnd.push({ lastMessageAt: { gte: desde } })
+      }
+
       if (query.tagIds) {
         const tagIdArr = String(query.tagIds).split(',').map(Number).filter(Boolean)
         if (tagIdArr.length > 0) {

@@ -100,6 +100,9 @@ export interface TicketsFilters {
   // Tags: ids separados por vírgula. O servidor casa com QUALQUER uma delas
   // (`some`), que é o que as pessoas esperam de um filtro de tag.
   tagIds?: string | undefined
+  // Só conversas com mensagem a partir deste instante (ISO). "Mensagens de
+  // hoje" manda a meia-noite local de quem olha.
+  since?: string | undefined
   // Ordenação declarada: 'recent' (padrão) | 'oldest' | 'name'.
   sort?: string | undefined
   limit?: number | undefined
@@ -117,6 +120,7 @@ function buildQuery(f: TicketsFilters): string {
   if (f.kind) p.set('kind', f.kind)
   if (f.unread) p.set('unread', f.unread)
   if (f.tagIds) p.set('tagIds', f.tagIds)
+  if (f.since) p.set('since', f.since)
   if (f.sort && f.sort !== 'recent') p.set('sort', f.sort)
   if (f.limit !== undefined) p.set('limit', String(f.limit))
   if (f.offset !== undefined) p.set('offset', String(f.offset))
