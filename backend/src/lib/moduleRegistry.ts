@@ -946,6 +946,15 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'painel_gerencial', name: 'Painel Gerencial (fechamento)', icon: '📈', category: 'vendas',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
+    description: 'Página de fechamento mensal por link com token (PAINEL_TOKEN no .env): vendas, pipeline, ranking de vendedores, metas e comissão por empresa. Empresas, funis e faixas de comissão vêm da configuração painel_gerencial.config.',
+    pages: [],
+    routePrefixes: [],
+    actions: ['view'],
+    defaultEnabled: false,
+  },
+  {
     id: 'helpdesk', name: 'Helpdesk / Chamados', icon: '🎫', category: 'support',
     umbrella: 'atendimento', cobranca: 'pacote',
     description: 'Central de chamados/tickets de suporte com protocolo, prioridade, tipos, atribuição por setor, thread público/interno e timeline. Base para SLA, automações, base de conhecimento e portal do cliente (módulo em construção).',

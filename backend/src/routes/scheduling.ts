@@ -545,6 +545,14 @@ export async function schedulingRoutes(app: FastifyInstance) {
         await prisma.activity.update({ where: { id: bk.activityId }, data: { status: 'cancelled' } }).catch(() => {})
       }
     }
+    // Reflete a mudança de status na agenda da clínica. 'completed' não tem
+    // ação equivalente lá (o atendimento é fechado pela própria clínica), então
+    // só cancelar, confirmar e falta propagam.
+    import('../services/clinicaExperts/sync.js').then((ce) => {
+      if (status === 'cancelled') ce.emSegundoPlano(() => ce.espelharCancelamento(id, body.reason ?? null), `cancelamento da reserva ${id}`)
+      else if (status === 'confirmed') ce.emSegundoPlano(() => ce.espelharConfirmacao(id), `confirmação da reserva ${id}`)
+      else if (status === 'no_show') ce.emSegundoPlano(() => ce.espelharNoShow(id), `falta na reserva ${id}`)
+    }).catch(() => {})
     return { ok: true }
   })
 

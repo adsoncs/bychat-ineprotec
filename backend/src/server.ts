@@ -135,6 +135,8 @@ import { catalogRoutes } from './routes/catalog.js'
 import { waCallsRoutes } from './routes/waCalls.js'
 import { schedulingRoutes } from './routes/scheduling.js'
 import { schedulingPublicRoutes } from './routes/schedulingPublic.js'
+import { clinicaExpertsRoutes } from './routes/clinicaExperts.js'
+import { clinicaExpertsPublicRoutes } from './routes/clinicaExpertsPublic.js'
 import { legalRoutes } from './routes/legal.js'
 import { consentRoutes } from './routes/consent.js'
 import { titularRoutes } from './routes/titular.js'
@@ -906,6 +908,8 @@ await app.register(goalsCommissionsRoutes)
 await app.register(catalogRoutes)
 await app.register(waCallsRoutes)
 await app.register(schedulingRoutes)
+await app.register(clinicaExpertsRoutes)
+await app.register(clinicaExpertsPublicRoutes)
 await app.register(schedulingPublicRoutes)
 await app.register(legalRoutes)
 await app.register(consentRoutes)
@@ -1450,6 +1454,9 @@ import('./services/profilePictureSync.js')
   // Regra (08/10): mensagem automática para lead/candidato/aluno só sai por
   // fluxo configurável na UX. Confirmação/cancelamento do próprio agendamento
   // (resposta à ação da pessoa) continuam.
+  // Traz a agenda da clínica (Clinica Experts) para cá como bloqueio, para o
+  // motor de slots não oferecer horário que a recepção já ocupou lá.
+  import('./services/clinicaExperts/ocupacao.js').then(m => m.startOcupacaoClinicaExperts()).catch(() => {})
   startPriorityScoreScheduler().catch(err => console.error('[priorityScore] init falhou:', err))
   startEnrollmentExpireJob()
   startStatusSummaryAdvanceJob()

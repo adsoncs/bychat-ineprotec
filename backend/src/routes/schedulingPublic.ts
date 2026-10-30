@@ -129,6 +129,9 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
       import('../services/googleCalendarSync.js').then((m) => m.unsyncActivityFromCalendar(b.activityId!)).catch(() => {})
     }
     notifyCancelled(b.id).catch(() => {})
+    import('../services/clinicaExperts/sync.js')
+      .then((ce) => ce.emSegundoPlano(() => ce.espelharCancelamento(b.id, reason), `cancelamento da reserva ${b.id}`))
+      .catch(() => {})
     return { ok: true }
   })
 
@@ -164,6 +167,9 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     } else {
       notifyBooking(b.id, 'confirmation').catch(() => {})
     }
+    import('../services/clinicaExperts/sync.js')
+      .then((ce) => ce.emSegundoPlano(() => ce.espelharRemarcacao(b.id), `remarcação da reserva ${b.id}`))
+      .catch(() => {})
     return { ok: true, startAt: start.toISOString() }
   })
 
@@ -183,6 +189,9 @@ function renderManagePage(token: string, mode: 'cancel' | 'reschedule'): string 
   return `<!doctype html><html lang="pt-br"><head>
 ${blocoGtag()}
 <script async src="/api/consent/cc.js"></script>
+<!-- Ponto de extensão do agendamento (usado pela integração Clinica Experts).
+     Onde o script não existe, nada muda: a página segue no fluxo padrão. -->
+<script src="/api/public/clinica-experts/passos.js"></script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${mode === 'cancel' ? 'Cancelar' : 'Remarcar'} agendamento</title>
 <style>*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#f6f7f9;color:#1f2328}

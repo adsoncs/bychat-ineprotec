@@ -520,6 +520,13 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
 
   await prisma.meetingType.update({ where: { id: mt.id }, data: { totalBookings: { increment: 1 } } }).catch(() => {})
 
+  // Espelha na agenda da clínica (Clinica Experts). Em segundo plano e sem
+  // poder derrubar nada: o paciente não espera a API de terceiro para ver a
+  // confirmação, e uma indisponibilidade lá não pode cancelar a reserva daqui.
+  import('./clinicaExperts/sync.js')
+    .then((ce) => ce.emSegundoPlano(() => ce.espelharCriacao(booking.id), `criação da reserva ${booking.id}`))
+    .catch(() => {})
+
   // ── Fase 6: integração CRM ──
   if (leadId) {
     // Move o lead pra etapa do tipo (novos já nascem lá; dedup-existentes movem).

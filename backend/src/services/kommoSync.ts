@@ -23,21 +23,26 @@ import { generateUid } from './dedup.js'
 import { displayPhone } from '../lib/phone.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 
-// ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────
 // Origem (canal) do lead a partir do `source_id` da Kommo.
 //
 // A conta da Kommo não expõe a entidade Sources (pertence a outros apps
 // instalados), então o nome do canal não vem pela API — só o id numérico.
-// De-para levantado junto ao cliente (ineprotec): estes 3 ids são o
-// formulário do site; TODO o resto (inclusive o import em massa de 19/04)
-// é WhatsApp. `Lead.source` recebe a chave canônica ('web_form'/'whatsapp')
-// para casar com o taxonômico nativo (leadSourceLabel) e entrar em
-// filtros/relatórios como qualquer lead. A proveniência Kommo continua em
-// formData.source='kommo' e qualificationSource='kommo_import'.
-const KOMMO_FORM_SOURCE_IDS = new Set(['23057764', '23058034', '23063755'])
+// Quais ids são formulário do site é dado de CADA conta: fica na Setting
+// `kommo.form_source_ids` (lista de ids, JSON ou separados por vírgula). O que
+// não estiver na lista é WhatsApp. `Lead.source` recebe a chave canônica
+// ('web_form'/'whatsapp') para casar com o taxonômico nativo (leadSourceLabel);
+// a proveniência Kommo continua em formData.source='kommo' e
+// qualificationSource='kommo_import'.
+async function formSourceIds(): Promise<Set<string>> {
+  const row = await prisma.setting.findUnique({ where: { key: 'kommo.form_source_ids' } }).catch(() => null)
+  const v: unknown = row?.value
+  const lista = Array.isArray(v) ? v : String(v ?? '').replace(/[\[\]"]/g, '').split(',')
+  return new Set(lista.map((x) => String(x).trim()).filter(Boolean))
+}
 
-export function kommoSourceToChannel(sourceId: unknown): string {
-  return KOMMO_FORM_SOURCE_IDS.has(String(sourceId)) ? 'web_form' : 'whatsapp'
+export function kommoSourceToChannel(sourceId: unknown, idsDeFormulario: Set<string>): string {
+  return idsDeFormulario.has(String(sourceId)) ? 'web_form' : 'whatsapp'
 }
 
 /**
@@ -547,6 +552,7 @@ export async function importContactsPage(page: number, since?: number, cfg?: Kom
 
 export async function importLeadsPage(page: number, defaultTeamId: number | null, since?: number, cfg?: KommoConfig): Promise<{ processed: number; created: number; updated: number; hasNext: boolean }> {
   const config = cfg ?? (await getKommoConfig(true))
+  const idsDeFormulario = await formSourceIds()
   const [cfMap, statusMap, pipeMap, userMap, contactMap, tagMap, leadMap, catalogMap] = await Promise.all([
     loadMappingDict('custom_field'), loadMappingDict('status'), loadMappingDict('pipeline'),
     loadMappingDict('user'), loadMappingDict('contact'), loadMappingDict('tag'), loadMappingDict('lead'),
@@ -650,7 +656,7 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
             status: stageKey,
             funnelId: funnelId ?? undefined,
             teamId: defaultTeamId ?? undefined,
-            source: kommoSourceToChannel(l.source_id),
+            source: kommoSourceToChannel(l.source_id, idsDeFormulario),
             sourceId: String(l.id),
             // UTM/gclid nas colunas nativas — é o que a atribuição lê.
             ...tracking,

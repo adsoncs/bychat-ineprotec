@@ -1,47 +1,68 @@
 // Painel Gerencial (fechamento mensal) — camada de dados.
 //
-// Recria, a partir do BANCO do próprio tenant (bychat-ineprotec), os números
-// que o painel externo (Supabase/Kommo) mostrava. Escopo "só ineprotec" = o
-// funil comercial INE (default funnelId=4, "INE - FUNIL DE VENDAS"). Nada é
-// hardcode de regra de negócio: as etapas ganha/perdida são DETECTADAS da
-// própria tabela de etapas (por padrão de chave), e o funil é parâmetro.
+// Números de fechamento calculados a partir do BANCO do próprio tenant, por
+// empresa (conjunto de funis configurado em `painel_gerencial.config`). As
+// etapas ganha/perdida são DETECTADAS da própria tabela de etapas (por padrão
+// de chave); nada de regra de negócio no código.
 //
-// Âncora de data: COORTE (lead.createdAt dentro do período). É a visão que o
-// painel externo usa no "visão geral" e nos rankings de vendedor (validado:
-// Jessica Alves = 39 matrículas / R$94.688, idêntico ao painel original).
-// "Matrículas efetivadas por data do evento" fica para a página de Matrículas.
+// Âncora de data: COORTE (lead.createdAt dentro do período) — a visão geral e
+// os rankings de vendedor. "Matrículas efetivadas por data do evento" fica
+// para a página de Matrículas.
 
 import { prisma } from '../lib/prisma.js'
 
-// Empresas do tenant. O CRM do ineprotec hospeda DUAS operações: o próprio
-// INEPROTEC (funil INE, 4) e a MATRÍCULA EAD (funil MAT importado do Kommo, 1,
-// e o "Comercial – Matrícula EAD" criado em ago/26, 7). O painel separa as
+// Empresas e comissão vêm da configuração do tenant (Setting
+// `painel_gerencial.config`), nunca do código:
+//   {
+//     "titulo": "Fechamento",                       (opcional)
+//     "empresas": { "<chave>": { "nome": "...", "funis": [4], "posVenda": [5, 6], "comissao": true } },
+//     "comissaoFaixas": [ { "nome": "Base", "min": 0, "boleto": 10, "cartao": 15, "pix": 20 } ]
+//   }
+// Um tenant pode hospedar mais de uma operação no mesmo CRM: o painel separa as
 // empresas pelo FUNIL. `funis` = vendas (leads, etapas, pipeline); `posVenda` =
-// Sucesso do Aluno / Redes da mesma empresa: depois da venda o card do aluno vai
-// para lá (com o Ganho marcado) e a matrícula NÃO pode sumir do painel.
-// Um funnelId explícito (>0) ainda permite inspecionar outro funil pontualmente.
-export const EMPRESAS = {
-  ine: { nome: 'INEPROTEC', funis: [4], posVenda: [5, 6], comissao: true },
-  mat: { nome: 'MATRÍCULA EAD', funis: [1, 7], posVenda: [2, 3], comissao: false },
-} as const
-export type EmpresaKey = keyof typeof EMPRESAS
-export function empresaDe(v: unknown): EmpresaKey { return v === 'mat' ? 'mat' : 'ine' }
+// para onde o card vai depois da venda (com o Ganho marcado) — a matrícula NÃO
+// pode sumir do painel por isso. Um funnelId explícito (>0) ainda permite
+// inspecionar outro funil pontualmente.
+// `comissaoFaixas`: comissão POR MATRÍCULA, escalonada pela qtd de matrículas do
+// vendedor no mês e pela forma de pagamento. Ordenar por `min` DESC.
+export interface EmpresaPainel { nome: string; funis: number[]; posVenda: number[]; comissao: boolean }
+interface FaixaComissao { nome: string; min: number; boleto: number; cartao: number; pix: number }
+export interface ConfigPainel { titulo: string; empresas: Record<string, EmpresaPainel>; comissaoFaixas: FaixaComissao[] }
 
-// Tabela de comissão do ineprotec (comissão POR MATRÍCULA, escalonada pela qtd
-// de matrículas do vendedor no mês e pela forma de pagamento). Config do tenant
-// — editar aqui (painel não é replicado). Ordenar por `min` DESC.
-const COMISSAO_FAIXAS = [
-  { nome: 'Super Meta', min: 45, boleto: 25, cartao: 42, pix: 47 },
-  { nome: 'Meta 2', min: 35, boleto: 20, cartao: 37, pix: 42 },
-  { nome: 'Meta 1', min: 25, boleto: 15, cartao: 25, pix: 30 },
-  { nome: 'Base', min: 0, boleto: 10, cartao: 15, pix: 20 },
-]
-const fnList = (funnelId?: number, empresa: EmpresaKey = 'ine'): string =>
-  (funnelId && funnelId > 0 ? [funnelId] : [...EMPRESAS[empresa].funis])
+let EMPRESAS: Record<string, EmpresaPainel> = {}
+let COMISSAO_FAIXAS: FaixaComissao[] = []
+
+/** Lê a configuração; `null` = painel não configurado neste tenant. */
+export async function carregarConfigPainel(): Promise<ConfigPainel | null> {
+  const row = await prisma.setting.findUnique({ where: { key: 'painel_gerencial.config' } }).catch(() => null)
+  let v: any = row?.value
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { v = null } }
+  const nums = (x: unknown) => (Array.isArray(x) ? x.map(Number).filter(Number.isFinite) : [])
+  const empresas: Record<string, EmpresaPainel> = {}
+  for (const [k, e] of Object.entries((v?.empresas ?? {}) as Record<string, any>)) {
+    if (!e || !String(e.nome ?? '').trim()) continue
+    empresas[k] = { nome: String(e.nome).trim(), funis: nums(e.funis), posVenda: nums(e.posVenda), comissao: e.comissao === true }
+  }
+  if (!Object.keys(empresas).length) return null
+  const faixas: FaixaComissao[] = (Array.isArray(v?.comissaoFaixas) ? v.comissaoFaixas : [])
+    .map((f: any) => ({ nome: String(f?.nome ?? ''), min: Number(f?.min) || 0, boleto: Number(f?.boleto) || 0, cartao: Number(f?.cartao) || 0, pix: Number(f?.pix) || 0 }))
+    .sort((x: FaixaComissao, y: FaixaComissao) => y.min - x.min)
+  EMPRESAS = empresas
+  COMISSAO_FAIXAS = faixas
+  return { titulo: String(v?.titulo ?? '').trim(), empresas, comissaoFaixas: faixas }
+}
+
+export type EmpresaKey = string
+/** A empresa pedida, se existir; senão a primeira configurada. */
+export function empresaDe(v: unknown): EmpresaKey {
+  return typeof v === 'string' && v in EMPRESAS ? v : (Object.keys(EMPRESAS)[0] ?? '')
+}
+const fnList = (funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)): string =>
+  (funnelId && funnelId > 0 ? [funnelId] : [...(EMPRESAS[empresa]?.funis ?? [])])
     .map((f) => Number(f)).filter(Number.isFinite).join(',') || '0'
 /** Funis de pós-venda da empresa (vazio quando um funnelId explícito foi pedido). */
-const posList = (funnelId?: number, empresa: EmpresaKey = 'ine'): string =>
-  (funnelId && funnelId > 0 ? [] : [...EMPRESAS[empresa].posVenda]).join(',') || '0'
+const posList = (funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)): string =>
+  (funnelId && funnelId > 0 ? [] : [...(EMPRESAS[empresa]?.posVenda ?? [])]).join(',') || '0'
 
 // DDD → [UF, estado]. O campo `cidade` do lead é esparso; o DDD do telefone é
 // o sinal de região mais confiável que temos.
@@ -161,7 +182,7 @@ function juntar<A extends Record<string, any>, B extends Record<string, any>>(
   return [...m.values()]
 }
 
-export async function painelComercial(periodo: PeriodoIn, funnelId?: number, empresa: EmpresaKey = 'ine') {
+export async function painelComercial(periodo: PeriodoIn, funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)) {
   const { from, to, days } = periodo
   const FN = fnList(funnelId, empresa)
   const POS = posList(funnelId, empresa)
@@ -465,9 +486,9 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   // total e aplica a taxa da faixa.
   let metas: any = {
     disponivel: false,
-    nota: `Tabela de metas e comissões da ${EMPRESAS[empresa].nome} não configurada.`,
+    nota: `Tabela de metas e comissões da ${(EMPRESAS[empresa]?.nome ?? '')} não configurada.`,
   }
-  if (EMPRESAS[empresa].comissao) {
+  if (EMPRESAS[empresa]?.comissao && COMISSAO_FAIXAS.length) {
     const comiRows = await prisma.$queryRawUnsafe<Array<any>>(
       `SELECT ${VEND} AS vendedor,
               SUM(UPPER(u.forma) LIKE 'BOLETO%') AS boleto,
@@ -509,7 +530,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
 
   return {
     periodo: { from: from.toISOString(), to: to.toISOString(), days },
-    empresa: { key: empresa, nome: EMPRESAS[empresa].nome },
+    empresa: { key: empresa, nome: (EMPRESAS[empresa]?.nome ?? '') },
     funnelId: FN.split(',').map(Number),
     visao_geral, visao_ant,
     funil, serie_diaria, cursos, vendedores, origens, regioes, motivos_perda,
@@ -525,7 +546,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
 const DAY = 86_400_000
 function dayStr(d: Date): string { return d.toISOString().slice(0, 10) }
 
-export async function painelMarketing(periodo: PeriodoIn, funnelId?: number, empresa: EmpresaKey = 'ine') {
+export async function painelMarketing(periodo: PeriodoIn, funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)) {
   const { from, to, days } = periodo
   const FN = fnList(funnelId, empresa)
   const f = dayStr(from), t = dayStr(to)
@@ -588,7 +609,7 @@ export async function painelMarketing(periodo: PeriodoIn, funnelId?: number, emp
 }
 
 /** chaves de etapa ganha de um funil (para o bloco de mídia). */
-async function wonKeysDe(funnelId?: number, empresa: EmpresaKey = 'ine'): Promise<string[]> {
+async function wonKeysDe(funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)): Promise<string[]> {
   const stages = await prisma.$queryRawUnsafe<Array<{ key: string }>>(
     `SELECT \`key\` FROM bychat_stages WHERE funnelId IN (${fnList(funnelId, empresa)})`,
   )
@@ -600,7 +621,7 @@ async function wonKeysDe(funnelId?: number, empresa: EmpresaKey = 'ine'): Promis
  * etapa nos funis comerciais. A página consulta isto a cada poucos segundos e
  * só recarrega os números (consultas pesadas) quando a versão muda.
  */
-export async function painelVersao(funnelId?: number, empresa: EmpresaKey = 'ine'): Promise<string> {
+export async function painelVersao(funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)): Promise<string> {
   const FN = fnList(funnelId, empresa)
   const r = await prisma.$queryRawUnsafe<Array<any>>(
     `SELECT (SELECT MAX(updatedAt) FROM bychat_leads WHERE funnelId IN (${FN})) AS lu,

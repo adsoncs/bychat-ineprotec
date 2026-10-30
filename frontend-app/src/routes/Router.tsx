@@ -433,6 +433,9 @@ const migratedPages: Record<string, ComponentType> = {
   'integ-evolution': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationEvolutionPage })),
   ),
+  'integ-clinica-experts': lazy(() =>
+    import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationClinicaExpertsPage })),
+  ),
   'integ-kommo': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationKommoPage })),
   ),

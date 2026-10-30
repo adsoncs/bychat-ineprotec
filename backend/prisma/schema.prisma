@@ -10634,3 +10634,31 @@ model EmailCampanhaEnvio {
   @@index([externalId])
   @@map("bychat_email_campanha_envios")
 }
+
+// ─────────────────────────────────────────────────────────────
+// Integração Clinica Experts (agenda da clínica)
+// ─────────────────────────────────────────────────────────────
+// Mesma ideia do KommoMapping: liga o UUID de lá ao registro daqui, para o
+// espelho ser idempotente (upsert, nunca duplica agendamento na clínica).
+//
+// `entityType`:
+//   booking      — Booking local  → agendamento na clínica
+//   patient      — Lead local     → paciente na clínica
+//   professional — User local     → profissional na clínica (configurado à mão)
+//
+// `ceUuid` é o identificador de lá (uuid v4 na maioria dos recursos; procedimento
+// e sala são inteiros, guardados como texto). `meta` guarda o último estado visto
+// — é como sabemos que algo mudou lá sem refazer o espelho inteiro.
+model ClinicaExpertsMapping {
+  id         Int      @id @default(autoincrement())
+  entityType String   @db.VarChar(20)
+  ceUuid     String   @db.VarChar(64)
+  localId    Int
+  meta       Json?    @db.Json
+  syncedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, ceUuid])
+  @@index([entityType, localId])
+  @@map("bychat_clinica_experts_mappings")
+}

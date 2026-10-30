@@ -224,6 +224,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-db-connectors', label: 'Conector de BD', href: '/app/integrations/db-connectors', icon: 'Database', permission: 'db_connectors' },
         { id: 'integ-api-keys', label: 'API Keys', href: '/app/integrations/api-keys', icon: 'Key', permission: 'apikeys' },
         { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings', atalho: true },
+        { id: 'integ-clinica-experts', label: 'Clinica Experts', href: '/app/integrations/clinica-experts', icon: 'Stethoscope', permission: 'settings', atalho: true },
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings', atalho: true },
         { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings', atalho: true },
         { id: 'integ-sei', label: 'SEI (ERP acadêmico)', href: '/app/integrations/sei', icon: 'GraduationCap', permission: 'settings', atalho: true },

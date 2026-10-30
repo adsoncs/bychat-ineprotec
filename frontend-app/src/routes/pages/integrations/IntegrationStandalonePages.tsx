@@ -18,11 +18,20 @@ import { EvolutionApiSettings } from '../settings/EvolutionApiSettings'
 import { KommoIntegration } from './KommoIntegration'
 import { CrmEducacionalIntegration } from './CrmEducacionalIntegration'
 import { SeiIntegration } from './SeiIntegration'
+import { ClinicaExpertsIntegration } from './ClinicaExpertsIntegration'
 
 export function IntegrationCrmEducacionalPage() {
   return (
     <Page title="CRM Educacional" description="Importa os leads do CRM Educacional (Wakeme). Mão única: nada é escrito lá.">
       <CrmEducacionalIntegration />
+    </Page>
+  )
+}
+
+export function IntegrationClinicaExpertsPage() {
+  return (
+    <Page title="Clinica Experts" description="Espelha os agendamentos na agenda da clínica e traz de lá os horários já ocupados.">
+      <ClinicaExpertsIntegration />
     </Page>
   )
 }

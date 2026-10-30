@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Painel Gerencial · INEPROTEC</title>
+<title>Painel Gerencial</title>
 <style>
   :root{
     --bg:#f3f4f6; --panel:#ffffff; --panel2:#fafafa; --ink:#111827; --muted:#6b7280;
@@ -70,7 +70,7 @@
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand">Painel Gerencial<small id="brandSub">INEPROTEC · Fechamento</small></div>
+    <div class="brand">Painel Gerencial<small id="brandSub">Fechamento</small></div>
     <nav id="nav"></nav>
   </aside>
   <main class="main">
@@ -80,7 +80,7 @@
         <div class="sub" id="pageSub"></div>
       </div>
       <div class="controls">
-        <select id="empSel" title="Empresa"><option value="ine">INEPROTEC</option><option value="mat">MATRÍCULA EAD</option></select>
+        <select id="empSel" title="Empresa"></select>
         <select id="monthSel" title="Mês"></select>
         <input type="date" id="fromD" title="De" />
         <input type="date" id="toD" title="Até" />
@@ -96,7 +96,7 @@
   "use strict";
   var qs = new URLSearchParams(location.search);
   var TOKEN = qs.get('token') || '';
-  var state = { page:'exec', from:null, to:null, data:null, loading:false, err:null, empresa:(qs.get('empresa')==='mat'?'mat':'ine') };
+  var state = { page:'exec', from:null, to:null, data:null, loading:false, err:null, empresa:(qs.get('empresa')||''), empresas:[], titulo:'' };
 
   // ---------- estrutura de navegação ----------
   var NAV = [
@@ -261,7 +261,7 @@
   function periodLabel(d){
     var f=new Date(d.periodo.from), t=new Date(d.periodo.to);
     var o={timeZone:'UTC'};
-    return 'Período: '+f.toLocaleDateString('pt-BR',o)+' – '+t.toLocaleDateString('pt-BR',o)+' · <b>'+((d.empresa&&d.empresa.nome)||'INEPROTEC')+'</b>';
+    return 'Período: '+f.toLocaleDateString('pt-BR',o)+' – '+t.toLocaleDateString('pt-BR',o)+' · <b>'+((d.empresa&&d.empresa.nome)||'')+'</b>';
   }
 
   var PAGES = {
@@ -386,7 +386,7 @@
     mkt_org:function(){ return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">Fonte de redes orgânicas ainda não conectada a este tenant.</div></div>'; },
   };
   function pageSoon(){
-    var gaps={com_sdr:'Agente SDR está desligado no ineprotec (sem chatbot ativo) — sem dado.',
+    var gaps={com_sdr:'Sem agente SDR (chatbot de IA) ativo neste ambiente — sem dado.',
       mkt_google:'Sem dado de custo do Google Ads neste tenant.',mkt_org:'Fonte de redes orgânicas ainda não conectada.'};
     var g=gaps[state.page];
     if(g) return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">'+g+'</div></div>';
@@ -404,15 +404,27 @@
     if(f&&t){ state.from=f; state.to=t; document.getElementById('monthSel').value='custom'; load(); }
   };
   if(location.hash && TITLES[location.hash.slice(1)]) state.page=location.hash.slice(1);
-  var empSel=document.getElementById('empSel'); empSel.value=state.empresa;
-  function setEmpLabel(){ document.getElementById('brandSub').textContent=(state.empresa==='mat'?'MATRÍCULA EAD':'INEPROTEC')+' · Fechamento'; }
-  setEmpLabel();
+  // Empresas e nome vêm da configuração do painel (painel_gerencial.config).
+  var empSel=document.getElementById('empSel');
+  function nomeEmpresa(){ for(var i=0;i<state.empresas.length;i++){ if(state.empresas[i].key===state.empresa) return state.empresas[i].nome; } return ''; }
+  function setEmpLabel(){ var n=nomeEmpresa(); document.getElementById('brandSub').textContent=(n?n+' · ':'')+(state.titulo||'Fechamento'); }
   empSel.onchange=function(){
     state.empresa=empSel.value; state.ver=null; setEmpLabel();
     var u=new URL(location.href); u.searchParams.set('empresa',state.empresa); history.replaceState(null,'',u.toString());
     load();
   };
-  buildNav(); fillMonths(); render(); load();
+  function iniciar(){ buildNav(); fillMonths(); render(); load(); }
+  if(!TOKEN){ iniciar(); }
+  else fetch('/api/painel/config?token='+encodeURIComponent(TOKEN),{cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(c){
+      state.empresas=c.empresas||[]; state.titulo=c.titulo||'';
+      empSel.innerHTML=state.empresas.map(function(e){ return '<option value="'+String(e.key).replace(/"/g,'&quot;')+'">'+String(e.nome).replace(/</g,'&lt;')+'</option>'; }).join('');
+      if(!state.empresas.some(function(e){ return e.key===state.empresa; })) state.empresa=state.empresas.length?state.empresas[0].key:'';
+      empSel.value=state.empresa; empSel.style.display=state.empresas.length>1?'':'none';
+      setEmpLabel(); iniciar();
+    })
+    .catch(function(){ iniciar(); });
 })();
 </script>
 </body>
