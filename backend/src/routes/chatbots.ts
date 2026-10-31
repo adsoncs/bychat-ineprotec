@@ -55,7 +55,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
   // visível em GET /api/admin/audit-log (superadmin). Campos de texto longo
   // (prompts, mensagens) entram truncados: o que importa é flagrar A MUDANÇA e
   // o autor, não arquivar o prompt inteiro a cada edição.
-  const CHATBOT_UPDATE_FIELDS = ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin'] as const
+  const CHATBOT_UPDATE_FIELDS = ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'scriptedConfig', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin'] as const
 
   app.put('/api/admin/chatbots/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
@@ -70,6 +70,12 @@ export async function chatbotsRoutes(app: FastifyInstance) {
       select: Object.fromEntries(CHATBOT_UPDATE_FIELDS.map((f) => [f, true])) as Record<string, true>,
     })
     const chatbot = await prisma.chatbot.update({ where: { id: Number(id) }, data })
+
+    // Ligou o fluxo de atendimento/coleta de currículo agora: os modelos de texto
+    // desses módulos passam a existir em Modelos já, sem esperar a próxima volta.
+    if (data.scriptedConfig !== undefined) {
+      void import('../services/modelosOpcionais.js').then((m) => m.ativarModelosOpcionais()).catch(() => {})
+    }
 
     if (before) {
       const TRUNCATE_AT = 200

@@ -880,6 +880,19 @@ model Chatbot {
   defaultTeamId Int?
   defaultTeam   Team? @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
 
+  // Fluxo de ATENDIMENTO/triagem do runner scripted (opt-in; null = comportamento
+  // clássico de captação). Shape:
+  // { supportFlow: true,
+  //   globalCommands: { menu: ["menu"], attendant: ["atendente"] },
+  //   maxFallbacks: 3, fallbackDept: "comercial",
+  //   departments: { <valueDaOpcao>: { teamId, tempoMedio } },
+  //   queueWarnMinutes: 5, csat: { enabled: true, timeoutMin: 10 },
+  //   lgpdFooter: "...", restartOnReturn: true, mediaAck: true,
+  //   sanitizeName: true, useBusinessHours: true,
+  //   hrIntake: { enabled, deptKey, forwardTo, forwardInstance, questions: [...] } }
+  // Ver services/scriptedSupportFlow.ts (getSupportCfg) e hrResumeIntake.ts.
+  scriptedConfig Json? @db.Json
+
   // Portal de matrícula vinculado — ao completar conversa, envia link pré-preenchido.
   enrollmentPortalId Int?
 
@@ -892,6 +905,26 @@ model Chatbot {
   @@index([defaultTeamId])
   @@index([enrollmentPortalId])
   @@map("bychat_chatbots")
+}
+
+// Pesquisa de satisfação (CSAT) enviada pelo chatbot scripted ao encerrar um
+// atendimento humano. rating null = contato não respondeu (timeout).
+model ChatbotCsat {
+  id          Int       @id @default(autoincrement())
+  leadId      Int
+  chatbotId   Int?
+  teamId      Int?
+  agentUserId Int?
+  rating      Int? // 1..5; null = timeout sem resposta
+  lowScore    Boolean   @default(false) // rating <= 3 → flag para coordenação
+  askedAt     DateTime  @default(now())
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([chatbotId, createdAt])
+  @@index([lowScore])
+  @@map("bychat_chatbot_csat")
 }
 
 model ChatQuestion {

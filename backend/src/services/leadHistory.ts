@@ -64,6 +64,12 @@ export const EVENT_TYPES = {
   // Routing (F4): regra condicional definiu setor/operador na criação do lead
   ROUTING_RULE_MATCHED:    'routing_rule_matched',
 
+  // Chatbot de atendimento encaminhou o lead para um humano (fim da coleta de
+  // dados do bot: nome + departamento + qualificação já capturados). Ver
+  // scriptedSupportFlow.enterWaitingAgent e hrResumeIntake.finishHrIntake.
+  // Usado como gatilho de workflow (lead.handoff).
+  CHATBOT_HANDOFF:         'chatbot_handoff',
+
   // Routing (F8): cron de escalação devolveu o lead pra fila por algum motivo.
   // Metadata.reason: agent_on_vacation | agent_inactive | agent_offline | no_response.
   AGENT_REASSIGNED_ESCALATION: 'agent_reassigned_escalation',
@@ -129,6 +135,7 @@ export const EVENT_TYPES = {
 const EVENT_TO_DOMAIN: Record<string, string> = {
   [EVENT_TYPES.LEAD_CREATED]:        'lead.created',
   [EVENT_TYPES.STATUS_CHANGED]:      'lead.stage_changed',
+  [EVENT_TYPES.CHATBOT_HANDOFF]:     'lead.handoff',
   [EVENT_TYPES.TAG_ADDED]:           'lead.tag_added',
   [EVENT_TYPES.TAG_REMOVED]:         'lead.tag_removed',
   [EVENT_TYPES.OPERATOR_ASSIGNED]:   'lead.assigned',

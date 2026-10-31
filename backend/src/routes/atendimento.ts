@@ -2017,6 +2017,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       await closeConversation(lid, quem)
       // Marca também o campo legado para sistemas externos que ainda leem `completed`.
       await prisma.lead.update({ where: { id: lid }, data: { completed: true } })
+      // Fluxo de atendimento do chatbot (supportFlow): dispara a pesquisa de
+      // satisfação (CSAT) ao encerrar. No-op para leads fora do fluxo.
+      {
+        const { maybeStartCsat } = await import('../services/scriptedSupportFlow.js')
+        maybeStartCsat(lid, user.userId).catch(() => {})
+      }
       const { liberada } = await liberarAoResolver(lid, quem)
       return { ok: true, liberada }
     } catch (err: any) {
@@ -2297,6 +2303,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         ipAddress: getIp(req),
       })
 
+      // Fluxo de atendimento do chatbot (supportFlow): atribuição a um operador
+      // equivale a assumir — avisa o contato e silencia o bot. No-op fora dele.
+      if (userChanged && newUserId) {
+        const { notifyAgentTakeover } = await import('../services/scriptedSupportFlow.js')
+        notifyAgentTakeover(lid, { userId: newUserId, name: newUser?.name || newUser?.email }).catch(() => {})
+      }
+
       // Avisa o CONTATO que outra pessoa assumiu (Configurações › Conversas).
       // Só quando o responsável muda de fato — trocar só o setor não é algo que
       // o contato precise saber. As demais guardas (conversa aberta, horário de
@@ -2480,6 +2493,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         byUserName: dbUser?.name || dbUser?.email,
         reason: 'claim',
       })
+
+      // Fluxo de atendimento do chatbot (supportFlow): avisa o contato que o
+      // especialista assumiu e silencia o bot (fase human_active). No-op fora dele.
+      {
+        const { notifyAgentTakeover } = await import('../services/scriptedSupportFlow.js')
+        notifyAgentTakeover(lid, { userId: user.userId, name: dbUser?.name || dbUser?.email }).catch(() => {})
+      }
 
       // Alguém NOVO assumiu uma conversa que já estava em andamento com outra
       // pessoa: para o contato, isso é uma transferência. Se o lead estava sem

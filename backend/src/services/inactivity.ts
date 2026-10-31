@@ -7,6 +7,8 @@
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { quebrarEmMensagens, intervaloDigitacao } from './messageStyle.js'
+import { interpolate } from '../lib/interpolate.js'
+import { getSupportCfg, supportMsg, sendBotMessage, firstName, tidyInterpolated } from './scriptedSupportFlow.js'
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
@@ -152,20 +154,39 @@ async function checkInactiveLeads(): Promise<void> {
         take: 50
       })
 
+      // Fluxo de atendimento do roteirizado (scriptedConfig.supportFlow): a
+      // inatividade só vale enquanto o BOT conduz — nunca com humano ativo,
+      // aguardando atendente, durante o CSAT ou já encerrado. null = chatbot
+      // comum, comportamento de sempre.
+      const supportCfg = getSupportCfg(bot)
+
       for (const lead of inactiveLeads) {
         const formData = (lead.formData || {}) as any
         const source = formData._source
+        const scriptPhase = formData._script?.phase
+        if (supportCfg && ['waiting_agent', 'human_active', 'csat', 'done', 'disqualified'].includes(scriptPhase)) continue
 
         // Count how many inactivity notifications were already sent
         const notifyCount = formData._inactivityNotifyCount || 0
 
         // Check if should auto-close (past close threshold)
         if (lead.lastActivityAt && lead.lastActivityAt < closeThreshold) {
+          // Fluxo de atendimento: avisa o encerramento antes de fechar e marca a
+          // fase 'done' (o restartOnReturn recomeça o fluxo quando o contato volta).
+          if (supportCfg && source === 'whatsapp' && lead.whatsapp) {
+            const aviso = supportMsg(bot, 'idleClosed', { nome: firstName(lead.nome) })
+            if (aviso) await sendBotMessage(lead.id, lead.whatsapp, aviso, bot)
+          }
           await prisma.lead.update({
             where: { id: lead.id },
             data: {
               completed: true,
-              formData: { ...formData, _closedReason: 'inactivity', _closedAt: now.toISOString() }
+              formData: {
+                ...formData,
+                _closedReason: 'inactivity',
+                _closedAt: now.toISOString(),
+                ...(supportCfg && formData._script ? { _script: { ...formData._script, phase: 'done' } } : {}),
+              },
             }
           })
           logEvent({
@@ -194,11 +215,16 @@ async function checkInactiveLeads(): Promise<void> {
 
         // Send re-engagement message — ONLY via the instance linked to this chatbot
         if ((action === 'notify' || action === 'notify_then_close') && message && source === 'whatsapp' && lead.whatsapp) {
-          const sent = await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id, lead.id, async () => {
-            const atual = await prisma.lead.findUnique({ where: { id: lead.id }, select: { lastActivityAt: true, completed: true, outcome: true } })
-            return !!atual && !atual.completed && !atual.outcome
-              && !!atual.lastActivityAt && atual.lastActivityAt < inactiveThreshold
-          })
+          // Fluxo de atendimento: interpola {{nome}} e sai pelo roteador de saída
+          // (sendBotMessage), que grava a mensagem na conversa — o chatbot pode
+          // estar numa conexão Cloud API, sem instância Evolution vinculada.
+          const sent = supportCfg
+            ? await sendBotMessage(lead.id, lead.whatsapp, tidyInterpolated(interpolate(message, { nome: firstName(lead.nome) })), bot)
+            : await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id, lead.id, async () => {
+              const atual = await prisma.lead.findUnique({ where: { id: lead.id }, select: { lastActivityAt: true, completed: true, outcome: true } })
+              return !!atual && !atual.completed && !atual.outcome
+                && !!atual.lastActivityAt && atual.lastActivityAt < inactiveThreshold
+            })
 
           if (!sent) {
             console.warn(`[Inactivity] Skipping lead #${lead.id} — no instance linked to chatbot #${bot.id} (${bot.name})`)

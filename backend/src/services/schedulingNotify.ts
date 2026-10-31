@@ -3,8 +3,35 @@
 import { prisma } from '../lib/prisma.js'
 import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
 import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
-import { renderizarModelo } from './modelosDoSistema.js'
+import { renderizarModelo, registrarModelosPadrao } from './modelosDoSistema.js'
+import { saudacaoAgora, primeiroNome } from '../lib/interpolate.js'
 import { EMPTY_PARAM_PLACEHOLDER, buildBodyParams, renderTemplateText } from '../lib/waTemplateParams.js'
+
+// ── Pedido de confirmação por TEXTO (opt-in) ────────────────────────────────
+// Setting `scheduling.confirmar_por_texto` (padrão desligado). Ligado:
+//   • sem HSM de confirmação utilizável, o pedido sai como texto livre
+//     (modelo `agendamento_confirmar_wa`) pelo roteador de saída;
+//   • um "Sim"/"ok" curto confirma a reserva que está aguardando confirmação.
+// Desligado, nada muda: sem HSM o pedido não sai, e só "confirmar" ou o botão
+// confirmam — um "sim" pode ser a resposta a outra pergunta do chatbot.
+export async function confirmacaoPorTextoLigada(): Promise<boolean> {
+  const row = await prisma.setting.findUnique({ where: { key: 'scheduling.confirmar_por_texto' } }).catch(() => null)
+  return ['true', '1', 'sim', 'on'].includes(String(row?.value ?? '').replace(/^"|"$/g, '').trim().toLowerCase())
+}
+
+/** Registrado sob demanda (services/modelosOpcionais.ts), só com o Setting acima ligado. */
+export function registrarModelosDaConfirmacaoPorTexto(): void {
+  registrarModelosPadrao([{
+    key: 'agendamento_confirmar_wa', name: 'Agendamento — pedido de confirmação sem modelo da Meta (WhatsApp)', channel: 'whatsapp',
+    body: '{{saudacao}}, {{nome}}!{{#agente}} Aqui é o {{agente}}{{#marca}}, da {{marca}}{{/marca}}.{{/agente}}\n\nVi que temos {{#presencial}}uma visita{{/presencial}}{{^presencial}}uma reunião{{/presencial}} agendada e gostaria de confirmar nosso encontro.\n📅 {{quando}}{{#link}}\n{{#presencial}}📍 Endereço{{/presencial}}{{^presencial}}🔗 Link{{/presencial}}: {{link}}{{/link}}\n\nPode me confirmar respondendo com um *Sim*, por favor?',
+  }])
+}
+
+/** Roteador de saída ligado (Setting `whatsapp.roteador_saida`)? Ver outboundRouter.ts. */
+async function roteadorLigado(): Promise<boolean> {
+  const { configDoRoteador } = await import('./outboundRouter.js')
+  return (await configDoRoteador()).ligado
+}
 
 function publicBase(): string { return (process.env.APP_URL || 'https://localhost').replace(/\/$/, '') }
 export function cancelLink(token: string): string { return `${publicBase()}/agendar/cancelar/${token}` }
@@ -28,8 +55,53 @@ function esc(s: string): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 }
 
-async function sendWa(leadId: number | null, phone: string, text: string): Promise<void> {
-  if (!phone) return
+// Persiste a mensagem enviada ao lead em Conversas (fromMe=true), pra confirmação/
+// lembrete do agendamento ficarem visíveis no histórico do contato — espelha o
+// saveOutgoing do scriptedChatbotFlow. Só persiste quando há lead (avisos internos
+// ao operador, sem leadId, não entram na timeline de nenhum contato).
+// Usado no caminho do roteador de saída (Setting `whatsapp.roteador_saida`).
+async function persistOutgoing(
+  leadId: number | null, body: string, providerType: string, instanceName: string | null, messageId: string | null,
+  cloudApiConnectionId?: number | null,
+): Promise<void> {
+  if (!leadId || !body) return
+  try {
+    await prisma.message.create({ data: {
+      leadId, fromMe: true, body, mediaType: 'text', provider: providerType,
+      ...(providerType === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      ...(cloudApiConnectionId ? { cloudApiConnectionId } : {}),
+      senderName: 'Agendamento', isInternal: false, externalId: messageId, ack: messageId ? 1 : 0, timestamp: new Date(),
+    } })
+    await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
+  } catch (e: any) { console.warn('[scheduling] persistir msg falhou:', e?.message) }
+}
+
+/** Envia texto livre ao lead. Devolve se a mensagem SAIU — quem marca estado a
+ *  partir do envio (ex.: `confirmRequestedAt`) precisa saber, senão a reserva fica
+ *  registrada como "confirmação pedida" sem ninguém ter recebido nada.
+ *  `hsm` (opcional) só vale no roteador de saída: é o template usado quando o
+ *  contato está fora da janela de 24h da Cloud API. */
+async function sendWa(
+  leadId: number | null, phone: string, text: string,
+  hsm?: { name: string; values: Record<string, string> } | null,
+): Promise<boolean> {
+  if (!phone) return false
+  if (await roteadorLigado()) {
+    try {
+      // O roteador decide o número: canal da conversa, Cloud API com HSM quando o
+      // contato está frio, Evolution como rede de segurança.
+      const { enviarAutomatico } = await import('./outboundRouter.js')
+      const r = await enviarAutomatico({ leadId, phone, texto: text, hsm: hsm ?? null })
+      await persistOutgoing(leadId, r.textoEnviado, r.canal, r.instanceName, r.externalId, r.cloudApiConnectionId)
+      // Aviso a GRUPO também entra na conversa do grupo — `persistOutgoing` só
+      // cobre o lead. Idempotente pelo externalId: nunca duplica a bolha.
+      const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
+      await registrarSaidaParaGrupo({
+        destino: phone, texto: r.textoEnviado, externalId: r.externalId, instanceName: r.instanceName,
+      })
+      return true
+    } catch (e: any) { console.warn('[scheduling] WhatsApp falhou:', e?.message); return false }
+  }
   try {
     const wp = await import('./whatsappProvider.js')
     // Lead → provider do dono/canal do lead. Sem leadId (aviso interno ao operador)
@@ -43,7 +115,8 @@ async function sendWa(leadId: number | null, phone: string, text: string): Promi
       destino: phone, texto: text, externalId: r?.messageId ?? null,
       instanceName: (provider as any).instanceName ?? null,
     })
-  } catch (e: any) { console.warn('[scheduling] WhatsApp falhou:', e?.message) }
+    return true
+  } catch (e: any) { console.warn('[scheduling] WhatsApp falhou:', e?.message); return false }
 }
 
 // Nomes dos templates HSM (Cloud API) usados pelo agendamento. São o único jeito de
@@ -56,6 +129,8 @@ const TEMPLATE_KEYS = {
   confirmation: 'scheduling.confirm_template',
   reminder24h: 'scheduling.reminder_24h_template',
   reminder1h: 'scheduling.reminder_1h_template',
+  // HSM do cancelamento — só usado pelo roteador de saída (fora da janela de 24h).
+  cancelled: 'scheduling.cancelled_template',
 } as const
 
 async function templateNameFor(kind: keyof typeof TEMPLATE_KEYS): Promise<string> {
@@ -183,15 +258,84 @@ async function sendBookingConfirmationToLead(
         link: presencial ? '' : linkText, local: presencial ? linkText : '',
         aviso_gravacao: recNotice || '',
       })
-      if (msg?.body.trim()) await provider.sendText(phone, msg.body)
+      if (msg?.body.trim()) {
+        const r = await provider.sendText(phone, msg.body)
+        // Com o roteador ligado, a mensagem também entra em Conversas.
+        if (await roteadorLigado()) await persistOutgoing(leadId, msg.body, 'cloud_api', null, (r as any)?.messageId ?? null, conn.id)
+      }
       return
     }
 
     // Lead frio (fora da janela de 24h) → só passa HSM aprovado.
     const templateName = await templateNameFor('confirmation')
     const sent = await sendHsm(conn, templateName, phone, { ...vars, reuniao: mt.name, quando: when, link: linkText || await textoDoModelo('agendamento_hsm_sem_link') }, leadId)
-    if (sent) await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
+    if (sent) {
+      await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
+      return
+    }
+    // HSM indisponível (não aprovado, ou nunca criado) e a Cloud API recusa texto
+    // livre fora da janela: sem este caminho a confirmação simplesmente NÃO SAI —
+    // foi o que aconteceu no terram, onde todo lead de formulário marcou reunião e
+    // nunca recebeu o pedido de confirmação. Opt-in (`scheduling.confirmar_por_texto`):
+    // é um envio a mais para o lead, então não liga sozinho em ninguém.
+    if (await confirmacaoPorTextoLigada()) {
+      await sendBookingConfirmationViaEvolution(bookingId, leadId, mt, when, linkText, presencial, phone)
+    }
   } catch (e: any) { console.warn('[scheduling] confirmação ao lead falhou:', e?.message) }
+}
+
+/** Texto do pedido de confirmação por escrito, editável em
+ *  `agendamento_confirmar_wa`. Exportado para poder ser conferido sem disparar
+ *  mensagem a ninguém. */
+export async function montarPedidoDeConfirmacao(
+  bookingId: number, leadId: number | null,
+  mt: { name: string; locationDetail: string | null }, when: string,
+  linkText: string, presencial: boolean,
+): Promise<string> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { operatorUserId: true, inviteeName: true },
+  })
+  const lead = leadId ? await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true } }) : null
+  const dono = booking?.operatorUserId
+    ? await prisma.user.findFirst({ where: { id: booking.operatorUserId, active: true }, select: { name: true } }).catch(() => null)
+    : null
+  const agenteSetting = await prisma.setting.findUnique({ where: { key: 'company.agent_name' } }).catch(() => null)
+  const agente = dono?.name
+    ? primeiroNome(dono.name)
+    : (agenteSetting ? String(agenteSetting.value ?? '').replace(/^"|"$/g, '').trim() : '')
+  // Modelo agendamento_confirmar_wa. A assinatura ("Aqui é o X, da Y") só entra
+  // com nome de gente — {{#agente}} — senão viraria "Aqui é o , da …".
+  const msg = await renderizarModelo('agendamento_confirmar_wa', {
+    saudacao: saudacaoAgora(),
+    nome: primeiroNome(lead?.nome || booking?.inviteeName || ''),
+    agente,
+    reuniao: mt.name,
+    quando: when,
+    presencial: presencial ? 'sim' : '',
+    link: linkText,
+  })
+  return msg?.body.trim() || ''
+}
+
+/** Pedido de confirmação por texto livre. Sem botão nativo aqui: a resposta
+ *  esperada é escrita, e `tryConfirmBookingReply` aceita o "sim" quando existe
+ *  reserva aguardando. `confirmRequestedAt` só é gravado se a mensagem realmente
+ *  saiu — do contrário a reserva ficaria marcada como "confirmação pedida" sem o
+ *  contato ter recebido nada, e ninguém iria atrás. */
+async function sendBookingConfirmationViaEvolution(
+  bookingId: number, leadId: number | null,
+  mt: { name: string; locationDetail: string | null }, when: string,
+  linkText: string, presencial: boolean, phone: string,
+): Promise<void> {
+  const texto = await montarPedidoDeConfirmacao(bookingId, leadId, mt, when, linkText, presencial)
+  if (!texto) return
+  const enviou = await sendWa(leadId, phone, texto)
+  if (!enviou) {
+    console.warn(`[scheduling] pedido de confirmação da reserva #${bookingId} não saiu — reserva segue sem confirmRequestedAt`)
+    return
+  }
+  await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
 }
 
 // Detecta resposta afirmativa em texto livre (caso o lead digite em vez de tocar no botão).
@@ -213,7 +357,14 @@ export async function tryConfirmBookingReply(phone: string, text: string, intera
   const t = (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
   const isConfirmButton = interactiveReplyId === 'confirm_booking'
   const isConfirmText = /^(confirmo|confirmar|confirmado|confirmada)\b/.test(t) || /confirmar reuni/.test(t)
-  if (!isConfirmButton && !isConfirmText) return false
+  // "Sim"/"ok" curtos também confirmam QUANDO o pedido sai por texto
+  // (`scheduling.confirmar_por_texto`): ele pede literalmente "responda Sim", e
+  // exigir a palavra "confirmar" deixaria a reserva pendente para sempre. Só vale
+  // se houver reserva esperando confirmação (checagem logo abaixo) e se não vier
+  // de OUTRO botão (ex.: escolher horário).
+  const isAffirmativeShort = !interactiveReplyId && t.length <= 30 && isAffirmative(t)
+    && await confirmacaoPorTextoLigada()
+  if (!isConfirmButton && !isConfirmText && !isAffirmativeShort) return false
 
   let lead = await prisma.lead.findFirst({ where: { whatsapp: norm }, orderBy: { createdAt: 'desc' }, select: { id: true } })
   if (!lead && norm.length >= 8) {
@@ -228,6 +379,14 @@ export async function tryConfirmBookingReply(phone: string, text: string, intera
   if (!booking) return false
 
   await prisma.booking.update({ where: { id: booking.id }, data: { status: 'confirmed', confirmedAt: new Date() } })
+  // Roteador ligado: o aviso de "confirmada" sai pelo MESMO canal da conversa —
+  // quem confirmou pela Evolution não tinha resposta nenhuma (o trecho abaixo só
+  // fala pela Cloud API) e a reserva mudava de estado em silêncio.
+  if (await roteadorLigado()) {
+    const confirmada = await renderizarModelo('agendamento_presenca_confirmada_wa')
+    if (confirmada?.body.trim()) await sendWa(lead.id, phone, confirmada.body)
+    return true
+  }
   // Resposta de confirmação — a mensagem do lead abriu a janela de 24h, então texto livre
   // pela Cloud API é entregue normalmente. Aqui "confirmada" é correto (ele confirmou).
   try {
@@ -250,6 +409,33 @@ async function resolveMeetLink(booking: { meetLink: string | null; activityId: n
   const link = ((a?.metadata as any)?.googleMeetLink) || null
   if (link) await prisma.booking.update({ where: { id: booking.id }, data: { meetLink: link } }).catch(() => {})
   return link
+}
+
+/** Pede a confirmação de uma reserva que já existe — para o caso retroativo: a
+ *  reunião foi marcada quando o pedido ainda não saía (sem HSM aprovado) e a data
+ *  está chegando. Só WhatsApp: e-mail e aviso ao operador já foram na reserva.
+ *  Não repete se a confirmação já foi pedida ou já veio. Uso manual (script). */
+export async function pedirConfirmacaoDaReserva(bookingId: number): Promise<boolean> {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } })
+  if (!booking || booking.status === 'cancelled') return false
+  if (booking.confirmRequestedAt || booking.confirmedAt) return false
+  const mt = await prisma.meetingType.findUnique({ where: { id: booking.meetingTypeId } })
+  if (!mt) return false
+  const lead = booking.leadId
+    ? await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { whatsapp: true } })
+    : null
+  const phone = lead?.whatsapp || booking.inviteePhone || ''
+  if (!phone) return false
+
+  const meetLink = await resolveMeetLink(booking)
+  const linkText = meetLink || mt.locationDetail || ''
+  const presencial = String(mt.locationType || '') === 'in_person'
+  await sendBookingConfirmationViaEvolution(
+    booking.id, booking.leadId ?? null, mt, fmtDateTime(booking.startAt, booking.timezone),
+    linkText, presencial, phone,
+  )
+  const depois = await prisma.booking.findUnique({ where: { id: bookingId }, select: { confirmRequestedAt: true } })
+  return !!depois?.confirmRequestedAt
 }
 
 // kind: 'confirmation' (na reserva) | 'reminder' (antes da reunião)
@@ -300,10 +486,14 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
       const openWindow = lead?.id
         ? await prisma.message.findFirst({ where: { leadId: lead.id, provider: 'cloud_api', fromMe: false, createdAt: { gt: new Date(Date.now() - 24 * 3600000) } }, select: { id: true } })
         : null
+      // `link` vai junto: o lembrete sem o link do Meet obriga o contato a caçar a
+      // mensagem antiga bem na hora em que a reunião vai começar — e um template
+      // com {{link}} sem esse valor era recusado por parâmetro em branco.
+      const linkLembrete = meetLink || mt.locationDetail || await textoDoModelo('agendamento_hsm_sem_link')
       let sent = false
       if (cloudConn && !openWindow) {
         const templateName = await templateNameFor(which === '1h' ? 'reminder1h' : 'reminder24h')
-        sent = await sendHsm(cloudConn, templateName, phone, { ...hsmVars, reuniao: mt.name, quando: when }, lead?.id ?? null)
+        sent = await sendHsm(cloudConn, templateName, phone, { ...hsmVars, reuniao: mt.name, quando: when, link: linkLembrete }, lead?.id ?? null)
       }
       if (!sent && wa.body.trim()) await sendWa(lead?.id ?? null, phone, wa.body)
     }
@@ -354,13 +544,21 @@ export async function notifyCancelled(bookingId: number): Promise<void> {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } })
   if (!booking) return
   const mt = await prisma.meetingType.findUnique({ where: { id: booking.meetingTypeId }, select: { name: true, ownerUserId: true } })
-  const lead = booking.leadId ? await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { id: true, whatsapp: true } }) : null
+  const lead = booking.leadId ? await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { id: true, whatsapp: true, nome: true } }) : null
   const when = fmtDateTime(booking.startAt, booking.timezone)
   const phone = lead?.whatsapp || booking.inviteePhone || ''
   if (phone) {
     // Cancelamento ao lead — modelo agendamento_cancelado_wa.
     const cancelled = await renderizarModelo('agendamento_cancelado_wa', { reuniao: mt?.name || '', quando: when })
-    if (cancelled?.body.trim()) await sendWa(lead?.id ?? null, phone, cancelled.body)
+    // Um cancelamento quase sempre chega com a janela de 24h fechada — sem HSM ele
+    // não sairia pela Cloud API. O HSM (`scheduling.cancelled_template`) só é usado
+    // pelo roteador de saída; nos demais casos `sendWa` o ignora.
+    const templateName = await templateNameFor('cancelled')
+    const nomeHsm = booking.inviteeName || lead?.nome || await textoDoModelo('agendamento_hsm_sem_nome')
+    const hsm = templateName
+      ? { name: templateName, values: { nome: nomeHsm, reuniao: mt?.name || '', quando: when } }
+      : null
+    if (cancelled?.body.trim()) await sendWa(lead?.id ?? null, phone, cancelled.body, hsm)
   }
 }
 

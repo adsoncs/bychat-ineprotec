@@ -1638,6 +1638,22 @@ export async function whatsappRoutes(app: FastifyInstance) {
             const { markConversationReopened } = await import('../services/leadConversation.js')
             markConversationReopened(existingLead.id, { reason: 'reopen_message' }).catch(() => {})
           }
+          // Fluxo de atendimento (chatbot roteirizado com scriptedConfig.supportFlow):
+          // confirma o recebimento do arquivo enquanto o bot conduz — nunca com
+          // humano ativo, CSAT ou conversa encerrada. Sem a config, no-op.
+          try {
+            const instAck = await prisma.whatsAppInstance.findFirst({ where: { instanceName: inboundInstance }, select: { chatbotId: true } })
+            const cbAck = instAck?.chatbotId ? await prisma.chatbot.findUnique({ where: { id: instAck.chatbotId } }) : null
+            if (cbAck?.mode === 'scripted') {
+              const { getSupportCfg, supportMsg, sendBotMessage } = await import('../services/scriptedSupportFlow.js')
+              const cfgAck = getSupportCfg(cbAck)
+              const phAck = ((existingLead.formData as any)?._script?.phase) || null
+              if (cfgAck?.mediaAck && phAck && !['human_active', 'csat', 'done', 'disqualified'].includes(phAck)) {
+                const ack = supportMsg(cbAck, 'mediaAck')
+                if (ack) await sendBotMessage(existingLead.id, phone, ack, cbAck)
+              }
+            }
+          } catch (ackErr: any) { app.log.warn(`[Webhook] mediaAck: ${ackErr?.message || ackErr}`) }
           // Sem texto (foto sem legenda, áudio que não transcreveu): com a leitura
           // de mídia ligada (`ai.journey.read_media`) a jornada de IA ainda atende —
           // ela LÊ a imagem. A mensagem já foi gravada logo acima, por isso
@@ -1687,6 +1703,25 @@ export async function whatsappRoutes(app: FastifyInstance) {
           metadata: { mediaType, messageId, phone },
         })
       }
+
+      // Confirmação de reunião por TEXTO (Setting `scheduling.confirmar_por_texto`):
+      // o pedido sai por aqui quando não há HSM aprovado, então a resposta também
+      // volta por aqui — sem este gancho, que só existia no webhook da Cloud API, o
+      // "Sim" do contato ficava sem efeito e a reserva pendente para sempre.
+      // Diferente da Cloud API, NÃO interrompe: a mensagem do contato só é gravada
+      // mais abaixo, e sair antes a deixaria fora de Conversas.
+      try {
+        const { tryConfirmBookingReply, confirmacaoPorTextoLigada } = await import('../services/schedulingNotify.js')
+        if (await confirmacaoPorTextoLigada()) await tryConfirmBookingReply(phone, msgText, null)
+      } catch (e) { app.log.warn(`Booking confirm error: ${e}`) }
+
+      // "SAIR"/"PARAR" vale em qualquer canal (Setting `whatsapp.optout_por_palavra`;
+      // desligado = no-op): quem pediu para sair não pode continuar recebendo só
+      // porque escreveu no número não-oficial.
+      try {
+        const { tratarPedidoDeSaida } = await import('../services/messageGovernance.js')
+        await tratarPedidoDeSaida(phone, msgText)
+      } catch (e) { app.log.warn(`Opt-out check error: ${e}`) }
 
       // Detectar origem da conversa
       let originData = null
@@ -1913,7 +1948,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       if (chatbot?.mode === 'scripted' && chatbot.formId) {
         const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
         if (form?.active) {
-          await processScriptedChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, null, null, promoteFunnelId, promoteStageKey)
+          await processScriptedChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, null, null, promoteFunnelId, promoteStageKey, null, { pushName: data.pushName || null })
           return { ok: true }
         }
       }

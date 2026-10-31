@@ -16,7 +16,7 @@ import { useStages } from '@/hooks/useFunnels'
 import { useTags } from '@/hooks/useTags'
 import { useModules } from '@/hooks/useModules'
 import { useTemplates } from '@/hooks/useTemplates'
-import { useCloudApiTemplates } from '@/hooks/useCloudApi'
+import { useCloudApiTemplates, parseTemplateComponents } from '@/hooks/useCloudApi'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
 import { useTeams } from '@/hooks/useTeams'
@@ -1322,6 +1322,87 @@ function SendMessageFields({
         onInput={(e) => onPatch({ message: (e.target as HTMLTextAreaElement).value })}
         hint={messageHint}
       />
+      {/* HSM de RESERVA (só fora da janela de 24h). Formato alternativo ao template
+          da API Oficial acima — os fluxos do terram usam este. Some quando um
+          template da API Oficial está escolhido, porque ele vence no envio. */}
+      {channel === 'whatsapp' && !config.cloudTemplateId && <HsmFallbackFields config={config} onPatch={onPatch} />}
+    </>
+  )
+}
+
+// ─── HSM para contato fora da janela de 24h ──────────────────────────────────
+//
+// O texto acima só chega a quem falou conosco nas últimas 24h. Quem veio de
+// anúncio ou formulário nunca escreveu primeiro, e para esses a Meta exige um
+// template aprovado. Sem escolher um aqui (nem o template da API Oficial acima),
+// o envio a esse contato cai na Evolution.
+
+/**
+ * Nomes das variáveis do corpo, na ordem em que aparecem. O `parseTemplateComponents`
+ * do hook só enxerga variáveis posicionais (`{{1}}`) porque nasceu para o envio
+ * manual; os templates dos fluxos são nomeados (`{{nome}}`), que é o formato que
+ * o backend preenche por chave.
+ */
+function variaveisDoTemplate(body: string): string[] {
+  const achadas = [...body.matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)].map((m) => m[1] as string)
+  return [...new Set(achadas)]
+}
+
+function HsmFallbackFields({
+  config, onPatch,
+}: { config: Record<string, unknown>; onPatch: (p: Record<string, unknown>) => void }) {
+  const { data, isLoading } = useCloudApiTemplates()
+  const aprovados = useMemo(
+    () => (data?.templates ?? []).filter((t) => t.status === 'APPROVED'),
+    [data],
+  )
+  const escolhido = getStr(config, 'hsmTemplate')
+  const template = aprovados.find((t) => t.name === escolhido)
+  const valores = (config.hsmValues ?? {}) as Record<string, string>
+
+  if (isLoading) return <Skeleton class="h-10" />
+  // Sem template aprovado não há o que escolher (o aviso já aparece no bloco da
+  // API Oficial acima) — e quem não usa Cloud API não precisa ver esta opção.
+  if (!aprovados.length) return null
+
+  return (
+    <>
+      <Select
+        label="Template de reserva — só para contato fora da janela de 24h"
+        value={escolhido}
+        onChange={(e) => {
+          const nome = (e.target as HTMLSelectElement).value
+          // Trocar de template invalida o mapeamento anterior: as variáveis são outras.
+          onPatch({ hsmTemplate: nome, hsmValues: {} })
+        }}
+      >
+        <option value="">Não usar (sem template, fora da janela o envio vai pela Evolution)</option>
+        {aprovados.map((t) => (
+          <option key={t.id} value={t.name}>{t.name} ({t.category.toLowerCase()})</option>
+        ))}
+      </Select>
+      <p className="text-[0.6875rem] text-fg-subtle">
+        Dentro da janela de 24h vai o texto acima; fora dela, este template. O número é
+        escolhido pelo roteador de saída (o da conversa; contato novo, a API Oficial).
+      </p>
+      {template && (
+        <>
+          <p className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap">
+            {parseTemplateComponents(template.components).body}
+          </p>
+          {variaveisDoTemplate(parseTemplateComponents(template.components).body).map((v) => (
+            <Input
+              key={v}
+              label={`Variável {{${v}}}`}
+              value={valores[v] ?? ''}
+              onInput={(e) => onPatch({
+                hsmValues: { ...valores, [v]: (e.target as HTMLInputElement).value },
+              })}
+              hint="Aceita as mesmas variáveis do corpo, ex.: {{primeiro_nome}}"
+            />
+          ))}
+        </>
+      )}
     </>
   )
 }

@@ -183,6 +183,19 @@
      Acima de ~5% começa a sujar o texto pequeno. */
   --grain-opacity: 0.035;
 
+  /* ─── Gráficos: faixas de NPS ───
+     Passos próprios, NÃO os tokens de status acima: aqueles estouram a banda de
+     luminosidade do gráfico e deixam a separação protan (verde × âmbar) em ΔE 6,1.
+     Estes foram validados contra as DUAS superfícies (clara e escura) — mesmos
+     passos nos dois temas por escolha, não por inversão automática:
+       claro  #f2f5f8 → tudo PASSA, exceto contraste do âmbar (2,83:1)
+       escuro #06131e → tudo PASSA
+     O contraste do âmbar no tema claro é compensado por rótulo visível em toda
+     marca e pela visão em tabela — nunca por cor sozinha. */
+  --chart-promoter: #007b40;
+  --chart-passive: #ab9100;
+  --chart-detractor: #cc0031;
+
   /* ─── Tipografia ───
      Manrope: caixa alta estreita, terminais retos e um `g` de andar único —
      lê como interface de produto, não como o Inter que todo painel SaaS usa.

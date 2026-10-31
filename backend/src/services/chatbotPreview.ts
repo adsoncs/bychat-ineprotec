@@ -34,9 +34,10 @@ import {
 import type { FastifyInstance } from 'fastify'
 import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
 
-// O fluxo de atendimento/triagem (supportFlow) existe apenas em alguns tenants
-// (ex.: terram). Carregamos o módulo DINAMICAMENTE: onde ele não existe, o preview
-// roda o roteiro scripted "clássico" (cfg = null), sem menu global/handoff/CSAT.
+// O fluxo de atendimento/triagem (supportFlow) é opt-in por chatbot
+// (scriptedConfig.supportFlow; nasceu no terram). O módulo é carregado
+// dinamicamente; sem a config, getSupportCfg → null e o preview roda o roteiro
+// scripted "clássico", sem menu global/handoff/CSAT.
 interface SupportMod {
   getSupportCfg: (c: any) => any
   matchGlobalCommand: (cfg: any, t: string) => 'menu' | 'attendant' | null
@@ -64,9 +65,10 @@ const TTL_MS = 60 * 60 * 1000 // sessões de preview expiram em 1h
 interface PreviewState {
   stepIndex: number
   answers: Record<string, any>
-  phase: 'asking' | 'scheduling' | 'done' | 'disqualified' | 'waiting_agent' | 'csat'
+  phase: 'asking' | 'scheduling' | 'done' | 'disqualified' | 'waiting_agent' | 'csat' | 'hr_triage' | 'hr_intake' | 'hr_resume'
   fallbackCount: number
   dept?: string
+  hrStep?: number // coleta de currículo (scriptedConfig.hrIntake): pergunta atual
   slots?: Array<{ startAt: string; text: string }>
   lgpdSentAt?: string
   csatInvalidWarned?: boolean
@@ -120,6 +122,25 @@ function simOptionRoute(field: any, value: any, out: string[], nome: string): bo
   if (!route?.confirmText) return false
   out.push(interpolate(String(route.confirmText), { opcao: stripTags(opt.label), nome }))
   return true
+}
+
+// ── Coleta de currículo (scriptedConfig.hrIntake): helpers do preview ──
+// Os textos são os MESMOS do motor real (modelos `chatbot_rh_*` ou override do
+// chatbot, via hrMsg) — nada de texto próprio do simulador.
+async function getHrPreview(chatbot: any): Promise<{ hr: any; hrMsg: (c: any, k: string, v?: Record<string, any>) => string } | null> {
+  try {
+    const m = await import('./hrResumeIntake.js')
+    const hr = m.getHrIntakeCfg(chatbot)
+    return hr ? { hr, hrMsg: m.hrMsg } : null
+  } catch { return null }
+}
+
+function simHrStartQuestions(h: NonNullable<Awaited<ReturnType<typeof getHrPreview>>>, chatbot: any, state: PreviewState, out: string[]) {
+  state.phase = 'hr_intake'
+  state.hrStep = 0
+  const intro = h.hrMsg(chatbot, 'hrIntro')
+  if (intro) out.push(intro)
+  out.push(String(h.hr.questions[0].prompt))
 }
 
 // Handoff para atendimento humano: transição de fase + mensagem (sem abrir ticket).
@@ -487,12 +508,24 @@ export async function startPreview(
   const sup = await getSupport()
   const cfg = sup ? sup.getSupportCfg(chatbot) : null
 
-  // No preview não há contato conhecido: nome nunca é pulado.
-  const first = nextStep(fields, 0)
+  // Fluxo de atendimento: no WhatsApp o nome do contato vem no perfil
+  // (profile.name / pushName), então o motor pula a pergunta e já cumprimenta pelo
+  // nome. O preview não tem perfil de verdade — simula um para mostrar a conversa
+  // que o cliente vê. Sem o fluxo, nada muda: nome nunca é pulado.
+  const NOME_EXEMPLO = 'Maria'
+  const first = nextStep(fields, 0, cfg ? { known: { nome: true } } : undefined)
   const state: PreviewState = { stepIndex: first.index, answers: {}, phase: 'asking', fallbackCount: 0 }
+  if (cfg) {
+    const nomeKey = fields.find((f: any) => f?.mapTo === 'nome')?.key
+    if (nomeKey) state.answers[nomeKey] = NOME_EXEMPLO
+  }
 
   let welcome = greet
     || [stripTags(settings?.conversational?.welcomeTitle), stripTags(settings?.conversational?.welcomeText)].filter(Boolean).join('\n\n')
+  if (cfg) {
+    const known = sup?.supportMsg?.(chatbot, 'greetingKnown', { nome: NOME_EXEMPLO })
+    if (known) welcome = known
+  }
   if (cfg?.lgpdFooter && welcome) { welcome = `${welcome}\n\n${cfg.lgpdFooter}`; state.lgpdSentAt = new Date().toISOString() }
   if (welcome) out.push(welcome)
   if (first.kind !== 'finish') askField(out, first.field)
@@ -554,6 +587,43 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
       return done(sessionId, out, state)
     }
     if (state.phase === 'waiting_agent') return done(sessionId, out, state) // bot mudo
+
+    // ── Coleta de currículo (scriptedConfig.hrIntake) ──
+    // Simulação: o preview não tem anexo nem envia nada ao responsável — mostra a
+    // conversa como o candidato a vê e explica o que aconteceria com o arquivo.
+    const h = await getHrPreview(chatbot)
+    if (h && ['hr_triage', 'hr_intake', 'hr_resume'].includes(state.phase)) {
+      if (state.phase === 'hr_triage') {
+        const t = String(text || '').trim().toLowerCase()
+        if (/^2\b/.test(t) || /^(n[ãa]o|outro)/.test(t)) {
+          state.phase = 'asking'
+          await simEnterWaitingAgent(sup!, cfg!, chatbot, form, state, state.dept || cfg!.fallbackDept, out)
+          return done(sessionId, out, state)
+        }
+        if (/^1\b/.test(t) || /(curr[ií]culo|vaga|candidat|emprego|trabalh)/.test(t)) {
+          simHrStartQuestions(h, chatbot, state, out)
+          return done(sessionId, out, state)
+        }
+        out.push(h.hrMsg(chatbot, 'hrTriageAsk'))
+        return done(sessionId, out, state)
+      }
+      if (state.phase === 'hr_intake') {
+        const step = state.hrStep ?? 0
+        const next = h.hr.questions[step + 1]
+        state.hrStep = step + 1
+        if (next) { out.push(String(next.prompt)); return done(sessionId, out, state) }
+        state.phase = 'hr_resume'
+        out.push(h.hrMsg(chatbot, 'hrAskResume', { formatos: h.hr.acceptedExt.map((e: string) => e.toUpperCase()).join(', ') }))
+        return done(sessionId, out, state)
+      }
+      // hr_resume — no preview não há upload: qualquer resposta encerra a simulação.
+      out.push(`_(simulação: aqui o candidato anexa o currículo — o arquivo e os dados seriam encaminhados ao WhatsApp ${h.hr.forwardTo})_`)
+      out.push(h.hrMsg(chatbot, 'hrSent', { nome: collectedName(form, state) || '' }))
+      const thanks = h.hrMsg(chatbot, 'hrThanks')
+      if (thanks) out.push(thanks)
+      state.phase = 'done'
+      return done(sessionId, out, state)
+    }
   }
 
   // ── Agendamento ──
@@ -617,6 +687,16 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
     const chosen = String(state.answers[field.key])
     const opt = (field.options || []).find((o: any) => String(o.value) === chosen)
     if (opt?.route || cfg.departments[chosen]) state.dept = chosen
+    // Setor com coleta própria: assume o turno (espelha o motor real).
+    const hSel = await getHrPreview(chatbot)
+    if (hSel && state.dept === hSel.hr.deptKey) {
+      if (hSel.hr.triage) {
+        state.phase = 'hr_triage'
+        state.hrStep = 0
+        out.push(hSel.hrMsg(chatbot, 'hrTriageAsk'))
+      } else simHrStartQuestions(hSel, chatbot, state, out)
+      return done(sessionId, out, state)
+    }
   }
 
   // Qualificação (negativo vence → desqualifica já).

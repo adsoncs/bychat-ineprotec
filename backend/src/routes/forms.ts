@@ -11,7 +11,7 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
 import { assertUrlIsPublic } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
-import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues, erroDeDependencia, rotaDaOpcao, depsDosSelects, aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
+import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues, scaleRange, erroDeDependencia, rotaDaOpcao, depsDosSelects, aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
 import { escolherOperadorDaRota } from '../services/teamRouting.js'
 import { rejectLeadEntry, candidateFromForm } from '../services/leadBlocklist.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
@@ -1036,6 +1036,20 @@ function generateEmbedScript(
     if (f.type === 'select') {
       return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><select id="${id}" name="${esc(f.key)}" ${req}${f.dependsOn ? ` data-dep="${esc(f.dependsOn)}"` : ''}><option value="">${esc(f.placeholder||'Selecione...')}</option>${(f.options||[]).map((o:any)=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></div>`
     }
+    if (f.type === 'scale') {
+      // No embed clássico a escala vira radios nativos (sem JS extra): o browser já
+      // envia o value marcado e honra o `required`.
+      const { min, max } = scaleRange(f)
+      const labels: Record<string, string> = f.scaleLabels || {}
+      const opts = []
+      for (let n = min; n <= max; n++) {
+        const nm = labels[String(n)]
+        opts.push(`<label class="bf-sc"><input type="radio" name="${esc(f.key)}" value="${n}" ${req}><span>${n}${nm ? `<em>${esc(nm)}</em>` : ''}</span></label>`)
+      }
+      const legend = (f.scaleMinLabel || f.scaleMaxLabel)
+        ? `<div class="bf-scale-lg"><span>${esc(f.scaleMinLabel || '')}</span><span>${esc(f.scaleMaxLabel || '')}</span></div>` : ''
+      return `<div class="bf-field"><label>${esc(f.label)}${f.required?' *':''}</label><div class="bf-scale">${opts.join('')}</div>${legend}</div>`
+    }
     if (f.type === 'textarea') {
       return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><textarea id="${id}" name="${esc(f.key)}" placeholder="${esc(f.placeholder||'')}" ${req}></textarea></div>`
     }
@@ -1092,6 +1106,15 @@ function generateEmbedScript(
 .bf-field input:focus,.bf-field select:focus,.bf-field textarea:focus{border-color:${v.primary};box-shadow:0 0 0 3px ${focusRing}}
 .bf-field textarea{min-height:80px;resize:vertical}
 .bf-field.has-error input,.bf-field.has-error select,.bf-field.has-error textarea{border-color:${v.errorBorder}}
+.bf-scale{display:flex;flex-wrap:wrap;gap:6px}
+.bf-scale .bf-sc{flex:1 1 44px;min-width:44px;cursor:pointer;position:relative}
+.bf-scale .bf-sc input{position:absolute;opacity:0;width:0;height:0}
+.bf-scale .bf-sc span{display:block;text-align:center;padding:10px 4px;border:1px solid ${v.fieldBorder};border-radius:${v.radius};font-size:${v.fieldFontSize};color:${v.fieldText};background:${v.fieldBg};line-height:1.2}
+.bf-scale .bf-sc span em{display:block;font-style:normal;font-size:10px;opacity:.75;margin-top:2px}
+.bf-scale .bf-sc input:checked+span{background:${v.primary};color:${v.buttonText};border-color:${v.primary}}
+.bf-scale .bf-sc input:focus-visible+span{box-shadow:0 0 0 3px ${focusRing}}
+.bf-field.has-error .bf-scale .bf-sc span{border-color:${v.errorBorder}}
+.bf-scale-lg{display:flex;justify-content:space-between;font-size:12px;color:${v.fieldPlaceholder};margin-top:6px}
 .bf-btn{display:block;width:100%;padding:${v.buttonPadding};background:${v.primary};color:${v.buttonText};border:none;border-radius:${v.buttonRadius};font-size:${v.buttonFontSize};font-weight:${v.buttonFontWeight};cursor:pointer;font-family:inherit;transition:background .15s,opacity .15s}
 .bf-btn:hover{background:${v.primaryHover}}
 .bf-btn:disabled{opacity:.5;cursor:default}
@@ -1146,8 +1169,14 @@ function generateEmbedScript(
         els.forEach(function(f){
           if(f.id==='bf-lgpd')return;
           var p=f.closest('.bf-field');if(p)p.classList.remove('has-error');
-          if(f.type==='checkbox'){data[f.name]=f.checked}else if(f.name){data[f.name]=f.value}
-          if(f.required&&!f.value){if(p)p.classList.add('has-error');valid=false}
+          if(f.type==='checkbox'){data[f.name]=f.checked}
+          else if(f.type==='radio'){if(f.checked)data[f.name]=f.value;else if(!(f.name in data))data[f.name]=''}
+          else if(f.name){data[f.name]=f.value}
+          /* radio sempre tem value: obrigatoriedade dele e' por GRUPO, checada abaixo */
+          if(f.required&&f.type!=='radio'&&!f.value){if(p)p.classList.add('has-error');valid=false}
+        });
+        Array.prototype.forEach.call(form.querySelectorAll('input[type=radio][required]'),function(r){
+          if(data[r.name])return;var rp=r.closest('.bf-field');if(rp)rp.classList.add('has-error');valid=false;
         });
         var lg=form.querySelector('#bf-lgpd');var lgErr=form.querySelector('.bf-lgpd-err');
         if(lg&&!lg.checked){if(lgErr)lgErr.style.display='block';valid=false;}else if(lgErr){lgErr.style.display='none';}
@@ -1300,6 +1329,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--q-color);display:f
 .bf-slot:hover{background:var(--accent);color:var(--btn-text)}
 .inp{width:100%;padding:12px 14px;font-size:18px;font-family:inherit;color:var(--field-text);background:var(--field-bg);border:none;border-bottom:2px solid var(--field-border);outline:none}
 .inp:focus{border-color:var(--accent)}.inp.bad{border-color:var(--err)}select.inp{padding:12px 6px}
+.bf-scale{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.bf-sc{flex:1 1 44px;min-width:44px;padding:10px 4px;border:1px solid var(--field-border);background:transparent;color:var(--q-color);border-radius:8px;cursor:pointer;font-size:15px;font-family:inherit;line-height:1.2}
+.bf-sc:hover{border-color:var(--accent)}
+.bf-sc.on{background:var(--accent);color:var(--btn-text);border-color:var(--accent)}
+.bf-sc-lb{display:block;font-size:10px;opacity:.75;margin-top:2px}
+.bf-scale-lg{display:flex;justify-content:space-between;font-size:12px;color:var(--q-color);opacity:.7;margin-top:6px}
 .err{color:var(--err);font-size:13px;min-height:18px;margin-top:8px}
 .actions{margin-top:22px;display:flex;align-items:center;gap:14px}
 .screen.center .actions{justify-content:center}
@@ -1337,9 +1372,12 @@ if(f.type==='statement'){var hs='<div class="screen'+(((f.align||'center')==='ce
 var val=answers[f.key]||'';var ctrl='';
 if(f.type==='textarea'){ctrl='<textarea id="inp" class="inp" rows="3">'+esc(val)+'</textarea>';}
 else if(f.type==='select'){var opts='<option value="">'+esc(f.placeholder||'Selecione…')+'</option>';for(var i=0;i<f.options.length;i++){var o=f.options[i];if(f.dependsOn&&o.parents&&o.parents.length&&o.parents.map(String).indexOf(String(answers[f.dependsOn]||''))<0)continue;opts+='<option value="'+esc(o.value)+'"'+(o.value===val?' selected':'')+'>'+esc(o.label)+'</option>';}ctrl='<select id="inp" class="inp">'+opts+'</select>';}
+/* Escala: botões de nota + input hidden #inp — assim go()/validate() continuam lendo inp.value sem saber do tipo novo. */
+else if(f.type==='scale'){var mn=scMin(f),mx=scMax(f),sl=f.scaleLabels||{},sh='<div class="bf-scale">';for(var s=mn;s<=mx;s++){var nm=sl[String(s)]||'';sh+='<button type="button" class="bf-sc'+(String(s)===String(val)?' on':'')+'" data-v="'+s+'">'+s+(nm?'<span class="bf-sc-lb">'+esc(nm)+'</span>':'')+'</button>';}sh+='</div>';if(f.scaleMinLabel||f.scaleMaxLabel)sh+='<div class="bf-scale-lg"><span>'+esc(f.scaleMinLabel||'')+'</span><span>'+esc(f.scaleMaxLabel||'')+'</span></div>';ctrl=sh+'<input id="inp" type="hidden" value="'+esc(val)+'">';}
 else{var t=f.type==='email'?'email':f.type==='phone'?'tel':f.type==='number'?'number':f.type==='url'?'url':'text';ctrl='<input id="inp" class="inp" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.placeholder||'')+'">';}
 var h='<div class="screen">'+media(f)+'<div class="q">'+esc(f.label)+(f.required?' <span class="req">*</span>':'')+'</div>';if(f.helpText)h+='<div class="help">'+esc(f.helpText)+'</div>';h+=ctrl+'<div class="err" id="err"></div><div class="actions">';if(idx>0||CFG.welcomeEnabled)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(last?CFG.submitText:nextLabel(last,false))+'</button><span class="hint">pressione Enter ↵</span></div></div>';
-root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();if(f.type==='phone'||f.type==='number'){inp.setAttribute('inputmode','numeric');inp.addEventListener('input',function(){var c=inp.value.replace(/\\D/g,'');if(inp.value!==c)inp.value=c;});}inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&f.type!=='textarea'){ev.preventDefault();go();}});}var b=document.getElementById('back');if(b)b.onclick=function(){idx--;render();};document.getElementById('next').onclick=go;
+root.innerHTML=h;if(f.type==='scale'){Array.prototype.forEach.call(root.querySelectorAll('.bf-sc'),function(bt){bt.onclick=function(){var hid=document.getElementById('inp');hid.value=bt.getAttribute('data-v');Array.prototype.forEach.call(root.querySelectorAll('.bf-sc'),function(x){x.classList.remove('on');});bt.classList.add('on');document.getElementById('err').textContent='';};});}
+var inp=document.getElementById('inp');if(inp){inp.focus();if(f.type==='phone'||f.type==='number'){inp.setAttribute('inputmode','numeric');inp.addEventListener('input',function(){var c=inp.value.replace(/\\D/g,'');if(inp.value!==c)inp.value=c;});}inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&f.type!=='textarea'){ev.preventDefault();go();}});}var b=document.getElementById('back');if(b)b.onclick=function(){idx--;render();};document.getElementById('next').onclick=go;
 function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}if(answers[f.key]!==v){for(var j=0;j<FIELDS.length;j++){if(FIELDS[j].dependsOn===f.key)delete answers[FIELDS[j].key];}}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
 function maybeProgress(f){if(!JOURNEY.partialCapture)return;var p=Promise.resolve();if(!leadId&&JOURNEY.nameKey&&JOURNEY.phoneKey&&answers[JOURNEY.nameKey]&&answers[JOURNEY.phoneKey]){p=postProgress('start');}if(f&&f.isQualifier){p.then(function(){if(leadId)postProgress('qualify');});}}
 function resolveQual(ans){var lastPos=null;for(var i=0;i<FIELDS.length;i++){var f=FIELDS[i];if(!f.isQualifier)continue;var a=ans[f.key];if(a===undefined||a===null||a==='')continue;var pv=f.positiveValues||[];var isPos=pv.length?pv.indexOf(a)>=0:!!a;if(!isPos){var neg=f.qualifyNegative||JOURNEY.qualNegative;if(neg&&(neg.stageKey||neg.finish))return neg;}else{var pos=f.qualifyPositive||JOURNEY.qualPositive;if(pos&&(pos.stageKey||pos.finish))lastPos=pos;}}return lastPos;}
@@ -1350,7 +1388,9 @@ fetch(API+'/api/public/scheduling/'+encodeURIComponent(slug)+'/slots').then(func
 function pickSlot(f,last,startAt,labelTxt){var email=(JOURNEY.emailKey&&answers[JOURNEY.emailKey])||'';var h='<div class="screen"><div class="q">Confirmar agendamento</div><div class="help">'+esc(labelTxt)+'</div>';if(!email)h+='<input id="bk-email" class="inp" type="email" placeholder="Seu e-mail (para enviar o convite)">';h+='<div class="err" id="bk-err"></div><div class="actions"><button class="btn-ghost" id="bk-back">Voltar</button><button class="btn" id="bk-go">Confirmar</button></div></div>';root.innerHTML=h;document.getElementById('bk-back').onclick=function(){renderSchedule(f,last);};
 document.getElementById('bk-go').onclick=function(){var ie=document.getElementById('bk-email');var em=email||(ie?ie.value.trim():'');var er=document.getElementById('bk-err');var ph=(JOURNEY.phoneKey&&answers[JOURNEY.phoneKey])||'';if(!em&&!ph){er.textContent='Informe seu e-mail';return;}if(em&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)){er.textContent='E-mail inválido';return;}if(em&&JOURNEY.emailKey)answers[JOURNEY.emailKey]=em;var go=document.getElementById('bk-go');go.disabled=true;go.textContent='Agendando…';var nm=(JOURNEY.nameKey&&answers[JOURNEY.nameKey])||'Lead';var utm={};if(TRACK.utm_source)utm.source=TRACK.utm_source;if(TRACK.utm_medium)utm.medium=TRACK.utm_medium;if(TRACK.utm_campaign)utm.campaign=TRACK.utm_campaign;if(TRACK.utm_content)utm.content=TRACK.utm_content;if(TRACK.utm_term)utm.term=TRACK.utm_term;
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm,formId:FID})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
-function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';return '';}
+function scMin(f){return (f.scaleMin===0||f.scaleMin)?Number(f.scaleMin):1;}
+function scMax(f){var m=(f.scaleMax===0||f.scaleMax)?Number(f.scaleMax):5;return m>scMin(f)?m:scMin(f)+1;}
+function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';if(v&&f.type==='scale'){var n=Number(v);if(!(n>=scMin(f)&&n<=scMax(f)))return 'Escolha uma nota de '+scMin(f)+' a '+scMax(f);}return '';}
 function submit(){/* consentimento e' pedido no inicio (ver render); isto e' so' salvaguarda para formularios sem nenhum campo de coleta */if(!consentGiven){renderConsent();return;}doSubmit();}
 function renderConsent(){var h='<div class="screen"><div class="q">Antes de começar</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions">';if(idx>0||CFG.welcomeEnabled)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(CFG.navButtonText||'Continuar')+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');var bk=document.getElementById('back');if(bk)bk.onclick=function(){idx--;render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para continuar.';return;}consentGiven=true;render();};}
 function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}

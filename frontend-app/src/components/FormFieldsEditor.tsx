@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Plus, Save, Trash2, GitBranch, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from '@/components/ui/icon-set'
+import { Plus, Save, Trash2, GitBranch, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2, Gauge } from '@/components/ui/icon-set'
 import { useMeetingTypes } from '@/hooks/useScheduling'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +15,7 @@ import {
   type FormOptionRoute,
   type FormFieldType,
   type QualifyOutcome,
+  scaleValues,
 } from '@/hooks/useForms'
 import { useFunnels, useStages } from '@/hooks/useFunnels'
 import { useTeams, useTeamMembers } from '@/hooks/useTeams'
@@ -37,6 +38,7 @@ const GENERIC_PRESETS: FieldPreset[] = [
   { label: 'Texto curto', type: 'text',     icon: Type },
   { label: 'Texto longo', type: 'textarea', icon: AlignLeft },
   { label: 'Seleção',     type: 'select',   icon: List },
+  { label: 'Escala/Nota', type: 'scale',    icon: Gauge },
   { label: 'Número',      type: 'number',   icon: Hash },
   { label: 'URL',         type: 'url',      icon: Link2 },
 ]
@@ -73,6 +75,7 @@ const FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'number', label: 'Número' },
   { value: 'url', label: 'URL' },
   { value: 'select', label: 'Seleção' },
+  { value: 'scale', label: 'Escala / Nota' },
   { value: 'statement', label: 'Cabeçalho / Texto' },
   { value: 'scheduling', label: 'Agendamento' },
   { value: 'hidden', label: 'Oculto' },
@@ -509,6 +512,7 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [], allF
   }
 
   const isSelect = field.type === 'select'
+  const isScale = field.type === 'scale'
   const isHidden = field.type === 'hidden'
   const isStatement = field.type === 'statement'
   const isScheduling = field.type === 'scheduling'
@@ -589,6 +593,8 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [], allF
             const next = (e.target as HTMLSelectElement).value as FormFieldType
             const patch: Partial<FormField> = { type: next }
             if (next === 'select' && !field.options) patch.options = []
+            // Escala nasce 1–5 (satisfação); trocar para NPS ajusta para 0–10.
+            if (next === 'scale' && field.scaleMax == null) { patch.scaleMin = 1; patch.scaleMax = 5 }
             if (next === 'statement') { patch.required = false; patch.mapTo = undefined; if (!field.key) patch.key = 'bloco' }
             if (next === 'scheduling') { patch.required = false; patch.mapTo = undefined; if (!field.key) patch.key = 'agendamento' }
             onPatch(patch)
@@ -787,6 +793,9 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [], allF
           </>
         )
       })()}
+
+      {/* ── Escala / Nota ── */}
+      {isScale && <ScaleEditor field={field} onPatch={onPatch} />}
 
       {/* ── Pergunta de qualificação (só seleção) ── */}
       {isSelect && (
@@ -1090,6 +1099,111 @@ function ResumoRota({ route, onAbrir }: { route: FormOptionRoute; onAbrir: () =>
   )
 }
 
+// Presets de escala: cobrem os dois formatos usados em pesquisa de satisfação.
+const SCALE_PRESETS = [
+  { id: 'sat5', label: 'Satisfação 1–5', min: 1, max: 5, minLabel: 'Muito ruim', maxLabel: 'Excelente' },
+  { id: 'nps', label: 'NPS 0–10', min: 0, max: 10, minLabel: 'Não recomendaria', maxLabel: 'Com certeza' },
+] as const
+
+function ScaleEditor({ field, onPatch }: { field: FormField; onPatch: (patch: Partial<FormField>) => void }) {
+  const values = scaleValues(field)
+  const labels = field.scaleLabels ?? {}
+  // Acima de 10 valores não existe formato interativo no WhatsApp (lista nativa vai
+  // até 10 linhas) — a pergunta é enviada como texto pedindo o número. Vale avisar
+  // aqui para o admin não achar que a lista sumiu por bug.
+  const overListLimit = values.length > 10
+
+  function applyPreset(p: (typeof SCALE_PRESETS)[number]) {
+    onPatch({
+      scaleMin: p.min, scaleMax: p.max,
+      scaleMinLabel: p.minLabel, scaleMaxLabel: p.maxLabel,
+      scaleLabels: undefined,
+      ...(p.id === 'nps' ? { isNps: true } : {}),
+    })
+  }
+
+  return (
+    <div class="space-y-3 rounded-md border border-border bg-surface-2 p-3">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-medium text-fg-muted">Escala</span>
+        <div class="flex gap-1">
+          {SCALE_PRESETS.map((p) => (
+            <Button key={p.id} variant="ghost" size="sm" onClick={() => applyPreset(p)}>{p.label}</Button>
+          ))}
+        </div>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <Input
+          label="De" type="number"
+          value={String(field.scaleMin ?? 1)}
+          onInput={(e) => onPatch({ scaleMin: Number((e.target as HTMLInputElement).value) })}
+        />
+        <Input
+          label="Até" type="number"
+          value={String(field.scaleMax ?? 5)}
+          onInput={(e) => onPatch({ scaleMax: Number((e.target as HTMLInputElement).value) })}
+        />
+        <Input
+          label="Rótulo da nota mais baixa"
+          value={field.scaleMinLabel ?? ''}
+          onInput={(e) => onPatch({ scaleMinLabel: (e.target as HTMLInputElement).value })}
+          placeholder="Ex.: Muito ruim"
+        />
+        <Input
+          label="Rótulo da nota mais alta"
+          value={field.scaleMaxLabel ?? ''}
+          onInput={(e) => onPatch({ scaleMaxLabel: (e.target as HTMLInputElement).value })}
+          placeholder="Ex.: Excelente"
+        />
+      </div>
+
+      {/* Rótulo por nota — só faz sentido em escalas curtas (1–5). */}
+      {values.length <= 7 && (
+        <div class="space-y-1">
+          <span class="text-[0.6875rem] font-medium text-fg-muted">Nome de cada nota (opcional)</span>
+          {values.map((v) => (
+            <div key={v} class="grid grid-cols-[2rem_1fr] items-center gap-2">
+              <span class="text-xs text-fg-subtle text-center">{v}</span>
+              <Input
+                value={labels[String(v)] ?? ''}
+                onInput={(e) => {
+                  const text = (e.target as HTMLInputElement).value
+                  const next = { ...labels }
+                  if (text.trim()) next[String(v)] = text; else delete next[String(v)]
+                  onPatch({ scaleLabels: Object.keys(next).length ? next : undefined })
+                }}
+                placeholder={v === values[0] ? 'Ex.: Muito insatisfeito' : ''}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" class="size-4 mt-0.5 accent-accent shrink-0"
+          checked={!!field.isNps}
+          onInput={(e) => onPatch({ isNps: (e.target as HTMLInputElement).checked })} />
+        <span>
+          <span class="block text-sm font-medium text-fg">Esta é a pergunta de NPS</span>
+          <span class="block text-[0.6875rem] text-fg-subtle mt-0.5">A nota desta pergunta calcula o NPS (promotores 9–10, neutros 7–8, detratores 0–6). Use com a escala 0–10.</span>
+        </span>
+      </label>
+
+      {overListLimit && (
+        <p class="text-[0.6875rem] text-fg-subtle">
+          Escalas com mais de 10 notas não cabem na lista nativa do WhatsApp — a pergunta é enviada como texto pedindo o número.
+        </p>
+      )}
+      {!!field.isNps && values.length !== 11 && (
+        <p class="text-[0.6875rem] text-warning">
+          NPS é medido de 0 a 10. Ajuste a escala para não distorcer o cálculo.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function labelForType(type: FormFieldType): string {
   return FIELD_TYPES.find((t) => t.value === type)?.label ?? type
 }
@@ -1108,6 +1222,13 @@ function validate(fields: FormField[]): string[] {
     }
     if (f.type === 'scheduling' && !f.meetingSlug) {
       errs.push(`Campo de agendamento sem tipo de reunião selecionado`)
+    }
+    if (f.type === 'scale') {
+      const min = f.scaleMin ?? 1
+      const max = f.scaleMax ?? 5
+      if (!Number.isInteger(min) || !Number.isInteger(max)) errs.push(`Escala "${f.label}" precisa de notas inteiras`)
+      else if (max <= min) errs.push(`Escala "${f.label}": a nota final precisa ser maior que a inicial`)
+      else if (max - min > 20) errs.push(`Escala "${f.label}" tem notas demais (máximo 21)`)
     }
   }
   return errs

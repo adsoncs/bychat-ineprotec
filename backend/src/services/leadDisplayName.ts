@@ -53,6 +53,27 @@ export function forcaDaOrigem(origem: string | null | undefined): number {
   return FORCA[origem as NomeOrigem] ?? 0
 }
 
+/**
+ * Rótulos que o sistema atribui quando NÃO sabe quem é a pessoa. "Lead LP" é o
+ * default de `createLeadFromForm` (formFlow.ts) e era gravado com origem
+ * `formulario` — força 80. Ninguém preencheu esse nome num formulário: era o
+ * sistema tapando o buraco, mas a força alta travava o lead nesse rótulo para
+ * sempre. Efeito visível: o chatbot cumprimentava "Perfeito, Lead!" mesmo tendo
+ * o nome do perfil do WhatsApp em mãos.
+ *
+ * Placeholder não é nome — qualquer nome de verdade pode substituí-lo.
+ */
+const NOMES_PLACEHOLDER = new Set([
+  'lead', 'lead lp', 'webchat', 'cliente', 'contato', 'desconhecido',
+  'whatsapp', 'usuario', 'usuário', 'sem nome',
+])
+
+export function ehNomePlaceholder(nome: string | null | undefined): boolean {
+  const n = String(nome ?? '').trim()
+  if (!n) return true
+  return NOMES_PLACEHOLDER.has(n.toLocaleLowerCase('pt-BR'))
+}
+
 /** O nome novo vence o que já está gravado? Empate mantém o atual. */
 export function podeSubstituir(origemAtual: string | null | undefined, origemNova: NomeOrigem): boolean {
   return FORCA[origemNova] > forcaDaOrigem(origemAtual)
@@ -124,7 +145,10 @@ export async function registrarNome(input: {
 
   const novo = (input.nome ?? '').trim()
   let mudou = false
-  if (novo && podeSubstituir(lead.nomeOrigem, input.origem)) {
+  // Placeholder cede para qualquer nome real, independente da força da origem —
+  // a hierarquia existe para proteger nome de gente, não rótulo do sistema.
+  const cedeLugar = ehNomePlaceholder(lead.nome) && !ehNomePlaceholder(novo)
+  if (novo && (cedeLugar || podeSubstituir(lead.nomeOrigem, input.origem))) {
     data.nome = novo.slice(0, 191)
     data.nomeOrigem = input.origem
     mudou = novo !== lead.nome

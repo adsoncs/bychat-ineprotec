@@ -15,6 +15,7 @@ import {
   resolveQualification,
   validateFieldValue,
   matchSelectChoice,
+  matchScaleChoice,
   type QualifyResolved,
 } from '../formFlow.js'
 
@@ -31,9 +32,14 @@ export interface NextStep {
   index: number
   field: any | null
 }
-export function nextStep(fields: any[], fromIndex: number): NextStep {
+// `opts.known` (opcional): mapa mapTo→true de dados que o canal JÁ possui
+// (ex.: nome do contato). Campos com `skipIfKnown: true` cujo mapTo consta como
+// conhecido são pulados como os statements — nunca pergunta o que já se sabe.
+export function nextStep(fields: any[], fromIndex: number, opts?: { known?: Record<string, boolean> }): NextStep {
+  const skip = (f: any): boolean =>
+    f?.type === 'statement' || (f?.skipIfKnown === true && !!f?.mapTo && !!opts?.known?.[f.mapTo])
   let i = fromIndex
-  while (i < fields.length && fields[i]?.type === 'statement') i++
+  while (i < fields.length && skip(fields[i])) i++
   if (i >= fields.length) return { kind: 'finish', index: i, field: null }
   const field = fields[i]
   if (field?.type === 'scheduling') return { kind: 'scheduling', index: i, field }
@@ -51,6 +57,16 @@ export type ParsedAnswer =
   | { ok: false; kind: 'value'; error: string }
 
 export function parseAnswer(field: any, text: string, interactiveReplyId?: string | null): ParsedAnswer {
+  // Escala: o id do botão/linha nativo já é a própria nota; no texto, matchScaleChoice
+  // extrai o número e valida o intervalo (não é índice 1-based como no select).
+  if (field?.type === 'scale') {
+    const fromInteractive = interactiveReplyId && /^-?\d+$/.test(interactiveReplyId) ? interactiveReplyId : null
+    const choice = fromInteractive
+      ? matchScaleChoice(field, fromInteractive)
+      : matchScaleChoice(field, text)
+    if (!choice) return { ok: false, kind: 'value', error: validateFieldValue(field, text) || 'Nota inválida' }
+    return { ok: true, value: choice.value }
+  }
   if (field?.type === 'select') {
     let choice: { value: string; label: string } | null = null
     if (interactiveReplyId) {

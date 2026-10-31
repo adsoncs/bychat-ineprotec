@@ -481,6 +481,25 @@ async function processIncomingMessage(
   // Sem conteúdo de texto nem mídia — nada a registrar
   if (!msgText && mediaType === 'text') return
 
+  // Resposta de uma Pesquisa/NPS: o Flow devolve o flow_token dentro do response_json
+  // e ele identifica a sessão do disparo. Precisa vir ANTES do chatbot — a resposta
+  // chega sem estado de roteiro e o motor de atendimento a descartaria, abrindo o
+  // menu de setores no lugar de registrar as notas. Sem sessão de pesquisa com
+  // aquele token, devolve false e nada muda.
+  if (flowResponse) {
+    try {
+      const { tryHandleSurveyFlowReply } = await import('../services/surveys.js')
+      const handled = await tryHandleSurveyFlowReply(phone, flowResponse, {
+        app,
+        sendText: async (p: string, t: string) => {
+          const { sendTextMessage } = await import('../services/cloudApi.js')
+          return sendTextMessage(phoneNumberId, token, p, t)
+        },
+      })
+      if (handled) return
+    } catch (e) { app.log.warn(`[surveys] falha ao tratar resposta de pesquisa: ${e}`) }
+  }
+
   // Confirmação de agendamento: lead com reserva pendente tocou no botão "Confirmar
   // reunião" (type button/interactive) ou respondeu afirmativo. Marca confirmada e
   // responde — sem deixar o chatbot tratar o "Sim" como conversa.
@@ -488,6 +507,14 @@ async function processIncomingMessage(
     const confirmed = await tryConfirmBookingReply(phone, msgText, interactiveReplyId)
     if (confirmed) return
   } catch (e) { app.log.warn(`Booking confirm error: ${e}`) }
+
+  // "SAIR"/"PARAR" — o rodapé dos templates de marketing promete isso. Só registra
+  // a preferência (Setting `whatsapp.optout_por_palavra`; desligado = no-op); a
+  // mensagem segue para a conversa, porque o atendente precisa enxergar o pedido.
+  try {
+    const { tratarPedidoDeSaida } = await import('../services/messageGovernance.js')
+    await tratarPedidoDeSaida(phone, msgText)
+  } catch (e) { app.log.warn(`Opt-out check error: ${e}`) }
 
   // Detectar origem da conversa (Cloud API pode ter referral de CTWA ads)
   let originData = null
@@ -504,7 +531,19 @@ async function processIncomingMessage(
   // com chatbot. Vai para o atendimento humano abaixo, que acha/cria o lead e
   // grava; o bot segue na próxima mensagem de texto.
   const soMidia = mediaType !== 'text' && !msgText
-  const hasChatbot = !soMidia && conn.chatbotId != null && await chatbotTriggerAllows(conn.chatbotId, phone, msgText, { cloudApiConnectionId: conn.id })
+  // Exceção — fluxo de atendimento do roteirizado (scriptedConfig.supportFlow):
+  // lead que JÁ tem conversa neste número segue para o ramo do bot, que grava a
+  // mídia, acusa o recebimento (mediaAck) e trata o currículo da coleta de RH.
+  // Contato NOVO continua indo para o atendimento humano, que cria o lead.
+  let midiaDoAtendimento = false
+  if (soMidia && conn.chatbotId != null) {
+    const cb0 = await prisma.chatbot.findUnique({ where: { id: conn.chatbotId }, select: { mode: true, scriptedConfig: true } })
+    const { getSupportCfg } = await import('../services/scriptedSupportFlow.js')
+    if (cb0?.mode === 'scripted' && getSupportCfg(cb0)) {
+      midiaDoAtendimento = !!(await resolveLeadForContact({ phone }, { cloudApiConnectionId: conn.id })).lead
+    }
+  }
+  const hasChatbot = (!soMidia || midiaDoAtendimento) && conn.chatbotId != null && await chatbotTriggerAllows(conn.chatbotId, phone, msgText, { cloudApiConnectionId: conn.id })
 
   if (!hasChatbot) {
     // ── Atendimento humano: salva a mensagem e roteia, sem rodar IA ──
@@ -726,12 +765,22 @@ async function processIncomingMessage(
       return
     }
   }
+  // Fluxo de atendimento do roteirizado: mídia SEM texto de quem já conversa
+  // (ver `midiaDoAtendimento` acima) — grava em Conversas e acusa o recebimento,
+  // ou entrega o arquivo à coleta de currículo quando ela está esperando um.
+  if (midiaDoAtendimento && chatbot?.mode === 'scripted' && !msgText) {
+    await tratarMidiaDoAtendimento({ phone, conn, chatbot, mediaType, mediaUrl, mediaName, msgId, contactName, timestamp, sendFn, app })
+    return
+  }
   // Os demais motores só entendem texto — mídia sem legenda para por aqui.
   if (!msgText) return
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
-      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, conn.funnelId ?? null, conn.stageKey ?? null, conn.id)
+      // Anexo junto (ex.: áudio transcrito → player + texto) e nome do perfil
+      // (o fluxo de atendimento cumprimenta sem perguntar o nome).
+      const media = mediaType !== 'text' && mediaUrl ? { mediaType, mediaUrl, mediaName: mediaName || null } : null
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, conn.funnelId ?? null, conn.stageKey ?? null, conn.id, { pushName: contactName || null, media })
       return
     }
   }
@@ -802,6 +851,19 @@ async function baixarMidiaCloudApi(
       'video/mp4': 'mp4', 'video/3gpp': '3gp',
       'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/opus': 'opus',
       'application/pdf': 'pdf',
+      // Documentos: sem isto o arquivo era salvo como ".doc" (fallback pelos 3
+      // primeiros caracteres de "document"), qualquer que fosse o formato real —
+      // e a coleta de currículo recusava o PDF/DOCX por extensão errada.
+      'audio/mp4': 'm4a', 'audio/amr': 'amr',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-powerpoint': 'ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.oasis.opendocument.text': 'odt',
+      'application/rtf': 'rtf', 'text/rtf': 'rtf', 'text/plain': 'txt',
+      'application/zip': 'zip',
     }
     const ext = extMap[mimeType] || type.substring(0, 3)
 
@@ -823,4 +885,62 @@ async function baixarMidiaCloudApi(
 
 async function saveCloudApiMedia(mediaId: string, token: string, type: string, app: FastifyInstance): Promise<string> {
   return (await baixarMidiaCloudApi(mediaId, token, type, app)).url
+}
+
+// ─── Fluxo de atendimento: mídia sem texto ──────────────────────────────────
+
+/**
+ * Mídia sem legenda de um contato que já conversa com um chatbot roteirizado com
+ * `scriptedConfig.supportFlow`. Grava a mensagem em Conversas e:
+ *   • na fase `hr_resume` (coleta de currículo), o arquivo É a resposta esperada;
+ *   • senão, com `mediaAck`, acusa o recebimento — nunca com humano ativo, CSAT
+ *     ou conversa encerrada.
+ */
+async function tratarMidiaDoAtendimento(p: {
+  phone: string; conn: any; chatbot: any; mediaType: string; mediaUrl: string; mediaName: string
+  msgId: string; contactName: string | null | undefined; timestamp: Date
+  sendFn: (p: string, t: string) => Promise<{ messageId: string | null }>
+  app: FastifyInstance
+}): Promise<void> {
+  const { phone, conn, chatbot, mediaType, mediaUrl, mediaName, msgId, contactName, timestamp, sendFn, app } = p
+  const resolvedM = await resolveLeadForContact({ phone }, { cloudApiConnectionId: conn.id })
+  const leadM = resolvedM.lead ? await prisma.lead.findUnique({ where: { id: resolvedM.lead.id } }) : null
+  if (!leadM) return
+  const createdM = await prisma.message.create({ data: {
+    leadId: leadM.id, fromMe: false, body: `[${mediaType}]`, mediaType, mediaUrl: mediaUrl || null,
+    mediaName: mediaName || null, provider: 'cloud_api', cloudApiConnectionId: conn.id,
+    senderName: contactName || leadM.nome || phone, externalId: msgId || null, timestamp,
+  } })
+  await prisma.lead.update({ where: { id: leadM.id }, data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() } }).catch(() => {})
+  broadcastRealtimeEvent({ type: 'message:received', payload: { leadId: leadM.id, messageId: createdM.id, mediaType, channel: 'cloud_api' }, scope: { leadId: leadM.id } })
+  try {
+    const { getSupportCfg, supportMsg, saveScriptState } = await import('../services/scriptedSupportFlow.js')
+    const cfgM = getSupportCfg(chatbot)
+    const stateM = ((leadM.formData as any)?._script) || {}
+    const phaseM = stateM.phase || ''
+    const enviar = async (lid: number, body: string) => {
+      if (!String(body || '').trim()) return
+      const r = await sendFn(phone, body)
+      await prisma.message.create({ data: {
+        leadId: lid, fromMe: true, body, mediaType: 'text', provider: 'cloud_api',
+        cloudApiConnectionId: conn.id, senderName: chatbot?.name || 'Atendimento',
+        externalId: r.messageId || null, ack: r.messageId ? 1 : 0, timestamp: new Date(),
+      } }).catch(() => {})
+    }
+    if (phaseM === 'hr_resume') {
+      const { getHrIntakeCfg, handleHrResumeMedia } = await import('../services/hrResumeIntake.js')
+      const hrCfg = getHrIntakeCfg(chatbot)
+      if (hrCfg) {
+        await handleHrResumeMedia({
+          leadId: leadM.id, state: stateM, chatbot, hr: hrCfg, send: enviar,
+          persist: (lid, st, done) => saveScriptState(lid, st, { completed: done }),
+          media: { mediaType, mediaUrl, mediaName: mediaName || null },
+        })
+        return
+      }
+    }
+    if (cfgM?.mediaAck && !['human_active', 'csat', 'done', 'disqualified'].includes(phaseM)) {
+      await enviar(leadM.id, supportMsg(chatbot, 'mediaAck'))
+    }
+  } catch (e: any) { app.log.warn(`[CloudAPI] mediaAck: ${e?.message || e}`) }
 }

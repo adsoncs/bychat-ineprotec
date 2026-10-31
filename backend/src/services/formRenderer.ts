@@ -12,6 +12,7 @@
 // bate visualmente com o formulário publicado no modo clássico.
 
 import { sanitizeBlockHtml } from '../routes/forms.js'
+import { scaleRange } from './formFlow.js'
 
 export interface FormCanvasInput {
   id: number
@@ -130,6 +131,10 @@ body{font-family:${v.fontFamily};color:${v.labelColor};line-height:1.5;font-size
 .bf-field input::placeholder,.bf-field textarea::placeholder{color:${v.fieldPlaceholder}}
 .bf-field input:focus,.bf-field select:focus,.bf-field textarea:focus{border-color:${v.primary};box-shadow:0 0 0 3px ${focusRing}}
 .bf-field textarea{min-height:80px;resize:vertical}
+.bf-scale{display:flex;flex-wrap:wrap;gap:6px}
+.bf-scale .bf-sc{flex:1 1 44px;min-width:44px;text-align:center;padding:10px 4px;border:1px solid ${v.fieldBorder};border-radius:${v.radius};font-size:${v.fieldFontSize};color:${v.fieldText};background:${v.fieldBg};line-height:1.2}
+.bf-scale .bf-sc em{display:block;font-style:normal;font-size:10px;opacity:.75;margin-top:2px}
+.bf-scale-lg{display:flex;justify-content:space-between;font-size:12px;color:${v.fieldPlaceholder};margin-top:6px}
 .bf-btn{display:block;width:100%;padding:${v.buttonPadding};background:${v.primary};color:${v.buttonText};border:none;border-radius:${v.buttonRadius};font-size:${v.buttonFontSize};font-weight:${v.buttonFontWeight};cursor:pointer;font-family:inherit}
 .bf-btn:hover{background:${v.primaryHover}}
 .bf-welcome{text-align:center;margin-bottom:${v.fieldSpacing};padding-bottom:18px;border-bottom:1px dashed ${v.fieldBorder}}
@@ -163,6 +168,18 @@ function renderFieldInner(f: any, v: ReturnType<typeof resolveTokens>, edit: boo
   }
   if (f.type === 'select') {
     return `<div class="bf-field"><label for="${id}">${esc(f.label)}${req}</label><select id="${id}" name="${esc(f.key)}"><option value="">${esc(f.placeholder || 'Selecione...')}</option>${(f.options || []).map((o: any) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></div>`
+  }
+  if (f.type === 'scale') {
+    const { min, max } = scaleRange(f)
+    const labels: Record<string, string> = f.scaleLabels || {}
+    const notes: string[] = []
+    for (let n = min; n <= max; n++) {
+      const nm = labels[String(n)]
+      notes.push(`<span class="bf-sc">${n}${nm ? `<em>${esc(nm)}</em>` : ''}</span>`)
+    }
+    const legend = (f.scaleMinLabel || f.scaleMaxLabel)
+      ? `<div class="bf-scale-lg"><span>${esc(f.scaleMinLabel || '')}</span><span>${esc(f.scaleMaxLabel || '')}</span></div>` : ''
+    return `<div class="bf-field"><label>${esc(f.label)}${req}</label><div class="bf-scale">${notes.join('')}</div>${legend}</div>`
   }
   if (f.type === 'textarea') {
     return `<div class="bf-field"><label for="${id}">${esc(f.label)}${req}</label><textarea id="${id}" name="${esc(f.key)}" placeholder="${esc(f.placeholder || '')}"></textarea></div>`

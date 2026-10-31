@@ -219,5 +219,68 @@ function nextOpenWindow(now: Date, sw: GovernanceConfig['silenceWindow']): Date 
   return next
 }
 
+// ─── Pedido de saída escrito pelo contato ───────────────
+//
+// O rodapé dos templates de marketing promete "responda SAIR". Até aqui só o
+// módulo de Disparos Inteligentes ouvia essa palavra, e apenas para quem estava
+// numa campanha — quem pedisse para sair de um fluxo automático continuava
+// recebendo. Uma promessa dessas no rodapé precisa valer em qualquer conversa.
+
+// Opt-in por instalação: Setting `whatsapp.optout_por_palavra` (padrão desligado).
+// Ligado, qualquer mensagem recebida curta com "SAIR"/"PARAR"/… marca o opt-out
+// de WhatsApp do lead (os envios automáticos passam a respeitá-lo). Desligado,
+// só o módulo de Disparos ouve essas palavras, como sempre.
+async function optOutPorPalavraLigado(): Promise<boolean> {
+  const row = await prisma.setting.findUnique({ where: { key: 'whatsapp.optout_por_palavra' } }).catch(() => null)
+  return ['true', '1', 'sim', 'on'].includes(String(row?.value ?? '').replace(/^"|"$/g, '').trim().toLowerCase())
+}
+
+/** Palavras que significam "não me mande mais nada". */
+const OPT_OUT_WORDS = /^\s*(pare|parar|sair|saia|cancelar|cancela|descadastrar|remover|stop|nao quero|não quero)\b/i
+
+export function isOptOutRequest(text: string | null | undefined): boolean {
+  const t = String(text ?? '').trim()
+  // Só frase curta: "cancelar minha visita de quinta" é outra conversa, e tirar
+  // o contato do WhatsApp por causa dela seria pior que não ouvir.
+  if (!t || t.length > 40) return false
+  return OPT_OUT_WORDS.test(t)
+}
+
+/**
+ * Ouve o pedido de saída numa mensagem recebida e registra o opt-out. NÃO
+ * consome a mensagem: ela continua entrando na conversa, porque o atendente
+ * precisa ver que o contato pediu para sair.
+ */
+export async function tratarPedidoDeSaida(phone: string, texto: string | null | undefined): Promise<boolean> {
+  if (!isOptOutRequest(texto)) return false
+  if (!(await optOutPorPalavraLigado())) return false
+  const norm = (phone || '').replace(/\D/g, '')
+  if (norm.length < 8) return false
+  const lead = await prisma.lead.findFirst({
+    where: { whatsapp: { contains: norm.slice(-8) } },
+    orderBy: { lastMessageAt: 'desc' },
+    select: { id: true },
+  })
+  if (!lead) return false
+  return registrarPedidoDeSaida(lead.id)
+}
+
+/**
+ * Marca o lead como opt-out de WhatsApp. Idempotente. Retorna true se registrou
+ * agora (para quem quiser confirmar ao contato que o pedido foi atendido).
+ */
+export async function registrarPedidoDeSaida(leadId: number): Promise<boolean> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { optOutChannels: true } })
+  if (!lead) return false
+  const atuais = parseOptOutChannels(lead.optOutChannels)
+  if (atuais.includes('whatsapp')) return false
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: { optOutChannels: [...atuais, 'whatsapp'] as any },
+  })
+  console.log(`[governance] opt-out de WhatsApp registrado para o lead ${leadId}`)
+  return true
+}
+
 // Exports auxiliares pra testes/outros consumidores
 export const __test = { isInSilenceWindow, nextOpenWindow, parseOptOutChannels }

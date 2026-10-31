@@ -28,6 +28,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'lead.tag_added',                label: '🏷️ Etiqueta adicionada',          category: 'lead' },
   { value: 'lead.tag_removed',              label: '🏷️ Etiqueta removida',            category: 'lead' },
   { value: 'lead.assigned',                 label: '👤 Lead atribuído a operador',    category: 'lead' },
+  { value: 'lead.handoff',                  label: '🤝 Encaminhado ao atendimento (dados completos)', description: 'Dispara quando o chatbot de atendimento passa o lead para um humano — nome, departamento e demais campos já coletados.', category: 'lead' },
   { value: 'lead.closed',                   label: '🔒 Lead fechado (atendimento)',   category: 'lead' },
   { value: 'lead.reopened',                 label: '🔓 Lead reaberto',                category: 'lead' },
   { value: 'lead.won',                      label: '🏆 Lead Ganho',                   category: 'lead' },

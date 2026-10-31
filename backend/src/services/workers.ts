@@ -8,6 +8,7 @@ import { redisConnection } from '../lib/queues.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { bullmqJobsTotal, bullmqJobDuration, captureException } from '../lib/observability.js'
 import { trackedSend } from './outboundSendTracking.js'
+import type { HsmSpec } from './outboundRouter.js'
 
 let workers: Worker[] = []
 
@@ -142,7 +143,13 @@ async function fillEmptyTemplateParams(components: any, stepExecutionId?: number
 
 function createWhatsAppWorker() {
   return new Worker('wf-whatsapp', async (job, token) => {
-    const { leadId, message, stepExecutionId, cloudTemplate } = job.data
+    const { leadId, message, stepExecutionId, cloudTemplate, roteador, hsm } = job.data as {
+      leadId: number; message: string; stepExecutionId?: number; cloudTemplate?: any
+      /** true = o canal é decidido pelo roteador de saída (outboundRouter.ts). */
+      roteador?: boolean
+      /** HSM de reserva por nome (passo com `hsmTemplate`) — só no roteador. */
+      hsm?: HsmSpec | null
+    }
 
     // A execução pode ter parado enquanto o job esperava a vez, o teto ou a
     // janela (lead respondeu, alguém pausou ou cancelou): aí não envia.
@@ -170,6 +177,95 @@ function createWhatsAppWorker() {
       const err = `Lead ${leadId} com WhatsApp inválido ("${lead.whatsapp}") — número não discável, corrija o cadastro`
       await updateStepExecution(stepExecutionId, 'failed', null, err)
       throw new UnrecoverableError(err)
+    }
+
+    // ─── Roteador de saída (opt-in) ───
+    // Passo com HSM de reserva (`hsmTemplate`) ou instalação com
+    // `whatsapp.roteador_saida` ligado. O roteador escolhe Cloud API (texto na
+    // janela de 24h, HSM fora dela) ou Evolution, sempre no número da conversa.
+    // Um job antigo, enfileirado sem a marca, segue o caminho de sempre abaixo.
+    if (roteador && !cloudTemplate) {
+      const { enviarAutomatico } = await import('./outboundRouter.js')
+      const { CanalDaConversaIndisponivel } = await import('./whatsappProvider.js')
+      let enviado: Awaited<ReturnType<typeof enviarAutomatico>> | null = null
+      const result = await trackedSend({
+        channel: 'whatsapp',
+        queueName: 'wf-whatsapp',
+        jobId: job.id ? String(job.id) : null,
+        leadId,
+        recipient: to,
+        bodyPreview: message,
+        attempts: job.attemptsMade + 1,
+        maxAttempts: job.opts?.attempts ?? null,
+        source: stepExecutionId ? 'workflow' : 'system',
+        sourceId: stepExecutionId ?? null,
+      }, async () => {
+        // ritmo: espera a vez na linha (ver ritmoEnvio.ts) — sem isto as execuções
+        // que acordam juntas às 09:00 saíam em rajada.
+        enviado = await enviarAutomatico({ leadId, phone: to, texto: message, hsm: hsm ?? null, ritmo: true })
+        return {
+          externalId: enviado.externalId,
+          metadata: { canal: enviado.canal, formato: enviado.formato, instance: enviado.instanceName, cloudApiConnectionId: enviado.cloudApiConnectionId },
+        }
+      }).catch(async (e) => {
+        // Número da conversa fora do ar: não troca de número nem insiste.
+        if (e instanceof CanalDaConversaIndisponivel) {
+          await updateStepExecution(stepExecutionId, 'failed', null, e.message)
+          throw new UnrecoverableError(e.message)
+        }
+        // Teto diário da linha QR cheio (ver ritmoEnvio.ts): o envio vai para o
+        // próximo dia permitido, sem tentar de novo agora.
+        const { TetoDiarioCheio, proximaAbertura } = await import('./ritmoEnvio.js')
+        if (e instanceof TetoDiarioCheio && token) {
+          const quando = await proximaAbertura(leadId)
+          await updateStepExecution(stepExecutionId, 'pending', null,
+            `Teto diário de envios automáticos da linha atingido — reagendado para ${new Date(quando).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`)
+          await job.moveToDelayed(quando, token)
+          throw new DelayedError()
+        }
+        throw e
+      })
+
+      // O corpo é o que o contato REALMENTE recebeu — um HSM renderizado não é o
+      // texto livre que o fluxo pediu.
+      const env = enviado as unknown as Awaited<ReturnType<typeof enviarAutomatico>>
+      await prisma.message.create({
+        data: {
+          leadId,
+          body: env.textoEnviado,
+          fromMe: true,
+          senderName: 'Workflow',
+          ack: 1,
+          externalId: result.externalId ?? undefined,
+          provider: env.canal,
+          ...(env.instanceName ? { evolutionInstance: env.instanceName } : {}),
+          ...(env.cloudApiConnectionId ? { cloudApiConnectionId: env.cloudApiConnectionId } : {}),
+        }
+      })
+      // Sem `lastMessageAt` a conversa não entra em NENHUMA caixa do Conversas —
+      // as condições de Caixa e Aguardando exigem o campo — e o operador fica sem
+      // ver para quem o fluxo falou até o contato responder. Numa abordagem a
+      // leads frios no terram, 85 dos 91 primeiros sumiram da tela.
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { lastMessageAt: new Date(), lastActivityAt: new Date() },
+      }).catch((e) => console.warn(`[wf-whatsapp] lastMessageAt do lead ${leadId}:`, e?.message))
+
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.MESSAGE_SENT,
+        category: 'communication',
+        title: env.formato === 'template' ? 'Template de workflow enviado via WhatsApp API Oficial' : 'Mensagem de workflow enviada via WhatsApp',
+        channel: 'whatsapp',
+        source: 'workflow',
+        actorType: 'system',
+        description: env.textoEnviado.substring(0, 200),
+        metadata: { externalId: result.externalId, canal: env.canal, formato: env.formato, template: env.templateName, motivo: env.motivo },
+      })
+
+      await updateStepExecution(stepExecutionId, 'completed', { messageId: result.externalId })
+      await advanceWorkflow(stepExecutionId)
+      return
     }
 
     // ─── API Oficial (Cloud API): envio como TEMPLATE HSM ───

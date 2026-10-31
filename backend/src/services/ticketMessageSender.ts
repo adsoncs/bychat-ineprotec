@@ -560,6 +560,13 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
     pausedBot = await pauseBotForHuman(lid, { userId: user.userId, userName: user.name })
   }
 
+  // Fluxo de atendimento do chatbot (supportFlow): operador respondeu sem
+  // clicar "Assumir" → silencia o bot (transição silenciosa). No-op fora dele.
+  if (!isInternal) {
+    const { markHumanActive } = await import('./scriptedSupportFlow.js')
+    markHumanActive(lid).catch(() => {})
+  }
+
   // Só chame de "do operador" quando houver operador identificado. Sem
   // operatorMeta o envio é automático (aviso de transferência, por exemplo), e
   // o título antigo afirmava um autor humano que a auditoria não tem como achar.

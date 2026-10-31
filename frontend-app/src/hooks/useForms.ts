@@ -157,6 +157,7 @@ export type FormFieldType =
   | 'hidden'
   | 'number'
   | 'url'
+  | 'scale'      // nota numa escala (1–5, 0–10/NPS) — opções geradas a partir do intervalo
   | 'statement'  // bloco de conteúdo (headline+copy+ícone/imagem/HTML) — não coleta dado
   | 'scheduling' // etapa de agendamento inline (escolhe data/hora de um tipo de reunião)
 
@@ -225,6 +226,27 @@ export interface FormField {
   qualifyNegative?: QualifyOutcome | undefined
   // ── Campo de agendamento (type='scheduling') ──
   meetingSlug?: string | undefined // slug do MeetingType a embutir
+  // ── Escala (type='scale') ──
+  // Intervalo inteiro fechado [scaleMin, scaleMax]. Padrão 1–5; NPS usa 0–10.
+  scaleMin?: number | undefined
+  scaleMax?: number | undefined
+  scaleMinLabel?: string | undefined // rótulo da ponta baixa (ex.: "Muito ruim")
+  scaleMaxLabel?: string | undefined // rótulo da ponta alta (ex.: "Excelente")
+  // Rótulo por valor, quando cada nota tem um nome (ex.: 1–5 de satisfação).
+  // { "1": "Muito insatisfeito", … }. Vazio = mostra só o número.
+  scaleLabels?: Record<string, string> | undefined
+  // Marca a pergunta que calcula o NPS da pesquisa (0–10). Só uma por pesquisa.
+  isNps?: boolean | undefined
+}
+
+/** Valores de uma escala, na ordem. Usado no editor, no runner e no gerador de Flow. */
+export function scaleValues(field: Pick<FormField, 'scaleMin' | 'scaleMax'>): number[] {
+  const min = Number.isFinite(field.scaleMin) ? Number(field.scaleMin) : 1
+  const max = Number.isFinite(field.scaleMax) ? Number(field.scaleMax) : 5
+  if (max <= min) return [min]
+  const out: number[] = []
+  for (let v = min; v <= max; v++) out.push(v)
+  return out
 }
 
 /** Modo de exibição do formulário. `classic` = todos os campos numa tela (embed atual);

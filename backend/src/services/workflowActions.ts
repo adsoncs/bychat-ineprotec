@@ -11,6 +11,7 @@ import { appendPreferencesLink } from './preferencesToken.js'
 import { templateBodyTokens } from '../lib/waTemplateParams.js'
 import { ORDEM_CONEXAO_PADRAO } from './whatsappProvider.js'
 import { aplicarBlocos, primeiroNome, saudacaoAgora } from '../lib/interpolate.js'
+import { variaveisDePerfil } from '../lib/perfilLead.js'
 
 /** Heurística simples pra decidir se um corpo é HTML — se contém tags. */
 function looksLikeHtml(s: string): boolean {
@@ -99,6 +100,14 @@ interface ActionConfig {
   // `fallback`: texto usado quando o campo do lead está vazio — a Meta rejeita o
   // disparo inteiro se algum parâmetro chegar em branco (erro 131008).
   templateParams?: Array<{ type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }>
+  // send_whatsapp — formato alternativo (nasceu no terram; os fluxos gravados lá
+  // usam este): HSM de RESERVA por NOME, usado só quando o contato está FORA da
+  // janela de 24h da Cloud API — dentro dela vai o texto do passo. `hsmValues`
+  // mapeia variável NOMEADA do template → texto, já interpolado com as mesmas
+  // chaves do corpo (ex.: { nome: "{{primeiro_nome}}" }). Quem decide o canal é o
+  // roteador de saída (outboundRouter.ts). `cloudTemplateId`, se presente, vence.
+  hsmTemplate?: string
+  hsmValues?: Record<string, string>
   // send_email
   subject?: string
   body?: string
@@ -207,6 +216,13 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {},
     }
     return ''
   })
+}
+
+/** Variáveis calculadas por consulta ao banco para as mensagens dos fluxos:
+ *  {{agente}} e, com o Setting `leads.variaveis_perfil`, as variáveis de perfil
+ *  do formulário de anúncio ({{perfil}} etc. — ver lib/perfilLead.ts). */
+export async function extrasDoLead(lead: { assignedUserId: number | null; customFields?: unknown }): Promise<Record<string, string>> {
+  return { ...(await variaveisDePerfil(lead)), agente: await resolveNomeDoAgente(lead) }
 }
 
 /** {{agente}}: primeiro nome do responsável pelo lead; sem responsável, o nome
@@ -422,7 +438,8 @@ export async function dispatchAction(
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
         message = tpl.body || ''
       }
-      message = resolveVariables(message, lead, triggerData, { agente: await resolveNomeDoAgente(lead) })
+      const extrasWa = await extrasDoLead(lead)
+      message = resolveVariables(message, lead, triggerData, extrasWa)
       if (!message.trim()) {
         await prisma.workflowStepExecution.update({
           where: { id: stepExec.id },
@@ -431,6 +448,22 @@ export async function dispatchAction(
         await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
+      // HSM de reserva (`hsmTemplate`) para quando o contato estiver FORA da janela
+      // de 24h — o caso da maioria dos leads de anúncio/formulário, que nunca
+      // escreveram primeiro. Os valores aceitam as mesmas variáveis do corpo.
+      let hsm: { name: string; values: Record<string, string> } | null = null
+      if (config.hsmTemplate) {
+        const values: Record<string, string> = {}
+        for (const [k, v] of Object.entries((config.hsmValues || {}) as Record<string, string>)) {
+          values[k] = resolveVariables(String(v ?? ''), lead, triggerData, extrasWa)
+        }
+        hsm = { name: String(config.hsmTemplate), values }
+      }
+      // Quem escolhe o número: o roteador de saída quando o passo tem HSM de
+      // reserva (só ele sabe usar esse formato) ou quando a instalação ligou
+      // `whatsapp.roteador_saida`; senão o worker segue o caminho de sempre.
+      const { configDoRoteador } = await import('./outboundRouter.js')
+      const viaRoteador = !!hsm || (await configDoRoteador()).ligado
       // Rede de segurança contra envio repetido: o mesmo texto para o mesmo
       // lead, saindo de automação, só uma vez a cada 10 min — venha de onde
       // vier a execução duplicada. SET NX é atômico, então duas execuções que
@@ -454,6 +487,7 @@ export async function dispatchAction(
         leadId,
         message,
         stepExecutionId: stepExec.id,
+        ...(viaRoteador ? { roteador: true, hsm } : {}),
       }, {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
@@ -485,7 +519,7 @@ export async function dispatchAction(
         // bodyHtml tem prioridade pra email; cai no body texto se vazio.
         body = tpl.bodyHtml || tpl.body || body
       }
-      const extrasEmail = { agente: await resolveNomeDoAgente(lead) }
+      const extrasEmail = await extrasDoLead(lead)
       subject = resolveVariables(subject, lead, triggerData, extrasEmail)
       body = resolveVariables(body, lead, triggerData, extrasEmail)
       const gov = await enforceGovernance(leadId, 'email', stepExec.id)
@@ -527,7 +561,7 @@ export async function dispatchAction(
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
         message = tpl.body || ''
       }
-      message = resolveVariables(message, lead, triggerData, { agente: await resolveNomeDoAgente(lead) })
+      message = resolveVariables(message, lead, triggerData, await extrasDoLead(lead))
       if (!message.trim()) {
         await prisma.workflowStepExecution.update({
           where: { id: stepExec.id },
@@ -1082,14 +1116,58 @@ export async function dispatchAction(
         opName = u?.name || ''
       }
       const pl = triggerData?.payload || {}
-      const origem = pl.origem || pl.metadata?.formName || pl.metadata?.formId || ''
-      const enriched = { ...triggerData, payload: { ...pl, operador: opName, origem, etapa: pl.etapa_nome || lead.status || '' } }
+      const meta = pl.metadata || {}
+      // `departamento` vem do metadata do encaminhamento do chatbot de atendimento
+      // (evento lead.handoff — ver scriptedSupportFlow.enterWaitingAgent).
+      const origem = pl.origem || meta.formName || meta.departamento || meta.formId || ''
+      // {{etapa}} = nome amigável da etapa (ex.: "Novo contato"), não a key crua
+      // (ex.: "NOVO") — é texto que a equipe lê. {{etapa_key}} mantém a key.
+      let etapaNome = pl.etapa_nome || lead.status || ''
+      if (!pl.etapa_nome && lead.status && lead.funnelId != null) {
+        const st = await prisma.stage.findFirst({ where: { funnelId: lead.funnelId, key: lead.status }, select: { name: true } }).catch(() => null)
+        if (st?.name) etapaNome = st.name
+      }
+      // formData exposto → {{formData.qualificacao}} etc. (respostas coletadas pelo
+      // chatbot); departamento vem do metadata do handoff.
+      const enriched = { ...triggerData, payload: { ...pl, operador: opName, origem, etapa: etapaNome, etapa_key: lead.status || '', departamento: meta.departamento || '', formData: lead.formData || {} } }
+      const extrasAviso = await extrasDoLead(lead)
 
       // WhatsApp → todos os números gerais
       if (generalPhones.length > 0 && config.waTemplateId) {
         const tpl = await prisma.messageTemplate.findUnique({ where: { id: config.waTemplateId } })
-        const body = resolveVariables(tpl?.body || '', lead, enriched)
-        if (body.trim()) {
+        const body = resolveVariables(tpl?.body || '', lead, enriched, extrasAviso)
+        const { configDoRoteador } = await import('./outboundRouter.js')
+        const roteador = await configDoRoteador()
+        if (body.trim() && roteador.ligado) {
+          // Roteador ligado (`whatsapp.roteador_saida`): texto livre pela Evolution
+          // como sempre, mas com o HSM de aviso (`whatsapp.hsm_aviso_equipe`)
+          // aprovado o número oficial também alcança a equipe — e é o que segura
+          // este aviso de pé quando a linha não-oficial cai, exatamente quando ele
+          // mais importa.
+          const { enviarAutomatico } = await import('./outboundRouter.js')
+          const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
+          const { textoDoSistema } = await import('./modelosDoSistema.js')
+          const semDado = await textoDoSistema('aviso_equipe_hsm_sem_dado')
+          const avisoHsm = !roteador.hsmAvisoEquipe ? null : {
+            name: roteador.hsmAvisoEquipe,
+            values: {
+              contato: lead.nome || semDado,
+              telefone: lead.whatsapp || semDado,
+              setor: etapaNome || meta.departamento || semDado,
+              pedido: String((lead.formData as any)?.qualificacao || origem || semDado).slice(0, 200),
+            },
+          }
+          for (const phone of generalPhones) {
+            try {
+              const r = await enviarAutomatico({ leadId: null, phone, texto: body, hsm: avisoHsm })
+              await registrarSaidaParaGrupo({
+                destino: phone, texto: r.textoEnviado, externalId: r.externalId,
+                instanceName: r.instanceName,
+              })
+            } catch (e: any) { console.warn(`[notify_operator] WhatsApp falhou (${phone}):`, e?.message) }
+          }
+          prisma.messageTemplate.update({ where: { id: config.waTemplateId }, data: { usageCount: { increment: 1 } } }).catch(() => {})
+        } else if (body.trim()) {
           // Aviso interno → Evolution (número conectado da instância). Não usar
           // getDefaultProvider (pode cair na Cloud API, que não entrega texto
           // livre a número fora da janela 24h).
@@ -1116,8 +1194,8 @@ export async function dispatchAction(
       if (email && config.emailTemplateId) {
         const tpl = await prisma.messageTemplate.findUnique({ where: { id: config.emailTemplateId } })
         const { decodeHtmlIfEscaped } = await import('../lib/interpolate.js')
-        const subject = resolveVariables(tpl?.subject || tpl?.name || '', lead, enriched)
-        const html = resolveVariables(decodeHtmlIfEscaped(tpl?.bodyHtml) || tpl?.body || '', lead, enriched)
+        const subject = resolveVariables(tpl?.subject || tpl?.name || '', lead, enriched, extrasAviso)
+        const html = resolveVariables(decodeHtmlIfEscaped(tpl?.bodyHtml) || tpl?.body || '', lead, enriched, extrasAviso)
         if (html.trim()) {
           try {
             const cfg = await getEmailConfig()

@@ -1434,6 +1434,25 @@ try {
   // Alerta resolvido velho só ocupa espaço — mesmo padrão de poda do
   // meetingRetentionPurge e do trash.
   startAlertRetention()
+  // Fluxo de atendimento do chatbot roteirizado (scriptedConfig.supportFlow):
+  // aviso de fila (cliente e equipe) + timeout do CSAT. Sem chatbot com o fluxo
+  // ligado, cada volta termina na primeira consulta.
+  import('./services/scriptedFlowTimers.js')
+    .then(m => m.startScriptedFlowTimers())
+    .catch(err => console.error('[scriptedFlowTimers] init falhou:', err))
+  // Modelos de texto dos módulos opt-in (atendimento, RH, aviso por HSM,
+  // confirmação por texto): só são registrados onde a configuração existe.
+  import('./services/modelosOpcionais.js')
+    .then(m => m.startModelosOpcionais())
+    .catch(err => console.error('[modelosOpcionais] init falhou:', err))
+  // Pesquisas/NPS: fecha convites que passaram da janela de resposta. Só muda o
+  // status do convite (pending → expired); não envia nada.
+  setInterval(() => {
+    import('./services/surveys.js')
+      .then(m => m.expireSurveySessions())
+      .then(n => { if (n) console.log(`[surveys] ${n} convite(s) expirado(s)`) })
+      .catch(err => console.error('[surveys] expiração falhou:', err))
+  }, 15 * 60_000)
   startActivityScheduler()
   startEmailCampanhas()
   startSecurityCleanup()

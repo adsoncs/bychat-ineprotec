@@ -999,6 +999,12 @@ export async function leadsRoutes(app: FastifyInstance) {
     const { closeConversation, liberarAoResolver } = await import('../services/leadConversation.js')
     const quem = { byUserId: user.userId, byUserName: user.name || user.email }
     const r = await closeConversation(id, quem)
+    // Fluxo de atendimento do chatbot (supportFlow): dispara a pesquisa de
+    // satisfação (CSAT) ao encerrar. No-op para leads fora do fluxo.
+    {
+      const { maybeStartCsat } = await import('../services/scriptedSupportFlow.js')
+      maybeStartCsat(id, user.userId).catch(() => {})
+    }
     const { liberada } = await liberarAoResolver(id, quem)
     return { ok: true, ...r, liberada }
   })
