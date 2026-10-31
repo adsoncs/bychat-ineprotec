@@ -28,12 +28,17 @@ import { enviarParaEquipe } from './encaminharEquipe.js'
 import { atendimentoHumanoAtivo, resumoParaEquipe } from './journey/validacaoContato.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
+import { readImageForModel, transcribeInboundAudio, mediaPlaceholder, type InboundMedia } from './inboundMedia.js'
 import { emitOutboundMessage } from './outboundEvents.js'
 import { quebrarEmMensagens, intervaloDigitacao, estiloDaJornada } from './messageStyle.js'
 import { eduSdrLigado, EDU_TOOLS, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera, type EduState } from './journey/eduSdr.js'
 import { textoDoSistema } from './modelosDoSistema.js'
 
 const MAX_TOOL_ITERS = 6
+// Padrão do histórico enviado ao modelo. O tenant pode subir em
+// `ai.journey.history_limit` (ver configDaJornada) — conversa retomada dias
+// depois precisa de mais contexto, mas cada mensagem a mais custa token em
+// todo turno, então o padrão continua o de sempre.
 const HISTORY_LIMIT = 24
 const LLM_TIMEOUT_MS = 30000   // teto por chamada ao LLM (evita travar a conversa)
 const TOOL_TIMEOUT_MS = 20000  // teto por execução de ferramenta (ex.: slots/Google)
@@ -47,6 +52,114 @@ const EDU_HISTORY_LIMIT = 40
 // da rajada responde — com todas no histórico.
 const EDU_JANELA_MS = 4000
 const EDU_JANELA_MAX_MS = 12000
+
+// ── Configuração da jornada por tenant (Settings `ai.journey.*`) ─────────────
+//
+// Recursos que nasceram num cliente (severiano, out/2026) e mudam o jeito de o
+// bot conversar. Regra do produto: comportamento de UM cliente não vira código
+// fixo — vira Setting, e o padrão (Setting ausente) é EXATAMENTE o motor de
+// antes, para nenhum outro tenant (FABI/fabad incluída) mudar sem alguém ligar.
+//
+// Chaves (valor JSON: número, boolean ou string; "true"/"1" também valem):
+//   ai.journey.human_pace_seconds  número  0     ritmo humano: espera N s de silêncio
+//                                                (teto 3×N), responde a rajada de uma
+//                                                vez, sem texto de espera, com tempo
+//                                                de digitação antes de cada mensagem
+//   ai.journey.history_limit       número  24    mensagens do histórico enviadas (máx. 60)
+//   ai.journey.auto_custom_fields  bool    false salvar_dados cria campo personalizado
+//                                                para dado sem chave no formulário
+//   ai.journey.resume_after_done   bool    false atendimento encerrado é RETOMADO quando
+//                                                a pessoa volta a escrever (com o desfecho
+//                                                anterior no prompt), em vez de silenciar
+//   ai.journey.handoff_contact     string  'form' 'nome_whatsapp' = para encaminhar basta
+//                                                nome + WhatsApp (não cobra e-mail/cidade)
+//   ai.journey.silence_after_handoff bool  false transferir_humano dá a última mensagem
+//                                                e CALA o bot até devolverem a conversa
+//   ai.journey.agenda_by_date      bool    false listar_horarios aceita data/período,
+//                                                devolve "hoje"/"amanhã" e calendário de
+//                                                14 dias, recusa data passada
+//   ai.journey.max_slot_offers     número  2     ofertas de horário antes de passar a um
+//                                                humano (0 = sem limite)
+//   ai.journey.read_media          bool    false a IA vê a foto e ouve o áudio transcrito
+//   ai.journey.no_menus            bool    false atendimento só em frases, sem [[OPTIONS]]
+//   ai.journey.free_greeting       bool    false a saudação do chatbot é referência de tom,
+//                                                reescrita a cada conversa (não copiada)
+//   ai.journey.posture             bool    false bloco "Postura" (sem bajular, sem
+//                                                concordar por concordar, sem "deixa eu
+//                                                verificar", nunca inventar nome)
+//   ai.journey.extended_dossier    bool    false ficha do lead ganha setor, atendente e
+//                                                tamanho da conversa
+export interface ConfigJornada {
+  ritmoHumanoMs: number
+  historico: number
+  camposAutomaticos: boolean
+  retomarAposEncerrar: boolean
+  contatoMinimo: boolean
+  calarAposTransferir: boolean
+  agendaPorData: boolean
+  maxOfertasAgenda: number
+  lerMidia: boolean
+  semMenus: boolean
+  saudacaoLivre: boolean
+  postura: boolean
+  fichaAmpliada: boolean
+}
+/** Padrão = o motor de sempre. */
+export const CONFIG_JORNADA_PADRAO: ConfigJornada = {
+  ritmoHumanoMs: 0, historico: HISTORY_LIMIT, camposAutomaticos: false, retomarAposEncerrar: false,
+  contatoMinimo: false, calarAposTransferir: false, agendaPorData: false, maxOfertasAgenda: 2,
+  lerMidia: false, semMenus: false, saudacaoLivre: false, postura: false, fichaAmpliada: false,
+}
+const CONFIG_CACHE_MS = 60000
+let configCache: { at: number; cfg: ConfigJornada } | null = null
+
+function valorDaSetting(v: unknown): unknown {
+  // Settings chegam como JSON cru: true, 5, "5", "\"true\"" — normaliza.
+  if (typeof v === 'string') return v.replace(/^"+|"+$/g, '').trim()
+  return v
+}
+function comoBool(v: unknown): boolean {
+  const x = valorDaSetting(v)
+  return x === true || x === 1 || x === 'true' || x === '1' || x === 'sim' || x === 'on'
+}
+function comoNumero(v: unknown): number | null {
+  const x = valorDaSetting(v)
+  if (x === null || x === undefined || x === '') return null
+  const n = Number(x)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Lê os Settings `ai.journey.*` (uma consulta, cache de 60s). */
+export async function configDaJornada(): Promise<ConfigJornada> {
+  if (configCache && Date.now() - configCache.at < CONFIG_CACHE_MS) return configCache.cfg
+  const rows = await prisma.setting.findMany({ where: { key: { startsWith: 'ai.journey.' } }, select: { key: true, value: true } }).catch(() => [] as Array<{ key: string; value: unknown }>)
+  const s = new Map(rows.map((r) => [r.key, r.value]))
+  const pace = comoNumero(s.get('ai.journey.human_pace_seconds'))
+  const hist = comoNumero(s.get('ai.journey.history_limit'))
+  const ofertas = comoNumero(s.get('ai.journey.max_slot_offers'))
+  const cfg: ConfigJornada = {
+    ritmoHumanoMs: pace && pace > 0 ? Math.min(pace, 60) * 1000 : 0,
+    historico: hist && hist > 0 ? Math.min(Math.round(hist), 60) : HISTORY_LIMIT,
+    camposAutomaticos: comoBool(s.get('ai.journey.auto_custom_fields')),
+    retomarAposEncerrar: comoBool(s.get('ai.journey.resume_after_done')),
+    contatoMinimo: valorDaSetting(s.get('ai.journey.handoff_contact')) === 'nome_whatsapp',
+    calarAposTransferir: comoBool(s.get('ai.journey.silence_after_handoff')),
+    agendaPorData: comoBool(s.get('ai.journey.agenda_by_date')),
+    maxOfertasAgenda: ofertas !== null && ofertas >= 0 ? Math.round(ofertas) : CONFIG_JORNADA_PADRAO.maxOfertasAgenda,
+    lerMidia: comoBool(s.get('ai.journey.read_media')),
+    semMenus: comoBool(s.get('ai.journey.no_menus')),
+    saudacaoLivre: comoBool(s.get('ai.journey.free_greeting')),
+    postura: comoBool(s.get('ai.journey.posture')),
+    fichaAmpliada: comoBool(s.get('ai.journey.extended_dossier')),
+  }
+  configCache = { at: Date.now(), cfg }
+  return cfg
+}
+
+// Ritmo humano: tempo de "digitar" antes de uma mensagem, proporcional a ela.
+function typingDelayMs(body: string): number {
+  return Math.min(6000, Math.max(1500, String(body || '').length * 30))
+}
 
 // fetch com timeout (AbortController) — nenhuma chamada externa pode pendurar o turno.
 async function fetchWithTimeout(url: string, opts: any, ms: number): Promise<Response> {
@@ -73,6 +186,8 @@ interface AiState {
    * sozinho ao longo da conversa, coisa que ele erra. Aqui vira número.
    */
   ofertasAgenda?: number
+  /** ISO da retomada de um atendimento já encerrado (`ai.journey.resume_after_done`). */
+  resumedAt?: string | null
   /** Consultor educacional: inscrição em foco, anexos usados (journey/eduSdr). */
   edu?: EduState
   /**
@@ -106,6 +221,36 @@ function absoluteUrl(url: string): string {
   if (/^https?:\/\//i.test(url)) return url
   const base = String(process.env.APP_URL || '').replace(/\/+$/, '')
   return base ? `${base}${url.startsWith('/') ? '' : '/'}${url}` : url
+}
+
+// Slug canônico (snake_case, sem acento) para chave de campo personalizado.
+export function slugifyKey(s: string): string {
+  return String(s || '')
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60)
+}
+
+// Garante um CustomField ativo para `rawKey`; cria na hora quando a IA informa um
+// dado que ainda não tem campo pré-cadastrado (para NÃO perder dado nenhum —
+// ex.: 2º/3º filho, idade, ou qualquer dado imprevisto). Retorna a chave canônica.
+// Só roda com `ai.journey.auto_custom_fields` ligado: criar campo no CRM é
+// decisão do tenant, não do motor.
+async function ensureCustomField(rawKey: string, label?: string): Promise<string | null> {
+  const key = slugifyKey(rawKey)
+  if (!key) return null
+  const existing = await prisma.customField.findUnique({ where: { key } }).catch(() => null)
+  if (existing) {
+    if (!existing.active) await prisma.customField.update({ where: { key }, data: { active: true } }).catch(() => {})
+    return key
+  }
+  const nice = ((label && String(label).trim()) || rawKey.replace(/_/g, ' ').trim() || key).slice(0, 191)
+  const agg = await prisma.customField.aggregate({ _max: { position: true } }).catch(() => null)
+  await prisma.customField.create({ data: {
+    key, label: nice, type: 'text', group: 'custom',
+    showInList: false, showInKanban: false, showInForm: false, active: true,
+    position: ((agg?._max?.position ?? 0) as number) + 1,
+  } }).catch(() => {})
+  return key
 }
 
 // Mapeia o que a IA salvou num campo de seleção para o VALUE da opção (a qualificação
@@ -291,6 +436,45 @@ const TOOLS = [
 
 type ToolDef = { name: string; description: string; input_schema: any }
 
+// Variantes de ferramenta ligadas por configuração (ver configDaJornada). A
+// descrição de uma ferramenta é instrução para o modelo — mudar o que ela faz
+// sem mudar o que ela diz deixaria o modelo usando a versão antiga.
+const SALVAR_DADOS_AUTOMATICO: ToolDef = {
+  name: 'salvar_dados',
+  description: 'Grava no lead as respostas coletadas. Chame sempre que o lead informar um dado (nome, e-mail, e os campos do formulário). NENHUM dado informado pelo lead pode se perder. Prefira as CHAVES exatas listadas em "Dados a coletar". Se o lead informar um dado que NÃO tem chave listada (ex.: 2º/3º filho, idade, ou qualquer dado imprevisto), invente uma chave curta em snake_case (ex.: filho_2_nome, filho_2_idade) e envie também um "rotulo" legível (ex.: "Filho(a) 2 — Nome") — o sistema cria o campo automaticamente e salva. Nunca deixe de salvar um dado por falta de campo pré-cadastrado.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      campos: {
+        type: 'array',
+        description: 'Lista de pares chave/valor a salvar.',
+        items: { type: 'object', properties: { chave: { type: 'string' }, valor: { type: 'string' }, rotulo: { type: 'string', description: 'Rótulo legível do campo, usado só quando a chave ainda não existe (para criar o campo). Opcional.' } }, required: ['chave', 'valor'] },
+      },
+    },
+    required: ['campos'],
+  },
+}
+const LISTAR_HORARIOS_POR_DATA: ToolDef = {
+  name: 'listar_horarios',
+  description: 'Retorna os horários REAIS disponíveis para agendar a reunião, com a data de hoje e rótulos "hoje"/"amanhã". Use SOMENTE estes horários ao oferecer ao lead — nunca invente. Sem filtro, traz uma amostra dos próximos dias (manhã e tarde) e a lista dos demais dias com vaga; se a pessoa pedir um dia ou período específico, chame de novo com `data` e/ou `periodo`.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      data: { type: 'string', description: 'Opcional. Dia pedido pela pessoa, AAAA-MM-DD ou DD/MM — use o "calendario" do resultado anterior para achar a data certa de "sexta", "semana que vem" etc. Devolve todos os horários livres desse dia.' },
+      periodo: { type: 'string', enum: ['manha', 'tarde', 'noite'], description: 'Opcional. Só horários desse período (manhã < 12h, tarde 12h–18h, noite ≥ 18h).' },
+    },
+    required: [],
+  },
+}
+function comVariantes(tools: ToolDef[], cfg: ConfigJornada): ToolDef[] {
+  if (!cfg.camposAutomaticos && !cfg.agendaPorData) return tools
+  return tools.map((t) => {
+    if (t.name === 'salvar_dados' && cfg.camposAutomaticos) return SALVAR_DADOS_AUTOMATICO
+    if (t.name === 'listar_horarios' && cfg.agendaPorData) return LISTAR_HORARIOS_POR_DATA
+    return t
+  })
+}
+
 // Consultor educacional: as ferramentas do portal + as genéricas que fazem
 // sentido nele. Fica de fora o que é de outro tipo de jornada (setor, nota de
 // qualificação, agenda, catálogo de produtos) — e `encerrar`, porque quem volta
@@ -300,8 +484,8 @@ const EDU_BASE = new Set(['salvar_dados', 'transferir_humano'])
 export function temDepartamentos(form: any): boolean {
   return (form?.fields || []).some((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
 }
-export function ferramentasDaJornada(form: any): ToolDef[] {
-  if (!eduSdrLigado(form)) return TOOLS
+export function ferramentasDaJornada(form: any, cfg: ConfigJornada = CONFIG_JORNADA_PADRAO): ToolDef[] {
+  if (!eduSdrLigado(form)) return comVariantes(TOOLS, cfg)
   // rotear_setor entra só quando há departamentos configurados: quem escreve
   // sobre boleto, histórico ou acesso à plataforma não é matrícula e tem de
   // chegar à equipe certa.
@@ -310,7 +494,7 @@ export function ferramentasDaJornada(form: any): ToolDef[] {
   // Matrícula pelo chat desligada: sem as ferramentas que inscrevem, cobram,
   // anexam documento, assinam contrato ou mandam link do portal.
   const edu = matriculaPeloChatLigada(form) ? EDU_TOOLS : EDU_TOOLS.filter((t) => !EDU_TOOLS_MATRICULA.has(t.name))
-  return [...TOOLS.filter((t) => base.has(t.name)), ...edu]
+  return [...comVariantes(TOOLS, cfg).filter((t) => base.has(t.name)), ...edu]
 }
 
 /** Instrução depois de rotear no modo educacional: aqui o encaminhamento É o
@@ -323,6 +507,83 @@ export function instrucaoDepartamentoEdu(rotulo: string): string {
   return `Assunto encaminhado para: ${setor} (a equipe já foi atribuída). Diga à pessoa, numa mensagem curta e acolhedora, que o assunto dela fica com a equipe de ${setor} e que a equipe continua o atendimento por aqui mesmo, neste WhatsApp, em horário comercial. Se ela já contou o problema, não peça para repetir; se ainda não contou, peça que descreva em uma mensagem para a equipe já pegar com tudo. NÃO tente resolver o assunto você mesmo e NÃO chame transferir_humano depois disto.`
 }
 
+// ── Trilhas de entrada (rotas do mesmo bot) ─────────────────────────────────
+//
+// O chatbot é escolhido pela instância/conexão do WhatsApp: um número, um bot. Mas
+// nem todo lead chega do mesmo jeito — quem vem de um formulário de anúncio NÃO
+// escreveu primeiro: nós é que abrimos a conversa (HSM/fluxo). Se esse lead recebe a
+// mesma abertura de quem mandou "oi", o bot se apresenta como se nada tivesse
+// acontecido e a conversa começa torta.
+//
+// A trilha é marcada no LEAD (`formData._botRoute`) no momento em que ele nasce
+// (routes/meta.ts marca 'meta_ads'), e aqui vira um bloco extra de instruções no
+// system prompt, guardado num Setting (`chatbot.route_<trilha>`) para o cliente
+// editar o texto sem tocar em código. Lead sem marcador, ou trilha sem Setting →
+// nada muda: o prompt sai idêntico ao de sempre.
+//
+// De propósito NÃO usamos `lead.chatbotId` como seletor de trilha: esse campo é lido
+// por workers.ts para resolver a instância Evolution de envio, e apontá-lo para um
+// chatbot sem instância vinculada faria a mensagem sair pela instância errada.
+const ROUTE_KEY_RE = /^[a-z0-9_]{1,40}$/
+
+export function readBotRoute(formData: unknown): string | null {
+  const fd = (formData || {}) as any
+  const r = typeof fd._botRoute === 'string' ? fd._botRoute.trim() : ''
+  return r && ROUTE_KEY_RE.test(r) ? r : null
+}
+
+/** Bloco de prompt da trilha do lead (null = lead sem trilha ou trilha sem texto). */
+export async function getBotRouteBlock(formData: unknown): Promise<string | null> {
+  const route = readBotRoute(formData)
+  if (!route) return null
+  const s = await prisma.setting.findUnique({ where: { key: `chatbot.route_${route}` } }).catch(() => null)
+  const v: any = s?.value
+  const txt = typeof v === 'string' ? v : (v && typeof v === 'object' ? String(v.prompt || '') : '')
+  return txt.trim() || null
+}
+
+/**
+ * Contexto de um atendimento que já tinha sido encerrado e a pessoa retomou
+ * (`ai.journey.resume_after_done`). O histórico de mensagens sozinho não basta:
+ * o que sustenta a continuidade é saber o DESFECHO (agendou? foi encaminhada?
+ * ficou sem resposta?) e há quanto tempo isso foi. Sem isto o modelo tende a
+ * reabrir o atendimento do começo.
+ */
+async function buildResumeContext(leadId: number, lead: any, resumedFrom: string): Promise<string> {
+  const fmt = (d: Date) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(d)
+  const linhas: string[] = []
+
+  const desfecho = resumedFrom === 'disqualified'
+    ? 'o atendimento anterior terminou sem seguir para o agendamento'
+    : resumedFrom === 'handoff'
+      ? 'a conversa anterior foi entregue a um setor da equipe'
+      : 'o atendimento anterior foi dado como concluído'
+  linhas.push(`- Como parou: ${desfecho}.`)
+
+  const booking = await prisma.booking.findFirst({
+    where: { leadId, status: { not: 'cancelled' } }, orderBy: { startAt: 'desc' },
+    select: { startAt: true, status: true },
+  }).catch(() => null)
+  if (booking) {
+    const passou = booking.startAt.getTime() < Date.now()
+    linhas.push(`- Reunião/visita ${passou ? 'que estava marcada para' : 'JÁ AGENDADA para'} ${fmt(booking.startAt)}${passou ? ' (data já passou)' : ''}. NÃO ofereça agendamento de novo sem antes falar sobre esta.`)
+  } else {
+    linhas.push('- Não existe reunião/visita agendada para esta pessoa.')
+  }
+
+  if (lead?.teamId) {
+    const team = await prisma.team.findUnique({ where: { id: lead.teamId }, select: { name: true } }).catch(() => null)
+    if (team?.name) linhas.push(`- A conversa está com o setor ${team.name}.`)
+  }
+  if (lead?.lastMessageAt) linhas.push(`- Última interação registrada: ${fmt(new Date(lead.lastMessageAt))}.`)
+
+  return [
+    'Esta pessoa JÁ conversou com a gente antes e o atendimento tinha sido encerrado — agora ela voltou a escrever. O histórico acima é a conversa real de vocês.',
+    ...linhas,
+    'Como agir: leia o histórico ANTES de responder e continue do ponto em que parou. NÃO recomece o atendimento, NÃO se apresente de novo, NÃO repita a saudação e JAMAIS refaça perguntas que ela já respondeu — reveja no histórico em vez de perguntar. Se ela trouxer assunto novo, siga por ele. Se você não tiver certeza do que ficou pendente, faça UMA pergunta específica sobre aquele ponto ("vocês chegaram a decidir sobre a visita de quinta?"), nunca uma pergunta genérica do tipo "como posso ajudar?".',
+  ].join('\n')
+}
+
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
 const CUMPRIMENTO = /^(oi+|ol[aá]+|opa|e a[ií]|al[oô]|oi+e+|bom dia|boa tarde|boa noite|paz do senhor|a paz( do senhor)?|tudo bem|oi,? tudo bem)[\s!.?,;:)(\p{Extended_Pictographic}]*$/iu
 /** A mensagem é só um cumprimento, sem assunto. */
@@ -330,6 +591,9 @@ export function soCumprimento(texto: string): boolean {
   return CUMPRIMENTO.test(String(texto || '').trim())
 }
 const AVISO_CUMPRIMENTO = '[aviso interno do sistema, não é a pessoa] A mensagem acima é só um cumprimento de quem já conversou com você. Não responda apenas "estou aqui" / "como posso ajudar?" e não repita o que já disse. Veja a situação ATUAL na ficha interna (etapa pendente, novidades, último assunto) e conduza o próximo passo concreto, com as opções em botões quando houver.'
+// Mesmo aviso para quem atende sem menus (`ai.journey.no_menus`): pedir "botões"
+// ali contradiria a regra do próprio prompt.
+const AVISO_CUMPRIMENTO_SEM_MENUS = AVISO_CUMPRIMENTO.replace(', com as opções em botões quando houver.', '.')
 
 /**
  * Mensagem INTERNA na conversa ao passar a pessoa para a equipe: o que ela pediu
@@ -361,8 +625,23 @@ const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
   enrollment_portal: 'já estava no nosso portal de matrículas',
 }
 
-export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, brandName?: string | null, contextoLead?: string | null, edu?: string | null): string {
+/**
+ * O que entra no prompt além do básico. Tudo opcional: sem `extras`, o prompt
+ * sai idêntico ao de antes (é o que o simulador antigo e a reativação usam).
+ */
+export interface ExtrasDoPrompt {
+  /** Configuração da jornada do tenant (padrão = CONFIG_JORNADA_PADRAO). */
+  cfg?: ConfigJornada
+  /** Bloco da trilha de entrada do lead (getBotRouteBlock). Substitui a saudação. */
+  routeBlock?: string | null
+  /** Contexto de retomada de atendimento encerrado. Tem precedência sobre a trilha. */
+  resumeBlock?: string | null
+}
+
+export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, brandName?: string | null, contextoLead?: string | null, edu?: string | null, extras: ExtrasDoPrompt = {}): string {
   const fields: any[] = form?.fields || []
+  const cfg = extras.cfg ?? CONFIG_JORNADA_PADRAO
+  const { routeBlock, resumeBlock } = extras
 
   /**
    * Mesmas variáveis que o motor 'ai' já resolve (chatbotFlow): quem escreve o
@@ -456,13 +735,20 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     base,
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
     setores && edu ? `\n## Departamentos (use rotear_setor)\n${setores}\n\nQuando a pessoa trouxer um assunto que NÃO é conhecer cursos ou fazer/continuar a inscrição (ex.: aluno com dúvida de boleto, histórico, acesso à plataforma, estágio), identifique o departamento e chame **rotear_setor** com a chave certa — uma única vez. Na dúvida entre dois, pergunte uma coisa só para decidir. Se for algo que nenhum departamento cobre, use transferir_humano.` : '',
-    setores && !edu ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
+    setores && !edu && !cfg.contatoMinimo ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
+    // `ai.journey.handoff_contact = nome_whatsapp`: para encaminhar basta saber
+    // QUEM é a pessoa. Quem escreve pedindo o financeiro já está no sistema e não
+    // deve ser interrogado por e-mail/cidade só para ser atendido.
+    setores && !edu && cfg.contatoMinimo ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter os dados de contato mínimos (veja "Dados de contato"). Chame uma única vez. A escolha do setor deve ser confirmada com a pessoa antes: encaminhar errado faz o atendimento recomeçar do zero.` : '',
     // A lista sai dos campos de contato que o formulário REALMENTE coleta — é
     // exatamente o que a trava de transferir_humano exige (missingContactData).
     // Fixá-la em "nome, e-mail, WhatsApp e cidade" fazia a IA cobrar e-mail em
     // roteiros que decidiram não pedir e-mail, contrariando o próprio roteiro.
-    contatoObrigatorio
+    contatoObrigatorio && !cfg.contatoMinimo
       ? `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: ${contatoObrigatorio}. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados. NÃO peça nenhum dado de contato além destes.`
+      : '',
+    cfg.contatoMinimo
+      ? `\n## Dados de contato antes de encaminhar para humano\nPara chamar rotear_setor ou transferir_humano basta saber QUEM é a pessoa: **nome e WhatsApp**. Se já souber os dois (veja "Já sabemos"/"Respostas já coletadas"), encaminhe na hora — não peça mais nada. Se faltar algum, peça só ele, de forma natural. NÃO exija e-mail nem cidade para encaminhar: quem procura um setor quer ser atendido, não preencher cadastro. Os demais dados são coletados no momento próprio da conversa (por exemplo, o e-mail ao confirmar um agendamento).`
       : '',
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
     customFieldsList ? `\n## Campos personalizados do lead (contexto adicional, já preenchidos antes desta conversa)\n${customFieldsList}` : '',
@@ -477,7 +763,19 @@ ${contextoLead}
 Esta ficha é da EQUIPE, não do lead. Use para NÃO perguntar o que já se sabe e NÃO repetir assunto já tratado: confirme em vez de perguntar de novo ("vocês são de Goiânia, certo?"), e nunca reapresente a empresa para quem já conversou com o time.
 REGRA ABSOLUTA: não cite, não repita, não resuma e não dê a entender o conteúdo desta ficha para o lead. Anotação interna, etiqueta e etapa do funil são avaliações da equipe sobre ele ("não retornou", "5 tentativas sem resposta") — dizer isso ao lead constrange e expõe a operação. Se ele perguntar o que temos registrado, responda apenas o que ELE mesmo informou nesta conversa.` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
-    greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
+    // Retomada > trilha de entrada > saudação. Quem chegou por anúncio já recebeu
+    // a mensagem da empresa antes de responder — repetir a saudação de quem mandou
+    // "oi" faria o bot começar do zero uma conversa que já está em curso; e quem
+    // já conversou não pode receber saudação de primeiro contato.
+    resumeBlock
+      ? `\n## Esta conversa é uma RETOMADA (LEIA ANTES DE RESPONDER)\n${resumeBlock}`
+      : routeBlock
+        ? `\n## Como esta conversa começou (LEIA ANTES DE RESPONDER)\n${interpolarMarca(routeBlock)}`
+        : greeting && cfg.saudacaoLivre
+          // `ai.journey.free_greeting`: a saudação vira referência de tom, não texto
+          // fixo — a mesma frase pronta em toda conversa soa robô.
+          ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), abra no espírito desta saudação — ela é referência de TOM e de conteúdo, não um texto para copiar. Escreva com as suas palavras, em uma ou duas frases curtas e objetivas, personalizando com o nome quando souber, e VARIE a formulação a cada conversa (nunca a mesma frase pronta duas vezes), mantendo sempre o mesmo tom de voz da marca. Não a repita nas mensagens seguintes:\n"${greeting}"`
+          : greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     // Consultor educacional: o protocolo dele (portal como fonte da verdade,
     // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
     edu ? (matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + (matriculaPorLink(form) ? PROTOCOLO_MATRICULA_POR_LINK : PROTOCOLO_SEM_MATRICULA)) : `\n## Como agir
@@ -505,6 +803,19 @@ O atendimento humano funciona: **${businessHours}**. Agora são ${new Date().toL
 - Este horário é o do atendimento humano. Não confunda com os horários de visita, que vêm de listar_horarios.` : `\n## Horário de atendimento da equipe
 O horário de atendimento humano NÃO está cadastrado no sistema. Portanto: NUNCA afirme horário de funcionamento nem prometa prazo de retorno ("respondem ainda hoje", "amanhã cedo"). Diga apenas que a equipe vai retornar assim que possível.
 Hoje é ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })} (horário de Brasília). Use esta data para qualquer conta de prazo; não deduza a data de outra fonte.`,
+    // Postura (`ai.journey.posture`). Um modelo solto puxa para dois vícios que
+    // queimam a empresa: bajular ("que pergunta excelente!") e concordar com o que
+    // a pessoa disser só para agradar — inclusive com informação errada sobre a
+    // empresa. As duas coisas soam falsas e criam expectativa que ninguém honra.
+    cfg.postura ? `\n## Postura (como você se porta)
+- Cordial e profissional, NUNCA bajulador. Nada de elogios gratuitos, superlativos ("maravilhoso", "perfeito", "incrível"), entusiasmo forçado ou puxa-saquismo. Simpatia se demonstra atendendo bem, não elogiando a pessoa.
+- Não concorde por concordar. Se a pessoa afirmar algo errado, impreciso ou que você não pode confirmar, NÃO valide — corrija com educação ou diga com honestidade que não é bem assim / que não tem essa informação. Concordar com uma bobagem para agradar é pior do que discordar com respeito.
+- Nunca prometa, garanta ou insinue algo que não esteja explicitamente autorizado neste prompt (valores, condições, prazos, resultados, exceções). Na dúvida, diga que não pode afirmar.
+- Não force a barra: ofereça o próximo passo com clareza, mas se a pessoa disser não, respeite. Insistir depois de uma recusa clara afasta a pessoa.
+- Cada mensagem tem que avançar o atendimento em direção ao objetivo. Nada de mensagem só para preencher espaço, nem de repetir com outras palavras o que você já disse.
+- Nunca anuncie que vai fazer algo ("deixa eu verificar", "um momentinho", "já te falo") nem peça para a pessoa aguardar: as consultas são instantâneas do seu lado. Faça e traga o resultado na mesma resposta.
+- Coerência: não se contradiga em relação ao que já foi dito nesta conversa nem invente informação que ninguém te deu.
+- Se você não sabe o nome da pessoa, NUNCA invente, chute ou suponha um, e JAMAIS se dirija a ela por um nome que ela não tenha dito — errar o nome é pior do que não usar nome nenhum.` : '',
     `\n## Regras
 ${realNome
   ? `- O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
@@ -515,8 +826,12 @@ ${realNome
   : '- O nome do lead NÃO é conhecido. Você pode perguntá-lo UMA única vez, com naturalidade, no momento que fizer sentido. Se ele não responder ou mudar de assunto, SIGA o fluxo normalmente e não volte a perguntar: o nome é desejável, nunca obrigatório. Jamais repita a mesma pergunta duas vezes seguidas — se o lead respondeu outra coisa, atenda o que ele trouxe.'}
 - NUNCA invente horários: use só os que listar_horarios devolveu.
 - NUNCA afirme que agendou sem agendar ter retornado ok=true.
-- Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).
-- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões (até 3) ou lista (4 a 10). Botão tem no máximo 20 caracteres; item de lista, 24 no título — para explicar o item, escreva "Título — descrição" (a descrição aparece embaixo, até 72). Com mais de 10 opções, use dois marcadores seguidos, cada um com o seu texto antes e um rótulo curto: [[OPTIONS Núcleos: a | b]] e [[OPTIONS Setores: c | d]].`,
+- Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).${cfg.lerMidia ? `
+- O cliente pode mandar foto, áudio ou arquivo. Foto você ESTÁ VENDO: diga o que ela mostra com naturalidade e siga o atendimento a partir dela (nunca peça para "descrever a imagem" nem finja que não recebeu). Áudio chega transcrito, marcado como "[áudio do cliente, transcrito]" — trate como se ele tivesse escrito, e não comente que era um áudio. Se vier um marcador dizendo que o arquivo não pôde ser aberto, avise com simplicidade e siga (ex.: "recebi aqui, mas não consegui abrir — me conta o que tem nele?"). NUNCA invente o conteúdo de um anexo que você não conseguiu ver.` : ''}
+${cfg.semMenus
+  // `ai.journey.no_menus`: atendimento 100% conversacional, sem botão nem lista.
+  ? '- NUNCA apresente menus, listas de opções ou opções numeradas ("1) ... 2) ..."). Fale como um atendente humano: conduza a conversa em frases naturais e, quando precisar oferecer caminhos ou horários, escreva-os de forma corrida dentro da própria mensagem (ex.: "consigo te receber na terça de manhã ou na quinta à tarde, qual fica melhor?"). Não use o marcador [[OPTIONS]].'
+  : '- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões (até 3) ou lista (4 a 10). Botão tem no máximo 20 caracteres; item de lista, 24 no título — para explicar o item, escreva "Título — descrição" (a descrição aparece embaixo, até 72). Com mais de 10 opções, use dois marcadores seguidos, cada um com o seu texto antes e um rótulo curto: [[OPTIONS Núcleos: a | b]] e [[OPTIONS Setores: c | d]].'}`,
   ].filter(Boolean).join('\n')
 }
 
@@ -525,9 +840,14 @@ ${realNome
 // real no lead (ignora placeholders do canal web). Retorna os que faltam.
 const CONTACT_MAPTOS = ['nome', 'whatsapp', 'email', 'cidade'] as const
 const CONTACT_LABEL: Record<string, string> = { nome: 'nome', whatsapp: 'WhatsApp', email: 'e-mail', cidade: 'cidade' }
-async function missingContactData(leadId: number, form: any): Promise<string[]> {
+// Identificação mínima para ENCAMINHAR (`ai.journey.handoff_contact = nome_whatsapp`).
+// Quem escreve pedindo o financeiro já está no sistema (o WhatsApp chegou junto
+// com a mensagem) e não deve ser interrogado por e-mail/cidade só para ser atendido.
+export const ROUTING_MAPTOS = ['nome', 'whatsapp'] as const
+async function missingContactData(leadId: number, form: any, only?: readonly string[]): Promise<string[]> {
   const fields: any[] = form?.fields || []
-  const wanted = fields.filter((f) => CONTACT_MAPTOS.includes(f?.mapTo))
+  const alvo: readonly string[] = only ?? CONTACT_MAPTOS
+  const wanted = fields.filter((f) => alvo.includes(f?.mapTo))
   if (!wanted.length) return []
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, email: true, whatsapp: true, cidade: true } })
   const PLACEHOLDER = new Set(['lead lp', 'lead', 'webchat'])
@@ -552,12 +872,13 @@ async function missingContactData(leadId: number, form: any): Promise<string[]> 
  *
  * Só entra o que estiver preenchido: linha vazia é ruído no prompt.
  */
-export async function buildLeadContext(leadId: number): Promise<string> {
+export async function buildLeadContext(leadId: number, ampliada?: { state?: AiState | null; historico?: number } | null): Promise<string> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
     select: {
       status: true, cidade: true, segmento: true, empresa: true, customFields: true,
       originType: true, campaignName: true, createdAt: true, annotation: true,
+      teamId: true, assignedUserId: true,
       funnel: { select: { name: true, stages: { select: { key: true, name: true } } } },
       tags: { select: { tag: { select: { name: true } } } },
     },
@@ -611,6 +932,31 @@ export async function buildLeadContext(leadId: number): Promise<string> {
     linhas.push(`- Já houve conversa anterior nesta linha (última resposta nossa por "${humano.senderName}"). Continue de onde parou, sem se reapresentar.`)
   }
 
+  // Ficha ampliada (`ai.journey.extended_dossier`, veio do severiano): quem
+  // cuida do lead e o tamanho da conversa. O tamanho é o que separa "primeiro
+  // contato" de "atendimento em andamento" quando o histórico enviado ao modelo
+  // vem truncado — sem isso ele trata como novo quem conversa há semanas.
+  if (ampliada) {
+    if (lead.teamId) {
+      const team = await prisma.team.findUnique({ where: { id: lead.teamId }, select: { name: true } }).catch(() => null)
+      if (team?.name) linhas.push(`- Setor responsável: ${team.name}`)
+    }
+    if (lead.assignedUserId) {
+      const u = await prisma.user.findUnique({ where: { id: lead.assignedUserId }, select: { displayName: true, name: true, email: true } }).catch(() => null)
+      if (u) { const { nomeExibicao } = await import('./operatorIdentity.js'); linhas.push(`- Atendente responsável na equipe: ${nomeExibicao(u)}`) }
+    }
+    const [total, primeira] = await Promise.all([
+      prisma.message.count({ where: { leadId, isInternal: false } }).catch(() => 0),
+      prisma.message.findFirst({ where: { leadId, isInternal: false }, orderBy: { id: 'asc' }, select: { timestamp: true } }).catch(() => null),
+    ])
+    const limite = ampliada.historico ?? HISTORY_LIMIT
+    if (total > 1) {
+      const desde = primeira?.timestamp ? `, desde ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(primeira.timestamp))}` : ''
+      linhas.push(`- Já são ${total} mensagens trocadas${desde}.${total > limite ? ` Você recebeu as ${limite} últimas — houve conversa antes delas.` : ''}`)
+    }
+    if (ampliada.state?.phase === 'handoff') linhas.push('- Esta conversa já foi entregue a um setor da equipe em algum momento.')
+  }
+
   return linhas.join('\n')
 }
 
@@ -624,11 +970,139 @@ export async function getCatalogSummary(): Promise<string> {
   } catch { return '' }
 }
 
+/**
+ * Horários para a IA oferecer (ferramenta listar_horarios). Compartilhado com o
+ * simulador (chatbotPreview) para o teste oferecer exatamente o que o WhatsApp
+ * ofereceria. Sem efeito colateral além de contar a oferta no `state`: quem
+ * marca o lead e emite o evento é o motor real.
+ *
+ * Duas formas:
+ *  - padrão: os 12 primeiros horários, como sempre;
+ *  - `ai.journey.agenda_by_date` (veio do severiano): aceita `data` e `periodo`,
+ *    devolve a data de hoje, "hoje"/"amanhã" e um calendário de 14 dias, e recusa
+ *    data passada. Antes o modelo concluía que a agenda acabava no 12º horário
+ *    ("os horários vão até terça") e errava o dia da semana (severiano, lead 900,
+ *    13/10/2026); chegou a pedir 2025-10-17 em 13/10/2026.
+ */
+export async function horariosParaIa(form: any, input: any, state: AiState, cfg: ConfigJornada): Promise<{ resposta: Record<string, any>; slug: string | null; oferecidos: number }> {
+  const fields: any[] = form?.fields || []
+  const schedField = fields.find((f) => f?.type === 'scheduling')
+  const slug: string | null = schedField?.meetingSlug || null
+  if (!slug) return { resposta: { ok: false, erro: 'Agendamento não configurado neste formulário.' }, slug: null, oferecidos: 0 }
+  const mt = await getActiveMeetingType(slug)
+  if (!mt) return { resposta: { ok: false, erro: 'Tipo de reunião indisponível.' }, slug, oferecidos: 0 }
+
+  const out: Array<{ startAt: string; label: string }> = []
+  let extra: Record<string, any> = {}
+  let filtrou = false
+
+  if (!cfg.agendaPorData) {
+    const days = await getMeetingTypeSlots(mt, {}).catch(() => [] as any[])
+    for (const day of (days as any[])) {
+      for (const sl of (day.slots || [])) {
+        if (out.length >= 12) break
+        const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
+        out.push({ startAt: sl.startAt, label: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
+      }
+      if (out.length >= 12) break
+    }
+    if (!out.length) return { resposta: { ok: false, erro: 'Sem horários disponíveis no momento.' }, slug, oferecidos: 0 }
+  } else {
+    const tz = mt.timezone || 'America/Sao_Paulo'
+    const ymd = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+    const hojeStr = ymd(new Date())
+    const amanhaStr = ymd(new Date(Date.now() + 86400000))
+    const hojeExtenso = new Date().toLocaleString('pt-BR', { timeZone: tz, weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    // Data pedida: aceita AAAA-MM-DD ou DD/MM (sem ano = próxima ocorrência).
+    const dataPedida = (() => {
+      const raw = String(input?.data || '').trim()
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+      let mmdd = m ? `${m[2]}-${m[3]}` : null
+      if (!m) { const b = raw.match(/^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?$/); if (b) mmdd = `${b[2]!.padStart(2, '0')}-${b[1]!.padStart(2, '0')}` }
+      if (!mmdd) return null
+      if (m) return raw
+      const ano = Number(hojeStr.slice(0, 4))
+      return `${ano}-${mmdd}` >= hojeStr ? `${ano}-${mmdd}` : `${ano + 1}-${mmdd}`
+    })()
+    const periodo = ['manha', 'tarde', 'noite'].includes(String(input?.periodo)) ? String(input.periodo) : null
+    filtrou = !!(dataPedida || periodo)
+    const hora = (label: string) => parseInt(String(label).slice(0, 2), 10)
+    const noPeriodo = (label: string) => !periodo
+      || (periodo === 'manha' && hora(label) < 12)
+      || (periodo === 'tarde' && hora(label) >= 12 && hora(label) < 18)
+      || (periodo === 'noite' && hora(label) >= 18)
+    const rotuloDia = (day: any) => {
+      const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
+      const rel = day.date === hojeStr ? ' (hoje)' : day.date === amanhaStr ? ' (amanhã)' : ''
+      return `${WD[day.weekday] || ''} ${dd}${rel}`.trim()
+    }
+    // Mini-calendário das próximas duas semanas: o modelo erra a conta de
+    // "sexta da semana que vem"; com a tabela ele só consulta.
+    const calendario: string[] = []
+    for (let i = 0; i < 14; i++) {
+      const iso = ymd(new Date(Date.now() + i * 86400000))
+      const wd = new Date(`${iso}T12:00:00Z`).getUTCDay()
+      calendario.push(`${WD[wd]} ${iso.slice(8, 10)}/${iso.slice(5, 7)} = ${iso}${i === 0 ? ' (hoje)' : i === 1 ? ' (amanhã)' : ''}`)
+    }
+    const hojeInfo = { hoje: `${hojeExtenso} (${hojeStr})`, calendario, minimoAntecedenciaHoras: Math.round((mt.minNoticeMin || 0) / 60), ...(dataPedida ? { diaConsultado: dataPedida } : {}) }
+    if (dataPedida && dataPedida < hojeStr) {
+      return { resposta: { ok: false, ...hojeInfo, erro: `A data ${dataPedida} já passou.`,
+        instrucao: 'Você calculou a data errada. Ache o dia pedido no "calendario" acima e chame listar_horarios de novo com a data certa.' }, slug, oferecidos: 0 }
+    }
+    // O corte "horários visíveis por dia" do tipo de reunião é da página pública;
+    // aplicado aqui, antes do filtro de período, ele deixava só as manhãs e a IA
+    // dizia que não havia tarde. A amostra abaixo já limita o que é oferecido.
+    const days = ((await getMeetingTypeSlots({ ...mt, visibleSlotsPerDay: null }, dataPedida ? { from: dataPedida, to: dataPedida } : {}).catch(() => [] as any[])) as any[])
+      .map((d) => ({ ...d, slots: (d.slots || []).filter((sl: any) => noPeriodo(sl.label)) }))
+      .filter((d) => d.slots.length)
+    // Sem dia pedido: amostra dos 5 primeiros dias com vaga (até 3 de manhã e
+    // 3 de tarde/noite por dia) + o resumo dos demais, para ninguém concluir
+    // que a agenda acaba onde a amostra acaba.
+    const AMOSTRA_DIAS = 5
+    for (const day of (dataPedida ? days : days.slice(0, AMOSTRA_DIAS))) {
+      const manha = day.slots.filter((sl: any) => hora(sl.label) < 12)
+      const resto = day.slots.filter((sl: any) => hora(sl.label) >= 12)
+      const escolhidos = dataPedida ? day.slots : [...manha.slice(0, 3), ...resto.slice(0, 3)]
+      for (const sl of escolhidos) out.push({ startAt: sl.startAt, label: `${rotuloDia(day)} ${sl.label}` })
+    }
+    const outrosDias = dataPedida ? [] : days.slice(AMOSTRA_DIAS).map((d) => `${rotuloDia(d)}: ${d.slots.length} horário(s)`)
+    if (!out.length) {
+      return { resposta: { ok: false, ...hojeInfo,
+        erro: filtrou ? 'Sem horários livres nesse dia/período.' : 'Sem horários disponíveis no momento.',
+        instrucao: filtrou ? 'Diga com simplicidade que esse dia/período não tem horário livre (sem inventar motivo; se for hoje, a visita precisa ser marcada com pelo menos minimoAntecedenciaHoras de antecedência) e chame listar_horarios sem filtro para oferecer a alternativa mais próxima.' : undefined }, slug, oferecidos: 0 }
+    }
+    extra = { ...hojeInfo, ...(outrosDias.length ? { outrosDiasComVaga: outrosDias } : {}),
+      instrucao: 'Use "hoje" para saber o dia da semana — nunca deduza a data. Ofereça 2 ou 3 opções por vez, citando o dia como no rótulo (e "hoje"/"amanhã" quando houver). Se a pessoa pedir um dia ou período que não está na amostra, chame listar_horarios com data/periodo.' }
+  }
+
+  // Terceira ida à agenda = as ofertas do roteiro já foram recusadas. Não
+  // oferece de novo: manda para o humano, que é a Saída B. Limite em
+  // `ai.journey.max_slot_offers` (0 = sem limite). Consulta filtrada por dia ou
+  // período é a pessoa refinando o pedido ("e na sexta?"), não recusando —
+  // não conta como nova oferta.
+  const max = cfg.maxOfertasAgenda
+  if (max > 0 && !filtrou) {
+    state.ofertasAgenda = (state.ofertasAgenda ?? 0) + 1
+    if (state.ofertasAgenda > max) {
+      const qtd = max === 2 ? 'duas' : String(max)
+      return { resposta: {
+        ok: false,
+        erro: `O lead já recebeu ${max} ofertas de horário e não fechou nenhuma.`,
+        instrucao: `NÃO ofereça mais horários. Chame transferir_humano agora, com pedido_do_lead=false e o motivo "não fechou horário após ${qtd} ofertas".`,
+      }, slug, oferecidos: 0 }
+    }
+  }
+  return { resposta: { ok: true, ...extra, horarios: out }, slug, oferecidos: out.length }
+}
+
 // ── Executor das ferramentas (chamadas pela IA → funções determinísticas reais) ──
 async function executeTool(
-  name: string, input: any, ctx: { leadId: number; phone: string; form: any; chatbot: any; state: AiState; promoteFunnelId: number | null; promoteStageKey: string | null; app: FastifyInstance },
+  name: string, input: any, ctx: { leadId: number; phone: string; form: any; chatbot: any; state: AiState; promoteFunnelId: number | null; promoteStageKey: string | null; app: FastifyInstance; cfg?: ConfigJornada },
 ): Promise<string> {
   const { leadId, phone, form, state, promoteFunnelId, app, chatbot } = ctx
+  const cfg = ctx.cfg ?? CONFIG_JORNADA_PADRAO
+  // Contato exigido para encaminhar: o do formulário (padrão) ou só nome+WhatsApp.
+  const contatoParaEncaminhar = cfg.contatoMinimo ? ROUTING_MAPTOS : undefined
   const fields: any[] = form?.fields || []
   const settings: any = form?.settings || {}
   if (EDU_TOOL_NAMES.has(name) && eduSdrLigado(form)) {
@@ -641,7 +1115,7 @@ async function executeTool(
   }
   try {
     if (name === 'salvar_dados') {
-      const campos: Array<{ chave: string; valor: string }> = Array.isArray(input?.campos) ? input.campos : []
+      const campos: Array<{ chave: string; valor: string; rotulo?: string }> = Array.isArray(input?.campos) ? input.campos : []
       const salvos: string[] = []
       // `field.validate: 'email'` é opt-in por campo do form — hoje só o
       // formato de e-mail é checado, mas o mecanismo é genérico pra outros
@@ -650,7 +1124,18 @@ async function executeTool(
       const invalidos: string[] = []
       for (const c of campos) {
         const field = fields.find((f) => f?.key === c.chave)
-        if (!field) continue
+        if (!field) {
+          // `ai.journey.auto_custom_fields`: chave sem campo no formulário vira um
+          // CustomField e é gravada — nenhum dado que a pessoa contou se perde
+          // (ex.: 2º/3º filho, idade). Desligado, segue ignorando como sempre.
+          if (!cfg.camposAutomaticos || !c?.chave || c.valor == null || String(c.valor).trim() === '') continue
+          const key = await ensureCustomField(String(c.chave), c.rotulo)
+          if (!key) continue
+          state.answers[key] = String(c.valor)
+          await applyAnswerToLead(leadId, { key, type: 'text' }, state.answers).catch(() => {})
+          salvos.push(key)
+          continue
+        }
         const valor = String(c.valor ?? '').trim()
         if (field.validate === 'email' && valor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) {
           invalidos.push(c.chave)
@@ -693,7 +1178,7 @@ async function executeTool(
       }
       // Trava: só encaminha ao setor (atendimento humano) depois de coletar e
       // salvar os dados de contato do lead no CRM.
-      const missing = await missingContactData(leadId, form)
+      const missing = await missingContactData(leadId, form, contatoParaEncaminhar)
       if (missing.length) {
         return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
           instrucao: `Antes de encaminhar o lead para o atendimento humano, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Faça isso de forma natural, uma pergunta por vez. Só depois chame rotear_setor novamente.` })
@@ -800,33 +1285,9 @@ async function executeTool(
     }
 
     if (name === 'listar_horarios') {
-      const schedField = fields.find((f) => f?.type === 'scheduling')
-      const slug = schedField?.meetingSlug
-      if (!slug) return JSON.stringify({ ok: false, erro: 'Agendamento não configurado neste formulário.' })
-      const mt = await getActiveMeetingType(slug)
-      if (!mt) return JSON.stringify({ ok: false, erro: 'Tipo de reunião indisponível.' })
-      const days = await getMeetingTypeSlots(mt, {}).catch(() => [] as any[])
-      const out: Array<{ startAt: string; label: string }> = []
-      for (const day of (days as any[])) {
-        for (const sl of (day.slots || [])) {
-          if (out.length >= 12) break
-          const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
-          out.push({ startAt: sl.startAt, label: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
-        }
-        if (out.length >= 12) break
-      }
-      if (!out.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
-
-      // Terceira ida à agenda = as duas ofertas do roteiro já foram recusadas.
-      // Não oferece de novo: manda para o humano, que é a Saída B.
-      state.ofertasAgenda = (state.ofertasAgenda ?? 0) + 1
-      if (state.ofertasAgenda > MAX_OFERTAS_AGENDA) {
-        return JSON.stringify({
-          ok: false,
-          erro: `O lead já recebeu ${MAX_OFERTAS_AGENDA} ofertas de horário e não fechou nenhuma.`,
-          instrucao: 'NÃO ofereça mais horários. Chame transferir_humano agora, com pedido_do_lead=false e o motivo "não fechou horário após duas ofertas".',
-        })
-      }
+      // Montagem e contagem de ofertas: horariosParaIa (mesma do simulador).
+      const { resposta, slug, oferecidos } = await horariosParaIa(form, input, state, cfg)
+      if (!resposta.ok) return JSON.stringify(resposta)
 
       // Marca que a pessoa CHEGOU a ver horários: é o sinal de intenção mais forte
       // da jornada e o público exato de uma recuperação ("viu horários e não marcou").
@@ -843,10 +1304,10 @@ async function executeTool(
           leadId,
           chatbotId: ctx.chatbot?.id,
           funnelId: promoteFunnelId ?? form.funnelId ?? undefined,
-          payload: { meetingSlug: slug, offered: out.length },
+          payload: { meetingSlug: slug, offered: oferecidos },
           timestamp: new Date(),
         })).catch(() => {})
-      return JSON.stringify({ ok: true, horarios: out })
+      return JSON.stringify(resposta)
     }
 
     if (name === 'agendar') {
@@ -899,7 +1360,7 @@ async function executeTool(
       // pode ser interrogado antes de ser atendido: aí a transferência é
       // imediata e o dado que faltar o operador pega na conversa.
       const sensivel = input?.sensivel === true
-      const missing = input?.pedido_do_lead || sensivel ? [] : await missingContactData(leadId, form)
+      const missing = input?.pedido_do_lead || sensivel ? [] : await missingContactData(leadId, form, contatoParaEncaminhar)
       if (missing.length) {
         return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
           instrucao: `Antes de transferir para um atendente, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Uma pergunta por vez. Só depois chame transferir_humano novamente.` })
@@ -935,6 +1396,19 @@ async function executeTool(
       }
       await notaDeEncaminhamento(leadId, chatbot, 'atendimento humano', input?.motivo)
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+      // `ai.journey.silence_after_handoff` (veio do severiano): a conversa passa a
+      // ser do setor — o bot dá esta última mensagem e cala até alguém devolver
+      // a conversa ao bot (sem auto-resume). A pausa vale a partir do PRÓXIMO
+      // turno, então a despedida ainda sai. Padrão: o bot segue atendendo
+      // enquanto nenhum operador entra (fase 'handoff', comportamento de sempre).
+      if (cfg.calarAposTransferir) {
+        const atual = await prisma.lead.findUnique({ where: { id: leadId }, select: { teamId: true } }).catch(() => null)
+        const setor = atual?.teamId ? (await prisma.team.findUnique({ where: { id: atual.teamId }, select: { name: true } }).catch(() => null))?.name ?? null : null
+        const { pauseBotForHandoff } = await import('./botTakeover.js')
+        await pauseBotForHandoff(leadId, setor).catch(() => {})
+        return JSON.stringify({ ok: true, encerrado: true,
+          instrucao: 'Escreva UMA última mensagem: confirme com carinho que o time responsável vai continuar o atendimento daqui e se despeça. Esta é a sua última fala nesta conversa — não faça novas perguntas nem prometa prazo.' })
+      }
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
 
@@ -968,6 +1442,41 @@ async function executeTool(
 
 // ── Chamadas ao LLM com tool use (Anthropic primário; OpenAI fallback) ──
 export type LlmMsg = { role: 'user' | 'assistant'; content: any }
+
+/**
+ * Turno do cliente quando veio mídia junto (`ai.journey.read_media`). Imagem vira
+ * bloco de visão (o modelo LÊ a foto — boletim, comprovante, print de conversa);
+ * áudio sem transcrição é transcrito aqui; o resto vira um marcador honesto. O
+ * texto sempre acompanha, para o modelo saber o que a pessoa escreveu junto.
+ */
+async function buildUserTurnContent(text: string, media?: InboundMedia | null): Promise<any> {
+  const t = (text || '').trim()
+  if (!media || !media.url) return t || '(sem texto)'
+
+  if (media.type === 'image' || media.type === 'sticker') {
+    const img = await readImageForModel(media.url, media.mime)
+    if (img) {
+      return [
+        { type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } },
+        { type: 'text', text: t || 'O cliente enviou esta imagem, sem escrever nada junto. Olhe o que ela mostra e siga o atendimento a partir dela.' },
+      ]
+    }
+    return `${mediaPlaceholder(media)}${t ? ` Legenda: ${t}` : ''} (não foi possível abrir o arquivo — peça com naturalidade que a pessoa reenvie ou descreva)`
+  }
+
+  if (media.type === 'audio') {
+    // Áudio não tem legenda no WhatsApp: se veio texto junto, ELE é a transcrição
+    // — o webhook já transcreve na entrada. Tratar como anexo aqui faria o bot
+    // dizer que não conseguiu ouvir uma mensagem que ele acabou de receber por
+    // escrito. Sem texto, tentamos transcrever aqui.
+    if (t) return `[áudio do cliente, transcrito] ${t}`
+    const transcript = await transcribeInboundAudio(media.url)
+    if (transcript) return `[áudio do cliente, transcrito] ${transcript}`
+    return mediaPlaceholder(media)
+  }
+
+  return t ? `${mediaPlaceholder(media)} Junto com: ${t}` : mediaPlaceholder(media)
+}
 // `text` no turno de ferramentas = o que o modelo escreveu JUNTO da chamada
 // (saudação, acolhimento). Antes era descartado, e o lead recebia só a mensagem
 // seguinte — que começava no meio do assunto, porque o modelo já considerava a
@@ -1020,6 +1529,13 @@ async function openaiTurn(system: string, messages: LlmMsg[], tools: ToolDef[]):
     } else {
       const results = m.content.filter((b: any) => b.type === 'tool_result')
       if (results.length) for (const r of results) oaMsgs.push({ role: 'tool', tool_call_id: r.tool_use_id, content: r.content })
+      else if (m.content.some((b: any) => b.type === 'image')) {
+        // Turno com foto (`ai.journey.read_media`): o bloco da Anthropic vira o da
+        // OpenAI, senão a imagem sumiria justamente no provider de fallback.
+        oaMsgs.push({ role: 'user', content: m.content.map((b: any) => b.type === 'image'
+          ? { type: 'image_url', image_url: { url: `data:${b.source?.media_type};base64,${b.source?.data}` } }
+          : { type: 'text', text: b.text || '' }) })
+      }
       else oaMsgs.push({ role: 'user', content: m.content.map((b: any) => b.text || '').join('') })
     }
   }
@@ -1083,20 +1599,30 @@ export async function processAiJourneyMessage(
   sendInteractiveFn?: SendInteractiveFn | null,
   promoteFunnelId?: number | null, promoteStageKey?: string | null,
   contactName?: string | null,
+  // Mídia recebida junto (foto, áudio, documento). Sempre é gravada na conversa
+  // com o anexo; o modelo só a vê com `ai.journey.read_media` ligado.
+  media?: InboundMedia | null,
   // Conexão Cloud API por onde a mensagem entrou. A janela de 24h da Meta é
   // POR NÚMERO e quem consulta o estado dela filtra por esta coluna: gravar
   // `provider: 'cloud_api'` sem dizer QUAL conexão faz a janela parecer
   // fechada com o contato acabando de escrever.
   cloudApiConnectionId?: number | null,
 ): Promise<void> {
-  const rajada = eduSdrLigado(form)
+  // Rajada vale para o consultor educacional e, com ritmo humano ligado
+  // (`ai.journey.human_pace_seconds`), para qualquer jornada.
+  // Mídia sem texto com a leitura desligada não entra na conta: ela não gera
+  // resposta, e contá-la faria a mensagem de texto anterior ceder a vez a quem
+  // não vai responder — a pessoa ficaria sem resposta nenhuma.
+  const cfgEntrada = await configDaJornada()
+  const semResposta = !String(text || '').trim() && !!media && !cfgEntrada.lerMidia
+  const rajada = !semResposta && (eduSdrLigado(form) || cfgEntrada.ritmoHumanoMs > 0)
   if (rajada) {
     pendentes.set(phone, (pendentes.get(phone) ?? 0) + 1)
     ultimaChegada.set(phone, Date.now())
   }
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
-    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName, cloudApiConnectionId)
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName, media, cloudApiConnectionId)
       .catch((e) => app.log.error(`[aiJourney] erro: ${e?.stack || e}`))
       .finally(() => {
         if (!rajada) return
@@ -1115,12 +1641,18 @@ async function _process(
   chatbot: any, form: any, sendInteractiveFn: SendInteractiveFn | null | undefined,
   promoteFunnelId: number | null | undefined, promoteStageKey: string | null | undefined,
   contactName?: string | null,
+  media?: InboundMedia | null,
   cloudApiConnectionId?: number | null,
 ): Promise<void> {
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[aiJourney] form sem fields'); return }
   const attendantName = chatbot?.name || 'Atendimento'
+  const cfg = await configDaJornada()
 
-  if (messageId) {
+  // Mídia que o webhook já persistiu (foto sem legenda) chega aqui com o mesmo
+  // externalId — a checagem abaixo acharia "duplicata" e o bot nunca responderia.
+  // A idempotência contra reentrega do webhook, nesse caso, é feita antes, no
+  // próprio webhook.
+  if (messageId && !media?.saved) {
     const dup = await prisma.message.findFirst({ where: { externalId: messageId, fromMe: false }, select: { id: true } })
     if (dup) return
   }
@@ -1136,8 +1668,17 @@ async function _process(
     emitOutboundMessage({ leadId, source: 'ai_journey', channel: 'whatsapp', chatbotId: chatbotId ?? null })
   }
   const saveIncoming = async (leadId: number, body: string) => {
+    // Já gravada pelo webhook (mídia sem legenda) — gravar de novo duplicaria a
+    // mensagem na tela de Conversas.
+    if (media?.saved) return
+    // Mídia com legenda / áudio transcrito: o anexo vai junto. Antes gravava só
+    // o texto como 'text' e a foto sumia da conversa (o webhook deixa a gravação
+    // para este ponto justamente para não duplicar).
     await prisma.message.create({ data: {
-      leadId, fromMe: false, body, mediaType: 'text', provider,
+      // Sem texto, o corpo segue o padrão dos webhooks ("[image]") para a tela de
+      // Conversas tratar igual às demais mídias.
+      leadId, fromMe: false, body: body || (media ? `[${media.type}]` : ''), mediaType: media?.type || 'text',
+      ...(media?.url ? { mediaUrl: media.url, mediaName: media.name || null } : {}), provider,
       ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
       ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
       senderName: body ? body.slice(0, 60) : phone, externalId: messageId || null, timestamp: new Date(),
@@ -1154,6 +1695,9 @@ async function _process(
     if (!partes.length) return
     const ultima = partes[partes.length - 1] as string
     const anteriores = partes.slice(0, -1)
+    // Ritmo humano (`ai.journey.human_pace_seconds`): o tempo de "digitar" a
+    // primeira mensagem do bloco; as seguintes já esperam intervaloDigitacao.
+    if (!eduSdrLigado(form) && cfg.ritmoHumanoMs > 0) await new Promise((r) => setTimeout(r, typingDelayMs(partes[0] as string)))
 
     for (const [i, parte] of anteriores.entries()) {
       const r = await sendFn(phone, parte)
@@ -1183,6 +1727,16 @@ async function _process(
   // Só a conversa DESTE número da empresa — ver contactIdentity → CanalDoContato.
   const canal = canalDaMensagem(provider, instanceName, cloudApiConnectionId)
   let lead = await acharLeadDoContato(phone, { canal })
+
+  // Só mídia, sem texto, com a leitura de mídia DESLIGADA: não há o que a IA
+  // responder (ela não vê a foto) — como sempre, o bot não responde. A mensagem
+  // só é gravada (com o anexo) se ainda não foi e o contato já tem ficha; sem
+  // ficha, segue como antes: quem cria o lead é a primeira mensagem de texto.
+  if (!String(text || '').trim() && media && !cfg.lerMidia) {
+    if (lead && !media.saved) await saveIncoming(lead.id, '')
+    return
+  }
+
   const fd: any = (lead?.formData as any) || {}
   let state: AiState | null = fd._aiJourney || null
 
@@ -1245,23 +1799,42 @@ async function _process(
   }
 
   // Conversa encerrada → não reabre o roteiro (pós-atendimento humano).
+  // Com `ai.journey.resume_after_done` (veio do severiano) a jornada é RETOMADA:
+  // o estado (respostas, agendamento, desfecho) é preservado e entra no prompt
+  // como contexto, e a fase volta a 'active' — antes, quando o bot voltava a
+  // atender, recomeçava do zero, repetindo saudação e perguntas já respondidas.
+  // Tenant com IA de pós-atendimento (postChatAi) mantém o comportamento dela —
+  // é uma escolha explícita de produto e vale mesmo com a retomada ligada.
+  let resumedFrom: string | null = null
   if (lead?.completed || state.phase === 'done' || state.phase === 'disqualified') {
-    await saveIncoming(leadId, text)
-    if (chatbot?.postChatAi) {
-      const { postJourneyAiReply } = await import('./chatbotFlow.js')
-      await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app, cloudApiConnectionId }).catch((e: any) => app.log.warn(`[aiJourney] postChatAi: ${e?.message || e}`))
+    if (chatbot?.postChatAi || !cfg.retomarAposEncerrar) {
+      await saveIncoming(leadId, text)
+      if (chatbot?.postChatAi) {
+        const { postJourneyAiReply } = await import('./chatbotFlow.js')
+        await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app, cloudApiConnectionId }).catch((e: any) => app.log.warn(`[aiJourney] postChatAi: ${e?.message || e}`))
+      }
+      return
     }
-    return
+    resumedFrom = state.phase === 'active' ? 'completed' : state.phase
+    state.phase = 'active'
+    if (!state.resumedAt) app.log.info(`[aiJourney] lead ${leadId}: atendimento retomado (estava "${resumedFrom}") — segue do ponto anterior`)
+    state.resumedAt = new Date().toISOString()
   }
 
   await saveIncoming(leadId, text)
 
   const edu = eduSdrLigado(form)
-  if (edu) {
+  // Ritmo humano (`ai.journey.human_pace_seconds`): a mesma espera da rajada do
+  // consultor, com a janela configurada (N s de silêncio, teto 3×N). O consultor
+  // educacional mantém a janela dele.
+  const paceMs = edu ? 0 : cfg.ritmoHumanoMs
+  if (edu || paceMs > 0) {
     // Espera a pessoa terminar de escrever. Se outra mensagem dela já está na
     // fila, esta fica só gravada: a última da rajada responde a todas.
+    const janela = edu ? EDU_JANELA_MS : paceMs
+    const janelaMax = edu ? EDU_JANELA_MAX_MS : paceMs * 3
     const inicio = Date.now()
-    while (Date.now() - (ultimaChegada.get(phone) ?? 0) < EDU_JANELA_MS && Date.now() - inicio < EDU_JANELA_MAX_MS) {
+    while (Date.now() - (ultimaChegada.get(phone) ?? 0) < janela && Date.now() - inicio < janelaMax) {
       await new Promise((r) => setTimeout(r, 500))
     }
     if ((pendentes.get(phone) ?? 1) > 1) {
@@ -1272,13 +1845,20 @@ async function _process(
 
   // ── Histórico p/ o LLM (mensagens anteriores do lead) ──
   const hist = await prisma.message.findMany({
-    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : HISTORY_LIMIT,
+    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : cfg.historico,
     select: { fromMe: true, body: true },
   })
   const messages: LlmMsg[] = hist.reverse()
     .filter((m) => (m.body || '').trim())
     .map((m) => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }))
-  if (!messages.length || messages[messages.length - 1].role !== 'user') {
+  if (media && cfg.lerMidia) {
+    // Turno atual com mídia: o conteúdo deixa de ser só texto (a foto vai como
+    // bloco de imagem, o áudio como transcrição). O último turno do histórico é
+    // esta mesma mensagem — substituí-lo evita mandá-la duas vezes ao modelo.
+    const userContent = await buildUserTurnContent(text, media)
+    if (messages.length && messages[messages.length - 1].role === 'user') messages[messages.length - 1].content = userContent
+    else messages.push({ role: 'user', content: userContent })
+  } else if (!messages.length || messages[messages.length - 1].role !== 'user') {
     messages.push({ role: 'user', content: text })
   }
   // Só um "oi" de quem já conversou: o modelo tende a devolver "estou aqui, como
@@ -1286,7 +1866,7 @@ async function _process(
   // retomar pela situação ATUAL da ficha, com o próximo passo.
   if (soCumprimento(text) && messages.some((m) => m.role === 'assistant')) {
     const ultima = messages[messages.length - 1]
-    if (typeof ultima.content === 'string') ultima.content = `${ultima.content}\n\n${AVISO_CUMPRIMENTO}`
+    if (typeof ultima.content === 'string') ultima.content = `${ultima.content}\n\n${cfg.semMenus ? AVISO_CUMPRIMENTO_SEM_MENUS : AVISO_CUMPRIMENTO}`
   }
 
   const catalogSummary = await getCatalogSummary()
@@ -1300,9 +1880,14 @@ async function _process(
   const eduBloco = edu
     ? protocoloEdu(await resumoDoCatalogo(app).catch(() => ''), await contextoDoLead(leadId).catch(() => ''), false)
     : null
-  const contextoLead = edu ? null : await buildLeadContext(leadId).catch(() => '')
-  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, marca?.brandName ?? null, contextoLead, eduBloco)
-  const tools = ferramentasDaJornada(form)
+  const contextoLead = edu ? null : await buildLeadContext(leadId, cfg.fichaAmpliada ? { state, historico: cfg.historico } : null).catch(() => '')
+  // Trilha de entrada do lead (ex.: veio de anúncio e recebeu a mensagem primeiro).
+  const routeBlock = await getBotRouteBlock(lead?.formData).catch(() => null)
+  // Atendimento retomado: o desfecho anterior vira contexto explícito, senão o
+  // modelo recomeça a jornada do zero.
+  const resumeBlock = resumedFrom ? await buildResumeContext(leadId, lead, resumedFrom).catch(() => null) : null
+  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, marca?.brandName ?? null, contextoLead, eduBloco, { cfg, routeBlock, resumeBlock })
+  const tools = ferramentasDaJornada(form, cfg)
   const maxIters = edu ? EDU_MAX_TOOL_ITERS : MAX_TOOL_ITERS
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
@@ -1349,17 +1934,20 @@ async function _process(
     // Texto escrito JUNTO da chamada de ferramenta: entrega ao lead antes de executar
     // as ferramentas. Sem isso o modelo "acha" que já cumprimentou (o bloco está no
     // histórico que ele recebe de volta) e a mensagem seguinte começa no meio do assunto.
-    if (turn.text.trim() && !edu) {
+    // Com ritmo humano ligado vale a regra do consultor: o texto de espera não vai
+    // ao lead nem fica no histórico, e a resposta final sai inteira numa mensagem.
+    const umaResposta = edu || paceMs > 0
+    if (turn.text.trim() && !umaResposta) {
       const { text: pre, options: preOpts } = extractOptions(turn.text)
       if (pre) { await send(leadId, pre, preOpts).catch(() => {}); replied = true }
     }
 
     // tool_use: executa as ferramentas pedidas (cada uma com timeout) e devolve os resultados.
-    messages.push({ role: 'assistant', content: edu ? semTextoDeEspera(turn.assistant) : turn.assistant })
+    messages.push({ role: 'assistant', content: umaResposta ? semTextoDeEspera(turn.assistant) : turn.assistant })
     const results: any[] = []
     for (const call of turn.calls) {
       const out = await Promise.race([
-        executeTool(call.name, call.input, { leadId, phone, form, chatbot, state, promoteFunnelId: promoteFunnelId ?? null, promoteStageKey: promoteStageKey ?? null, app }),
+        executeTool(call.name, call.input, { leadId, phone, form, chatbot, state, promoteFunnelId: promoteFunnelId ?? null, promoteStageKey: promoteStageKey ?? null, app, cfg }),
         new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ ok: false, erro: 'tempo esgotado na ação' })), TOOL_TIMEOUT_MS)),
       ])
       results.push({ type: 'tool_result', tool_use_id: call.id, content: out })
@@ -1430,9 +2018,10 @@ export async function reativarConversaComIa(leadId: number, chatbot: any, form: 
   const state: AiState | null = (lead?.formData as any)?._aiJourney || null
   if (!lead?.whatsapp || !state) return false
   const edu = eduSdrLigado(form)
+  const cfg = await configDaJornada()
 
   const hist = await prisma.message.findMany({
-    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : HISTORY_LIMIT,
+    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : cfg.historico,
     select: { id: true, fromMe: true, body: true, provider: true, evolutionInstance: true, cloudApiConnectionId: true },
   })
   const ultima = hist[0]
@@ -1446,8 +2035,8 @@ export async function reativarConversaComIa(leadId: number, chatbot: any, form: 
   const { getBranding } = await import('../lib/branding.js')
   const marca = await getBranding().catch(() => null)
   const eduBloco = edu ? protocoloEdu('', await contextoDoLead(leadId).catch(() => ''), false) : null
-  const contextoLead = edu ? null : await buildLeadContext(leadId).catch(() => '')
-  const system = buildSystemPrompt(chatbot, form, await withSourceLabel(lead), state, '', null, marca?.brandName ?? null, contextoLead, eduBloco)
+  const contextoLead = edu ? null : await buildLeadContext(leadId, cfg.fichaAmpliada ? { state, historico: cfg.historico } : null).catch(() => '')
+  const system = buildSystemPrompt(chatbot, form, await withSourceLabel(lead), state, '', null, marca?.brandName ?? null, contextoLead, eduBloco, { cfg })
   const turn = await llmTurn(system, messages, []).catch(() => null)
   if (!turn || turn.kind !== 'text' || !turn.text.trim()) return false
 

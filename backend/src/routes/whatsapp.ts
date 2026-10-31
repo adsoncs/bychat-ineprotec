@@ -549,6 +549,47 @@ let transcribeFlag: { value: boolean; at: number } | null = null
 export { invalidarFlagTranscricao as invalidateTranscriptionFlag } from '../services/audioTranscription.js'
 export { transcricaoLigada as isTranscriptionEnabled } from '../services/audioTranscription.js'
 
+/**
+ * Entrega à jornada de IA uma mensagem que veio SÓ com mídia (foto sem legenda,
+ * áudio sem transcrição) — veio do severiano. O caminho normal exige texto; aqui
+ * repetimos só a resolução instância → chatbot → form, sem tocar no fluxo
+ * principal. Só vale para `ai_journey` com `ai.journey.read_media` ligado: os
+ * motores scripted/legado não sabem o que fazer com mídia, e sem a leitura a IA
+ * não teria o que responder (a mensagem já foi gravada pelo chamador).
+ */
+async function runAiJourneyForMedia(params: {
+  phone: string
+  instanceName: string
+  app: FastifyInstance
+  media: { type: string; url: string; name: string | null; saved: boolean }
+  pushName: string | null
+}): Promise<void> {
+  const { phone, instanceName, app, media, pushName } = params
+  if (!media.url) return
+  const { configDaJornada, processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
+  if (!(await configDaJornada()).lerMidia) return
+  const inst = await prisma.whatsAppInstance.findFirst({
+    where: { instanceName }, select: { chatbotId: true, funnelId: true, stageKey: true },
+  })
+  if (!inst?.chatbotId) return
+  // Mesmo gate do caminho de texto: takeover humano e trigger por palavra-chave
+  // continuam valendo (mídia nunca "ativa" um bot que exige palavra-chave).
+  if (!(await chatbotTriggerAllows(inst.chatbotId, phone, '', { instanceName }))) return
+  const chatbot = await prisma.chatbot.findUnique({ where: { id: inst.chatbotId } })
+  if (chatbot?.mode !== 'ai_journey' || !chatbot.formId) return
+  const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
+  if (!form?.active) return
+
+  const evoSendFn = async (p: string, t: string) => {
+    const result = await sendWhatsAppMessage(p, t, instanceName)
+    return { messageId: result?.key?.id || null }
+  }
+  await processAiJourneyMessage(
+    phone, '', app, undefined, evoSendFn, 'evolution', null, inst.chatbotId, instanceName,
+    chatbot, form, null, inst.funnelId ?? null, inst.stageKey ?? null, pushName, media,
+  )
+}
+
 // ─── Routes ───────────────────────────────────────────────
 
 export async function whatsappRoutes(app: FastifyInstance) {
@@ -1597,7 +1638,16 @@ export async function whatsappRoutes(app: FastifyInstance) {
             const { markConversationReopened } = await import('../services/leadConversation.js')
             markConversationReopened(existingLead.id, { reason: 'reopen_message' }).catch(() => {})
           }
-          // Sem texto não há o que a IA processar
+          // Sem texto (foto sem legenda, áudio que não transcreveu): com a leitura
+          // de mídia ligada (`ai.journey.read_media`) a jornada de IA ainda atende —
+          // ela LÊ a imagem. A mensagem já foi gravada logo acima, por isso
+          // `saved: true` (senão apareceria duas vezes na tela). Desligada, ou nos
+          // outros motores (só entendem texto), continua parando aqui.
+          await runAiJourneyForMedia({
+            phone, instanceName: inboundInstance, app,
+            media: { type: mediaType, url: mediaUrl, name: mediaName || null, saved: true },
+            pushName: data.pushName || null,
+          }).catch((e: any) => app.log.warn(`[Webhook] mídia → chatbot: ${e?.message || e}`))
           return { ok: true }
         }
       }
@@ -1850,7 +1900,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
         const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
         if (form?.active) {
           const { processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
-          await processAiJourneyMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, promoteFunnelId, promoteStageKey, data.pushName || null)
+          // Mídia COM legenda (ou áudio já transcrito): o texto conduz, mas o anexo
+          // segue junto — é gravado na conversa e, com `ai.journey.read_media`, a
+          // foto vai para o modelo ver.
+          const journeyMedia = mediaType !== 'text' && mediaUrl
+            ? { type: mediaType, url: mediaUrl, name: mediaName || null }
+            : null
+          await processAiJourneyMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, promoteFunnelId, promoteStageKey, data.pushName || null, journeyMedia)
           return { ok: true }
         }
       }

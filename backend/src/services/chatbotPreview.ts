@@ -26,9 +26,10 @@ import { quebrarEmMensagens, estiloDaJornada, type OpcoesDeEstilo } from './mess
 import {
   buildSystemPrompt as aiBuildSystemPrompt, llmTurn as aiLlmTurn,
   extractOptions as aiExtractOptions, extrairBlocosDeOpcoes as aiBlocosDeOpcoes, getCatalogSummary as aiGetCatalogSummary,
-  mapSelectValue as aiMapSelectValue, MAX_OFERTAS_AGENDA as AI_MAX_OFERTAS_AGENDA,
+  mapSelectValue as aiMapSelectValue,
   ferramentasDaJornada as aiFerramentas, instrucaoDepartamentoEdu,
-  type AiState, type LlmMsg,
+  configDaJornada, horariosParaIa, slugifyKey, ROUTING_MAPTOS,
+  type AiState, type LlmMsg, type ConfigJornada,
 } from './aiJourneyEngine.js'
 import type { FastifyInstance } from 'fastify'
 import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
@@ -209,26 +210,36 @@ function fmtWhen(iso: string, tz: string): string {
 }
 
 // Dados de contato ainda não coletados (checa em memória, não no banco).
-function missingContactPreview(form: any, answers: Record<string, any>): string[] {
+// `only` = só nome+WhatsApp, quando o tenant liga `ai.journey.handoff_contact`.
+function missingContactPreview(form: any, answers: Record<string, any>, only?: readonly string[]): string[] {
   const fields: any[] = form?.fields || []
+  const alvo: readonly string[] = only ?? CONTACT_MAPTOS
   const seen = new Set<string>()
   return fields
-    .filter((f: any) => CONTACT_MAPTOS.includes(f?.mapTo) && !seen.has(f.mapTo) && seen.add(f.mapTo))
+    .filter((f: any) => alvo.includes(f?.mapTo) && !seen.has(f.mapTo) && seen.add(f.mapTo))
     .filter((f: any) => !String(answers[f.key] ?? '').trim())
     .map((f: any) => CONTACT_LABEL[f.mapTo] || f.mapTo)
 }
 
 // Executor de ferramentas SIMULADO: mesmas respostas do motor real, sem efeitos.
-async function executeToolPreview(name: string, input: any, form: any, state: AiState): Promise<string> {
+async function executeToolPreview(name: string, input: any, form: any, state: AiState, cfg: ConfigJornada): Promise<string> {
   const fields: any[] = form?.fields || []
   const settings: any = form?.settings || {}
+  // Mesma configuração da produção (Settings `ai.journey.*`), sem efeito no banco.
+  const contato = cfg.contatoMinimo ? ROUTING_MAPTOS : undefined
   try {
     if (name === 'salvar_dados') {
       const campos: Array<{ chave: string; valor: string }> = Array.isArray(input?.campos) ? input.campos : []
       const salvos: string[] = []
       for (const c of campos) {
         const field = fields.find((f) => f?.key === c.chave)
-        if (!field) continue
+        if (!field) {
+          // `ai.journey.auto_custom_fields`: na produção cria o campo; aqui só
+          // guarda em memória com a mesma chave, sem criar nada no CRM.
+          const key = cfg.camposAutomaticos && String(c?.valor ?? '').trim() ? slugifyKey(String(c?.chave || '')) : ''
+          if (key) { state.answers[key] = String(c.valor); salvos.push(key) }
+          continue
+        }
         state.answers[c.chave] = aiMapSelectValue(field, c.valor)
         salvos.push(c.chave)
       }
@@ -242,7 +253,7 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
         (state as any).fallbackRoute = { teamId: prov.route.teamId, funnelId: prov.route.funnelId ?? null, label: stripTags(prov.label) }
         return JSON.stringify({ ok: true, provisorio: true, simulacao: true, noWhatsAppReal: `destino provisório: funil ${prov.route.funnelId ?? '-'} / equipe ${prov.route.teamId ?? '-'}`, instrucao: 'Destino provisório registrado nos bastidores. NÃO diga que encaminhou nem fale de setor: siga a conversa normalmente, com o próximo passo do roteiro.' })
       }
-      const missing = missingContactPreview(form, state.answers)
+      const missing = missingContactPreview(form, state.answers, contato)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de encaminhar, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
       const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
       if (!routeField) return JSON.stringify({ ok: false, erro: 'Sem roteamento por setor.' })
@@ -264,34 +275,11 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       return JSON.stringify({ qualificado: true, instrucao: hasSched ? 'Lead qualificado. Ofereça agendar: chame listar_horarios e proponha um horário.' : 'Lead qualificado. Agradeça e finalize com encerrar(qualificado=true).' })
     }
     if (name === 'listar_horarios') {
-      const schedField = fields.find((f) => f?.type === 'scheduling')
-      const slug = schedField?.meetingSlug
-      if (!slug) return JSON.stringify({ ok: false, erro: 'Agendamento não configurado.' })
-      const mt = await getActiveMeetingType(slug)
-      if (!mt) return JSON.stringify({ ok: false, erro: 'Tipo de reunião indisponível.' })
-      const days = await getMeetingTypeSlots(mt, {}).catch(() => [] as any[])
-      const list: Array<{ startAt: string; label: string }> = []
-      for (const day of (days as any[])) {
-        for (const sl of (day.slots || [])) {
-          if (list.length >= 12) break
-          const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
-          list.push({ startAt: sl.startAt, label: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
-        }
-        if (list.length >= 12) break
-      }
-      if (!list.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
-
-      // Mesma contagem da produção: o simulador tem que escalar para humano na
-      // mesma hora que o bot de verdade escalaria.
-      state.ofertasAgenda = (state.ofertasAgenda ?? 0) + 1
-      if (state.ofertasAgenda > AI_MAX_OFERTAS_AGENDA) {
-        return JSON.stringify({
-          ok: false,
-          erro: `O lead já recebeu ${AI_MAX_OFERTAS_AGENDA} ofertas de horário e não fechou nenhuma.`,
-          instrucao: 'NÃO ofereça mais horários. Chame transferir_humano agora, com pedido_do_lead=false e o motivo "não fechou horário após duas ofertas".',
-        })
-      }
-      return JSON.stringify({ ok: true, horarios: list })
+      // A MESMA montagem e contagem de ofertas da produção (horariosParaIa): o
+      // simulador tem que oferecer o que o WhatsApp ofereceria e escalar para
+      // humano na mesma hora que o bot de verdade escalaria.
+      const { resposta } = await horariosParaIa(form, input, state, cfg)
+      return JSON.stringify(resposta)
     }
     if (name === 'agendar') {
       // Preview: NÃO cria reserva real — confirma de forma simulada.
@@ -329,7 +317,7 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
     if (name === 'transferir_humano') {
       // Espelha a produção: quem PEDIU um humano (ou perdeu a paciência, ou pediu
       // proposta) não é interrogado antes — transfere na hora.
-      const missing = input?.pedido_do_lead || input?.sensivel === true ? [] : missingContactPreview(form, state.answers)
+      const missing = input?.pedido_do_lead || input?.sensivel === true ? [] : missingContactPreview(form, state.answers, contato)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de transferir, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
       if (input?.sensivel === true) {
         state.phase = 'handoff'
@@ -338,6 +326,11 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       // 'handoff', não 'done': a jornada não morreu, o humano é que assume. Marcar
       // 'done' aqui fazia o teste terminar num estado que a produção não usa.
       state.phase = 'handoff'
+      // `ai.journey.silence_after_handoff`: na produção o bot cala depois desta fala.
+      if (cfg.calarAposTransferir) {
+        return JSON.stringify({ ok: true, encerrado: true, simulacao: true, noWhatsAppReal: 'bot pausado nesta conversa até devolverem ao bot',
+          instrucao: 'Escreva UMA última mensagem: confirme com carinho que o time responsável vai continuar o atendimento daqui e se despeça. Esta é a sua última fala nesta conversa — não faça novas perguntas nem prometa prazo.' })
+      }
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
     if (name === 'consultar_catalogo') {
@@ -386,8 +379,9 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   // simulador e o teste mostraria um texto que não é o que o lead vai ler.
   const { getBranding } = await import('../lib/branding.js')
   const marca = await getBranding().catch(() => null)
-  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco)
-  const tools = aiFerramentas(form)
+  const cfg = await configDaJornada()
+  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco, { cfg })
+  const tools = aiFerramentas(form, cfg)
   let replied = false
   let cobrouEncaminhamento = false
   for (let i = 0; i < (edu ? 10 : AI_MAX_ITERS); i++) {
@@ -417,17 +411,20 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     // ferramentas, igual ao loop de produção em aiJourneyEngine. Sem isso o preview
     // engolia a resposta e caía no "deixa eu verificar" — fazendo parecer erro de
     // prompt o que era só o simulador descartando o que a IA tinha escrito.
-    if (turn.text.trim() && !edu) {
+    // Com ritmo humano ligado (`ai.journey.human_pace_seconds`) a produção não
+    // entrega esse texto de espera — o simulador também não.
+    const umaResposta = edu || cfg.ritmoHumanoMs > 0
+    if (turn.text.trim() && !umaResposta) {
       const { text: pre, options: preOpts } = aiExtractOptions(turn.text)
       if (empurrarMensagens(out, pre, preOpts, estiloDaJornada(form))) replied = true
     }
 
-    messages.push({ role: 'assistant', content: edu ? semTextoDeEspera(turn.assistant) : turn.assistant })
+    messages.push({ role: 'assistant', content: umaResposta ? semTextoDeEspera(turn.assistant) : turn.assistant })
     const results: any[] = []
     for (const call of turn.calls) {
       const r = edu && EDU_TOOL_NAMES.has(call.name)
         ? await executarFerramentaEdu(call.name, call.input, { app: sess.app!, leadId: sess.contextLeadId ?? null, state, dryRun: true })
-        : await executeToolPreview(call.name, call.input, form, state)
+        : await executeToolPreview(call.name, call.input, form, state, cfg)
       results.push({ type: 'tool_result', tool_use_id: call.id, content: r })
     }
     messages.push({ role: 'user', content: results })

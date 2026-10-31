@@ -693,8 +693,15 @@ async function processIncomingMessage(
   }
 
   // ── Com chatbot vinculado: roda o bot de IA, passando o chatbotId correto ──
-  if (!msgText) return
-  app.log.info(`[CloudAPI] Message from ${phone}: ${msgText.substring(0, 100)}`)
+  // Mídia (foto, áudio, documento) segue para a jornada de IA junto com o texto:
+  // ela grava o anexo na conversa e, com `ai.journey.read_media` ligado, lê a
+  // imagem e transcreve o áudio. Antes, mídia sem legenda saía aqui — e, com
+  // chatbot ativo, a mensagem nem chegava a ser gravada: a foto sumia da conversa.
+  const inboundMedia = mediaType !== 'text' && mediaUrl
+    ? { type: mediaType, url: mediaUrl, mime: null as string | null, name: mediaName || null }
+    : null
+  if (!msgText && !inboundMedia) return
+  app.log.info(`[CloudAPI] Message from ${phone}: ${(msgText || `[${mediaType}]`).substring(0, 100)}`)
 
   const cleanMsg = stripTrackingRef(msgText)
   const sendFn = async (p: string, t: string) => {
@@ -715,10 +722,12 @@ async function processIncomingMessage(
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
       const { processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
-      await processAiJourneyMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, conn.funnelId ?? null, conn.stageKey ?? null, contactName, conn.id)
+      await processAiJourneyMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, conn.funnelId ?? null, conn.stageKey ?? null, contactName, inboundMedia, conn.id)
       return
     }
   }
+  // Os demais motores só entendem texto — mídia sem legenda para por aqui.
+  if (!msgText) return
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {

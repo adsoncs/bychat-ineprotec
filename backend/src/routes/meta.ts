@@ -1571,6 +1571,12 @@ async function createLeadFromMeta(
       cidade: mapped.cidade || null,
       formData: {
         _source: 'meta_lead_ads',
+        // Trilha de entrada do chatbot: quem preenche formulário de anúncio NÃO
+        // escreveu para a empresa — nós é que abrimos a conversa. A jornada de IA
+        // lê este marcador para não abrir como se o lead tivesse mandado "oi" (ver
+        // readBotRoute/getBotRouteBlock em services/aiJourneyEngine.ts). Sem o
+        // Setting `chatbot.route_meta_ads` cadastrado, o marcador não faz nada.
+        _botRoute: 'meta_ads',
         ...extraData,
         _metaFields: fields,
         _metaCampaign: cd,
