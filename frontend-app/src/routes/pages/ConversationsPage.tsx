@@ -121,9 +121,9 @@ import {
   useOpenConversation,
   useCloseConversation,
   useLeadTransferHistory,
-  eventAuthorLabel,
   useAddLeadTags,
   useRemoveLeadTag,
+  eventAuthorLabel,
 } from '@/hooks/useLeads'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags, useCreateTag } from '@/hooks/useTags'

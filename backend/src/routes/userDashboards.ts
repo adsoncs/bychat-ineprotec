@@ -226,6 +226,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     const ENTRE_LEADS = { not: null }
     const leadWhere: any = { qualifiedAt: hasDate ? dateFilter : ENTRE_LEADS }
     if (cfg.funnelId) leadWhere.funnelId = Number(cfg.funnelId)
+
     // Recorte por permissão (`scoped`): a Tela Inicial serve o MESMO painel a
     // papéis diferentes, então o número precisa vir pelo scope do módulo leads —
     // agente vê o que é dele, gestor o do setor, admin tudo. Sem a flag, nada
@@ -235,7 +236,6 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       const access = await buildLeadAccessWhere(u.userId, u.role)
       if (Object.keys(access).length > 0) leadWhere.AND = [...(leadWhere.AND || []), access]
     }
-
     // Recorte por funil dos KPIs de negociação (a seção tem seletor próprio na
     // Visão Geral). Number inválido/0 = todos os funis.
     const negFunnelId = Number(cfg.funnelId) > 0 ? Number(cfg.funnelId) : null

@@ -46,6 +46,7 @@ const INACTIVITY_ACTIONS = [
   { value: 'notify', label: 'Enviar mensagem de reengajamento' },
   { value: 'close', label: 'Fechar conversa diretamente' },
   { value: 'notify_then_close', label: 'Reengajar e depois fechar' },
+  { value: 'ai_reactivate', label: 'Reativar com IA e transferir (Jornada IA)' },
 ]
 
 // Mensagens interativas editáveis do chatbot em modo Roteiro (scripted). As chaves
@@ -845,15 +846,20 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
           <Select label="Ação ao detectar inatividade" value={form.inactivityAction ?? 'notify'} onChange={(e) => patch('inactivityAction', (e.target as HTMLSelectElement).value)} disabled={!form.inactivityEnabled}>
             {INACTIVITY_ACTIONS.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
           </Select>
+          {form.inactivityAction === 'ai_reactivate' && (
+            <p class="text-xs text-fg-muted">
+              A IA escreve cada reativação no ponto em que a conversa parou, com o prompt da jornada (seção "Reativação"). Sem resposta depois da última, a conversa vai para uma pessoa: a equipe da primeira escolha (destino provisório) ou a do lead, com o funil junto. Só envia entre 8h e 21h e dentro das 24h do WhatsApp; vale para conversas que pararem depois de ligar.
+            </p>
+          )}
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             <Input
-              label="Timeout (min)"
+              label={form.inactivityAction === 'ai_reactivate' ? '1ª reativação após (min)' : 'Timeout (min)'}
               type="number"
               min="5"
               value={form.inactivityTimeoutMin ?? 60}
               onInput={(e) => patch('inactivityTimeoutMin', Number((e.target as HTMLInputElement).value))}
               disabled={!form.inactivityEnabled}
-              hint="Minutos sem resposta para considerar inativo"
+              hint={form.inactivityAction === 'ai_reactivate' ? 'Minutos depois da última mensagem da IA' : 'Minutos sem resposta para considerar inativo'}
             />
             <Input
               label="Intervalo check (min)"
@@ -872,26 +878,26 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
               value={form.inactivityMaxRetries ?? 2}
               onInput={(e) => patch('inactivityMaxRetries', Number((e.target as HTMLInputElement).value))}
               disabled={!form.inactivityEnabled}
-              hint="Reengajamentos antes de desistir"
+              hint={form.inactivityAction === 'ai_reactivate' ? 'Reativações antes de transferir' : 'Reengajamentos antes de desistir'}
             />
             <Input
-              label="Fechar após (min)"
+              label={form.inactivityAction === 'ai_reactivate' ? 'Entre reativações (min)' : 'Fechar após (min)'}
               type="number"
-              min="60"
+              min={form.inactivityAction === 'ai_reactivate' ? '15' : '60'}
               value={form.inactivityCloseAfterMin ?? 1440}
               onInput={(e) => patch('inactivityCloseAfterMin', Number((e.target as HTMLInputElement).value))}
               disabled={!form.inactivityEnabled}
-              hint="Inatividade total para fechar (1440 = 24h)"
+              hint={form.inactivityAction === 'ai_reactivate' ? 'Espera entre uma reativação e outra, e antes de transferir' : 'Inatividade total para fechar (1440 = 24h)'}
             />
           </div>
-          <Textarea
+          {form.inactivityAction !== 'ai_reactivate' && <Textarea
             label="Mensagem de reengajamento"
             value={form.inactivityMessage}
             onInput={(e) => patch('inactivityMessage', (e.target as HTMLTextAreaElement).value)}
             rows={3}
             disabled={!form.inactivityEnabled}
             placeholder="Ex.: Oi {{nome}}, posso te ajudar a continuar?"
-          />
+          />}
         </div>
       )}
     </Modal>

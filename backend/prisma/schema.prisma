@@ -50,13 +50,6 @@ model User {
   loginAttempts        Int       @default(0)
   lastLoginAt          DateTime?
   lastSeenAt           DateTime?
-  /// Segundo fator (TOTP). O segredo só vale depois de o usuário provar que
-  /// conseguiu ler o QR — por isso `twoFactorEnabled` é separado do segredo.
-  twoFactorSecret      String?   @db.VarChar(64)
-  twoFactorEnabled     Boolean   @default(false)
-  twoFactorConfirmedAt DateTime?
-  /// Hashes SHA-256 dos códigos de recuperação, em JSON. Uso único cada.
-  twoFactorBackupCodes String?   @db.Text
   // Preferências da conta que precisam seguir a pessoa entre navegadores e
   // máquinas — hoje só as de notificação (som e aviso na área de trabalho).
   // JSON solto de propósito: preferência nova não deve pedir migration.
@@ -86,6 +79,10 @@ model User {
   // Número de WhatsApp para receber avisos internos (ex.: novo lead). Opcional;
   // sem ele, o aviso por WhatsApp cai no número geral de notificação.
   notifyWhatsapp       String?   @db.VarChar(30)
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String?   @db.VarChar(64)
+  twoFactorBackupCodes String?   @db.Text
+  twoFactorConfirmedAt DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -110,20 +107,19 @@ model User {
   leadImports              LeadImport[]
   savedFilters             SavedFilter[]
   appliedFilters           UserAppliedFilter[]
+  goals                    Goal[]
+  commissionRules          CommissionRuleUser[]
 
-  goals                     Goal[]
-  commissionRules           CommissionRuleUser[]
-  scheduledMessagesCreated  ScheduledMessage[]   @relation("ScheduledMessageCreator")
-  scheduledMessagesCanceled ScheduledMessage[]   @relation("ScheduledMessageCanceler")
-  chatImportJobs            ChatImportJob[]      @relation("ChatImportCreator")
-
-  conversationPins ConversationPin[]
+  scheduledMessagesCreated  ScheduledMessage[]         @relation("ScheduledMessageCreator")
+  scheduledMessagesCanceled ScheduledMessage[]         @relation("ScheduledMessageCanceler")
+  chatImportJobs            ChatImportJob[]            @relation("ChatImportCreator")
+  conversationPins          ConversationPin[]
   /// Números reservados que este usuário pode acompanhar (ver `visibility`).
-  instanceViews    WhatsAppInstanceViewer[]   @relation("WhatsAppInstanceViewerUser")
-  cloudViews       CloudApiConnectionViewer[] @relation("CloudApiConnectionViewerUser")
-  alertsOwned      Alert[]                    @relation("AlertOwner")
-  alertsReceived   AlertRecipient[]
-  alertMutes       AlertMute[]
+  instanceViews             WhatsAppInstanceViewer[]   @relation("WhatsAppInstanceViewerUser")
+  cloudViews                CloudApiConnectionViewer[] @relation("CloudApiConnectionViewerUser")
+  alertsOwned               Alert[]                    @relation("AlertOwner")
+  alertsReceived            AlertRecipient[]
+  alertMutes                AlertMute[]
 
   @@index([email])
   @@index([role])
@@ -340,11 +336,9 @@ model Funnel {
   dbConnectors        DbConnector[]
   cloudApiConnections CloudApiConnection[]
   whatsappInstances   WhatsAppInstance[]
-
-  statusSummaries StatusSummary[]
-
-  goals       Goal[]
-  leadFunnels LeadFunnel[]
+  statusSummaries     StatusSummary[]
+  goals               Goal[]
+  leadFunnels         LeadFunnel[]
 
   negotiations Negotiation[]
 
@@ -352,30 +346,32 @@ model Funnel {
 }
 
 model Stage {
-  id           Int      @id @default(autoincrement())
+  id           Int     @id @default(autoincrement())
   funnelId     Int
-  funnel       Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
-  key          String   @db.VarChar(50)
-  name         String   @db.VarChar(100)
-  color        String   @db.VarChar(20)
-  position     Int      @default(0)
-  active       Boolean  @default(true)
+  funnel       Funnel  @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  key          String  @db.VarChar(50)
+  name         String  @db.VarChar(100)
+  color        String  @db.VarChar(20)
+  position     Int     @default(0)
+  active       Boolean @default(true)
   // Quando true, leads nesta etapa ocupam uma vaga da CourseOffering (módulo
   // Educacional). Inscrição em si NÃO consome — só o avanço para etapas como
   // Pagou Taxa, Classificado, Convocado, Matriculado.
-  consumesSlot Boolean  @default(false)
+  consumesSlot Boolean @default(false)
   // Fase 23: marca etapa como terminal de outcome. Quando admin classifica
   // lead como Ganho/Perdido, se houver Stage com terminalKind correspondente
   // no funil do lead, move automaticamente para essa etapa.
   // Valores: null | 'won' | 'lost'.
-  terminalKind String?  @db.VarChar(10)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  terminalKind String? @db.VarChar(10)
 
-  // Módulo Resumo: quanto tempo um lead PODE ficar na etapa e a temperatura
-  // esperada. null = etapa de transição indefinida.
+  // Módulo Resumo: a etapa declara quanto tempo um lead PODE ficar nela e qual
+  // a temperatura esperada. `slaHours` null = sem limite (etapa de transição
+  // indefinida). Alimenta alerta de estagnação e o relatório de tempo por etapa.
   slaHours    Int?
   temperature String? @db.VarChar(10) // quente | morno | frio
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([funnelId, key])
   @@index([funnelId, position])
@@ -1226,7 +1222,8 @@ model Lead {
   // ── Resumo (módulo status_summary) ──
   // Classificação da SITUAÇÃO do atendimento (ex.: AT-200 SOLICITOU MATRICULA).
   // O operador escolhe o resumo e o motor deriva etapa, atividades, prazos e
-  // outcome. Ver services/statusSummaryEngine.ts.
+  // outcome — ele não arrasta card. Ver services/statusSummaryEngine.ts.
+  // Não confundir com o card "Resumo IA" (aiSummary), que é texto gerado.
   statusSummaryId Int?
   statusSummary   StatusSummary? @relation(fields: [statusSummaryId], references: [id], onDelete: SetNull)
   statusSummaryAt DateTime?
@@ -1263,23 +1260,21 @@ model Lead {
   cadenceEnrollments       CadenceEnrollment[]
   outboundSends            OutboundSend[]
   stageMovements           LeadStageMovement[]
-  statusHistory            LeadStatusHistory[]
   conversationAudits       ConversationAudit[]
   stageSuggestions         LeadStageSuggestion[]
   transferRequests         LeadTransferRequest[]
-  aluno                    Aluno? // Módulo Acadêmico (1:1) — Pessoa = Contato
+  statusHistory            LeadStatusHistory[]
 
+  // Busca por telefone é o caminho quente do produto (todo webhook de WhatsApp
+  // resolve o lead por aqui) e fazia full scan — 33 call sites no backend.
   bookings          Booking[]
   scheduledMessages ScheduledMessage[]
   chatImportJobs    ChatImportJob[]
-
-  conversationPins ConversationPin[]
-
+  conversationPins  ConversationPin[]
   /// Funis em que este lead está (ou esteve). Ver model LeadFunnel.
-  leadFunnels LeadFunnel[]
+  leadFunnels       LeadFunnel[]
+  aluno             Aluno? // Módulo Acadêmico (1:1) — Pessoa = Contato
 
-  // Busca por telefone é o caminho quente do produto (todo webhook de WhatsApp
-  // resolve o lead por aqui) e fazia full scan.
   portalAccount PortalAccount? // conta do portal (candidato e aluno)
 
   @@index([whatsapp])
@@ -1660,28 +1655,29 @@ model Message {
   /// tentativa funciona — insistir só gasta segundos contra a Evolution.
   mediaUnavailableAt DateTime?
   ack                Int       @default(0)
+  /// Sumiu desta tela. É o "apagar para mim": o WhatsApp do contato continua
+  /// com a mensagem, porque esse apagar nunca sai do aparelho de quem apaga.
   isDeleted          Boolean   @default(false)
   isInternal         Boolean   @default(false)
 
   // ── Editar / apagar / encaminhar / reagir (paridade com o WhatsApp) ──
   /// Quando a mensagem foi editada pela última vez. O WhatsApp só aceita
   /// edição até 15 minutos depois do envio, e só de mensagem nossa.
-  editedAt        DateTime?
+  editedAt             DateTime?
   /// Texto anterior à primeira edição. O WhatsApp não guarda isso; aqui guarda
   /// porque conversa de atendimento vira prova em reclamação e em auditoria.
-  originalBody    String?   @db.LongText
+  originalBody         String?             @db.LongText
   /// Apagada para todos (revoke). Diferente de `isDeleted`: aqui a mensagem
   /// sumiu também no aparelho do contato, e a bolha vira "mensagem apagada".
-  deletedForAll   Boolean   @default(false)
-  deletedAt       DateTime?
+  deletedForAll        Boolean             @default(false)
+  deletedAt            DateTime?
   /// Quem apagou pelo painel. Null quando foi o contato quem apagou.
-  deletedByUserId Int?
+  deletedByUserId      Int?
   /// Chegou aqui por encaminhamento feito no painel.
-  isForwarded     Boolean   @default(false)
+  isForwarded          Boolean             @default(false)
   /// Reações no formato [{ emoji, fromMe, senderName, at }]. Guardadas na
   /// própria mensagem: reação não é mensagem, é estado dela.
-  reactions       Json?     @db.Json
-
+  reactions            Json?               @db.Json
   provider             String              @default("evolution") @db.VarChar(20) // evolution | cloud_api
   // Origem real da mensagem (qual número/canal) — distingue conversas de
   // números diferentes no módulo Conversas. Preenchido nos webhooks/envio.
@@ -1788,14 +1784,16 @@ model Activity {
   userName String? @db.VarChar(100) // nome/email de quem criou
 
   // ── Responsável pela EXECUÇÃO (módulo Resumo) ──
-  // `userId` acima é quem CRIOU. Quando o motor gera a atividade para outro
-  // setor (handoff Comercial → Secretaria), quem executa vai aqui.
+  // `userId` acima é quem CRIOU. Quando o motor de Resumos gera a atividade para
+  // outro setor (o handoff Comercial → Secretaria), quem executa vai aqui. Null
+  // em atividade de setor (assignedTeamId preenchido) = fila do setor, sem dono.
   assignedUserId Int?
   assignedUser   User? @relation("ActivityAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   assignedTeamId Int?
   assignedTeam   Team? @relation(fields: [assignedTeamId], references: [id], onDelete: SetNull)
 
   // Código do ActivityTemplate que originou a atividade (ex.: "AT-WP-06").
+  // É o que permite KPI por TIPO de atividade — sem ele o título é texto livre.
   templateCode String? @db.VarChar(20)
 
   type        String  @db.VarChar(30) // whatsapp, email, sms, call, meeting, task, note, follow_up
@@ -1962,6 +1960,10 @@ model CloudApiConnection {
   wabaId          String    @unique @db.VarChar(100) // WhatsApp Business Account ID
   phoneNumberId   String    @unique @db.VarChar(100) // Phone Number ID (Meta)
   displayPhone    String?   @db.VarChar(30) // Numero formatado para exibicao
+  /// Cor de identificação do canal na operação. Paleta fechada (ver
+  /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
+  /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
+  color           String?   @db.VarChar(9)
   businessId      String?   @db.VarChar(100) // Meta Business Portfolio ID
   systemUserToken String    @db.Text // Token criptografado AES-256-GCM
   tokenExpiresAt  DateTime? // null = nunca expira (System User Token)
@@ -1989,10 +1991,6 @@ model CloudApiConnection {
   displayName        String?                    @db.VarChar(191) // Nome do WABA
   qualityRating      String?                    @db.VarChar(20) // GREEN, YELLOW, RED
   messagingLimit     String?                    @db.VarChar(50) // Tier: 1K, 10K, 100K, UNLIMITED
-  /// Cor de identificação do canal na operação. Paleta fechada (ver
-  /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
-  /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
-  color              String?                    @db.VarChar(9)
   active             Boolean                    @default(true)
   /// Número que envia quando ninguém escolheu um: fluxo, cadência, notificação
   /// de agenda, resposta a lead sem histórico. Com um número só isso nunca
@@ -3703,28 +3701,23 @@ model Modality {
 // Unidade = agrupamento organizacional (marca/filial/regional)
 // Uma instituição pode ter várias unidades (ex: "Norte", "Sul", "EAD")
 model EducationalUnit {
-  id                 Int      @id @default(autoincrement())
-  nome               String   @db.VarChar(191)
-  codigo             String?  @unique @db.VarChar(50)
-  descricao          String?  @db.Text
-  // ── Fase 1 (G5): a unidade passa a pendurar na IES ──
-  /// IES a que esta unidade pertence. Anulável para não quebrar instalações que
-  /// ainda não cadastraram a hierarquia.
-  iesId              Int?
-  /// campus | polo_ead | unidade_administrativa — o Censo distingue.
-  tipoUnidade        String?  @db.VarChar(40)
-  /// Código de endereço no e-MEC (o local de oferta declarado no regulatório).
-  codigoEmecEndereco String?  @db.VarChar(20)
-  enderecoJson       Json?    @db.Json
-  active             Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(191)
+  codigo    String?  @unique @db.VarChar(50)
+  descricao String?  @db.Text
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   campuses           Campus[]
   courses            Course[]
   offerings          CourseOffering[]
   selectionProcesses SelectionProcess[]
   enrollmentPortals  EnrollmentPortal[]
+  iesId              Int?
+  tipoUnidade        String?            @db.VarChar(40)
+  codigoEmecEndereco String?            @db.VarChar(20)
+  enderecoJson       Json?              @db.Json
 
   @@map("bychat_edu_units")
 }
@@ -3760,47 +3753,32 @@ model Campus {
 
 // Curso = catálogo mestre (nome + descrição, sem modalidade/nível)
 model Course {
-  id                        Int               @id @default(autoincrement())
-  unitId                    Int
-  unit                      EducationalUnit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  levelId                   Int?
-  level                     EducationalLevel? @relation(fields: [levelId], references: [id], onDelete: SetNull)
-  nome                      String            @db.VarChar(191)
-  codigo                    String?           @db.VarChar(50)
-  descricao                 String?           @db.Text
-  duracaoMeses              Int?
-  cargaHoraria              Int?
-  // ── Fase 1 (G5): identidade regulatória do curso ──
-  codigoEmec                String?           @db.VarChar(20)
-  /// bacharelado | licenciatura | tecnologo | pos_lato | pos_stricto | tecnico | livre
-  grau                      String?           @db.VarChar(30)
-  /// presencial | ead | hibrido
-  modalidade                String?           @db.VarChar(20)
-  /// seriado_semestral | seriado_anual | credito | modular
-  regimeAcademico           String?           @db.VarChar(30)
+  id           Int               @id @default(autoincrement())
+  unitId       Int
+  unit         EducationalUnit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  levelId      Int?
+  level        EducationalLevel? @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  nome         String            @db.VarChar(191)
+  codigo       String?           @db.VarChar(50)
+  descricao    String?           @db.Text
+  duracaoMeses Int?
+  cargaHoraria Int?
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  offerings                 CourseOffering[]
+  codigoEmec                String?          @db.VarChar(20)
+  grau                      String?          @db.VarChar(30)
+  modalidade                String?          @db.VarChar(20)
+  regimeAcademico           String?          @db.VarChar(30)
   duracaoMinPeriodos        Int?
   duracaoMaxPeriodos        Int?
-  /// Área do conhecimento (classificação Cine Brasil) — exigida no Censo.
-  areaCine                  String?           @db.VarChar(120)
-  // ── Educação profissional técnica (SISTEC / CNCT) ──
-  /// Um dos 13 eixos tecnológicos do CNCT. O SISTEC exige o eixo para cadastrar
-  /// o curso, e é por ele que a lista de cursos do catálogo é filtrada.
-  eixoTecnologico           String?           @db.VarChar(80)
-  /// Código do curso no Catálogo Nacional de Cursos Técnicos; nulo em curso
-  /// experimental (que o SISTEC também aceita, por outro caminho).
-  codigoCnct                String?           @db.VarChar(20)
-  /// O SISTEC pergunta isto no cadastro: o curso de habilitação confere
-  /// certificado de qualificação profissional em etapas intermediárias?
-  certificacaoIntermediaria Boolean           @default(false)
-  /// Perfil profissional de conclusão — o que o egresso está apto a fazer.
-  /// Res. CNE/CP 1/2021, art. 49, §4º: o histórico que acompanha certificados e
-  /// diplomas DEVE explicitá-lo. Sem isso o documento sai incompleto.
-  perfilConclusao           String?           @db.Text
-  active                    Boolean           @default(true)
-  createdAt                 DateTime          @default(now())
-  updatedAt                 DateTime          @updatedAt
-
-  offerings CourseOffering[]
+  areaCine                  String?          @db.VarChar(120)
+  eixoTecnologico           String?          @db.VarChar(80)
+  codigoCnct                String?          @db.VarChar(20)
+  certificacaoIntermediaria Boolean          @default(false)
+  perfilConclusao           String?          @db.Text
   /// Regras de matrícula do curso (valem junto com as do portal: as duas
   /// precisam exigir). Curso livre/extensão: sem contrato e fora do SEI.
   exigeContrato             Boolean          @default(true)
@@ -3911,18 +3889,6 @@ model EntryMode {
 
   requiresClassification Boolean @default(false) // calcula nota/posição?
 
-  /// A qual das 10 formas de ingresso do Censo da Educação Superior este modo
-  /// corresponde. É N:1 de propósito: a escola cria quantos modos comerciais
-  /// quiser ("Análise curricular — Pós", "Ingresso por diploma"), e todos podem
-  /// declarar SELECAO_SIMPLIFICADA no Censo. Sem este campo o modo é interno e
-  /// não pode alimentar vínculo de curso superior/pós.
-  /// Res. CNE/CES 1/2018, art. 6º: especialização É registrada no Censo.
-  censoForma            String? @db.VarChar(30)
-  /// COMO o candidato é classificado. Independe do evaluationType: um modo
-  /// pode avaliar por documento (evaluationType=docs) e classificar por média
-  /// do histórico ou por ordem de inscrição. Ver services/acaFormaIngresso.ts.
-  criterioClassificacao String? @db.VarChar(30)
-
   // Campos extras que aparecem no form do portal quando esse modo é selecionado.
   // Formato: [{ name, label, type, required, ... }]
   defaultFormExtras Json?
@@ -3932,8 +3898,10 @@ model EntryMode {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  selectionProcesses   SelectionProcess[]
-  documentRequirements EntryModeDocumentRequirement[]
+  selectionProcesses    SelectionProcess[]
+  documentRequirements  EntryModeDocumentRequirement[]
+  censoForma            String?                        @db.VarChar(30)
+  criterioClassificacao String?                        @db.VarChar(30)
 
   @@index([code])
   @@index([active, ordem])
@@ -4558,6 +4526,23 @@ model UserMeetingBot {
   @@map("bychat_user_meeting_bots")
 }
 
+// Token da EXTENSÃO Chrome de captura local (paridade Read.ai). Cada usuário gera
+// um token longo/revogável que a extensão usa (header X-Meeting-Token) para enviar
+// o áudio ao /api/admin/meetings/upload. Guardamos só o HASH (sha256); o token em
+// claro aparece 1x na geração.
+model MeetingExtensionToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  tokenHash  String    @unique @db.VarChar(64) // sha256 hex do token
+  label      String?   @db.VarChar(120) // ex.: "Chrome do Benedito"
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("bychat_meeting_extension_tokens")
+}
+
 // Negociação/proposta de um lead (pipeline: um lead pode ter várias). Reusa
 // LossReason (motivo de perda) e Lead.outcome ao fechar.
 model Negotiation {
@@ -4571,7 +4556,8 @@ model Negotiation {
   descontoTipo  String?  @db.VarChar(10) // valor | percent
   descontoValor Decimal? @db.Decimal(12, 2)
   frete         Decimal? @db.Decimal(12, 2)
-  valorFinal    Decimal? @db.Decimal(12, 2) // calculado
+  valorFinal    Decimal? @db.Decimal(12, 2) // calculado = valorUnico + valorRecorrente (1º ciclo)
+  moeda         String   @default("BRL") @db.VarChar(3)
 
   // Recorrência vs. pagamento único, desnormalizado da soma dos itens para os
   // KPIs não precisarem de JOIN por item. O desconto geral é rateado entre os
@@ -4579,8 +4565,9 @@ model Negotiation {
   // inteiros no único, que é onde uma taxa pontual pertence.
   valorRecorrente Decimal? @db.Decimal(12, 2) // MRR: mensalidades já com desconto rateado
   valorUnico      Decimal? @db.Decimal(12, 2) // cobrado uma vez só + acréscimos
-  moeda           String   @default("BRL") @db.VarChar(3)
 
+  // Condições do PAGAMENTO ÚNICO (cobrado uma vez só). `descontoTipo`,
+  // `descontoValor` e `frete` acima também são deste bloco.
   pagamentoForma    String?  @db.VarChar(20) // pix | cartao | boleto | dinheiro
   parcelas          Int?
   entrada           Decimal? @db.Decimal(12, 2)
@@ -4626,9 +4613,8 @@ model Negotiation {
 
   items       NegotiationItem[]
   attachments NegotiationAttachment[]
-
   // Módulo Metas e Comissões: a comissão é derivada desta venda (some junto).
-  commission CommissionEntry?
+  commission  CommissionEntry?
 
   // Integração com o Educacional (Fase 1, 22/10/2026): a inscrição e o curso
 
@@ -5658,7 +5644,8 @@ model Booking {
   token          String @unique @db.VarChar(64) // links públicos remarcar/cancelar
   meetingTypeId  Int
   leadId         Int?
-  // Sem FK, apagar o lead deixava a reserva apontando p/ id inexistente.
+  // Sem FK, apagar o lead deixava a reserva apontando p/ um id inexistente e o
+  // relatório de agendamento contava reunião de gente que não existe mais.
   lead           Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
   operatorUserId Int?
 
@@ -5747,6 +5734,29 @@ model KommoMapping {
   @@unique([entityType, kommoId])
   @@index([entityType, localId])
   @@map("bychat_kommo_mappings")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Integração CRM Educacional (Wakeme) — importador
+// ─────────────────────────────────────────────────────────────
+// Mesma ideia do KommoMapping: liga o GUID do CRM Educacional ao registro
+// local, garantindo idempotência do re-sync (upsert, nunca duplica).
+// `crmId` é o GUID do Dynamics (36 chars). `meta` guarda o DataModificacao
+// visto na última sincronização, que é como detectamos alteração — o filtro
+// da API é por data de CRIAÇÃO, então sem isso não há como saber que um lead
+// antigo mudou.
+model CrmEduMapping {
+  id         Int      @id @default(autoincrement())
+  entityType String   @db.VarChar(30) // lead
+  crmId      String   @db.VarChar(40)
+  localId    Int
+  meta       Json?    @db.Json
+  syncedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, crmId])
+  @@index([entityType, localId])
+  @@map("bychat_crmedu_mappings")
 }
 
 // ═════════════════════════════════════════════
@@ -6211,14 +6221,1232 @@ model HelpdeskSequence {
   @@map("bychat_helpdesk_sequences")
 }
 
-// =====================================================================
-// MÓDULO ACADÊMICO (NATIVO) — Fase 0 (M1/M2/M4/M5)
-// ids Int; sem tenantId (multi-tenant por install); centavos Int;
-// tabelas bychat_aca_. Ver docs/projeto-erp-academico/04_05_06.
-// FKs cross-módulo (courseId, courseOfferingId, enrollmentDraftId,
-// userId) são escalares por design (sem @relation, p/ não tocar models
-// existentes). Lead↔Aluno é relação 1:1 (Pessoa = Contato).
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Radar de Reputação (F0 — ingestão)
+//
+// Prospecção B2B a partir de dados abertos oficiais do Consumidor.gov.br
+// (Senacon/MJ). Fonte: publicação mensal `finalizadas_YYYY-MM.zip`, listada em
+// GET /pages/publicacao/externo/publicacoes.json?indicadorTipoPublicacao=2
+//
+// IMPORTANTE: o alvo do lead é sempre a EMPRESA reclamada — nunca o consumidor.
+// A base do Senacon é anonimizada (região/UF/cidade, sexo, faixa etária) e não
+// traz nome, CPF nem contato do reclamante, então a ingestão não trata dado
+// pessoal. Manter assim: nenhum enriquecimento deve tentar identificar o
+// consumidor a partir destas linhas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Uma empresa (marca) presente na base, com os agregados do último período.
+model ReputationCompany {
+  id      Int     @id @default(autoincrement())
+  slug    String  @unique @db.VarChar(191) // nome fantasia normalizado — chave estável entre períodos
+  name    String  @db.VarChar(191) // "Nome Fantasia" como publicado
+  segment String? @db.VarChar(191) // "Segmento de Mercado"
+  area    String? @db.VarChar(191) // "Área"
+
+  // Agregados do período mais recente ingerido (denormalizados p/ listagem rápida)
+  lastPeriod      String? @db.VarChar(7) // YYYY-MM
+  complaints      Int     @default(0) // reclamações finalizadas no período
+  unansweredRate  Float? // 0..1 — Respondida = 'N'
+  unresolvedRate  Float? // 0..1 — sobre as AVALIADAS (só ~6% recebem avaliação)
+  ratedShare      Float? // 0..1 — fatia que foi avaliada (denominador do acima)
+  avgScore        Float? // 1..5 — "Nota do Consumidor"
+  avgResponseDays Float? // "Tempo Resposta" (em dias)
+  topProblem      String? @db.VarChar(255)
+  topUf           String? @db.VarChar(2)
+
+  // Tendência vs. período anterior (variação % do volume). null = sem histórico.
+  complaintsDelta Float?
+
+  // 0..100 — quanto essa empresa "dói" hoje. Calculado na ingestão (ver
+  // computeOpportunityScore em services/reputationIngest.ts).
+  opportunityScore Int @default(0)
+
+  // Pipeline de prospecção. F0 só popula 'new'; F2 fará a conversão em Lead.
+  status String  @default("new") @db.VarChar(20) // new | prospecting | converted | ignored
+  // Lead gerado a partir desta empresa. Escalar sem FK de propósito: evita
+  // acoplar o model Lead (gigante) a um módulo opcional e desligado por padrão.
+  leadId Int?
+  notes  String? @db.Text
+
+  snapshots ReputationSnapshot[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([opportunityScore])
+  @@index([segment])
+  @@index([status])
+  @@index([lastPeriod])
+  @@index([leadId])
+  @@map("bychat_reputation_companies")
+}
+
+// Métricas de uma empresa em um período (YYYY-MM). Guarda a série histórica que
+// alimenta a tendência e o gráfico do dossiê.
+model ReputationSnapshot {
+  id        Int               @id @default(autoincrement())
+  companyId Int
+  company   ReputationCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  period String @db.VarChar(7) // YYYY-MM
+
+  complaints      Int    @default(0)
+  unanswered      Int    @default(0)
+  rated           Int    @default(0) // reclamações que receberam avaliação
+  unresolved      Int    @default(0) // dentre as avaliadas
+  avgScore        Float?
+  avgResponseDays Float?
+  // Distribuições do período: { problems: {...}, ufs: {...}, channels: {...} }
+  breakdown       Json?  @db.Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, period])
+  @@index([period])
+  @@map("bychat_reputation_snapshots")
+}
+
+// Auditoria de cada ingestão mensal — idempotência e diagnóstico.
+model ReputationImport {
+  id     Int    @id @default(autoincrement())
+  period String @unique @db.VarChar(7) // YYYY-MM — 1 import por período
+
+  sourceCode String? @db.VarChar(30) // "codigo" da publicação no Senacon
+  fileName   String? @db.VarChar(191) // finalizadas_YYYY-MM.zip
+  fileBytes  Int?
+
+  status     String  @default("running") @db.VarChar(20) // running | done | failed
+  rows       Int     @default(0)
+  companies  Int     @default(0)
+  durationMs Int?
+  error      String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("bychat_reputation_imports")
+}
+
+// Varredura técnica do site de um prospect — Radar de Reputação, F1.
+//
+// Baixa o HTML da home e identifica o que está instalado (pixels, analytics,
+// tag manager, CMS, chat). A leitura comercial é a LACUNA, não a presença:
+// empresa com site vivo e nenhum pixel de remarketing ou não tem agência, ou
+// tem uma que não faz performance — é exatamente o gancho da abordagem.
+//
+// Só HTML público da home, sem login e sem burlar bloqueio. Um domínio por
+// linha; rescan sobrescreve (a série histórica aqui não agrega valor).
+model WebStackScan {
+  id     Int    @id @default(autoincrement())
+  domain String @unique @db.VarChar(191) // normalizado, sem www/protocolo
+
+  finalUrl   String? @db.Text // após redirects
+  httpStatus Int?
+  title      String? @db.VarChar(255)
+  tlsValid   Boolean @default(true) // false = certificado inválido/expirado (sinal por si só)
+  error      String? @db.VarChar(255) // dns/timeout/refused — site morto também é sinal
+
+  // Flags derivadas — booleanas para filtrar rápido sem abrir o Json.
+  hasMetaPixel  Boolean @default(false)
+  hasGoogleAds  Boolean @default(false)
+  hasGa4        Boolean @default(false)
+  hasGtm        Boolean @default(false)
+  hasOtherPixel Boolean @default(false) // TikTok, LinkedIn, Pinterest
+  hasChat       Boolean @default(false) // WhatsApp, Crisp, Tawk, JivoChat…
+  hasCrm        Boolean @default(false) // RD Station, HubSpot
+  cms           String? @db.VarChar(40) // wordpress | wix | shopify | vtex | …
+
+  // Tudo que foi detectado, com o nome de cada tecnologia.
+  detected Json? @db.Json
+
+  // 0..100 — tamanho da LACUNA (quanto maior, mais órfã de marketing a empresa
+  // parece). Ver computeGapScore em services/webStackDetect.ts.
+  gapScore Int @default(0)
+
+  // Vínculos opcionais — o mesmo scan serve a qualquer origem de prospect.
+  leadId    Int?
+  companyId Int?
+
+  scannedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([gapScore])
+  @@index([leadId])
+  @@index([companyId])
+  @@index([cms])
+  @@map("bychat_web_stack_scans")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Radar de Concorrentes (F2) — agências de marketing que disputam o mesmo
+// mercado, descobertas via Google Maps (Apify) para prospecção competitiva.
+//
+// O alvo comercial NÃO é a agência: é a carteira dela. A agência entra aqui
+// como ponto de partida — o site dela publica os cases/clientes, e cada cliente
+// vira candidato a abordagem quando o detector de stack mostra lacuna.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CompetitorAgency {
+  id      Int    @id @default(autoincrement())
+  placeId String @unique @db.VarChar(191) // placeId/cid do Google Maps
+
+  name       String  @db.VarChar(191)
+  categories String? @db.VarChar(255) // categorias do Google, separadas por vírgula
+  address    String? @db.Text
+  city       String? @db.VarChar(120)
+  uf         String? @db.VarChar(60)
+  website    String? @db.VarChar(255)
+  domain     String? @db.VarChar(191) // normalizado a partir do website — liga ao WebStackScan
+  phone      String? @db.VarChar(40)
+
+  rating           Float? // nota média no Google
+  reviewsCount     Int? // total de avaliações
+  // Quantas negativas COM texto foram capturadas. Sem texto não serve: não dá
+  // para inferir qual cliente reclamou nem do quê.
+  negativeWithText Int    @default(0)
+
+  searchTerm String?   @db.VarChar(191) // termo que descobriu esta agência
+  status     String    @default("new") @db.VarChar(20) // new | mapped | ignored
+  notes      String?   @db.Text
+  lastScanAt DateTime?
+
+  reviews CompetitorReview[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([city])
+  @@index([rating])
+  @@index([status])
+  @@index([domain])
+  @@map("bychat_competitor_agencies")
+}
+
+// Avaliação negativa COM texto de uma agência concorrente.
+//
+// Minimização de dados (LGPD): guardamos apenas nota, texto, data e a resposta
+// pública do dono. NADA que identifique o autor — nome, foto, perfil e id do
+// avaliador são descartados na ingestão. O texto interessa porque às vezes
+// nomeia a empresa contratante (o alvo B2B); a pessoa que escreveu, não.
+model CompetitorReview {
+  id       Int              @id @default(autoincrement())
+  agencyId Int
+  agency   CompetitorAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  externalId   String    @unique @db.VarChar(191) // reviewId do Google — dedupe entre coletas
+  stars        Int
+  text         String    @db.Text
+  publishedAt  DateTime?
+  ownerReplied Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([agencyId])
+  @@index([stars])
+  @@map("bychat_competitor_reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Radar Educacional (F3) — escolas privadas do Censo Escolar (INEP/MEC).
+//
+// Universo muito maior e mais local que a base de reclamações: ~42 mil escolas
+// privadas EM ATIVIDADE, 93% delas com telefone publicado. O sinal de dor é a
+// queda de turmas ano a ano (a rede privada vem encolhendo) somada à
+// imaturidade digital declarada no próprio censo.
+//
+// Fonte: microdados anuais, arquivo `microdados_censo_escolar_<ano>.zip`.
+// Dados de PJ (escola) — endereço e telefone institucionais são públicos por
+// definição no censo. Nenhuma informação de aluno, docente ou gestor é lida:
+// só as tabelas Escola e Turma, que são agregadas por estabelecimento.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model EducationInstitution {
+  id       Int    @id @default(autoincrement())
+  inepCode String @unique @db.VarChar(20) // CO_ENTIDADE
+
+  name     String  @db.VarChar(191) // NO_ENTIDADE
+  uf       String? @db.VarChar(2)
+  city     String? @db.VarChar(120)
+  cityCode String? @db.VarChar(10)
+  district String? @db.VarChar(120) // NO_BAIRRO
+  address  String? @db.Text
+  zip      String? @db.VarChar(12)
+  phone    String? @db.VarChar(40) // NU_TELEFONE
+
+  // TP_CATEGORIA_ESCOLA_PRIVADA: 1 particular, 2 comunitária, 3 confessional, 4 filantrópica
+  privateCategory Int?
+  urban           Boolean @default(true) // TP_LOCALIZACAO = 1
+
+  // Último ano ingerido e o retrato desse ano
+  lastYear    Int?
+  classes     Int  @default(0) // QT_TUR_BAS — turmas da educação básica (proxy de porte)
+  classesInf  Int  @default(0)
+  classesFund Int  @default(0)
+  classesMed  Int  @default(0)
+  classesProf Int  @default(0)
+  classesEja  Int  @default(0)
+
+  // Variação de turmas vs. ano anterior. Negativo = perdendo alunos = dor.
+  classesDelta Float?
+
+  // Maturidade digital declarada no censo — quanto pior, maior a lacuna.
+  hasInternet      Boolean @default(false)
+  hasInternetAdmin Boolean @default(false)
+  hasInternetLearn Boolean @default(false)
+
+  // 0..100 — ver computeEducationScore em services/inepIngest.ts
+  opportunityScore Int @default(0)
+
+  // Liga ao detector de stack quando descobrirmos o site (F4).
+  domain String? @db.VarChar(191)
+
+  status String  @default("new") @db.VarChar(20) // new | prospecting | converted | ignored
+  leadId Int?
+  notes  String? @db.Text
+
+  snapshots EducationSnapshot[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([opportunityScore])
+  @@index([uf, city])
+  @@index([classes])
+  @@index([status])
+  @@index([lastYear])
+  @@map("bychat_education_institutions")
+}
+
+// Retrato anual de uma escola — alimenta a tendência.
+model EducationSnapshot {
+  id            Int                  @id @default(autoincrement())
+  institutionId Int
+  institution   EducationInstitution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+
+  year        Int
+  classes     Int @default(0)
+  classesInf  Int @default(0)
+  classesFund Int @default(0)
+  classesMed  Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([institutionId, year])
+  @@index([year])
+  @@map("bychat_education_snapshots")
+}
+
+// Auditoria de cada ingestão anual do censo.
+model EducationImport {
+  id   Int @id @default(autoincrement())
+  year Int @unique
+
+  fileName   String? @db.VarChar(191)
+  fileBytes  Int?
+  status     String  @default("running") @db.VarChar(20) // running | done | failed
+  schools    Int     @default(0) // privadas ativas persistidas
+  rowsRead   Int     @default(0) // linhas lidas da Tabela_Escola
+  durationMs Int?
+  error      String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_education_imports")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inteligência de Mercado — Ensino Superior (módulo higher_ed_market)
+//
+// BI sobre os microdados do Censo da Educação Superior (INEP/MEC), entregue à
+// IES cliente para decisão: ocupação de vagas, conversão de captação, evasão,
+// concorrência na praça e onde há demanda reprimida.
+//
+// Escala: o arquivo de cursos tem ~720 mil linhas/ano (curso × local — um curso
+// EAD aparece em cada polo) e 223 colunas. Guardamos ~45 colunas no fato e
+// pré-agregamos por praça: o dashboard lê o agregado, nunca o fato.
+//
+// Defasagem: o censo de um ano é publicado ~18 meses depois. É ferramenta de
+// estratégia (abrir curso, planejar captação), não de operação diária.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model HeInstitution {
+  id    Int @id @default(autoincrement())
+  coIes Int @unique // CO_IES
+
+  name         String  @db.VarChar(255) // NO_IES
+  acronym      String? @db.VarChar(60) // SG_IES
+  uf           String? @db.VarChar(2)
+  city         String? @db.VarChar(120)
+  isCapital    Boolean @default(false)
+  organization Int? // TP_ORGANIZACAO_ACADEMICA: 1 univ, 2 centro univ, 3 faculdade…
+  category     Int? // TP_CATEGORIA_ADMINISTRATIVA: 1-3 pública, 4-5,7 privada
+  isPrivate    Boolean @default(false)
+
+  lastYear DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([uf, city])
+  @@index([isPrivate])
+  @@map("bychat_he_institutions")
+}
+
+// Fato: um curso, num local, num ano.
+model HeCourse {
+  id   Int @id @default(autoincrement())
+  year Int
+
+  coIes   Int
+  coCurso Int
+  name    String @db.VarChar(255) // NO_CURSO
+
+  cineArea     String? @db.VarChar(120) // NO_CINE_AREA_GERAL
+  cineDetailed String? @db.VarChar(191) // NO_CINE_AREA_DETALHADA
+  degree       Int? // TP_GRAU_ACADEMICO: 1 bacharelado, 2 licenciatura, 3 tecnológico
+  modality     Int? // TP_MODALIDADE_ENSINO: 1 presencial, 2 EAD
+  category     Int? // TP_CATEGORIA_ADMINISTRATIVA
+  organization Int?
+
+  uf        String? @db.VarChar(2)
+  city      String? @db.VarChar(120)
+  cityCode  Int?
+  isCapital Boolean @default(false)
+
+  // Oferta e demanda
+  seats          Int @default(0) // QT_VG_TOTAL
+  seatsNight     Int @default(0) // QT_VG_TOTAL_NOTURNO
+  applicants     Int @default(0) // QT_INSCRITO_TOTAL
+  entrants       Int @default(0) // QT_ING
+  entrantsNight  Int @default(0)
+  entrantsEnem   Int @default(0) // QT_ING_ENEM
+  entrantsVest   Int @default(0) // QT_ING_VESTIBULAR
+  entrantsFies   Int @default(0)
+  entrantsProuni Int @default(0)
+
+  // Base instalada e resultado
+  enrolled       Int @default(0) // QT_MAT
+  enrolledFem    Int @default(0)
+  enrolled1824   Int @default(0)
+  enrolled2529   Int @default(0)
+  enrolled30p    Int @default(0)
+  graduates      Int @default(0) // QT_CONC
+  locked         Int @default(0) // QT_SIT_TRANCADA
+  dropped        Int @default(0) // QT_SIT_DESVINCULADO
+  transferred    Int @default(0) // QT_SIT_TRANSFERIDO
+  enrolledFies   Int @default(0)
+  enrolledProuni Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([year, coIes])
+  @@index([year, uf, cityCode])
+  @@index([year, cineArea])
+  @@index([year, coCurso])
+  @@map("bychat_he_courses")
+}
+
+// Agregado por praça — o que o dashboard consulta.
+model HeMarket {
+  id   Int @id @default(autoincrement())
+  year Int
+
+  uf        String? @db.VarChar(2)
+  cityCode  Int?
+  city      String? @db.VarChar(120)
+  cineArea  String? @db.VarChar(120)
+  modality  Int? // 1 presencial, 2 EAD
+  isPrivate Boolean @default(false)
+
+  courses      Int @default(0) // nº de registros curso×local
+  institutions Int @default(0) // IES distintas
+  seats        Int @default(0)
+  applicants   Int @default(0)
+  entrants     Int @default(0)
+  enrolled     Int @default(0)
+  graduates    Int @default(0)
+  dropped      Int @default(0)
+  locked       Int @default(0)
+  fies         Int @default(0)
+  prouni       Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([year, uf, cityCode, cineArea, modality, isPrivate], name: "he_market_slice")
+  @@index([year, uf])
+  @@index([year, cineArea])
+  @@map("bychat_he_market")
+}
+
+model HeImport {
+  id   Int @id @default(autoincrement())
+  year Int @unique
+
+  fileName     String? @db.VarChar(191)
+  fileBytes    Int?
+  status       String  @default("running") @db.VarChar(20) // running | done | failed
+  courses      Int     @default(0)
+  institutions Int     @default(0)
+  marketRows   Int     @default(0)
+  durationMs   Int?
+  error        String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_he_imports")
+}
+
+// ─── Disparos Inteligentes (smart_broadcast) ──────────────
+//
+// Campanhas enviadas pelos NÚMEROS PRÓPRIOS conectados na Evolution (Baileys),
+// não pela Cloud API oficial. Como não há template HSM nem SLA da Meta, todo o
+// esforço do módulo está em (a) parecer uso humano — ritmo irregular, digitação,
+// janela de horário, variações de texto — e (b) proteger o número: aquecimento
+// progressivo, teto diário, pré-checagem de existência no WhatsApp e disjuntor
+// automático ao primeiro sinal de bloqueio. Ver services/waCampaign/*.
+//
+// Separado de BroadcastCampaign de propósito: lá o risco é custo por template,
+// aqui é a vida do chip. Misturar os dois modelos confundiria as duas coisas.
+
+model SmartCampaign {
+  id     Int    @id @default(autoincrement())
+  name   String @db.VarChar(191)
+  status String @default("draft") @db.VarChar(16) // draft|scheduled|running|paused|completed|canceled|failed
+
+  // Pool de números Evolution que revezam o envio: [{id, instanceName}]
+  senderInstances Json @db.Json
+
+  // Conteúdo: blocos de mensagem com variações/spintax.
+  // [{ variants: ["Oi {{nome}}!", "Olá {{nome}}"], mediaUrl?, mediaType?, delayAfterMs? }]
+  messageBlocks Json @db.Json
+
+  audienceType String @db.VarChar(12) // leads | import
+  audienceMeta Json?  @db.Json
+
+  // Ritmo/janela (snapshot do perfil no momento da criação — perfil pode mudar depois)
+  pacingProfileId Int?
+  pacingConfig    Json @db.Json // { minDelayMs, maxDelayMs, sessionSize, sessionBreakMs, typingEnabled, ... }
+  windowConfig    Json @db.Json // { days:[1..5], from:"09:00", to:"18:00", timezone:"America/Sao_Paulo" }
+
+  // Teto de envios por número por dia. Quando o operador informa um valor, ele
+  // MANDA — inclusive acima da escada de aquecimento. A escada continua sendo o
+  // padrão de quem não mexe, mas deixou de ser um teto intransponível: número
+  // antigo, com histórico de conversa, não precisa recomeçar em 20/dia.
+  dailyCapPerNumber Int     @default(20)
+  requireOptIn      Boolean @default(false)
+
+  // Pula a consulta "esse número existe no WhatsApp?" antes de planejar. A
+  // consulta protege o remetente, mas em lista já conhecida ela só custa tempo
+  // (e trava a campanha inteira quando a Evolution está instável).
+  skipNumberCheck Boolean @default(false)
+
+  // Sensibilidade do disjuntor: quando a campanha se interrompe sozinha.
+  // { level: 'strict'|'normal'|'off', noReplyAfter, notFoundRate, failStreak }
+  // Ausente = 'normal'. Ver services/smartBroadcast/guard.ts.
+  guardConfig Json?
+
+  // Rodapé de saída, anexado à última bolha. Custa uma linha de texto e evita
+  // a denúncia — que é o sinal mais caro para o número.
+  optOutFooter String? @db.VarChar(191)
+
+  // Espalha os envios pelo horário em que CADA contato costuma responder, em vez
+  // de seguir a fila. Quem responde de noite recebe de noite.
+  usePreferredTime Boolean @default(false)
+
+  // Destino do `{{link}}`: cada destinatário recebe a URL com UTMs da campanha
+  // e um identificador próprio, em vez do mesmo link literal em toda a lista.
+  linkUrl String? @db.VarChar(500)
+
+  // O que fazer quando o contato RESPONDE — mover de etapa, atribuir dono,
+  // registrar atividade. Responder é o evento que interessa: a campanha existe
+  // para gerar conversa, não para gerar entrega.
+  // { moveToFunnelId, moveToStageKey, assignToUserId, createActivity }
+  replyActions Json?
+  // Base legal declarada (LGPD) — quem dispara assume a responsabilidade.
+  legalBasis   String? @db.VarChar(30) // consent | contract | legitimate_interest
+
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Estado de risco calculado pelo disjuntor (guard.ts)
+  riskState  String  @default("ok") @db.VarChar(16) // ok | watch | throttled | halted
+  riskReason String? @db.VarChar(191)
+
+  totalRecipients Int @default(0)
+  sentCount       Int @default(0)
+  failedCount     Int @default(0)
+  skippedCount    Int @default(0)
+  repliedCount    Int @default(0)
+
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  recipients SmartCampaignRecipient[]
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("bychat_smart_campaigns")
+}
+
+model SmartCampaignRecipient {
+  id         Int           @id @default(autoincrement())
+  campaignId Int
+  campaign   SmartCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  leadId   Int?
+  phone    String  @db.VarChar(30)
+  // Chave canônica (lib/phone.ts) — dedup entre formatos diferentes do mesmo número.
+  phoneKey String  @db.VarChar(30)
+  name     String? @db.VarChar(191)
+
+  variables Json @db.Json // valores resolvidos p/ interpolação
+
+  // Número que vai falar com este destinatário (afinidade + rodízio)
+  assignedInstanceId Int?
+  assignedInstance   String? @db.VarChar(100)
+  // Qual variação de texto ele recebe (distribuição determinística por phoneKey)
+  variantIndex       Int     @default(0)
+
+  // Horário PLANEJADO do envio — a agenda é calculada antes e persistida, para
+  // sobreviver a restart e ser auditável ("por que essa mensagem sai 14:37?").
+  plannedAt DateTime?
+
+  status     String  @default("pending") @db.VarChar(12) // pending|scheduled|sending|sent|delivered|read|replied|failed|skipped
+  skipReason String? @db.VarChar(30) // opt_out|invalid_phone|not_on_whatsapp|duplicate|governance|cap|canceled|blacklist
+  externalId String? @db.VarChar(191) // key.id da Evolution
+  error      String? @db.VarChar(500)
+  sentText   String? @db.Text // texto exatamente como saiu (auditoria de variação)
+
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  repliedAt   DateTime?
+  failedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId, status])
+  @@index([plannedAt])
+  @@index([externalId])
+  @@index([phoneKey])
+  @@map("bychat_smart_campaign_recipients")
+}
+
+// Saúde diária por número. Uma linha por instância/dia: é o que sustenta o
+// aquecimento (warmupDay), o teto diário e o disjuntor.
+model SmartSenderHealth {
+  id           Int      @id @default(autoincrement())
+  instanceId   Int
+  instanceName String   @db.VarChar(100)
+  day          DateTime @db.Date
+
+  sent      Int @default(0)
+  delivered Int @default(0)
+  failed    Int @default(0)
+  replies   Int @default(0)
+  notFound  Int @default(0) // números que não existem no WhatsApp
+
+  // Dia da escada de aquecimento (1 = recém-conectado). Não avança sozinho se a
+  // taxa de resposta despencar.
+  warmupDay Int    @default(1)
+  dailyCap  Int    @default(20)
+  state     String @default("warming") @db.VarChar(12) // warming|healthy|throttled|paused|blocked
+
+  pausedUntil DateTime?
+  pauseReason String?   @db.VarChar(191)
+  score       Int       @default(100) // 0-100, alimenta o rodízio ponderado
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([instanceId, day])
+  @@index([instanceName])
+  @@map("bychat_smart_sender_health")
+}
+
+// Perfis de ritmo. "Conservador" é o padrão do sistema e o único recomendado
+// para número novo.
+model SmartPacingProfile {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique @db.VarChar(60)
+  description String? @db.VarChar(255)
+  isSystem    Boolean @default(false)
+
+  minDelayMs     Int     @default(40000)
+  maxDelayMs     Int     @default(180000)
+  sessionSize    Int     @default(20) // envios antes da pausa longa
+  sessionBreakMs Int     @default(600000)
+  typingEnabled  Boolean @default(true)
+  readReceipts   Boolean @default(true)
+  dailyCapStart  Int     @default(20)
+  dailyCapMax    Int     @default(250)
+  warmupCurve    Json    @db.Json // [20,35,50,80,120,180,250]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_smart_pacing_profiles")
+}
+
+// Cache de "esse número existe no WhatsApp?". Disparar para número inexistente é
+// um dos sinais que mais derruba chip — e a consulta custa uma chamada, então
+// vale guardar.
+model SmartNumberCheck {
+  id       Int     @id @default(autoincrement())
+  phoneKey String  @unique @db.VarChar(30)
+  exists   Boolean
+  jid      String? @db.VarChar(100)
+
+  checkedAt DateTime @default(now())
+
+  @@index([checkedAt])
+  @@map("bychat_smart_number_checks")
+}
+
+// Lista de supressão GLOBAL: telefones que não recebem disparo nenhum, de
+// campanha nenhuma, para sempre. Diferente do opt-out por lead (que vive em
+// Lead.optOutChannels e depende de existir um lead), aqui entra o telefone cru —
+// serve para pedido de terceiro, número errado, contato de concorrente,
+// solicitação por outro canal, decisão jurídica.
+//
+// Esta lista é consultada na montagem da audiência E no momento do envio: quem
+// pediu para sair ontem não recebe hoje porque "já estava agendado".
+model SmartSuppression {
+  id       Int    @id @default(autoincrement())
+  phoneKey String @unique @db.VarChar(30)
+  phone    String @db.VarChar(30)
+
+  reason String  @default("manual") @db.VarChar(30) // manual | opt_out | bounce | legal | import
+  note   String? @db.VarChar(255)
+
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("bychat_smart_suppressions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MÓDULO METAS E COMISSÕES
+//
+// Fica em cima do módulo Negociações: a venda é a proposta ganha, e é dela que
+// saem a base de cálculo (pagamento único e mensalidade separados), o funil (do
+// lead) e o agente (o responsável no fechamento). Nada aqui é digitado de novo —
+// se fosse, o número da comissão divergiria do número da venda no dia seguinte.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Regra de comissão. O escopo é o par (funil, agente): `funnelId` null vale para
+// qualquer funil e nenhum agente vinculado vale para qualquer agente. Quando mais
+// de uma regra serve, ganha a mais específica (agente+funil > agente > funil >
+// geral) — e `prioridade` desempata entre regras de mesma especificidade.
+//
+// A taxa é declarada em DOIS blocos porque a proposta separa mensalidade de
+// pagamento único: comissionar 5% de um setup e 20% da primeira mensalidade é a
+// prática comum de quem vende contrato recorrente, e um percentual só sobre o
+// total esconderia essa diferença.
+model CommissionRule {
+  id     Int     @id @default(autoincrement())
+  nome   String  @db.VarChar(120)
+  active Boolean @default(true)
+
+  funnelId   Int? // null = qualquer funil
+  // Regra só para vendas deste portal / curso (Educacional, Fase 3). null = qualquer.
+  portalId Int?
+  courseId Int?
+  prioridade Int  @default(0) // desempate manual entre regras igualmente específicas
+
+  // liquido = valor negociado (com desconto) · bruto = valor de tabela dos itens.
+  // Rateado na mesma proporção do bloco quando `bruto` (ver services/commissions).
+  base String @default("liquido") @db.VarChar(10)
+
+  // Bloco "pagamento único": percent | valor | none
+  tipoUnico String   @default("percent") @db.VarChar(10)
+  taxaUnico Decimal? @db.Decimal(12, 2)
+
+  // Bloco "mensalidade": mesma gramática. `mesesRecorrente` = quantas
+  // mensalidades entram na comissão (1 = só a primeira).
+  tipoRecorrente  String   @default("percent") @db.VarChar(10)
+  taxaRecorrente  Decimal? @db.Decimal(12, 2)
+  mesesRecorrente Int      @default(1)
+
+  // Acelerador: a taxa muda conforme o atingimento da meta do período. A métrica
+  // diz CONTRA QUAL meta o atingimento é medido (a meta do agente naquele funil).
+  // Sem faixa aplicável, valem as taxas acima.
+  aceleradorAtivo   Boolean @default(false)
+  aceleradorMetrica String? @db.VarChar(20) // revenue | mrr | count | conversion
+  // Bônus por faixa (por vendedor, por mês): [{ apartirDe: nº de vendas, valor: R$ }].
+  // Conta as vendas que ESTA regra comissionou no mês; vale só a faixa mais alta
+  // alcançada. null/[] = sem bônus.
+  bonusFaixas Json? @db.Json
+
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tiers   CommissionTier[]
+  agents  CommissionRuleUser[]
+  entries CommissionEntry[]
+  bonuses CommissionBonus[]
+
+  @@index([active, funnelId])
+  @@map("bychat_commission_rules")
+}
+
+// Faixa do acelerador. `atingimentoMin` é o piso em % da meta (0, 80, 100…) — a
+// faixa escolhida é a de maior piso ≤ atingimento do agente no período. A taxa da
+// faixa SUBSTITUI a da regra e vale para tudo o que o agente fechou no período
+// (foi a decisão: bater a meta melhora a comissão do mês inteiro, não só da venda
+// que passou do alvo).
+/// Bônus por faixa de UMA regra, para UM vendedor, num mês. Recalculado junto
+/// com o mês do vendedor (recalcAgentMonth). Pago = congelado.
+model CommissionBonus {
+  id          Int      @id @default(autoincrement())
+  ruleId      Int?
+  userId      Int
+  competencia DateTime @db.Date
+  /// Vendas da regra no mês (lançamentos não cancelados).
+  quantidade  Int      @default(0)
+  /// Faixa alcançada ("a partir de N vendas").
+  faixaMin    Int      @default(0)
+  valor       Decimal  @default(0) @db.Decimal(12, 2)
+  status      String   @default("prevista") @db.VarChar(12)
+  pagaEm      DateTime?
+  pagaPor     Int?
+  observacoes String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rule CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@unique([ruleId, userId, competencia])
+  @@index([userId, competencia])
+  @@index([competencia])
+  @@map("bychat_commission_bonuses")
+}
+
+model CommissionTier {
+  id     Int @id @default(autoincrement())
+  ruleId Int
+
+  atingimentoMin Int @default(0) // % da meta
+
+  tipoUnico String   @default("percent") @db.VarChar(10)
+  taxaUnico Decimal? @db.Decimal(12, 2)
+
+  tipoRecorrente String   @default("percent") @db.VarChar(10)
+  taxaRecorrente Decimal? @db.Decimal(12, 2)
+
+  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, atingimentoMin])
+  @@map("bychat_commission_tiers")
+}
+
+// Vínculo regra × agente. Sem nenhuma linha, a regra vale para todo agente.
+model CommissionRuleUser {
+  id     Int @id @default(autoincrement())
+  ruleId Int
+  userId Int
+
+  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, userId])
+  @@index([userId])
+  @@map("bychat_commission_rule_users")
+}
+
+// Meta do período. Uma linha por (agente, funil, indicador, período):
+// `userId` null = meta do funil inteiro (a soma da operação), `funnelId` null =
+// meta do agente somando todos os funis. O par é intencionalmente livre para o
+// gestor montar a grade que a operação usa, sem o sistema impor um formato.
+model Goal {
+  id       Int  @id @default(autoincrement())
+  userId   Int? // null = meta da operação (não de um agente)
+  funnelId Int? // null = todos os funis
+
+  // revenue = receita ganha (R$) · mrr = nova mensalidade (R$/mês)
+  // count = nº de negociações ganhas · conversion = % ganhas sobre fechadas
+  metric String @db.VarChar(20)
+
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  target      Decimal  @db.Decimal(14, 2)
+
+  active      Boolean @default(true)
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  funnel Funnel? @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+
+  @@index([periodStart, periodEnd])
+  @@index([userId, metric])
+  @@index([funnelId, metric])
+  @@map("bychat_goals")
+}
+
+// Lançamento de comissão — uma linha por negociação ganha. É DERIVADO: some com a
+// negociação (cascade), é recalculado quando o valor da venda muda e some quando
+// a proposta é reaberta. Os campos de taxa são fotografia do que valia no
+// fechamento: mudar a regra amanhã não reescreve sozinha a comissão de ontem
+// (só o recálculo explícito do período faz isso).
+model CommissionEntry {
+  id            Int  @id @default(autoincrement())
+  negotiationId Int  @unique
+  leadId        Int
+  userId        Int? // beneficiário = responsável da negociação no fechamento
+  funnelId      Int?
+  ruleId        Int?
+  tierId        Int?
+
+  // 1º dia do mês do fechamento — é por ela que o painel agrupa.
+  competencia DateTime @db.Date
+  fechadaEm   DateTime
+
+  baseUnico      Decimal @default(0) @db.Decimal(12, 2)
+  baseRecorrente Decimal @default(0) @db.Decimal(12, 2)
+
+  tipoUnico       String?  @db.VarChar(10)
+  taxaUnico       Decimal? @db.Decimal(12, 2)
+  tipoRecorrente  String?  @db.VarChar(10)
+  taxaRecorrente  Decimal? @db.Decimal(12, 2)
+  mesesRecorrente Int      @default(1)
+
+  valorUnico      Decimal @default(0) @db.Decimal(12, 2)
+  valorRecorrente Decimal @default(0) @db.Decimal(12, 2)
+  valorTotal      Decimal @default(0) @db.Decimal(12, 2)
+
+  // Atingimento (%) que escolheu a faixa, guardado para a tela explicar o número.
+  atingimento Decimal? @db.Decimal(7, 2)
+
+  // prevista = calculada · paga = quitada com o agente · cancelada = venda
+  // desfeita depois de já ter sido paga (mantida como rastro).
+  status  String    @default("prevista") @db.VarChar(12)
+  pagaEm  DateTime?
+  pagaPor Int?
+
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  negotiation Negotiation     @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  rule        CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([userId, competencia])
+  @@index([competencia])
+  @@index([status])
+  @@map("bychat_commission_entries")
+}
+
+// ─── Tela Inicial (o que cada papel vê ao entrar) ────────────
+//
+// A Visão Geral deixa de ser a única porta de entrada: o admin monta telas
+// como uma PILHA DE BLOCOS (aviso, KPIs, atalhos, meu dia, placar) e atribui
+// cada uma a um papel — com exceção por usuário quando alguém precisa de algo
+// diferente do resto do cargo. Sem atribuição, cai na Visão Geral de fábrica.
+model HomeScreen {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(255)
+
+  // [{ id, type: 'notice'|'kpis'|'shortcuts'|'my_day'|'leaderboard', config: {...} }]
+  // Ordem do array = ordem na tela.
+  blocks Json @db.Json
+
+  // Tela pronta do produto em vez de pilha de blocos. Quando preenchido, o
+  // frontend renderiza um painel inteiro que já existe (hoje: 'educacional') e
+  // `blocks` fica vazio — são coisas excludentes, e o editor esconde os blocos
+  // quando a tela é nativa.
+  builtin String? @db.VarChar(40)
+
+  active   Boolean @default(true)
+  // Telas de fábrica não podem ser apagadas (só editadas/desatribuídas).
+  isSystem Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments HomeScreenAssignment[]
+
+  @@map("bychat_home_screens")
+}
+
+// Uma linha por destino. `role` preenchido = regra do cargo; `userId`
+// preenchido = exceção que vence a regra do cargo daquele usuário.
+model HomeScreenAssignment {
+  id       Int       @id @default(autoincrement())
+  screenId Int
+  role     UserRole?
+  userId   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screen HomeScreen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@unique([role])
+  @@unique([userId])
+  @@index([screenId])
+  @@map("bychat_home_screen_assignments")
+}
+
+// ── Mensagem agendada (Conversas) ──────────────────────────────────────────
+// Uma mensagem que o operador deixa marcada para sair depois, numa conversa
+// específica. Diferente do BroadcastCampaign (massa, template HSM) e do
+// CadenceStepExecution (preso a uma cadência): aqui é 1 contato, 1 mensagem.
+//
+// A LINHA é a fonte da verdade — não o job do BullMQ. Um job com dias de atraso
+// vive só no Redis: um flush apagaria o agendamento sem deixar rastro, e
+// cancelar viraria caça ao jobId. Um tick de 60s varre `scheduledAt <= now`,
+// no mesmo padrão do cadenceScheduler.
+model ScheduledMessage {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Quando sair. Sempre em UTC; a UI converte para o fuso do operador.
+  scheduledAt DateTime
+  // pending | sent | canceled | failed | skipped
+  status      String   @default("pending") @db.VarChar(16)
+
+  // text = texto livre (Evolution, ou Cloud API com janela aberta)
+  // template_hsm = modelo aprovado pela Meta (único que sai fora da janela)
+  kind String @default("text") @db.VarChar(16)
+
+  // Template interno (bychat_message_templates) que originou o texto. As
+  // variáveis são resolvidas NO ENVIO, não aqui: se o nome ou a etapa do lead
+  // mudarem no intervalo, a mensagem sai com o valor do dia do disparo.
+  templateId Int?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  // Corpo já resolvido (fallback quando não há template, ou texto digitado).
+  body       String?          @db.Text
+  // Template HSM: { name, language, components } — formato de sendTemplate().
+  hsmPayload Json?            @db.Json
+
+  // Número de saída escolhido no seletor. Só uma dica: o canal é RESOLVIDO de
+  // novo no disparo, porque o lock da conversa pode ter mudado no intervalo.
+  channelId String? @db.VarChar(60)
+
+  // Cancela sozinha se o contato responder antes da hora — evita o follow-up
+  // constrangedor que chega depois de a pessoa já ter falado.
+  cancelIfReplied Boolean @default(true)
+
+  createdByUserId  Int?
+  createdBy        User? @relation("ScheduledMessageCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  canceledByUserId Int?
+  canceledBy       User? @relation("ScheduledMessageCanceler", fields: [canceledByUserId], references: [id], onDelete: SetNull)
+
+  // Resultado do disparo.
+  sentAt        DateTime?
+  sentMessageId Int? // Message.id gerado
+  errorMessage  String?   @db.Text
+  attempts      Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([leadId, status])
+  @@index([createdByUserId])
+  @@index([templateId])
+  @@map("bychat_scheduled_messages")
+}
+
+// ── Importação de conversa do aparelho (Evolution/QR) ──────────────────────
+// Uma linha por chat que o operador mandou sincronizar. O progresso mora aqui e
+// não só na fila: importar 7 mil mensagens leva minutos, e o operador precisa
+// saber onde parou mesmo que feche a tela ou o worker reinicie.
+model ChatImportJob {
+  id           Int     @id @default(autoincrement())
+  instanceName String  @db.VarChar(120)
+  /// JID do chat na Evolution — pode ser @s.whatsapp.net ou @lid.
+  remoteJid    String  @db.VarChar(120)
+  /// Telefone resolvido (em @lid vem de key.remoteJidAlt).
+  telefone     String  @db.VarChar(20)
+  nome         String? @db.VarChar(191)
+
+  leadId Int?
+  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  // pending | running | done | failed | canceled
+  status String @default("pending") @db.VarChar(16)
+
+  totalNaOrigem   Int @default(0) // quantas a Evolution diz que existem
+  importadas      Int @default(0) // criadas agora
+  jaExistiam      Int @default(0) // puladas por já estarem no painel
+  midiasPendentes Int @default(0) // mensagens de mídia sem arquivo baixado (fase 4)
+
+  erro String? @db.Text
+
+  createdByUserId Int?
+  createdBy       User? @relation("ChatImportCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([leadId])
+  @@index([createdByUserId])
+  /// Cruzar a lista do aparelho com o que já foi sincronizado, e achar job em aberto do chat.
+  @@index([instanceName, remoteJid])
+  @@map("bychat_chat_import_jobs")
+}
+
+// ─── Alertas (Fase 1) ───────────────────────────────────────────────────────
+//
+// Alerta é ESTADO, não evento. Um token vencido não é uma mensagem que acontece
+// uma vez: é uma condição que dura até alguém arrumar. Tratado como evento, uma
+// negociação parada há 31 dias renderia 31 avisos e o time desligaria o recurso
+// na primeira semana. Por isso `dedupeKey` é único: quem produz o alerta chama
+// `raiseAlert` à vontade, a cada volta do relógio, e a linha é atualizada em vez
+// de duplicada.
+//
+// Quem recebe (decisão do produto): item de gestão vai só para a gestão; item
+// de alguém vai para essa pessoa E para a gestão. A caixa é individual — leitura
+// e descarte são de cada um, em AlertRecipient —, mas a RESOLUÇÃO é do mundo:
+// a condição sumiu, o alerta fecha para todos ao mesmo tempo.
+model Alert {
+  id        Int    @id @default(autoincrement())
+  // Identidade da CONDIÇÃO, não da ocorrência: "token:google:3",
+  // "activity:overdue:1842". É o que impede a duplicação.
+  dedupeKey String @unique @db.VarChar(191)
+  // Família do alerta, para filtro e configuração futura de limiares.
+  kind      String @db.VarChar(60)
+  // info | warning | critical
+  severity  String @default("warning") @db.VarChar(10)
+  // management = só gestão | owner = dono do item + gestão
+  audience  String @default("management") @db.VarChar(20)
+
+  title String  @db.VarChar(191)
+  body  String? @db.Text
+
+  // A que o alerta se refere, para a tela levar direto ao item.
+  entityType String? @db.VarChar(40)
+  entityId   Int?
+
+  // Dono do item quando `audience` é "owner". Sem ele, sobra só a gestão.
+  ownerUserId Int?
+  teamId      Int?
+
+  // Contexto do produtor (limiares, valores medidos) — o que a tela mostra sem
+  // precisar de uma consulta por tipo de alerta.
+  metadata Json?
+
+  // open | resolved
+  status      String    @default("open") @db.VarChar(12)
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime
+  resolvedAt  DateTime?
+  // Quantas voltas do relógio confirmaram a condição. É o que separa "vi uma
+  // vez" de "está assim há dias" sem precisar de uma linha por checagem.
+  occurrences Int       @default(1)
+
+  // Envio externo (Fase 4). Ficam aqui desde já para o produtor não precisar de
+  // outra tabela quando o escalonamento entrar.
+  notifiedAt  DateTime?
+  notifyCount Int       @default(0)
+
+  // Escalonamento unitário (migration 0145). Separado do par acima de
+  // propósito: `notifiedAt` significa "entrou num resumo diário", que é rotina
+  // coletiva; isto aqui significa "interrompeu alguém", que é exceção. Contar
+  // os dois na mesma coluna faria o resumo da manhã estourar o teto do
+  // escalonamento e calar o crítico que ninguém viu.
+  escalatedAt     DateTime?
+  escalationCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner      User?            @relation("AlertOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  team       Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  recipients AlertRecipient[]
+
+  @@index([status, severity])
+  @@index([status, severity, escalatedAt])
+  @@index([kind])
+  @@index([ownerUserId])
+  @@index([entityType, entityId])
+  @@map("bychat_alerts")
+}
+
+// A caixa de cada pessoa. Existe separada do Alert porque o mesmo alerta chega
+// a várias pessoas e cada uma lê no seu tempo: marcar lido no Alert apagaria o
+// aviso de todo mundo junto.
+model AlertRecipient {
+  id      Int @id @default(autoincrement())
+  alertId Int
+  userId  Int
+
+  readAt       DateTime?
+  /// "Ciente por hoje": some da caixa DESTA pessoa até esta hora, e volta na
+  /// varredura seguinte se a condição ainda existir. Substituiu o
+  /// `dismissedAt`, que era permanente — quem descartava nunca mais via o
+  /// alerta, nem quando o problema seguia de pé, nem quando ele reabria.
+  /// Null = está na caixa.
+  snoozedUntil DateTime?
+  createdAt    DateTime  @default(now())
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, userId])
+  @@index([userId, readAt])
+  @@index([userId, snoozedUntil])
+  @@map("bychat_alert_recipients")
+}
+
+// Silêncio de alerta, por pessoa.
+//
+// A válvula que protege a confiança no sino. Sem ela, o primeiro alerta que
+// alguém considera irrelevante contamina o hábito de olhar a caixa inteira — e
+// "tirar da minha caixa" não resolve, porque a próxima volta do relógio o traz
+// de volta.
+//
+// O silêncio é SEMPRE de quem pede: cada um decide o que quer ver. Desligar um
+// tipo para toda a empresa é decisão de configuração, não de caixa de entrada,
+// e mora em Setting.
+//
+// Duas formas, e a diferença importa: silenciar o TIPO ("não me avise mais
+// sobre proposta parada") ou o ITEM ("esta proposta específica eu sei, deixe-a
+// em paz"). A segunda é a que evita que a pessoa desligue uma família inteira
+// por causa de um caso chato.
+model AlertMute {
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  /// Família silenciada (ex.: "negotiation.stalled"). Null = silêncio por item.
+  kind      String? @db.VarChar(60)
+  /// Condição específica silenciada. Null = silêncio por família.
+  dedupeKey String? @db.VarChar(191)
+
+  /// Quando o silêncio expira. Null = até a pessoa desfazer.
+  until     DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@unique([userId, dedupeKey])
+  @@index([userId])
+  @@map("bychat_alert_mutes")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO ACADÊMICO (ERP) — trazido do tenant ineprotec para a mãe
+// ═══════════════════════════════════════════════════════════════
 
 enum AcaPapel {
   ALUNO
@@ -6434,18 +7662,6 @@ model Aluno {
   @@index([ra])
   @@map("bychat_aca_alunos")
 }
-
-// ═════════════════════════════════════════════
-// FASE 1 — FUNDAÇÃO ACADÊMICA
-//
-// Três lacunas estruturais do Documento Mestre, tratadas juntas porque se
-// sustentam: hierarquia institucional (G5), ciclo de vida da matriz (G4) e
-// vínculo acadêmico (G3). São mudanças de modelagem — quanto mais tarde, mais
-// caro, porque histórico e integralização penduram aqui.
-//
-// Tudo aditivo: nada existente muda de forma, os vínculos novos entram como
-// colunas anuláveis e o backfill preenche.
-// ═════════════════════════════════════════════
 
 /// Pessoa jurídica que mantém uma ou mais IES.
 model AcaMantenedora {
@@ -8348,10 +9564,6 @@ model AcaOcorrencia {
   @@map("bychat_aca_ocorrencias")
 }
 
-// ───────────────── M6 · NÚCLEO ACADÊMICO — P6.1 Diário + Frequência ─────────────────
-// Diário por turma×disciplina. Aulas registradas. Frequência por aula×matrícula.
-// turmaId/disciplinaId/matriculaId/professorUserId são escalares (sem @relation).
-
 model AcaDiario {
   id              Int      @id @default(autoincrement())
   turmaId         Int
@@ -8398,9 +9610,6 @@ model AcaFrequencia {
   @@map("bychat_aca_frequencias")
 }
 
-// ───────────────── P6.2 · Avaliações + Notas ─────────────────
-// Notas em Float (grades, não dinheiro). matriculaId escalar.
-
 model AcaAvaliacao {
   id           Int       @id @default(autoincrement())
   diarioId     Int
@@ -8444,9 +9653,6 @@ model AcaNota {
   @@map("bychat_aca_notas")
 }
 
-// ───────────────── P6.3 · Fechamento + Conselho de Classe ─────────────────
-// Resultado por diário×matrícula (média + frequência → situação). Ata por turma.
-
 model AcaResultado {
   id            Int       @id @default(autoincrement())
   diarioId      Int
@@ -8475,10 +9681,6 @@ model AcaConselho {
   @@map("bychat_aca_conselhos")
 }
 
-// ───────────────── P7 · Secretaria / Documentos ─────────────────
-// Documentos oficiais NUMERADOS (histórico, declarações, atas). Guarda o
-// snapshot dos dados (dadosJson) para reemissão idêntica.
-
 model AcaDocumento {
   id               Int      @id @default(autoincrement())
   numero           String   @unique @db.VarChar(30) // ex.: 2026/0001
@@ -8495,9 +9697,6 @@ model AcaDocumento {
   @@index([tipo])
   @@map("bychat_aca_documentos")
 }
-
-// ───────────────── P9 · Comunicação ─────────────────
-// Log de avisos enviados ao aluno (idempotência via chaveDedup).
 
 model AcaComunicacao {
   id         Int      @id @default(autoincrement())
@@ -8549,10 +9748,6 @@ model AcaAcordo {
   @@index([alunoId])
   @@map("bychat_aca_acordos")
 }
-
-// ───────────────── Fin-5 · Fiscal (controle de NFS-e) ─────────────────
-// Recibo de pagamento usa AcaDocumento (tipo RECIBO). Aqui o controle fiscal:
-// rastreia a NFS-e de cada pagamento (registro manual ou via provedor futuro).
 
 model AcaNotaFiscal {
   id            Int       @id @default(autoincrement())
@@ -8910,1182 +10105,6 @@ model AcaContratoGatilho {
   updatedAt         DateTime          @updatedAt
 
   @@index([evento])
-}
-
-// ── Sincronizado do beyond (modelos de módulos opcionais) ──
-model CompetitorAgency {
-  id      Int    @id @default(autoincrement())
-  placeId String @unique @db.VarChar(191) // placeId/cid do Google Maps
-
-  name       String  @db.VarChar(191)
-  categories String? @db.VarChar(255) // categorias do Google, separadas por vírgula
-  address    String? @db.Text
-  city       String? @db.VarChar(120)
-  uf         String? @db.VarChar(60)
-  website    String? @db.VarChar(255)
-  domain     String? @db.VarChar(191) // normalizado a partir do website — liga ao WebStackScan
-  phone      String? @db.VarChar(40)
-
-  rating           Float? // nota média no Google
-  reviewsCount     Int? // total de avaliações
-  // Quantas negativas COM texto foram capturadas. Sem texto não serve: não dá
-  // para inferir qual cliente reclamou nem do quê.
-  negativeWithText Int    @default(0)
-
-  searchTerm String?   @db.VarChar(191) // termo que descobriu esta agência
-  status     String    @default("new") @db.VarChar(20) // new | mapped | ignored
-  notes      String?   @db.Text
-  lastScanAt DateTime?
-
-  reviews CompetitorReview[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([city])
-  @@index([rating])
-  @@index([status])
-  @@index([domain])
-  @@map("bychat_competitor_agencies")
-}
-
-model CompetitorReview {
-  id       Int              @id @default(autoincrement())
-  agencyId Int
-  agency   CompetitorAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
-
-  externalId   String    @unique @db.VarChar(191) // reviewId do Google — dedupe entre coletas
-  stars        Int
-  text         String    @db.Text
-  publishedAt  DateTime?
-  ownerReplied Boolean   @default(false)
-
-  createdAt DateTime @default(now())
-
-  @@index([agencyId])
-  @@index([stars])
-  @@map("bychat_competitor_reviews")
-}
-
-model CrmEduMapping {
-  id         Int      @id @default(autoincrement())
-  entityType String   @db.VarChar(30) // lead
-  crmId      String   @db.VarChar(40)
-  localId    Int
-  meta       Json?    @db.Json
-  syncedAt   DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([entityType, crmId])
-  @@index([entityType, localId])
-  @@map("bychat_crmedu_mappings")
-}
-
-model EducationImport {
-  id   Int @id @default(autoincrement())
-  year Int @unique
-
-  fileName   String? @db.VarChar(191)
-  fileBytes  Int?
-  status     String  @default("running") @db.VarChar(20) // running | done | failed
-  schools    Int     @default(0) // privadas ativas persistidas
-  rowsRead   Int     @default(0) // linhas lidas da Tabela_Escola
-  durationMs Int?
-  error      String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("bychat_education_imports")
-}
-
-model EducationInstitution {
-  id       Int    @id @default(autoincrement())
-  inepCode String @unique @db.VarChar(20) // CO_ENTIDADE
-
-  name     String  @db.VarChar(191) // NO_ENTIDADE
-  uf       String? @db.VarChar(2)
-  city     String? @db.VarChar(120)
-  cityCode String? @db.VarChar(10)
-  district String? @db.VarChar(120) // NO_BAIRRO
-  address  String? @db.Text
-  zip      String? @db.VarChar(12)
-  phone    String? @db.VarChar(40) // NU_TELEFONE
-
-  // TP_CATEGORIA_ESCOLA_PRIVADA: 1 particular, 2 comunitária, 3 confessional, 4 filantrópica
-  privateCategory Int?
-  urban           Boolean @default(true) // TP_LOCALIZACAO = 1
-
-  // Último ano ingerido e o retrato desse ano
-  lastYear    Int?
-  classes     Int  @default(0) // QT_TUR_BAS — turmas da educação básica (proxy de porte)
-  classesInf  Int  @default(0)
-  classesFund Int  @default(0)
-  classesMed  Int  @default(0)
-  classesProf Int  @default(0)
-  classesEja  Int  @default(0)
-
-  // Variação de turmas vs. ano anterior. Negativo = perdendo alunos = dor.
-  classesDelta Float?
-
-  // Maturidade digital declarada no censo — quanto pior, maior a lacuna.
-  hasInternet      Boolean @default(false)
-  hasInternetAdmin Boolean @default(false)
-  hasInternetLearn Boolean @default(false)
-
-  // 0..100 — ver computeEducationScore em services/inepIngest.ts
-  opportunityScore Int @default(0)
-
-  // Liga ao detector de stack quando descobrirmos o site (F4).
-  domain String? @db.VarChar(191)
-
-  status String  @default("new") @db.VarChar(20) // new | prospecting | converted | ignored
-  leadId Int?
-  notes  String? @db.Text
-
-  snapshots EducationSnapshot[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([opportunityScore])
-  @@index([uf, city])
-  @@index([classes])
-  @@index([status])
-  @@index([lastYear])
-  @@map("bychat_education_institutions")
-}
-
-model EducationSnapshot {
-  id            Int                  @id @default(autoincrement())
-  institutionId Int
-  institution   EducationInstitution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-
-  year        Int
-  classes     Int @default(0)
-  classesInf  Int @default(0)
-  classesFund Int @default(0)
-  classesMed  Int @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@unique([institutionId, year])
-  @@index([year])
-  @@map("bychat_education_snapshots")
-}
-
-model HeCourse {
-  id   Int @id @default(autoincrement())
-  year Int
-
-  coIes   Int
-  coCurso Int
-  name    String @db.VarChar(255) // NO_CURSO
-
-  cineArea     String? @db.VarChar(120) // NO_CINE_AREA_GERAL
-  cineDetailed String? @db.VarChar(191) // NO_CINE_AREA_DETALHADA
-  degree       Int? // TP_GRAU_ACADEMICO: 1 bacharelado, 2 licenciatura, 3 tecnológico
-  modality     Int? // TP_MODALIDADE_ENSINO: 1 presencial, 2 EAD
-  category     Int? // TP_CATEGORIA_ADMINISTRATIVA
-  organization Int?
-
-  uf        String? @db.VarChar(2)
-  city      String? @db.VarChar(120)
-  cityCode  Int?
-  isCapital Boolean @default(false)
-
-  // Oferta e demanda
-  seats          Int @default(0) // QT_VG_TOTAL
-  seatsNight     Int @default(0) // QT_VG_TOTAL_NOTURNO
-  applicants     Int @default(0) // QT_INSCRITO_TOTAL
-  entrants       Int @default(0) // QT_ING
-  entrantsNight  Int @default(0)
-  entrantsEnem   Int @default(0) // QT_ING_ENEM
-  entrantsVest   Int @default(0) // QT_ING_VESTIBULAR
-  entrantsFies   Int @default(0)
-  entrantsProuni Int @default(0)
-
-  // Base instalada e resultado
-  enrolled       Int @default(0) // QT_MAT
-  enrolledFem    Int @default(0)
-  enrolled1824   Int @default(0)
-  enrolled2529   Int @default(0)
-  enrolled30p    Int @default(0)
-  graduates      Int @default(0) // QT_CONC
-  locked         Int @default(0) // QT_SIT_TRANCADA
-  dropped        Int @default(0) // QT_SIT_DESVINCULADO
-  transferred    Int @default(0) // QT_SIT_TRANSFERIDO
-  enrolledFies   Int @default(0)
-  enrolledProuni Int @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@index([year, coIes])
-  @@index([year, uf, cityCode])
-  @@index([year, cineArea])
-  @@index([year, coCurso])
-  @@map("bychat_he_courses")
-}
-
-model HeImport {
-  id   Int @id @default(autoincrement())
-  year Int @unique
-
-  fileName     String? @db.VarChar(191)
-  fileBytes    Int?
-  status       String  @default("running") @db.VarChar(20) // running | done | failed
-  courses      Int     @default(0)
-  institutions Int     @default(0)
-  marketRows   Int     @default(0)
-  durationMs   Int?
-  error        String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("bychat_he_imports")
-}
-
-model HeInstitution {
-  id    Int @id @default(autoincrement())
-  coIes Int @unique // CO_IES
-
-  name         String  @db.VarChar(255) // NO_IES
-  acronym      String? @db.VarChar(60) // SG_IES
-  uf           String? @db.VarChar(2)
-  city         String? @db.VarChar(120)
-  isCapital    Boolean @default(false)
-  organization Int? // TP_ORGANIZACAO_ACADEMICA: 1 univ, 2 centro univ, 3 faculdade…
-  category     Int? // TP_CATEGORIA_ADMINISTRATIVA: 1-3 pública, 4-5,7 privada
-  isPrivate    Boolean @default(false)
-
-  lastYear DateTime? @db.Date
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([uf, city])
-  @@index([isPrivate])
-  @@map("bychat_he_institutions")
-}
-
-model HeMarket {
-  id   Int @id @default(autoincrement())
-  year Int
-
-  uf        String? @db.VarChar(2)
-  cityCode  Int?
-  city      String? @db.VarChar(120)
-  cineArea  String? @db.VarChar(120)
-  modality  Int? // 1 presencial, 2 EAD
-  isPrivate Boolean @default(false)
-
-  courses      Int @default(0) // nº de registros curso×local
-  institutions Int @default(0) // IES distintas
-  seats        Int @default(0)
-  applicants   Int @default(0)
-  entrants     Int @default(0)
-  enrolled     Int @default(0)
-  graduates    Int @default(0)
-  dropped      Int @default(0)
-  locked       Int @default(0)
-  fies         Int @default(0)
-  prouni       Int @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@unique([year, uf, cityCode, cineArea, modality, isPrivate], name: "he_market_slice")
-  @@index([year, uf])
-  @@index([year, cineArea])
-  @@map("bychat_he_market")
-}
-
-model MeetingExtensionToken {
-  id         Int       @id @default(autoincrement())
-  userId     Int
-  tokenHash  String    @unique @db.VarChar(64) // sha256 hex do token
-  label      String?   @db.VarChar(120) // ex.: "Chrome do Benedito"
-  lastUsedAt DateTime?
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
-
-  @@index([userId])
-  @@map("bychat_meeting_extension_tokens")
-}
-
-model ReputationCompany {
-  id      Int     @id @default(autoincrement())
-  slug    String  @unique @db.VarChar(191) // nome fantasia normalizado — chave estável entre períodos
-  name    String  @db.VarChar(191) // "Nome Fantasia" como publicado
-  segment String? @db.VarChar(191) // "Segmento de Mercado"
-  area    String? @db.VarChar(191) // "Área"
-
-  // Agregados do período mais recente ingerido (denormalizados p/ listagem rápida)
-  lastPeriod      String? @db.VarChar(7) // YYYY-MM
-  complaints      Int     @default(0) // reclamações finalizadas no período
-  unansweredRate  Float? // 0..1 — Respondida = 'N'
-  unresolvedRate  Float? // 0..1 — sobre as AVALIADAS (só ~6% recebem avaliação)
-  ratedShare      Float? // 0..1 — fatia que foi avaliada (denominador do acima)
-  avgScore        Float? // 1..5 — "Nota do Consumidor"
-  avgResponseDays Float? // "Tempo Resposta" (em dias)
-  topProblem      String? @db.VarChar(255)
-  topUf           String? @db.VarChar(2)
-
-  // Tendência vs. período anterior (variação % do volume). null = sem histórico.
-  complaintsDelta Float?
-
-  // 0..100 — quanto essa empresa "dói" hoje. Calculado na ingestão (ver
-  // computeOpportunityScore em services/reputationIngest.ts).
-  opportunityScore Int @default(0)
-
-  // Pipeline de prospecção. F0 só popula 'new'; F2 fará a conversão em Lead.
-  status String  @default("new") @db.VarChar(20) // new | prospecting | converted | ignored
-  // Lead gerado a partir desta empresa. Escalar sem FK de propósito: evita
-  // acoplar o model Lead (gigante) a um módulo opcional e desligado por padrão.
-  leadId Int?
-  notes  String? @db.Text
-
-  snapshots ReputationSnapshot[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([opportunityScore])
-  @@index([segment])
-  @@index([status])
-  @@index([lastPeriod])
-  @@index([leadId])
-  @@map("bychat_reputation_companies")
-}
-
-model ReputationImport {
-  id     Int    @id @default(autoincrement())
-  period String @unique @db.VarChar(7) // YYYY-MM — 1 import por período
-
-  sourceCode String? @db.VarChar(30) // "codigo" da publicação no Senacon
-  fileName   String? @db.VarChar(191) // finalizadas_YYYY-MM.zip
-  fileBytes  Int?
-
-  status     String  @default("running") @db.VarChar(20) // running | done | failed
-  rows       Int     @default(0)
-  companies  Int     @default(0)
-  durationMs Int?
-  error      String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status])
-  @@map("bychat_reputation_imports")
-}
-
-model ReputationSnapshot {
-  id        Int               @id @default(autoincrement())
-  companyId Int
-  company   ReputationCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  period String @db.VarChar(7) // YYYY-MM
-
-  complaints      Int    @default(0)
-  unanswered      Int    @default(0)
-  rated           Int    @default(0) // reclamações que receberam avaliação
-  unresolved      Int    @default(0) // dentre as avaliadas
-  avgScore        Float?
-  avgResponseDays Float?
-  // Distribuições do período: { problems: {...}, ufs: {...}, channels: {...} }
-  breakdown       Json?  @db.Json
-
-  createdAt DateTime @default(now())
-
-  @@unique([companyId, period])
-  @@index([period])
-  @@map("bychat_reputation_snapshots")
-}
-
-model WebStackScan {
-  id     Int    @id @default(autoincrement())
-  domain String @unique @db.VarChar(191) // normalizado, sem www/protocolo
-
-  finalUrl   String? @db.Text // após redirects
-  httpStatus Int?
-  title      String? @db.VarChar(255)
-  tlsValid   Boolean @default(true) // false = certificado inválido/expirado (sinal por si só)
-  error      String? @db.VarChar(255) // dns/timeout/refused — site morto também é sinal
-
-  // Flags derivadas — booleanas para filtrar rápido sem abrir o Json.
-  hasMetaPixel  Boolean @default(false)
-  hasGoogleAds  Boolean @default(false)
-  hasGa4        Boolean @default(false)
-  hasGtm        Boolean @default(false)
-  hasOtherPixel Boolean @default(false) // TikTok, LinkedIn, Pinterest
-  hasChat       Boolean @default(false) // WhatsApp, Crisp, Tawk, JivoChat…
-  hasCrm        Boolean @default(false) // RD Station, HubSpot
-  cms           String? @db.VarChar(40) // wordpress | wix | shopify | vtex | …
-
-  // Tudo que foi detectado, com o nome de cada tecnologia.
-  detected Json? @db.Json
-
-  // 0..100 — tamanho da LACUNA (quanto maior, mais órfã de marketing a empresa
-  // parece). Ver computeGapScore em services/webStackDetect.ts.
-  gapScore Int @default(0)
-
-  // Vínculos opcionais — o mesmo scan serve a qualquer origem de prospect.
-  leadId    Int?
-  companyId Int?
-
-  scannedAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([gapScore])
-  @@index([leadId])
-  @@index([companyId])
-  @@index([cms])
-  @@map("bychat_web_stack_scans")
-}
-
-// ─── Disparos Inteligentes (smart_broadcast) ──────────────
-//
-// Campanhas enviadas pelos NÚMEROS PRÓPRIOS conectados na Evolution (Baileys),
-// não pela Cloud API oficial. Como não há template HSM nem SLA da Meta, todo o
-// esforço do módulo está em (a) parecer uso humano — ritmo irregular, digitação,
-// janela de horário, variações de texto — e (b) proteger o número: aquecimento
-// progressivo, teto diário, pré-checagem de existência no WhatsApp e disjuntor
-// automático ao primeiro sinal de bloqueio. Ver services/waCampaign/*.
-//
-// Separado de BroadcastCampaign de propósito: lá o risco é custo por template,
-// aqui é a vida do chip. Misturar os dois modelos confundiria as duas coisas.
-
-model SmartCampaign {
-  id     Int    @id @default(autoincrement())
-  name   String @db.VarChar(191)
-  status String @default("draft") @db.VarChar(16) // draft|scheduled|running|paused|completed|canceled|failed
-
-  // Pool de números Evolution que revezam o envio: [{id, instanceName}]
-  senderInstances Json @db.Json
-
-  // Conteúdo: blocos de mensagem com variações/spintax.
-  // [{ variants: ["Oi {{nome}}!", "Olá {{nome}}"], mediaUrl?, mediaType?, delayAfterMs? }]
-  messageBlocks Json @db.Json
-
-  audienceType String @db.VarChar(12) // leads | import
-  audienceMeta Json?  @db.Json
-
-  // Ritmo/janela (snapshot do perfil no momento da criação — perfil pode mudar depois)
-  pacingProfileId Int?
-  pacingConfig    Json @db.Json // { minDelayMs, maxDelayMs, sessionSize, sessionBreakMs, typingEnabled, ... }
-  windowConfig    Json @db.Json // { days:[1..5], from:"09:00", to:"18:00", timezone:"America/Sao_Paulo" }
-
-  // Teto de envios por número por dia. Quando o operador informa um valor, ele
-  // MANDA — inclusive acima da escada de aquecimento. A escada continua sendo o
-  // padrão de quem não mexe, mas deixou de ser um teto intransponível: número
-  // antigo, com histórico de conversa, não precisa recomeçar em 20/dia.
-  dailyCapPerNumber Int     @default(20)
-  requireOptIn      Boolean @default(false)
-
-  // Pula a consulta "esse número existe no WhatsApp?" antes de planejar. A
-  // consulta protege o remetente, mas em lista já conhecida ela só custa tempo
-  // (e trava a campanha inteira quando a Evolution está instável).
-  skipNumberCheck Boolean @default(false)
-
-  // Sensibilidade do disjuntor: quando a campanha se interrompe sozinha.
-  // { level: 'strict'|'normal'|'off', noReplyAfter, notFoundRate, failStreak }
-  // Ausente = 'normal'. Ver services/smartBroadcast/guard.ts.
-  guardConfig Json?
-
-  // Rodapé de saída, anexado à última bolha. Custa uma linha de texto e evita
-  // a denúncia — que é o sinal mais caro para o número.
-  optOutFooter String? @db.VarChar(191)
-
-  // Espalha os envios pelo horário em que CADA contato costuma responder, em vez
-  // de seguir a fila. Quem responde de noite recebe de noite.
-  usePreferredTime Boolean @default(false)
-
-  // Destino do `{{link}}`: cada destinatário recebe a URL com UTMs da campanha
-  // e um identificador próprio, em vez do mesmo link literal em toda a lista.
-  linkUrl String? @db.VarChar(500)
-
-  // O que fazer quando o contato RESPONDE — mover de etapa, atribuir dono,
-  // registrar atividade. Responder é o evento que interessa: a campanha existe
-  // para gerar conversa, não para gerar entrega.
-  // { moveToFunnelId, moveToStageKey, assignToUserId, createActivity }
-  replyActions Json?
-  // Base legal declarada (LGPD) — quem dispara assume a responsabilidade.
-  legalBasis   String? @db.VarChar(30) // consent | contract | legitimate_interest
-
-  scheduledAt DateTime?
-  startedAt   DateTime?
-  completedAt DateTime?
-
-  // Estado de risco calculado pelo disjuntor (guard.ts)
-  riskState  String  @default("ok") @db.VarChar(16) // ok | watch | throttled | halted
-  riskReason String? @db.VarChar(191)
-
-  totalRecipients Int @default(0)
-  sentCount       Int @default(0)
-  failedCount     Int @default(0)
-  skippedCount    Int @default(0)
-  repliedCount    Int @default(0)
-
-  createdByUserId Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  recipients SmartCampaignRecipient[]
-
-  @@index([status])
-  @@index([scheduledAt])
-  @@map("bychat_smart_campaigns")
-}
-
-model SmartCampaignRecipient {
-  id         Int           @id @default(autoincrement())
-  campaignId Int
-  campaign   SmartCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-
-  leadId   Int?
-  phone    String  @db.VarChar(30)
-  // Chave canônica (lib/phone.ts) — dedup entre formatos diferentes do mesmo número.
-  phoneKey String  @db.VarChar(30)
-  name     String? @db.VarChar(191)
-
-  variables Json @db.Json // valores resolvidos p/ interpolação
-
-  // Número que vai falar com este destinatário (afinidade + rodízio)
-  assignedInstanceId Int?
-  assignedInstance   String? @db.VarChar(100)
-  // Qual variação de texto ele recebe (distribuição determinística por phoneKey)
-  variantIndex       Int     @default(0)
-
-  // Horário PLANEJADO do envio — a agenda é calculada antes e persistida, para
-  // sobreviver a restart e ser auditável ("por que essa mensagem sai 14:37?").
-  plannedAt DateTime?
-
-  status     String  @default("pending") @db.VarChar(12) // pending|scheduled|sending|sent|delivered|read|replied|failed|skipped
-  skipReason String? @db.VarChar(30) // opt_out|invalid_phone|not_on_whatsapp|duplicate|governance|cap|canceled|blacklist
-  externalId String? @db.VarChar(191) // key.id da Evolution
-  error      String? @db.VarChar(500)
-  sentText   String? @db.Text // texto exatamente como saiu (auditoria de variação)
-
-  scheduledAt DateTime?
-  sentAt      DateTime?
-  deliveredAt DateTime?
-  readAt      DateTime?
-  repliedAt   DateTime?
-  failedAt    DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([campaignId, status])
-  @@index([plannedAt])
-  @@index([externalId])
-  @@index([phoneKey])
-  @@map("bychat_smart_campaign_recipients")
-}
-
-// Saúde diária por número. Uma linha por instância/dia: é o que sustenta o
-// aquecimento (warmupDay), o teto diário e o disjuntor.
-model SmartSenderHealth {
-  id           Int      @id @default(autoincrement())
-  instanceId   Int
-  instanceName String   @db.VarChar(100)
-  day          DateTime @db.Date
-
-  sent      Int @default(0)
-  delivered Int @default(0)
-  failed    Int @default(0)
-  replies   Int @default(0)
-  notFound  Int @default(0) // números que não existem no WhatsApp
-
-  // Dia da escada de aquecimento (1 = recém-conectado). Não avança sozinho se a
-  // taxa de resposta despencar.
-  warmupDay Int    @default(1)
-  dailyCap  Int    @default(20)
-  state     String @default("warming") @db.VarChar(12) // warming|healthy|throttled|paused|blocked
-
-  pausedUntil DateTime?
-  pauseReason String?   @db.VarChar(191)
-  score       Int       @default(100) // 0-100, alimenta o rodízio ponderado
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([instanceId, day])
-  @@index([instanceName])
-  @@map("bychat_smart_sender_health")
-}
-
-// Perfis de ritmo. "Conservador" é o padrão do sistema e o único recomendado
-// para número novo.
-model SmartPacingProfile {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique @db.VarChar(60)
-  description String? @db.VarChar(255)
-  isSystem    Boolean @default(false)
-
-  minDelayMs     Int     @default(40000)
-  maxDelayMs     Int     @default(180000)
-  sessionSize    Int     @default(20) // envios antes da pausa longa
-  sessionBreakMs Int     @default(600000)
-  typingEnabled  Boolean @default(true)
-  readReceipts   Boolean @default(true)
-  dailyCapStart  Int     @default(20)
-  dailyCapMax    Int     @default(250)
-  warmupCurve    Json    @db.Json // [20,35,50,80,120,180,250]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("bychat_smart_pacing_profiles")
-}
-
-// Cache de "esse número existe no WhatsApp?". Disparar para número inexistente é
-// um dos sinais que mais derruba chip — e a consulta custa uma chamada, então
-// vale guardar.
-model SmartNumberCheck {
-  id       Int     @id @default(autoincrement())
-  phoneKey String  @unique @db.VarChar(30)
-  exists   Boolean
-  jid      String? @db.VarChar(100)
-
-  checkedAt DateTime @default(now())
-
-  @@index([checkedAt])
-  @@map("bychat_smart_number_checks")
-}
-
-// Lista de supressão GLOBAL: telefones que não recebem disparo nenhum, de
-// campanha nenhuma, para sempre. Diferente do opt-out por lead (que vive em
-// Lead.optOutChannels e depende de existir um lead), aqui entra o telefone cru —
-// serve para pedido de terceiro, número errado, contato de concorrente,
-// solicitação por outro canal, decisão jurídica.
-//
-// Esta lista é consultada na montagem da audiência E no momento do envio: quem
-// pediu para sair ontem não recebe hoje porque "já estava agendado".
-model SmartSuppression {
-  id       Int    @id @default(autoincrement())
-  phoneKey String @unique @db.VarChar(30)
-  phone    String @db.VarChar(30)
-
-  reason String  @default("manual") @db.VarChar(30) // manual | opt_out | bounce | legal | import
-  note   String? @db.VarChar(255)
-
-  createdByUserId Int?
-  createdAt       DateTime @default(now())
-
-  @@index([createdAt])
-  @@map("bychat_smart_suppressions")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MÓDULO METAS E COMISSÕES
-//
-// Fica em cima do módulo Negociações: a venda é a proposta ganha, e é dela que
-// saem a base de cálculo (pagamento único e mensalidade separados), o funil (do
-// lead) e o agente (o responsável no fechamento). Nada aqui é digitado de novo —
-// se fosse, o número da comissão divergiria do número da venda no dia seguinte.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Regra de comissão. O escopo é o par (funil, agente): `funnelId` null vale para
-// qualquer funil e nenhum agente vinculado vale para qualquer agente. Quando mais
-// de uma regra serve, ganha a mais específica (agente+funil > agente > funil >
-// geral) — e `prioridade` desempata entre regras de mesma especificidade.
-//
-// A taxa é declarada em DOIS blocos porque a proposta separa mensalidade de
-// pagamento único: comissionar 5% de um setup e 20% da primeira mensalidade é a
-// prática comum de quem vende contrato recorrente, e um percentual só sobre o
-// total esconderia essa diferença.
-model CommissionRule {
-  id     Int     @id @default(autoincrement())
-  nome   String  @db.VarChar(120)
-  active Boolean @default(true)
-
-  funnelId   Int? // null = qualquer funil
-  // Regra só para vendas deste portal / curso (Educacional, Fase 3). null = qualquer.
-  portalId Int?
-  courseId Int?
-  prioridade Int  @default(0) // desempate manual entre regras igualmente específicas
-
-  // liquido = valor negociado (com desconto) · bruto = valor de tabela dos itens.
-  // Rateado na mesma proporção do bloco quando `bruto` (ver services/commissions).
-  base String @default("liquido") @db.VarChar(10)
-
-  // Bloco "pagamento único": percent | valor | none
-  tipoUnico String   @default("percent") @db.VarChar(10)
-  taxaUnico Decimal? @db.Decimal(12, 2)
-
-  // Bloco "mensalidade": mesma gramática. `mesesRecorrente` = quantas
-  // mensalidades entram na comissão (1 = só a primeira).
-  tipoRecorrente  String   @default("percent") @db.VarChar(10)
-  taxaRecorrente  Decimal? @db.Decimal(12, 2)
-  mesesRecorrente Int      @default(1)
-
-  // Acelerador: a taxa muda conforme o atingimento da meta do período. A métrica
-  // diz CONTRA QUAL meta o atingimento é medido (a meta do agente naquele funil).
-  // Sem faixa aplicável, valem as taxas acima.
-  aceleradorAtivo   Boolean @default(false)
-  aceleradorMetrica String? @db.VarChar(20) // revenue | mrr | count | conversion
-  // Bônus por faixa (por vendedor, por mês): [{ apartirDe: nº de vendas, valor: R$ }].
-  // Conta as vendas que ESTA regra comissionou no mês; vale só a faixa mais alta
-  // alcançada. null/[] = sem bônus.
-  bonusFaixas Json? @db.Json
-
-  observacoes String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tiers   CommissionTier[]
-  agents  CommissionRuleUser[]
-  entries CommissionEntry[]
-  bonuses CommissionBonus[]
-
-  @@index([active, funnelId])
-  @@map("bychat_commission_rules")
-}
-
-// Faixa do acelerador. `atingimentoMin` é o piso em % da meta (0, 80, 100…) — a
-// faixa escolhida é a de maior piso ≤ atingimento do agente no período. A taxa da
-// faixa SUBSTITUI a da regra e vale para tudo o que o agente fechou no período
-// (foi a decisão: bater a meta melhora a comissão do mês inteiro, não só da venda
-// que passou do alvo).
-/// Bônus por faixa de UMA regra, para UM vendedor, num mês. Recalculado junto
-/// com o mês do vendedor (recalcAgentMonth). Pago = congelado.
-model CommissionBonus {
-  id          Int      @id @default(autoincrement())
-  ruleId      Int?
-  userId      Int
-  competencia DateTime @db.Date
-  /// Vendas da regra no mês (lançamentos não cancelados).
-  quantidade  Int      @default(0)
-  /// Faixa alcançada ("a partir de N vendas").
-  faixaMin    Int      @default(0)
-  valor       Decimal  @default(0) @db.Decimal(12, 2)
-  status      String   @default("prevista") @db.VarChar(12)
-  pagaEm      DateTime?
-  pagaPor     Int?
-  observacoes String?  @db.Text
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  rule CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-
-  @@unique([ruleId, userId, competencia])
-  @@index([userId, competencia])
-  @@index([competencia])
-  @@map("bychat_commission_bonuses")
-}
-
-model CommissionTier {
-  id     Int @id @default(autoincrement())
-  ruleId Int
-
-  atingimentoMin Int @default(0) // % da meta
-
-  tipoUnico String   @default("percent") @db.VarChar(10)
-  taxaUnico Decimal? @db.Decimal(12, 2)
-
-  tipoRecorrente String   @default("percent") @db.VarChar(10)
-  taxaRecorrente Decimal? @db.Decimal(12, 2)
-
-  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-
-  @@index([ruleId, atingimentoMin])
-  @@map("bychat_commission_tiers")
-}
-
-// Vínculo regra × agente. Sem nenhuma linha, a regra vale para todo agente.
-model CommissionRuleUser {
-  id     Int @id @default(autoincrement())
-  ruleId Int
-  userId Int
-
-  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([ruleId, userId])
-  @@index([userId])
-  @@map("bychat_commission_rule_users")
-}
-
-// Meta do período. Uma linha por (agente, funil, indicador, período):
-// `userId` null = meta do funil inteiro (a soma da operação), `funnelId` null =
-// meta do agente somando todos os funis. O par é intencionalmente livre para o
-// gestor montar a grade que a operação usa, sem o sistema impor um formato.
-model Goal {
-  id       Int  @id @default(autoincrement())
-  userId   Int? // null = meta da operação (não de um agente)
-  funnelId Int? // null = todos os funis
-
-  // revenue = receita ganha (R$) · mrr = nova mensalidade (R$/mês)
-  // count = nº de negociações ganhas · conversion = % ganhas sobre fechadas
-  metric String @db.VarChar(20)
-
-  periodStart DateTime @db.Date
-  periodEnd   DateTime @db.Date
-  target      Decimal  @db.Decimal(14, 2)
-
-  active      Boolean @default(true)
-  observacoes String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  funnel Funnel? @relation(fields: [funnelId], references: [id], onDelete: Cascade)
-
-  @@index([periodStart, periodEnd])
-  @@index([userId, metric])
-  @@index([funnelId, metric])
-  @@map("bychat_goals")
-}
-
-// Lançamento de comissão — uma linha por negociação ganha. É DERIVADO: some com a
-// negociação (cascade), é recalculado quando o valor da venda muda e some quando
-// a proposta é reaberta. Os campos de taxa são fotografia do que valia no
-// fechamento: mudar a regra amanhã não reescreve sozinha a comissão de ontem
-// (só o recálculo explícito do período faz isso).
-model CommissionEntry {
-  id            Int  @id @default(autoincrement())
-  negotiationId Int  @unique
-  leadId        Int
-  userId        Int? // beneficiário = responsável da negociação no fechamento
-  funnelId      Int?
-  ruleId        Int?
-  tierId        Int?
-
-  // 1º dia do mês do fechamento — é por ela que o painel agrupa.
-  competencia DateTime @db.Date
-  fechadaEm   DateTime
-
-  baseUnico      Decimal @default(0) @db.Decimal(12, 2)
-  baseRecorrente Decimal @default(0) @db.Decimal(12, 2)
-
-  tipoUnico       String?  @db.VarChar(10)
-  taxaUnico       Decimal? @db.Decimal(12, 2)
-  tipoRecorrente  String?  @db.VarChar(10)
-  taxaRecorrente  Decimal? @db.Decimal(12, 2)
-  mesesRecorrente Int      @default(1)
-
-  valorUnico      Decimal @default(0) @db.Decimal(12, 2)
-  valorRecorrente Decimal @default(0) @db.Decimal(12, 2)
-  valorTotal      Decimal @default(0) @db.Decimal(12, 2)
-
-  // Atingimento (%) que escolheu a faixa, guardado para a tela explicar o número.
-  atingimento Decimal? @db.Decimal(7, 2)
-
-  // prevista = calculada · paga = quitada com o agente · cancelada = venda
-  // desfeita depois de já ter sido paga (mantida como rastro).
-  status  String    @default("prevista") @db.VarChar(12)
-  pagaEm  DateTime?
-  pagaPor Int?
-
-  observacoes String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  negotiation Negotiation     @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
-  rule        CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-
-  @@index([userId, competencia])
-  @@index([competencia])
-  @@index([status])
-  @@map("bychat_commission_entries")
-}
-
-// ─── Tela Inicial (o que cada papel vê ao entrar) ────────────
-//
-// A Visão Geral deixa de ser a única porta de entrada: o admin monta telas
-// como uma PILHA DE BLOCOS (aviso, KPIs, atalhos, meu dia, placar) e atribui
-// cada uma a um papel — com exceção por usuário quando alguém precisa de algo
-// diferente do resto do cargo. Sem atribuição, cai na Visão Geral de fábrica.
-model HomeScreen {
-  id          Int     @id @default(autoincrement())
-  name        String  @db.VarChar(120)
-  description String? @db.VarChar(255)
-
-  // [{ id, type: 'notice'|'kpis'|'shortcuts'|'my_day'|'leaderboard', config: {...} }]
-  // Ordem do array = ordem na tela.
-  blocks Json @db.Json
-
-  // Tela pronta do produto em vez de pilha de blocos. Quando preenchido, o
-  // frontend renderiza um painel inteiro que já existe (hoje: 'educacional') e
-  // `blocks` fica vazio — são coisas excludentes, e o editor esconde os blocos
-  // quando a tela é nativa.
-  builtin String? @db.VarChar(40)
-
-  active   Boolean @default(true)
-  // Telas de fábrica não podem ser apagadas (só editadas/desatribuídas).
-  isSystem Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  assignments HomeScreenAssignment[]
-
-  @@map("bychat_home_screens")
-}
-
-// Uma linha por destino. `role` preenchido = regra do cargo; `userId`
-// preenchido = exceção que vence a regra do cargo daquele usuário.
-model HomeScreenAssignment {
-  id       Int       @id @default(autoincrement())
-  screenId Int
-  role     UserRole?
-  userId   Int?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  screen HomeScreen @relation(fields: [screenId], references: [id], onDelete: Cascade)
-
-  @@unique([role])
-  @@unique([userId])
-  @@index([screenId])
-  @@map("bychat_home_screen_assignments")
-}
-
-// ── Mensagem agendada (Conversas) ──────────────────────────────────────────
-// Uma mensagem que o operador deixa marcada para sair depois, numa conversa
-// específica. Diferente do BroadcastCampaign (massa, template HSM) e do
-// CadenceStepExecution (preso a uma cadência): aqui é 1 contato, 1 mensagem.
-//
-// A LINHA é a fonte da verdade — não o job do BullMQ. Um job com dias de atraso
-// vive só no Redis: um flush apagaria o agendamento sem deixar rastro, e
-// cancelar viraria caça ao jobId. Um tick de 60s varre `scheduledAt <= now`,
-// no mesmo padrão do cadenceScheduler.
-model ScheduledMessage {
-  id     Int  @id @default(autoincrement())
-  leadId Int
-  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  // Quando sair. Sempre em UTC; a UI converte para o fuso do operador.
-  scheduledAt DateTime
-  // pending | sent | canceled | failed | skipped
-  status      String   @default("pending") @db.VarChar(16)
-
-  // text = texto livre (Evolution, ou Cloud API com janela aberta)
-  // template_hsm = modelo aprovado pela Meta (único que sai fora da janela)
-  kind String @default("text") @db.VarChar(16)
-
-  // Template interno (bychat_message_templates) que originou o texto. As
-  // variáveis são resolvidas NO ENVIO, não aqui: se o nome ou a etapa do lead
-  // mudarem no intervalo, a mensagem sai com o valor do dia do disparo.
-  templateId Int?
-  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  // Corpo já resolvido (fallback quando não há template, ou texto digitado).
-  body       String?          @db.Text
-  // Template HSM: { name, language, components } — formato de sendTemplate().
-  hsmPayload Json?            @db.Json
-
-  // Número de saída escolhido no seletor. Só uma dica: o canal é RESOLVIDO de
-  // novo no disparo, porque o lock da conversa pode ter mudado no intervalo.
-  channelId String? @db.VarChar(60)
-
-  // Cancela sozinha se o contato responder antes da hora — evita o follow-up
-  // constrangedor que chega depois de a pessoa já ter falado.
-  cancelIfReplied Boolean @default(true)
-
-  createdByUserId  Int?
-  createdBy        User? @relation("ScheduledMessageCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  canceledByUserId Int?
-  canceledBy       User? @relation("ScheduledMessageCanceler", fields: [canceledByUserId], references: [id], onDelete: SetNull)
-
-  // Resultado do disparo.
-  sentAt        DateTime?
-  sentMessageId Int? // Message.id gerado
-  errorMessage  String?   @db.Text
-  attempts      Int       @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status, scheduledAt])
-  @@index([leadId, status])
-  @@index([createdByUserId])
-  @@index([templateId])
-  @@map("bychat_scheduled_messages")
-}
-
-// ── Importação de conversa do aparelho (Evolution/QR) ──────────────────────
-// Uma linha por chat que o operador mandou sincronizar. O progresso mora aqui e
-// não só na fila: importar 7 mil mensagens leva minutos, e o operador precisa
-// saber onde parou mesmo que feche a tela ou o worker reinicie.
-model ChatImportJob {
-  id           Int     @id @default(autoincrement())
-  instanceName String  @db.VarChar(120)
-  /// JID do chat na Evolution — pode ser @s.whatsapp.net ou @lid.
-  remoteJid    String  @db.VarChar(120)
-  /// Telefone resolvido (em @lid vem de key.remoteJidAlt).
-  telefone     String  @db.VarChar(20)
-  nome         String? @db.VarChar(191)
-
-  leadId Int?
-  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
-
-  // pending | running | done | failed | canceled
-  status String @default("pending") @db.VarChar(16)
-
-  totalNaOrigem   Int @default(0) // quantas a Evolution diz que existem
-  importadas      Int @default(0) // criadas agora
-  jaExistiam      Int @default(0) // puladas por já estarem no painel
-  midiasPendentes Int @default(0) // mensagens de mídia sem arquivo baixado (fase 4)
-
-  erro String? @db.Text
-
-  createdByUserId Int?
-  createdBy       User? @relation("ChatImportCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-
-  startedAt  DateTime?
-  finishedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  @@index([status, createdAt])
-  @@index([leadId])
-  @@index([createdByUserId])
-  /// Cruzar a lista do aparelho com o que já foi sincronizado, e achar job em aberto do chat.
-  @@index([instanceName, remoteJid])
-  @@map("bychat_chat_import_jobs")
-}
-
-// ─── Alertas (Fase 1) ───────────────────────────────────────────────────────
-//
-// Alerta é ESTADO, não evento. Um token vencido não é uma mensagem que acontece
-// uma vez: é uma condição que dura até alguém arrumar. Tratado como evento, uma
-// negociação parada há 31 dias renderia 31 avisos e o time desligaria o recurso
-// na primeira semana. Por isso `dedupeKey` é único: quem produz o alerta chama
-// `raiseAlert` à vontade, a cada volta do relógio, e a linha é atualizada em vez
-// de duplicada.
-//
-// Quem recebe (decisão do produto): item de gestão vai só para a gestão; item
-// de alguém vai para essa pessoa E para a gestão. A caixa é individual — leitura
-// e descarte são de cada um, em AlertRecipient —, mas a RESOLUÇÃO é do mundo:
-// a condição sumiu, o alerta fecha para todos ao mesmo tempo.
-model Alert {
-  id        Int    @id @default(autoincrement())
-  // Identidade da CONDIÇÃO, não da ocorrência: "token:google:3",
-  // "activity:overdue:1842". É o que impede a duplicação.
-  dedupeKey String @unique @db.VarChar(191)
-  // Família do alerta, para filtro e configuração futura de limiares.
-  kind      String @db.VarChar(60)
-  // info | warning | critical
-  severity  String @default("warning") @db.VarChar(10)
-  // management = só gestão | owner = dono do item + gestão
-  audience  String @default("management") @db.VarChar(20)
-
-  title String  @db.VarChar(191)
-  body  String? @db.Text
-
-  // A que o alerta se refere, para a tela levar direto ao item.
-  entityType String? @db.VarChar(40)
-  entityId   Int?
-
-  // Dono do item quando `audience` é "owner". Sem ele, sobra só a gestão.
-  ownerUserId Int?
-  teamId      Int?
-
-  // Contexto do produtor (limiares, valores medidos) — o que a tela mostra sem
-  // precisar de uma consulta por tipo de alerta.
-  metadata Json?
-
-  // open | resolved
-  status      String    @default("open") @db.VarChar(12)
-  firstSeenAt DateTime  @default(now())
-  lastSeenAt  DateTime
-  resolvedAt  DateTime?
-  // Quantas voltas do relógio confirmaram a condição. É o que separa "vi uma
-  // vez" de "está assim há dias" sem precisar de uma linha por checagem.
-  occurrences Int       @default(1)
-
-  // Envio externo (Fase 4). Ficam aqui desde já para o produtor não precisar de
-  // outra tabela quando o escalonamento entrar.
-  notifiedAt  DateTime?
-  notifyCount Int       @default(0)
-
-  // Escalonamento unitário (migration 0145). Separado do par acima de
-  // propósito: `notifiedAt` significa "entrou num resumo diário", que é rotina
-  // coletiva; isto aqui significa "interrompeu alguém", que é exceção. Contar
-  // os dois na mesma coluna faria o resumo da manhã estourar o teto do
-  // escalonamento e calar o crítico que ninguém viu.
-  escalatedAt     DateTime?
-  escalationCount Int       @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner      User?            @relation("AlertOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  team       Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  recipients AlertRecipient[]
-
-  @@index([status, severity])
-  @@index([status, severity, escalatedAt])
-  @@index([kind])
-  @@index([ownerUserId])
-  @@index([entityType, entityId])
-  @@map("bychat_alerts")
-}
-
-// A caixa de cada pessoa. Existe separada do Alert porque o mesmo alerta chega
-// a várias pessoas e cada uma lê no seu tempo: marcar lido no Alert apagaria o
-// aviso de todo mundo junto.
-model AlertRecipient {
-  id      Int @id @default(autoincrement())
-  alertId Int
-  userId  Int
-
-  readAt       DateTime?
-  /// "Ciente por hoje": some da caixa DESTA pessoa até esta hora, e volta na
-  /// varredura seguinte se a condição ainda existir. Substituiu o
-  /// `dismissedAt`, que era permanente — quem descartava nunca mais via o
-  /// alerta, nem quando o problema seguia de pé, nem quando ele reabria.
-  /// Null = está na caixa.
-  snoozedUntil DateTime?
-  createdAt    DateTime  @default(now())
-
-  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([alertId, userId])
-  @@index([userId, readAt])
-  @@index([userId, snoozedUntil])
-  @@map("bychat_alert_recipients")
-}
-
-// Silêncio de alerta, por pessoa.
-//
-// A válvula que protege a confiança no sino. Sem ela, o primeiro alerta que
-// alguém considera irrelevante contamina o hábito de olhar a caixa inteira — e
-// "tirar da minha caixa" não resolve, porque a próxima volta do relógio o traz
-// de volta.
-//
-// O silêncio é SEMPRE de quem pede: cada um decide o que quer ver. Desligar um
-// tipo para toda a empresa é decisão de configuração, não de caixa de entrada,
-// e mora em Setting.
-//
-// Duas formas, e a diferença importa: silenciar o TIPO ("não me avise mais
-// sobre proposta parada") ou o ITEM ("esta proposta específica eu sei, deixe-a
-// em paz"). A segunda é a que evita que a pessoa desligue uma família inteira
-// por causa de um caso chato.
-model AlertMute {
-  id     Int @id @default(autoincrement())
-  userId Int
-
-  /// Família silenciada (ex.: "negotiation.stalled"). Null = silêncio por item.
-  kind      String? @db.VarChar(60)
-  /// Condição específica silenciada. Null = silêncio por família.
-  dedupeKey String? @db.VarChar(191)
-
-  /// Quando o silêncio expira. Null = até a pessoa desfazer.
-  until     DateTime?
-  createdAt DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, kind])
-  @@unique([userId, dedupeKey])
-  @@index([userId])
-  @@map("bychat_alert_mutes")
 }
 
 model Survey {

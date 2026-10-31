@@ -1,4 +1,4 @@
-import { CONTACT, FOOTER, HERO, NAV_LINKS, whatsappHref } from './landing.copy'
+import { CONTACT, FOOTER, HERO, NAV_LINKS, isLegacyBrandHost, whatsappHref } from './landing.copy'
 import { DashboardMock } from './components/DashboardMock'
 import {
   AISection,
@@ -16,16 +16,21 @@ import {
   ModuleExplorer,
   NativeWhatsApp,
   Pillars,
+  RebrandStandalone,
   Segments,
   SocialProof,
   StackMap,
 } from './sections'
 
 /**
- * Landing institucional pública (bychat.ia.br).
+ * Landing institucional pública (attrae.com.br).
  * Vitrine de vendas — só servida no host institucional (tenants seguem login).
  */
 export function LandingPage() {
+  // Domínio antigo não serve mais o site: só o anúncio da marca nova.
+  // A checagem é no cliente porque bychat.ia.br e attrae.com.br compartilham
+  // o mesmo HTML/bundle — o backend serve o mesmo arquivo para os dois.
+  if (isLegacyBrandHost()) return <RebrandStandalone />
   return (
     <div class="min-h-dvh bg-surface text-fg">
       <a
@@ -68,8 +73,7 @@ function Header() {
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <a href="#top" class="flex items-center font-extrabold">
           <span class="text-lg">
-            <span class="text-ink">By</span>
-            <span class="text-brand">Chat</span>
+            <span class="text-ink">Attrae</span>
           </span>
         </a>
         <nav class="hidden items-center gap-7 md:flex" aria-label="Seções">
@@ -160,8 +164,7 @@ function Footer() {
       <div class="mx-auto grid max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div class="lg:col-span-2">
           <div class="flex items-center font-extrabold">
-            <span class="text-ink">By</span>
-            <span class="text-brand">Chat</span>
+            <span class="text-ink">Attrae</span>
           </div>
           <p class="mt-3 max-w-sm text-sm text-fg-muted">{FOOTER.tagline}</p>
           <a

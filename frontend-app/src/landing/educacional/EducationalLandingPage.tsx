@@ -23,10 +23,11 @@ import {
   Users,
   Wallet,
 } from '@/components/ui/icon-set'
-import { CONTACT, MARCA } from '../landing.copy'
+import { CONTACT, MARCA, isLegacyBrandHost } from '../landing.copy'
+import { RebrandStandalone } from '../sections'
 
 /**
- * Landing dedicada ao segmento Educacional (bychat.ia.br/educacional).
+ * Landing dedicada ao segmento Educacional (attrae.com.br/educacional).
  *
  * Página independente da vitrine institucional: copy 100% focada em
  * instituições de ensino (captação de alunos, portal de matrículas,
@@ -198,7 +199,7 @@ function Logo() {
   return (
     <a href="/educacional" class="flex items-center font-extrabold">
       <span class="text-lg">
-        <span class="text-ink">By</span><span class="text-brand">Chat</span>
+        <span class="text-ink">{MARCA}</span>
         <span class="text-ink">{' '}Edu</span>
       </span>
     </a>
@@ -715,7 +716,7 @@ function Footer() {
       <div class="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-12 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div class="flex items-center font-extrabold">
-            <span class="text-ink">By</span><span class="text-brand">Chat</span>
+            <span class="text-ink">{MARCA}</span>
             <span class="text-ink">{' '}Edu</span>
           </div>
           <p class="mt-3 max-w-sm text-sm text-fg-muted">
@@ -777,6 +778,9 @@ function WhatsAppFloat() {
 }
 
 export function EducationalLandingPage() {
+  // Mesmo corte da vitrine principal: no domínio antigo, qualquer página do
+  // site vira o anúncio da marca nova (ver LandingPage).
+  if (isLegacyBrandHost()) return <RebrandStandalone />
   return (
     <div class="min-h-dvh bg-surface text-fg">
       <a

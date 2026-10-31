@@ -100,7 +100,10 @@ interface OfertaDoPortal {
   modalidade: string | null
   turno: string | null
   slug: string | null
-  polos: Array<{ id: number; nome: string; cidade?: string | null; estado?: string | null }>
+  /** Onde dá para estudar. A mesma oferta pode estar em mais de um portal (sede
+   *  e polos, cada um com o seu funil): cada polo leva o portal por onde a
+   *  inscrição entra. */
+  polos: Array<{ id: number; nome: string; cidade?: string | null; estado?: string | null; portalSlug: string; portalNome: string }>
   preco: string | null
   /** Planos de pagamento da oferta — a única fonte do preço do curso. */
   pagamento: ReturnType<typeof resumoParaMostrar>
@@ -151,12 +154,21 @@ async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal
       paymentMethodsConfig: p.paymentMethodsConfig, jornadaEtapas: p.jornadaEtapas, camposInscricao: campos,
     })
     for (const o of (r.body.offerings || []) as any[]) {
+      const polosDaqui = (o.campuses || []).map((c: any) => ({ id: c.campus?.id, nome: c.campus?.nome, cidade: c.campus?.cidade, estado: c.campus?.estado, portalSlug: p.slug, portalNome: p.nome })).filter((c: any) => c.id)
+      // A mesma oferta em outro portal (ex.: o portal de um polo): uma entrada
+      // só, com os polos somados — senão a IA vê o curso repetido, nunca
+      // pergunta o polo e inscreve tudo pelo primeiro portal (funil errado).
+      const ja = ofertas.find((x) => x.offeringId === o.id)
+      if (ja) {
+        for (const c of polosDaqui) if (!ja.polos.some((x) => x.id === c.id)) ja.polos.push(c)
+        continue
+      }
       const pagamento = resumoParaMostrar(await planosDaOferta(o.id))
       ofertas.push({
         offeringId: o.id, portalSlug: p.slug, portalNome: p.nome,
         curso: o.course?.nome || o.nome, courseId: o.course?.id ?? null,
         nivel: o.level?.nome ?? null, modalidade: o.modality?.nome ?? null, turno: o.turno ?? null, slug: o.slug ?? null,
-        polos: (o.campuses || []).map((c: any) => ({ id: c.campus?.id, nome: c.campus?.nome, cidade: c.campus?.cidade, estado: c.campus?.estado })).filter((c: any) => c.id),
+        polos: polosDaqui,
         preco: pagamento ? `a partir de ${brl(pagamento.aPartirDe)}${pagamento.sufixo}` : null,
         pagamento,
         processo: o.selectionProcess ? { id: o.selectionProcess.id, nome: o.selectionProcess.nome, taxaInscricao: o.selectionProcess.taxaInscricao != null ? Number(o.selectionProcess.taxaInscricao) : null } : null,
@@ -174,8 +186,14 @@ async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal
   return cache
 }
 
-function linkDoCurso(o: OfertaDoPortal): string {
-  return o.slug ? `${appUrl()}/portal/${o.portalSlug}/${o.slug}` : `${appUrl()}/portal/${o.portalSlug}`
+/** Portal por onde a inscrição entra: o do polo escolhido (cada polo tem o seu). */
+function portalDaOferta(o: OfertaDoPortal, campusId?: number | null): string {
+  return (campusId ? o.polos.find((x) => x.id === Number(campusId))?.portalSlug : undefined) ?? o.portalSlug
+}
+
+function linkDoCurso(o: OfertaDoPortal, campusId?: number | null): string {
+  const slug = portalDaOferta(o, campusId)
+  return o.slug ? `${appUrl()}/portal/${slug}/${o.slug}` : `${appUrl()}/portal/${slug}`
 }
 
 /** Condições de cada plano e opção, uma linha por forma (o que o checkout cobra). */
@@ -348,12 +366,13 @@ export async function contextoDoLead(leadId: number | null): Promise<string> {
 
   const regs = await prisma.enrollmentRegistration.findMany({
     where: { leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, take: 3,
-    select: { id: true, candidateCode: true, status: true, createdAt: true, paymentStatus: true, processRegistration: { select: { offering: { select: { nome: true } } } } },
+    select: { id: true, candidateCode: true, status: true, createdAt: true, paymentStatus: true, portal: { select: { nome: true } }, processRegistration: { select: { offering: { select: { nome: true } }, selectionProcess: { select: { entryMode: { select: { name: true } } } } } } },
   }).catch(() => [] as any[])
   for (const r of regs) {
     const et = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
-    const etapas = et?.etapas.map((e) => `${e.titulo}: ${situacaoTxt(e)} (${e.bloqueada ? e.bloqueada.motivo : e.detalhe})${e.trava ? ' [trava as seguintes]' : ''}`).join('; ')
-    linhas.push(`Inscrição ${r.candidateCode} — ${r.processRegistration?.offering?.nome ?? 'curso não escolhido'}, criada em ${r.createdAt.toLocaleDateString('pt-BR')}, situação "${r.status}"${etapas ? `. Etapas: ${etapas}` : ''}`)
+    const etapas = et?.etapas.map((e) => `${e.titulo}: ${situacaoTxt(e)} (${e.bloqueada ? e.bloqueada.motivo : e.detalhe})${e.trava ? ' [trava as seguintes]' : ''}${e.analise?.parecer ? ` [parecer ${e.analise.parecer.resultado}${e.analise.parecer.periodo ? `, ${e.analise.parecer.periodo}` : ''}, resposta: ${e.analise.parecer.aceite?.decisao ?? 'aguardando'}]` : ''}`).join('; ')
+    const ingresso = r.processRegistration?.selectionProcess?.entryMode?.name
+    linhas.push(`Inscrição ${r.candidateCode} — ${r.processRegistration?.offering?.nome ?? 'curso não escolhido'}${ingresso ? ` (${ingresso})` : ''}, portal "${r.portal?.nome ?? ''}", criada em ${r.createdAt.toLocaleDateString('pt-BR')}, situação "${r.status}"${etapas ? `. Etapas: ${etapas}` : ''}`)
   }
 
   const internas = await prisma.message.findMany({
@@ -400,7 +419,14 @@ export const EDU_TOOLS = [
   {
     name: 'detalhes_do_curso',
     description: 'Ficha completa de UMA oferta: descrição, carga horária, duração, perfil de conclusão, modalidade, polos, preço por meio, meios de pagamento aceitos, forma de ingresso, documentos exigidos e as ETAPAS da matrícula na ordem do portal. Chame antes de responder dúvidas específicas ou de iniciar a matrícula.',
-    input_schema: { type: 'object', properties: { offeringId: { type: 'number' } }, required: ['offeringId'] },
+    input_schema: {
+      type: 'object',
+      properties: {
+        offeringId: { type: 'number' },
+        campusId: { type: 'number', description: 'Polo/sede onde a pessoa vai estudar, se já souber (as etapas e o link são os do portal desse polo).' },
+      },
+      required: ['offeringId'],
+    },
   },
   {
     name: 'situacao_da_matricula',
@@ -418,7 +444,7 @@ export const EDU_TOOLS = [
         email: { type: 'string' },
         cpf: { type: 'string' },
         whatsapp: { type: 'string', description: 'Só no chat do site (no WhatsApp o número já é conhecido).' },
-        campusId: { type: 'number', description: 'Polo escolhido, só quando a oferta tiver mais de um.' },
+        campusId: { type: 'number', description: 'Onde vai estudar (sede ou polo) — obrigatório quando a oferta tiver mais de um. A inscrição entra pelo portal desse polo.' },
         aceite_privacidade: { type: 'boolean', description: 'true SOMENTE se o lead aceitou a política de privacidade nesta conversa.' },
         outros: { type: 'array', description: 'Demais campos exigidos pelo portal na inscrição (chave = name do campo).', items: { type: 'object', properties: { chave: { type: 'string' }, valor: { type: 'string' } }, required: ['chave', 'valor'] } },
       },
@@ -598,7 +624,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       const { ofertas, portais } = await catalogo(app)
       const o = ofertas.find((x) => x.offeringId === Number(input?.offeringId))
       if (!o) return erro('Oferta não encontrada no portal.', 'Chame consultar_cursos para achar o offeringId certo.')
-      const p = portais.get(o.portalSlug)
+      const campusEscolhido = input?.campusId && o.polos.some((x) => x.id === Number(input.campusId)) ? Number(input.campusId) : null
+      const p = portais.get(portalDaOferta(o, campusEscolhido))
       const curso = o.courseId ? await prisma.course.findUnique({
         where: { id: o.courseId },
         select: { descricao: true, cargaHoraria: true, duracaoMeses: true, perfilConclusao: true, eixoTecnologico: true, grau: true },
@@ -632,7 +659,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         documentosExigidos: docs,
         etapasDaMatricula: p ? await etapasDoPortal(p, o, docs.length > 0) : [],
         dados_da_inscricao: [...(p?.camposInscricao ?? []).map(({ quando: _q, ...c }) => c), ...o.camposDoIngresso],
-        linkDoCurso: linkDoCurso(o),
+        linkDoCurso: linkDoCurso(o, campusEscolhido),
+        ...(o.polos.length > 1 ? { ondeEstudar: campusEscolhido ? `${o.polos.find((x) => x.id === campusEscolhido)!.nome} (inscrição pelo portal ${p?.nome ?? ''})` : 'AINDA NÃO DEFINIDO — antes de inscrever, pergunte em qual destes lugares a pessoa vai estudar (polos acima) e passe o campusId; cada um tem a sua equipe.' } : {}),
         instrucao: 'Use apenas o que for relevante para a dúvida atual — não despeje a ficha. O que NÃO estiver aqui você não sabe: diga que vai confirmar com a equipe.',
       })
     }
@@ -651,14 +679,20 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       const fichas = await fichasDaMesmaPessoa(ctx.leadId).catch(() => [ctx.leadId!])
       const regs = await prisma.enrollmentRegistration.findMany({
         where: { leadId: { in: fichas }, status: { not: 'merged' } }, orderBy: { id: 'desc' }, take: 3,
-        select: { id: true, candidateCode: true, status: true, paymentStatus: true, portal: { select: { slug: true, nome: true } }, processRegistration: { select: { offering: { select: { id: true, nome: true } } } } },
+        select: { id: true, candidateCode: true, status: true, paymentStatus: true, formData: true, portal: { select: { slug: true, nome: true, allowedCampusIds: true } }, processRegistration: { select: { offering: { select: { id: true, nome: true } }, selectionProcess: { select: { entryMode: { select: { name: true } } } } } } },
       })
       const out = []
       for (const r of regs) {
         const et = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
+        // Onde vai estudar: o polo escolhido na inscrição, ou o único do portal.
+        const doPortal = Array.isArray(r.portal.allowedCampusIds) ? (r.portal.allowedCampusIds as unknown[]).map(Number) : []
+        const campusId = Number((r.formData as any)?.campusId) || (doPortal.length === 1 ? doPortal[0] : null)
+        const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId }, select: { nome: true } }).catch(() => null) : null
         out.push({
-          codigo: r.candidateCode, portal: r.portal.nome, curso: r.processRegistration?.offering?.nome ?? null, offeringId: r.processRegistration?.offering?.id ?? null,
-          situacao: r.status, etapas: (et?.etapas ?? []).map(etapaParaBot),
+          codigo: r.candidateCode, portal: r.portal.nome, local: campus?.nome ?? undefined,
+          curso: r.processRegistration?.offering?.nome ?? null, offeringId: r.processRegistration?.offering?.id ?? null,
+          formaDeIngresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? undefined,
+          situacao: r.status === 'cancelled' ? 'cancelada (encerrada)' : r.status, etapas: (et?.etapas ?? []).map(etapaParaBot),
         })
       }
       if (regs[0]) { edu.registrationId = regs[0].id; edu.candidateCode = regs[0].candidateCode; edu.portalSlug = regs[0].portal.slug }
@@ -702,31 +736,34 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         // do site, onde o número não é conhecido) recebe o que a pessoa informou.
         if (c?.chave && !String(formData[c.chave] ?? '').trim()) formData[String(c.chave)] = String(c.valor ?? '')
       }
-      const p = portais.get(o.portalSlug)
+      // O polo escolhido decide o portal (e com ele o funil e a equipe).
+      const slugDoPortal = portalDaOferta(o, formData.campusId)
+      const p = portais.get(slugDoPortal)
       const faltando = [...(p?.camposInscricao ?? []), ...o.camposDoIngresso].filter((c) => c.required && campoCondicionalAtende((c as any).quando, formData) && !String(formData[c.name] ?? '').trim()).map((c) => c.label)
       if (!formData.email && !formData.whatsapp) faltando.push('E-mail')
-      if (o.polos.length > 1 && !o.polos.some((x) => x.id === formData.campusId)) faltando.push(`Polo (${o.polos.map((x) => `${x.nome} = ${x.id}`).join(', ')})`)
+      if (o.polos.length > 1 && !o.polos.some((x) => x.id === formData.campusId)) faltando.push(`Onde vai estudar — sede ou polo (${o.polos.map((x) => `${x.nome} = ${x.id}`).join(', ')})`)
       if (faltando.length) return erro(`Faltam dados da inscrição: ${faltando.join(', ')}.`, 'Peça só o que falta, um dado por vez, sem repetir o que já foi dito.')
 
       if (ctx.dryRun) {
-        edu.simulada = { offeringId: o.offeringId, portalSlug: o.portalSlug, dados: Object.fromEntries(Object.entries(formData).map(([k, v]) => [k, String(v)])) }
+        edu.simulada = { offeringId: o.offeringId, portalSlug: slugDoPortal, dados: Object.fromEntries(Object.entries(formData).map(([k, v]) => [k, String(v)])) }
         const docs = await documentosDaOferta(o.processo?.id)
         return ok({ simulacao: true, codigo: 'SIMULACAO', curso: o.curso, proximasEtapas: p ? (await etapasDoPortal(p, o, docs.length > 0)).slice(1) : [], instrucao: 'Inscrição SIMULADA (teste — nada foi gravado). Siga para a próxima etapa, na ordem.' })
       }
       // A inscrição entra na ficha DESTA conversa: o token assinado é o mesmo da
       // continuação do portal. Sem ele, a rota pública cria uma ficha nova (não
       // deduplica de propósito) e a pessoa ficava com duas: conversa e inscrição.
-      const continueToken = ctx.leadId ? signMagicLink(ctx.leadId, o.portalSlug, 1) : undefined
-      const r = await portalHttp(app, 'POST', `/api/public/portals/${encodeURIComponent(o.portalSlug)}/register`, {
+      const continueToken = ctx.leadId ? signMagicLink(ctx.leadId, slugDoPortal, 1) : undefined
+      const r = await portalHttp(app, 'POST', `/api/public/portals/${encodeURIComponent(slugDoPortal)}/register`, {
         payload: { formData, ...(continueToken ? { continueToken } : {}) },
       })
       if (r.status !== 201 || !r.body?.ok) return erro(String(r.body?.error || `Falha na inscrição (${r.status}).`), 'Explique o problema ao lead com naturalidade; se não for algo que ele resolva, chame transferir_humano.')
-      edu.registrationId = r.body.enrollmentId; edu.candidateCode = r.body.candidateCode; edu.portalSlug = o.portalSlug
+      edu.registrationId = r.body.enrollmentId; edu.candidateCode = r.body.candidateCode; edu.portalSlug = slugDoPortal
       // A inscrição pode ter nascido (ou sido retomada) noutro lead — o do CPF.
       // A conversa segue com o lead deste chat; a inscrição fica ligada a ele.
       const et = await etapasDaInscricao(r.body.enrollmentId, 'inscricao').catch(() => null)
       return ok({
         codigo: r.body.candidateCode, curso: o.curso,
+        local: o.polos.find((x) => x.id === formData.campusId)?.nome ?? o.polos[0]?.nome,
         proximasEtapas: (et?.etapas ?? []).filter((e) => e.situacao !== 'feito').map((e) => ({ ...etapaParaBot(e), obrigatoria: e.obrigatoria })),
         instrucao: 'Inscrição feita. Informe o código e conduza a PRÓXIMA etapa pendente, na ordem — uma de cada vez. Etapa "travada" só libera quando a que a trava estiver concluída.',
       })

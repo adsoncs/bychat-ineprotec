@@ -10,7 +10,7 @@
 //
 // Então a regra vira código, na saída, onde não tem como escapar:
 //   1. sem travessão (vira pausa de verdade: outra mensagem, ou vírgula)
-//   2. sem emoji
+//   2. sem emoji (a jornada pode liberar: form.settings.estilo.emoji = true)
 //   3. cada ideia em uma mensagem própria
 //   4. no máximo uma pergunta por mensagem
 //
@@ -36,16 +36,26 @@ const EMOJI = /(\p{Extended_Pictographic}|\p{Emoji_Presentation}|️|‍)/gu
 const TRAVESSAO_ESPACADO = /\s+[—–―‒]+\s+|\s+--\s+/g
 const TRAVESSAO_COLADO = /[—–―‒]/g
 
+/** Ajustes por jornada. Sem nada, valem as regras de sempre. */
+export interface OpcoesDeEstilo {
+  /** true = o emoji que a IA escreveu chega ao lead (a marca pediu). */
+  emoji?: boolean
+}
+
+/** Lê as opções de estilo da configuração do form da jornada. */
+export function estiloDaJornada(form: any): OpcoesDeEstilo {
+  return { emoji: form?.settings?.estilo?.emoji === true }
+}
+
 /**
  * Aplica as regras de estilo a um texto: tira emoji e resolve os travessões.
  * O travessão espaçado vira uma quebra forte (§) que o divisor transforma em
  * mensagem separada, que é a pausa que o autor queria dar. O colado (ex.: em
  * "9h—10h") vira vírgula, porque ali não existe pausa nenhuma.
  */
-export function limparEstilo(texto: string): string {
+export function limparEstilo(texto: string, opcoes: OpcoesDeEstilo = {}): string {
   if (!texto) return ''
-  return texto
-    .replace(EMOJI, '')
+  return (opcoes.emoji ? texto : texto.replace(EMOJI, ''))
     // Em item de lista ("1. *Contrato* — ler e assinar") o travessão separa o
     // título da explicação: vira dois-pontos. Quebrar ali partia a lista em
     // pedaços soltos ("Leitura e assinatura\n2. *Documentos*").
@@ -103,8 +113,8 @@ function frases(bloco: string): string[] {
  * mandaria. Devolve sempre ao menos um item (o texto original, se não houver o
  * que quebrar).
  */
-export function quebrarEmMensagens(texto: string): string[] {
-  const limpo = limparEstilo(texto)
+export function quebrarEmMensagens(texto: string, opcoes: OpcoesDeEstilo = {}): string[] {
+  const limpo = limparEstilo(texto, opcoes)
   if (!limpo) return []
 
   // 1. Parágrafos são separadores naturais.

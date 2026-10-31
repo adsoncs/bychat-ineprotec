@@ -22,10 +22,14 @@ import { acharLeadDoContato, canalDaMensagem } from './contactIdentity.js'
 import { applyAnswerToLead } from './scriptedChatbotFlow.js'
 import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
-import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+import { buildChoices, choicesToText, splitChoiceLabel, type Choice } from '../lib/waInteractive.js'
 import { escolherOperadorDaRota } from './teamRouting.js'
+import { enviarParaEquipe } from './encaminharEquipe.js'
+import { atendimentoHumanoAtivo, resumoParaEquipe } from './journey/validacaoContato.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
+import { emitOutboundMessage } from './outboundEvents.js'
+import { quebrarEmMensagens, intervaloDigitacao, estiloDaJornada } from './messageStyle.js'
 import { eduSdrLigado, EDU_TOOLS, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera, type EduState } from './journey/eduSdr.js'
 import { textoDoSistema } from './modelosDoSistema.js'
 
@@ -58,12 +62,30 @@ export // phase 'handoff' = o bot anunciou que um humano assume, mas a jornada N
 // marcaria `_botPaused`), o bot segue atendendo em vez de deixar a pessoa no vácuo.
 interface AiState {
   leadId: number | null
+  /** Encaminhamentos a setor feitos pela IA (trava de pingue-pongue: >2 em 24h). */
+  encaminhamentos?: Array<{ teamId: number | null; label: string; at: string }>
   phase: 'active' | 'done' | 'disqualified' | 'handoff'
   answers: Record<string, any>
   bookingId?: number | null
+  /**
+   * Quantas vezes já oferecemos agenda a este lead. Contar é papel do servidor:
+   * pedir ao modelo que "escale depois de duas tentativas" é pedir que ele conte
+   * sozinho ao longo da conversa, coisa que ele erra. Aqui vira número.
+   */
+  ofertasAgenda?: number
   /** Consultor educacional: inscrição em foco, anexos usados (journey/eduSdr). */
   edu?: EduState
+  /**
+   * Destino provisório (opção de menu com `route.fallback`): para onde a
+   * conversa vai se a pessoa parar de responder ou pedir uma pessoa antes de
+   * escolher o setor. Ver services/inactivity.ts (reativação com IA).
+   */
+  fallbackRoute?: { teamId: number; funnelId: number | null; label?: string }
 }
+
+/** Ofertas de horário antes de a conversa ir para um humano (regra do roteiro).
+ *  Exportado porque o simulador precisa escalar no mesmo ponto. */
+export const MAX_OFERTAS_AGENDA = 2
 
 const locks = new Map<string, Promise<void>>()
 // Rajada de mensagens (consultor educacional): quantas estão na fila por
@@ -103,13 +125,73 @@ export function mapSelectValue(field: any, valor: string): string {
   return byLabel ? byLabel.value : valor
 }
 
+// Marcador de opções: [[OPTIONS: a | b | c]] ou, com rótulo para o botão da
+// lista, [[OPTIONS Núcleos: a | b | c]].
+const MARCADOR_OPCOES = /\[\[\s*OPTIONS(?:\s+([^:\]]{1,40}?))?\s*:(.+?)\]\]/gis
+
+function lerOpcoes(lista: string): string[] {
+  return lista.split('|').map((s) => s.trim()).filter(Boolean).slice(0, 10)
+}
+
 // Extrai botões do marcador [[OPTIONS: a | b | c]] no fim do texto da IA.
 export function extractOptions(raw: string): { text: string; options: string[] } {
-  const m = /\[\[\s*OPTIONS:(.+?)\]\]/is.exec(raw || '')
+  const m = new RegExp(MARCADOR_OPCOES.source, 'is').exec(raw || '')
   if (!m) return { text: (raw || '').trim(), options: [] }
-  const options = m[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 10)
+  const options = lerOpcoes(m[2])
   const text = (raw || '').replace(m[0], '').trim()
   return { text, options }
+}
+
+export interface BlocoDeOpcoes { text: string; options: string[]; rotulo?: string }
+
+/**
+ * Divide a resposta da IA nos blocos que viram mensagens: cada marcador de
+ * opções fecha um bloco com o texto que veio antes dele. Assim uma resposta
+ * pode mandar mais de um menu (ex.: duas listas, porque a lista do WhatsApp
+ * tem no máximo 10 itens). Texto depois do último marcador vira um bloco sem
+ * opções. Sem marcador, é um bloco só — o comportamento de sempre.
+ */
+export function extrairBlocosDeOpcoes(raw: string): BlocoDeOpcoes[] {
+  const texto = raw || ''
+  const blocos: BlocoDeOpcoes[] = []
+  let inicio = 0
+  for (const m of texto.matchAll(MARCADOR_OPCOES)) {
+    const rotulo = m[1]?.trim() || undefined
+    const antes = texto.slice(inicio, m.index).trim()
+    blocos.push({ text: antes || (rotulo ? `${rotulo}:` : 'Escolha uma opção:'), options: lerOpcoes(m[2]), ...(rotulo ? { rotulo } : {}) })
+    inicio = (m.index ?? 0) + m[0].length
+  }
+  const resto = texto.slice(inicio).trim()
+  if (resto || !blocos.length) blocos.push({ text: resto, options: [] })
+  return blocos.filter((b) => b.text || b.options.length)
+}
+
+/**
+ * O texto que está em `Lead.nome` serve para se dirigir a uma pessoa?
+ *
+ * Descarta o que claramente NÃO é nome — telefone formatado (é o que o sistema
+ * grava quando a empresa não tem o contato na agenda), string só de dígitos,
+ * emoji/símbolos, uma letra solta. Casos ambíguos ("DEUS É AMOR", "Studio Bella
+ * Cabelos") passam por aqui e vão para o prompt com a ressalva de que podem não
+ * ser um nome de pessoa: aí quem julga é a IA, que faz isso melhor que regex.
+ */
+export function pareceNomeDePessoa(nome: string | null | undefined): boolean {
+  const bruto = String(nome ?? '').trim()
+  if (!bruto) return false
+
+  // Telefone: "(62) 99871-6285", "+5562998716285", "62998716285".
+  const soDigitos = bruto.replace(/\D/g, '')
+  if (soDigitos.length >= 8 && soDigitos.length >= bruto.replace(/\s/g, '').length - 4) return false
+
+  // Sem emoji/símbolo, sobrou algo com letras?
+  const limpo = bruto
+    .replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}/gu, '')
+    .replace(/[^\p{L}\p{M}\s'.-]/gu, '')
+    .trim()
+  if (limpo.length < 2) return false
+  if (!/\p{L}/u.test(limpo)) return false
+
+  return true
 }
 
 function fmtWhen(d: Date, tz: string): string {
@@ -139,7 +221,10 @@ const TOOLS = [
     description: 'Encaminha o lead, nos bastidores, para o SETOR/equipe responsável assim que você identificar o que ele procura. Chame UMA única vez, logo que a intenção ficar clara. Use exatamente uma das chaves listadas em "Setores disponíveis". É silencioso — não anuncie ao lead que houve encaminhamento.',
     input_schema: {
       type: 'object',
-      properties: { setor: { type: 'string', description: 'Chave do setor (value da opção), exatamente como em "Setores disponíveis".' } },
+      properties: {
+        setor: { type: 'string', description: 'Chave do setor (value da opção), exatamente como em "Setores disponíveis".' },
+        resumo: { type: 'string', description: 'Uma frase com o que a pessoa precisa, com o que ela já informou (vai para a equipe numa nota interna, não para o lead). Obrigatório quando o setor não é destino provisório.' },
+      },
       required: ['setor'],
     },
   },
@@ -178,6 +263,10 @@ const TOOLS = [
       type: 'object',
       properties: {
         motivo: { type: 'string' },
+        pedido_do_lead: {
+          type: 'boolean',
+          description: 'true quando o lead PEDIU para falar com uma pessoa, demonstrou impaciência/insatisfação, ou pediu proposta/contrato. Nesses casos a transferência é imediata e você NÃO deve pedir mais nenhum dado antes.',
+        },
         sensivel: {
           type: 'boolean',
           description: 'true em caso sensível: reclamação ou insatisfação com a empresa, ameaça de processo/Procon/denúncia, pedido de reembolso ou indenização, ou problema que você não tem autonomia para resolver. A transferência é imediata, fica registrada como insatisfação e você NÃO responde mais nesta conversa até a equipe devolver. Escreva em `motivo` o que a pessoa relatou, nas palavras dela.',
@@ -235,10 +324,30 @@ export function instrucaoDepartamentoEdu(rotulo: string): string {
 }
 
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
-// Tradução do `originType` (lib/leadOrigin.ts) para uma frase que a IA pode
-// usar na abertura sem inventar canal. Só cobre os casos em que dá pra falar
-// com o lead sobre isso com naturalidade — o resto (import, manual, api...)
-// é plumbing interno e não deve aparecer na conversa.
+const CUMPRIMENTO = /^(oi+|ol[aá]+|opa|e a[ií]|al[oô]|oi+e+|bom dia|boa tarde|boa noite|paz do senhor|a paz( do senhor)?|tudo bem|oi,? tudo bem)[\s!.?,;:)(\p{Extended_Pictographic}]*$/iu
+/** A mensagem é só um cumprimento, sem assunto. */
+export function soCumprimento(texto: string): boolean {
+  return CUMPRIMENTO.test(String(texto || '').trim())
+}
+const AVISO_CUMPRIMENTO = '[aviso interno do sistema, não é a pessoa] A mensagem acima é só um cumprimento de quem já conversou com você. Não responda apenas "estou aqui" / "como posso ajudar?" e não repita o que já disse. Veja a situação ATUAL na ficha interna (etapa pendente, novidades, último assunto) e conduza o próximo passo concreto, com as opções em botões quando houver.'
+
+/**
+ * Mensagem INTERNA na conversa ao passar a pessoa para a equipe: o que ela pediu
+ * e o que o sistema confirmou (vínculo, inscrições, outras fichas), para quem
+ * assume não refazer as perguntas. Não é enviada ao contato.
+ */
+async function notaDeEncaminhamento(leadId: number, chatbot: any, destino: string, resumo?: unknown): Promise<void> {
+  const fatos = await resumoParaEquipe(leadId).catch(() => [] as string[])
+  const assunto = String(resumo ?? '').trim()
+  const nome = chatbot?.name || 'Chatbot'
+  const body = [`📋 ${nome} — resumo para o atendimento (${destino})`, assunto ? `Assunto: ${assunto.slice(0, 400)}` : '', ...fatos].filter(Boolean).join('\n')
+  await prisma.message.create({ data: { leadId, fromMe: true, isInternal: true, body, senderName: nome, timestamp: new Date() } }).catch(() => {})
+}
+
+// Como o lead chegou até nós, por `originType` — em palavras que a IA pode usar
+// na abertura. Sem isto ela não tinha como saber, e ou ficava genérica ou (pior)
+// arriscava cravar um canal errado ("vi que veio pelo Google" pra quem veio de
+// anúncio no Meta).
 const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
   meta_ctwa: 'clicou num anúncio do Instagram/Facebook que abre direto o WhatsApp',
   meta_lead_ads: 'preencheu um formulário de um anúncio no Facebook/Instagram',
@@ -252,8 +361,17 @@ const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
   enrollment_portal: 'já estava no nosso portal de matrículas',
 }
 
-export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, edu?: string | null): string {
+export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, brandName?: string | null, contextoLead?: string | null, edu?: string | null): string {
   const fields: any[] = form?.fields || []
+
+  /**
+   * Mesmas variáveis que o motor 'ai' já resolve (chatbotFlow): quem escreve o
+   * roteiro não deve fixar no texto o nome da atendente nem o da marca — trocar
+   * a persona passa a ser renomear o chatbot, sem reescrever prompt nenhum.
+   */
+  const interpolarMarca = (s: string): string => s
+    .replace(/\{\{\s*attendant_name\s*\}\}/gi, chatbot?.name || 'Atendimento')
+    .replace(/\{\{\s*brand_name\s*\}\}/gi, brandName || '')
   const collect = fields
     .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
     .map((f) => {
@@ -267,14 +385,31 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
   // Setores de triagem: opções do menu (campo select) que carregam um `route`. Quando
   // existem, a IA encaminha o lead à equipe certa via a ferramenta rotear_setor.
   const routeField = fields.find((f) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
-  const setores = routeField
-    ? routeField.options.filter((o: any) => o?.route).map((o: any) => `- \`${o.value}\`: ${stripTags(o.label)}`).join('\n')
-    : ''
+  // Opções com `route.fallback` não são setor: registram o destino provisório
+  // da primeira escolha e a conversa segue. Ficam num bloco à parte para a IA
+  // não as confundir com encaminhamento.
+  const comRota = routeField ? routeField.options.filter((o: any) => o?.route) : []
+  const provisorias = comRota.filter((o: any) => o.route.fallback)
+  const setores = [
+    ...comRota.filter((o: any) => !o.route.fallback).map((o: any) => `- \`${o.value}\`: ${stripTags(o.label)}`),
+    ...(provisorias.length ? [
+      '',
+      'Destino provisório (NÃO é encaminhamento: chame rotear_setor com a chave assim que a pessoa fizer essa escolha, sem avisar nada e sem parar a conversa):',
+      ...provisorias.map((o: any) => `- \`${o.value}\`: ${stripTags(o.label)}`),
+    ] : []),
+  ].join('\n')
 
   // Nomes-placeholder (lead criado sem nome real, ex.: canal web sem perfil) NÃO
   // contam como nome conhecido — senão a IA cumprimenta "Olá, Lead LP".
   const PLACEHOLDER_NAMES = new Set(['lead lp', 'lead', 'webchat'])
-  const realNome = lead?.nome && !PLACEHOLDER_NAMES.has(String(lead.nome).trim().toLowerCase()) ? lead.nome : ''
+  const nomeBruto = lead?.nome && !PLACEHOLDER_NAMES.has(String(lead.nome).trim().toLowerCase()) ? String(lead.nome) : ''
+  // O que está em `Lead.nome` nem sempre é o nome de uma PESSOA: quando a empresa
+  // não tem o contato salvo na agenda, o sistema grava o telefone formatado, e o
+  // que a pessoa escolheu no perfil do WhatsApp costuma ser apelido, nome de
+  // empresa ou frase ("DEUS É AMOR", um emoji, uma letra só). Chamar o lead assim
+  // é pior do que não usar nome nenhum.
+  const nomeUsavel = pareceNomeDePessoa(nomeBruto)
+  const realNome = nomeUsavel ? nomeBruto : ''
   // whatsapp sintético do canal web (webchat:<uid>) não é um telefone real.
   const realWhats = lead?.whatsapp && !String(lead.whatsapp).startsWith('webchat:') ? lead.whatsapp : ''
   const known = [
@@ -294,55 +429,24 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
         .map(([k, v]) => `- ${k}: ${v}`)
         .join('\n')
     : ''
-  // Só exige (e só diz à IA que exige) os dados de contato que o FORM deste
-  // chatbot realmente pede — o texto era fixo ("nome, e-mail, WhatsApp e
-  // cidade") mesmo num form que só tem `nome`, e a IA insistia em pedir
-  // e-mail/cidade que o negócio nem queria coletar.
-  const contactWanted = CONTACT_MAPTOS.filter((mapTo) => fields.some((f) => f?.mapTo === mapTo))
-  const contactLabels = contactWanted.map((m) => CONTACT_LABEL[m]).join(', ')
-  // A regra "nome/whatsapp já são conhecidos, não pergunte" era incondicional —
-  // dita mesmo quando NENHUM dos dois era real (contato novo sem nome de perfil
-  // no WhatsApp, ou o preview de teste, que não tem contato nenhum por trás).
-  // A IA ficava "sabendo" de um fato falso e, sem valor nenhum pra usar, tanto
-  // fazia perguntar quanto travar — daí pedir o nome mesmo devendo saber, ou o
-  // oposto. Agora só afirma o que está de fato preenchido.
-  const regraNomeWhats = (realNome || realWhats)
-    ? `\n- ${realNome && realWhats ? 'O nome e o WhatsApp do lead' : realNome ? 'O nome do lead' : 'O WhatsApp do lead'} JÁ ${realNome && realWhats ? 'são conhecidos' : 'é conhecido'} (veja "Já sabemos sobre o lead"/"Respostas já coletadas"). NÃO pergunte por ${realNome && realWhats ? 'eles' : 'isso'} de novo${realNome ? ' — use o nome para personalizar a conversa' : ''}.`
-    : ''
   const already = Object.keys(state.answers || {})
   const hasSched = fields.some((f) => f?.type === 'scheduling')
-
-  // Origem do lead (como ele chegou até nós) — sem isto a IA não tinha como
-  // saber, e ou ficava genérica ou (pior) arriscava cravar um canal errado
-  // ("vi que veio pelo Google" pra quem veio de anúncio no Meta).
   const origemDescricao = ORIGEM_DESCRICAO[lead?.originType as string] || ''
 
-  // Campos que o formulário perguntaria, mas que o lead já respondeu ANTES
-  // desta conversa (formulário nativo da Meta, import, outro canal) — ficam em
-  // `customFields`, não em `state.answers` (que só cobre esta conversa). Sem
-  // isto a IA perguntava de novo o que a pessoa já tinha dito, que é
-  // exatamente o "parecer que não prestou atenção" que se quer evitar.
-  const customFields = (lead?.customFields && typeof lead.customFields === 'object') ? lead.customFields as Record<string, unknown> : {}
-  const previamenteConhecidos = fields
-    .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling' && !already.includes(f.key))
-    .map((f) => {
-      const chaveCf = f.mapTo?.startsWith('cf_') ? f.mapTo.replace('cf_', '') : (f.mapTo || f.key)
-      const valor = customFields[chaveCf]
-      if (valor === undefined || valor === null || valor === '') return null
-      return `- ${stripTags(f.label) || f.key}: "${valor}"`
-    })
-    .filter(Boolean)
-    .join('\n')
+  // Contato exigido antes do hand-off: só o que o form pede de fato.
+  const contatoObrigatorio = Array.from(new Set(
+    fields.filter((f) => CONTACT_MAPTOS.includes(f?.mapTo)).map((f) => CONTACT_LABEL[f.mapTo] || f.mapTo),
+  )).join(', ')
 
   const nm = realNome || state.answers?.nome || ''
   // Saudação configurada do chatbot: a IA conduz a abertura, mas DEVE abrir com
   // esta mensagem (no tom da marca). Só vale para a 1ª mensagem da conversa.
-  const greeting = (chatbot?.greetingMessage && String(chatbot.greetingMessage).trim()) || ''
+  const greeting = interpolarMarca((chatbot?.greetingMessage && String(chatbot.greetingMessage).trim()) || '')
   const schedIntro = (chatbot?.schedulingIntro && String(chatbot.schedulingIntro).trim())
-    ? String(chatbot.schedulingIntro).replace(/\{\{\s*nome\s*\}\}/gi, nm || '{nome do lead}').replace(/\{\{\s*reuniao\s*\}\}/gi, 'reunião').trim()
+    ? interpolarMarca(String(chatbot.schedulingIntro).replace(/\{\{\s*nome\s*\}\}/gi, nm || '{nome do lead}').replace(/\{\{\s*reuniao\s*\}\}/gi, 'reunião').trim())
     : ''
 
-  const base = (chatbot?.aiJourneyPrompt && String(chatbot.aiJourneyPrompt).trim()) || [
+  const base = interpolarMarca((chatbot?.aiJourneyPrompt && String(chatbot.aiJourneyPrompt).trim()) || '') || [
     `Você é um(a) atendente comercial da nossa empresa, conversando por WhatsApp com um lead.`,
     `Seu objetivo: conduzir uma conversa natural e cordial para conhecer o lead, coletar os dados necessários, qualificá-lo e — se qualificado${hasSched ? ' — agendar uma reunião' : ''}.`,
     `Seja humano, objetivo e simpático. Faça UMA pergunta por vez. Não despeje todas as perguntas de uma vez.`,
@@ -353,13 +457,27 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
     setores && edu ? `\n## Departamentos (use rotear_setor)\n${setores}\n\nQuando a pessoa trouxer um assunto que NÃO é conhecer cursos ou fazer/continuar a inscrição (ex.: aluno com dúvida de boleto, histórico, acesso à plataforma, estágio), identifique o departamento e chame **rotear_setor** com a chave certa — uma única vez. Na dúvida entre dois, pergunte uma coisa só para decidir. Se for algo que nenhum departamento cobre, use transferir_humano.` : '',
     setores && !edu ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
-    contactWanted.length ? `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: ${contactLabels}. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.` : '',
+    // A lista sai dos campos de contato que o formulário REALMENTE coleta — é
+    // exatamente o que a trava de transferir_humano exige (missingContactData).
+    // Fixá-la em "nome, e-mail, WhatsApp e cidade" fazia a IA cobrar e-mail em
+    // roteiros que decidiram não pedir e-mail, contrariando o próprio roteiro.
+    contatoObrigatorio
+      ? `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: ${contatoObrigatorio}. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados. NÃO peça nenhum dado de contato além destes.`
+      : '',
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
     customFieldsList ? `\n## Campos personalizados do lead (contexto adicional, já preenchidos antes desta conversa)\n${customFieldsList}` : '',
     origemDescricao ? `\n## Como este lead chegou até nós\n${origemDescricao}\n\nUse isso pra soar informado na abertura, SE fizer sentido natural mencionar. NUNCA cite um canal diferente deste (ex.: não diga "veio pelo Google" se a origem aqui for outra) — na dúvida, não mencione origem nenhuma.` : '',
-    previamenteConhecidos ? `\n## O lead já respondeu isto ANTES desta conversa (não pergunte de novo — confirme/aproveite)\n${previamenteConhecidos}` : '',
+    // Ficha do lead no CRM. Sem isto a IA trata quem já é atendido há semanas
+    // como se fosse a primeira mensagem dele: repete perguntas já respondidas em
+    // campo personalizado, reapresenta a empresa para quem já falou com um
+    // consultor e reoferece reunião para quem já tem uma marcada.
+    contextoLead ? `\n## Ficha deste lead no sistema (INTERNA — nunca leia isto para o lead)
+${contextoLead}
+
+Esta ficha é da EQUIPE, não do lead. Use para NÃO perguntar o que já se sabe e NÃO repetir assunto já tratado: confirme em vez de perguntar de novo ("vocês são de Goiânia, certo?"), e nunca reapresente a empresa para quem já conversou com o time.
+REGRA ABSOLUTA: não cite, não repita, não resuma e não dê a entender o conteúdo desta ficha para o lead. Anotação interna, etiqueta e etapa do funil são avaliações da equipe sobre ele ("não retornou", "5 tentativas sem resposta") — dizer isso ao lead constrange e expõe a operação. Se ele perguntar o que temos registrado, responda apenas o que ELE mesmo informou nesta conversa.` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
-    greeting ? `\n## Abertura da conversa (mensagem padrão)\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
+    greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     // Consultor educacional: o protocolo dele (portal como fonte da verdade,
     // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
     edu ? (matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + (matriculaPorLink(form) ? PROTOCOLO_MATRICULA_POR_LINK : PROTOCOLO_SEM_MATRICULA)) : `\n## Como agir
@@ -385,12 +503,20 @@ O atendimento humano funciona: **${businessHours}**. Agora são ${new Date().toL
 - Quando perguntarem quando alguém responde, se ainda dá tempo hoje, ou qual o horário de atendimento, responda SOMENTE com base nesse horário. NUNCA especule ("pode ser que...", "talvez ainda hoje", "bem cedinho amanhã") nem prometa prazo de retorno que não esteja escrito aqui.
 - Se a conversa está acontecendo FORA desse horário, diga com naturalidade que a equipe retorna no próximo período de atendimento e qual é ele (ex.: "o time atende a partir das 8h de amanhã").
 - Este horário é o do atendimento humano. Não confunda com os horários de visita, que vêm de listar_horarios.` : `\n## Horário de atendimento da equipe
-O horário de atendimento humano NÃO está cadastrado no sistema. Portanto: NUNCA afirme horário de funcionamento nem prometa prazo de retorno ("respondem ainda hoje", "amanhã cedo"). Diga apenas que a equipe vai retornar assim que possível.`,
-    `\n## Regras${regraNomeWhats}
+O horário de atendimento humano NÃO está cadastrado no sistema. Portanto: NUNCA afirme horário de funcionamento nem prometa prazo de retorno ("respondem ainda hoje", "amanhã cedo"). Diga apenas que a equipe vai retornar assim que possível.
+Hoje é ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })} (horário de Brasília). Use esta data para qualquer conta de prazo; não deduza a data de outra fonte.`,
+    `\n## Regras
+${realNome
+  ? `- O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
+- ATENÇÃO ao nome "${realNome}": ele veio do WhatsApp e nem sempre é o nome da pessoa. Pode ser nome de empresa ("Studio Bella"), apelido, frase ("DEUS É AMOR", "Vendas 2"), cargo ou algo sem sentido. Julgue antes de usar: se NÃO parece o primeiro nome de uma pessoa, não chame o lead assim em nenhuma mensagem e pergunte UMA vez, com naturalidade, como pode chamá-lo. Se ele não responder, siga sem nome. Se parecer nome de pessoa, use só o primeiro nome.`
+  // Sem nome conhecido (canal web, ou WhatsApp sem perfil) a regra acima virava
+  // mentira: o modelo lia "não pergunte", via o campo nome como obrigatório e
+  // ficava preso pedindo o nome a cada turno, ignorando o que o lead respondia.
+  : '- O nome do lead NÃO é conhecido. Você pode perguntá-lo UMA única vez, com naturalidade, no momento que fizer sentido. Se ele não responder ou mudar de assunto, SIGA o fluxo normalmente e não volte a perguntar: o nome é desejável, nunca obrigatório. Jamais repita a mesma pergunta duas vezes seguidas — se o lead respondeu outra coisa, atenda o que ele trouxe.'}
 - NUNCA invente horários: use só os que listar_horarios devolveu.
 - NUNCA afirme que agendou sem agendar ter retornado ok=true.
 - Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).
-- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões.`,
+- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões (até 3) ou lista (4 a 10). Botão tem no máximo 20 caracteres; item de lista, 24 no título — para explicar o item, escreva "Título — descrição" (a descrição aparece embaixo, até 72). Com mais de 10 opções, use dois marcadores seguidos, cada um com o seu texto antes e um rótulo curto: [[OPTIONS Núcleos: a | b]] e [[OPTIONS Setores: c | d]].`,
   ].filter(Boolean).join('\n')
 }
 
@@ -416,6 +542,76 @@ async function missingContactData(leadId: number, form: any): Promise<string[]> 
   return wanted
     .filter((f) => !has(f.mapTo) && !seen.has(f.mapTo) && seen.add(f.mapTo))
     .map((f) => CONTACT_LABEL[f.mapTo] || f.mapTo)
+}
+
+/**
+ * Ficha do lead para o prompt: o que o CRM já sabe sobre esta pessoa ANTES desta
+ * conversa. Sem isto a IA começa do zero toda vez — pergunta a cidade que está
+ * salva em campo personalizado, reapresenta a empresa para quem já falou com um
+ * consultor na semana passada, oferece reunião para quem já tem uma marcada.
+ *
+ * Só entra o que estiver preenchido: linha vazia é ruído no prompt.
+ */
+export async function buildLeadContext(leadId: number): Promise<string> {
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: {
+      status: true, cidade: true, segmento: true, empresa: true, customFields: true,
+      originType: true, campaignName: true, createdAt: true, annotation: true,
+      funnel: { select: { name: true, stages: { select: { key: true, name: true } } } },
+      tags: { select: { tag: { select: { name: true } } } },
+    },
+  })
+  if (!lead) return ''
+
+  const linhas: string[] = []
+
+  const etapa = lead.funnel?.stages.find((s) => s.key === lead.status)?.name || lead.status
+  if (etapa) linhas.push(`- Etapa atual no funil: ${etapa}${lead.funnel?.name ? ` (${lead.funnel.name})` : ''}`)
+  if (lead.empresa) linhas.push(`- Instituição/empresa: ${lead.empresa}`)
+  if (lead.cidade) linhas.push(`- Cidade: ${lead.cidade}`)
+  if (lead.segmento) linhas.push(`- Segmento: ${lead.segmento}`)
+  if (lead.originType) linhas.push(`- Como chegou: ${lead.originType}${lead.campaignName ? ` · campanha "${lead.campaignName}"` : ''}`)
+
+  // Campos personalizados já respondidos — a fonte mais comum de pergunta repetida.
+  const cf = (lead.customFields || {}) as Record<string, unknown>
+  const preenchidos = Object.entries(cf).filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+  if (preenchidos.length) {
+    const defs = await prisma.customField.findMany({ select: { key: true, label: true } }).catch(() => [] as any[])
+    const rotulo = new Map(defs.map((d: any) => [d.key, d.label]))
+    linhas.push(`- Respostas já registradas: ${preenchidos.map(([k, v]) => `${rotulo.get(k) || k} = ${String(v).slice(0, 80)}`).join(' · ')}`)
+  }
+
+  const tags = lead.tags.map((t) => t.tag.name)
+  if (tags.length) linhas.push(`- Etiquetas: ${tags.join(', ')}`)
+  if (lead.annotation) linhas.push(`- Anotação interna da equipe: ${lead.annotation.slice(0, 300)}`)
+
+  // Reunião já marcada: reoferecer agenda para quem já agendou é o erro mais caro.
+  const reuniao = await prisma.booking.findFirst({
+    where: { leadId, status: { notIn: ['cancelled', 'no_show', 'rescheduled'] }, startAt: { gt: new Date() } },
+    orderBy: { startAt: 'asc' },
+    select: { startAt: true, timezone: true, operatorUserId: true },
+  }).catch(() => null)
+  if (reuniao) {
+    let quem = ''
+    if (reuniao.operatorUserId) {
+      const u = await prisma.user.findUnique({ where: { id: reuniao.operatorUserId }, select: { displayName: true, name: true, email: true } }).catch(() => null)
+      if (u) { const { nomeExibicao } = await import('./operatorIdentity.js'); quem = ` com ${nomeExibicao(u)}` }
+    }
+    linhas.push(`- JÁ TEM REUNIÃO MARCADA para ${fmtWhen(reuniao.startAt, reuniao.timezone || 'America/Sao_Paulo')}${quem}. NÃO ofereça agendamento de novo; se ele quiser mudar, trate como remarcação.`)
+  }
+
+  // Atendimento humano anterior: a pessoa já falou com alguém do time.
+  const humano = await prisma.message.findFirst({
+    where: { leadId, fromMe: true, isInternal: false, senderName: { notIn: ['Workflow'] } },
+    orderBy: { id: 'desc' },
+    select: { senderName: true, timestamp: true },
+  }).catch(() => null)
+  if (humano?.senderName) {
+    linhas.push(`- Já houve conversa anterior nesta linha (última resposta nossa por "${humano.senderName}"). Continue de onde parou, sem se reapresentar.`)
+  }
+
+  return linhas.join('\n')
 }
 
 // Resumo do catálogo (categorias + contagem) para o system prompt. Vazio quando
@@ -473,6 +669,28 @@ async function executeTool(
     }
 
     if (name === 'rotear_setor') {
+      const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+      if (!routeField) return JSON.stringify({ ok: false, erro: 'Sem roteamento por setor configurado.' })
+      const value = mapSelectValue(routeField, String(input?.setor || ''))
+      const opt = routeField.options.find((o: any) => String(o.value) === String(value))
+      // Destino provisório (`route.fallback`): a primeira escolha da pessoa já
+      // diz para que equipe/funil ela vai se a conversa parar (ex.: aluno →
+      // Secretaria). Move o lead, guarda o destino e a conversa SEGUE — não é
+      // encaminhamento, não pede contato e não liga a fase de handoff.
+      if (opt?.route?.fallback && opt.route.teamId != null) {
+        // Uma pessoa da equipe está atendendo (falou nas últimas 24h): a escolha
+        // do menu não tira a conversa dela — fica na equipe em que está.
+        const humano = await atendimentoHumanoAtivo(leadId)
+        if (humano) {
+          const atual = await prisma.lead.findUnique({ where: { id: leadId }, select: { teamId: true, funnelId: true } }).catch(() => null)
+          if (atual?.teamId) state.fallbackRoute = { teamId: atual.teamId, funnelId: atual.funnelId ?? null, label: stripTags(opt.label) }
+          return JSON.stringify({ ok: true, provisorio: true, instrucao: `${humano.nome} da equipe está atendendo esta pessoa (falou nas últimas 24h). A conversa continua com essa pessoa: siga o roteiro normalmente, sem dizer que encaminhou.` })
+        }
+        const r = await enviarParaEquipe(leadId, { teamId: opt.route.teamId, funnelId: opt.route.funnelId, stageKey: opt.route.stageKey, userIds: opt.route.userIds }, 'chatbot')
+        state.fallbackRoute = { teamId: opt.route.teamId, funnelId: r?.funnelId ?? opt.route.funnelId ?? null, label: stripTags(opt.label) }
+        logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: destino provisório ${stripTags(opt.label)}`, channel: 'whatsapp', source: 'chatbot', actorType: 'system' })
+        return JSON.stringify({ ok: true, provisorio: true, instrucao: 'Destino provisório registrado nos bastidores. NÃO diga que encaminhou nem fale de setor: siga a conversa normalmente, com o próximo passo do roteiro.' })
+      }
       // Trava: só encaminha ao setor (atendimento humano) depois de coletar e
       // salvar os dados de contato do lead no CRM.
       const missing = await missingContactData(leadId, form)
@@ -483,21 +701,29 @@ async function executeTool(
       // Reusa o roteamento por opção de menu do form (option.route): move funil/etapa
       // e (re)atribui a equipe/operador. Lê o menu de triagem (campo select cujas
       // opções têm `route`) dinamicamente — genérico, não hardcoded por tenant.
-      const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
-      if (!routeField) return JSON.stringify({ ok: false, erro: 'Sem roteamento por setor configurado.' })
-      const value = mapSelectValue(routeField, String(input?.setor || ''))
-      const opt = routeField.options.find((o: any) => String(o.value) === String(value))
       if (!opt?.route) return JSON.stringify({ ok: false, erro: 'Setor não reconhecido.', instrucao: 'Continue a conversa normalmente e tente identificar melhor o que o lead procura.' })
       // Persiste a escolha p/ a qualificação determinística usar o value da opção.
       state.answers[routeField.key] = opt.value
       await applyAnswerToLead(leadId, routeField, state.answers).catch(() => {})
       const route = opt.route
-      if (route.funnelId != null && route.stageKey) {
-        await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false }).catch(() => {})
+      // Trava de vaivém: o mesmo setor de novo não reencaminha (nem sorteia outra
+      // pessoa); um terceiro setor diferente em 24h não muda — a equipe do
+      // último setor recebe e decide, em vez de a pessoa rodar entre setores.
+      const recentes = (state.encaminhamentos || []).filter((e) => Date.now() - new Date(e.at).getTime() < 24 * 3600_000)
+      const ultimo = recentes[recentes.length - 1]
+      if (ultimo && route.teamId != null && ultimo.teamId === route.teamId) {
+        return JSON.stringify({ ok: true, ja_encaminhado: true, setor: ultimo.label, instrucao: `Esta pessoa já está com ${ultimo.label}. NÃO encaminhe de novo: diga, se fizer sentido, que a equipe de ${ultimo.label} continua por aqui, e siga ajudando no que puder.` })
       }
+      if (recentes.length >= 2) {
+        logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: 3º setor em 24h bloqueado (${stripTags(opt.label)}) — fica com ${ultimo!.label}`, channel: 'whatsapp', source: 'chatbot', actorType: 'system' })
+        return JSON.stringify({ ok: false, bloqueado: true, instrucao: `Esta pessoa já foi encaminhada a ${recentes.length} setores nas últimas 24h (${recentes.map((e) => e.label).join(', ')}). NÃO mude de setor de novo: chame transferir_humano com o motivo "${stripTags(opt.label)}: " + o assunto, e diga que a equipe da FABAD continua por aqui e direciona o assunto para quem cuida.` })
+      }
+      // Equipe e funil juntos (o funil da equipe quando a rota não diz). Mudou de
+      // equipe, o rodízio dela escolhe o responsável — ver encaminharEquipe.ts.
       if (route.teamId != null) {
-        const userId = await escolherOperadorDaRota(route.teamId, route.userIds).catch(() => null)
-        await prisma.lead.update({ where: { id: leadId }, data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() } }).catch(() => {})
+        await enviarParaEquipe(leadId, { teamId: route.teamId, funnelId: route.funnelId, stageKey: route.stageKey, userIds: route.userIds }, 'chatbot')
+      } else if (route.funnelId != null && route.stageKey) {
+        await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false }).catch(() => {})
       }
       // Setores como RH (candidatura/currículo) não precisam de handoff humano
       // imediato — precisam é de um REGISTRO completo do que foi coletado.
@@ -544,6 +770,10 @@ async function executeTool(
         }).catch(() => {})
       }
       logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: encaminhado para ${stripTags(opt.label) || route.stageKey}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead', metadata: { teamId: route.teamId, funnelId: route.funnelId, stageKey: route.stageKey } })
+      // Nome do setor sem a explicação entre parênteses (que é para a IA).
+      const nomeDoSetor = (stripTags(opt.label) || String(route.stageKey || '')).replace(/\s*\(.*$/s, '').trim()
+      state.encaminhamentos = [...recentes, { teamId: route.teamId ?? null, label: nomeDoSetor, at: new Date().toISOString() }]
+      if (!route.saveNote) await notaDeEncaminhamento(leadId, chatbot, nomeDoSetor, input?.resumo)
       if (eduSdrLigado(form)) {
         state.phase = 'handoff'
         return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: instrucaoDepartamentoEdu(stripTags(opt.label)) })
@@ -587,6 +817,17 @@ async function executeTool(
       }
       if (!out.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
 
+      // Terceira ida à agenda = as duas ofertas do roteiro já foram recusadas.
+      // Não oferece de novo: manda para o humano, que é a Saída B.
+      state.ofertasAgenda = (state.ofertasAgenda ?? 0) + 1
+      if (state.ofertasAgenda > MAX_OFERTAS_AGENDA) {
+        return JSON.stringify({
+          ok: false,
+          erro: `O lead já recebeu ${MAX_OFERTAS_AGENDA} ofertas de horário e não fechou nenhuma.`,
+          instrucao: 'NÃO ofereça mais horários. Chame transferir_humano agora, com pedido_do_lead=false e o motivo "não fechou horário após duas ofertas".',
+        })
+      }
+
       // Marca que a pessoa CHEGOU a ver horários: é o sinal de intenção mais forte
       // da jornada e o público exato de uma recuperação ("viu horários e não marcou").
         const at = new Date().toISOString()
@@ -624,7 +865,27 @@ async function executeTool(
       state.phase = 'done'
       state.bookingId = result.booking?.id ?? null
       const when = result.booking?.startAt ? fmtWhen(new Date(result.booking.startAt), mt.timezone) : ''
-      return JSON.stringify({ ok: true, quando: when, instrucao: 'Horário reservado. O sistema JÁ enviou ao lead, logo em seguida, uma mensagem com o link da reunião e o botão "Confirmar reunião". Diga UMA frase curta e calorosa pedindo para ele CONFIRMAR a presença tocando no botão "Confirmar reunião" acima. NÃO diga que já está confirmado nem inclua link — a confirmação só acontece quando ele toca no botão.' })
+
+      // Quem vai atender sai do sistema, nunca do prompt: no rodízio por equipe o
+      // operador só é escolhido dentro do createBooking. Sem dono definido (caiu na
+      // fila da equipe), devolve o nome do SETOR — e a IA fala de forma genérica,
+      // em vez de inventar um nome de consultor.
+      const operadorId = (result.booking as any)?.operatorUserId ?? null
+      const timeId = (result.booking as any)?.teamId ?? null
+      let consultor: string | null = null
+      if (operadorId) {
+        const u = await prisma.user.findUnique({ where: { id: operadorId }, select: { displayName: true, name: true, email: true } }).catch(() => null)
+        if (u) { const { nomeExibicao } = await import('./operatorIdentity.js'); consultor = nomeExibicao(u) }
+      }
+      let setor: string | null = null
+      if (!consultor && timeId) {
+        setor = (await prisma.team.findUnique({ where: { id: timeId }, select: { name: true } }).catch(() => null))?.name ?? null
+      }
+
+      return JSON.stringify({
+        ok: true, quando: when, consultor, setor,
+        instrucao: `Horário reservado.${consultor ? ` Quem vai conduzir a reunião é ${consultor} — use ESTE nome ao confirmar, exatamente como veio aqui.` : ' Ainda não há um consultor definido para este horário: fale em "um dos nossos consultores", NUNCA invente um nome.'} O sistema JÁ enviou ao lead, logo em seguida, uma mensagem com o link da reunião e o botão "Confirmar reunião". Diga UMA frase curta e calorosa pedindo para ele CONFIRMAR a presença tocando no botão "Confirmar reunião" acima. NÃO diga que já está confirmado nem inclua link — a confirmação só acontece quando ele toca no botão.`,
+      })
     }
 
     if (name === 'encerrar') {
@@ -634,8 +895,11 @@ async function executeTool(
 
     if (name === 'transferir_humano') {
       // Mesma trava: captura os dados de contato antes de passar para o humano.
+      // MAS quem pediu um humano (ou perdeu a paciência, ou pediu proposta) não
+      // pode ser interrogado antes de ser atendido: aí a transferência é
+      // imediata e o dado que faltar o operador pega na conversa.
       const sensivel = input?.sensivel === true
-      const missing = sensivel ? [] : await missingContactData(leadId, form)
+      const missing = input?.pedido_do_lead || sensivel ? [] : await missingContactData(leadId, form)
       if (missing.length) {
         return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
           instrucao: `Antes de transferir para um atendente, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Uma pergunta por vez. Só depois chame transferir_humano novamente.` })
@@ -646,8 +910,11 @@ async function executeTool(
         const nome = chatbot?.name || 'Chatbot'
         const relato = String(input?.motivo ?? '').trim().slice(0, 600) || 'não descrito'
         state.phase = 'handoff'
-        await prisma.message.create({ data: { leadId, fromMe: true, isInternal: true, body: `⚠️ ${nome}: caso sensível passado à equipe\nRelato: ${relato}`, senderName: nome, timestamp: new Date() } }).catch(() => {})
-        await prisma.leadNote.create({ data: { leadId, userId: null, userName: nome, content: `⚠️ Insatisfação registrada pela IA\n${relato}\n\nA IA saiu desta conversa; só a equipe responde. Para o bot voltar, devolva a conversa ao bot.` } }).catch(() => {})
+        if (state.fallbackRoute?.teamId && !(state.encaminhamentos || []).length) {
+          await enviarParaEquipe(leadId, { teamId: state.fallbackRoute.teamId, funnelId: state.fallbackRoute.funnelId }, 'chatbot')
+        }
+        await notaDeEncaminhamento(leadId, chatbot, 'caso sensível — insatisfação', relato)
+        await prisma.leadNote.create({ data: { leadId, userId: null, userName: nome, content: `⚠️ Insatisfação registrada pela IA\n${relato}\n\nA IA saiu desta conversa; só a equipe responde. Para o bot voltar, use Resolver ou devolva a conversa ao bot.` } }).catch(() => {})
         const { pauseBotForHuman } = await import('./botTakeover.js')
         await pauseBotForHuman(leadId, { userId: null, userName: `${nome} (caso sensível)` }, { sensivel: true }).catch(() => {})
         logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: caso sensível passado à equipe — ${relato.slice(0, 80)}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
@@ -660,6 +927,13 @@ async function executeTool(
           instrucao: 'Você já avisou que alguém do time vai continuar. NÃO repita o aviso e não diga que vai transferir de novo: siga atendendo a pessoa normalmente enquanto o time não entra.' })
       }
       state.phase = 'handoff'
+      // Antes de um setor definido, a pessoa vai para o destino provisório da
+      // primeira escolha (ex.: aluno → Secretaria), com equipe e funil juntos.
+      // Depois de um setor definido, a pessoa já está nele: não volta ao provisório.
+      if (state.fallbackRoute?.teamId && !(state.encaminhamentos || []).length) {
+        await enviarParaEquipe(leadId, { teamId: state.fallbackRoute.teamId, funnelId: state.fallbackRoute.funnelId }, 'chatbot')
+      }
+      await notaDeEncaminhamento(leadId, chatbot, 'atendimento humano', input?.motivo)
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
@@ -717,7 +991,7 @@ async function anthropicTurn(system: string, messages: LlmMsg[], tools: ToolDef[
     body: JSON.stringify({
       model, max_tokens: 1500,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      ...(tools.length ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) } : {}),
       messages,
     }),
   }, LLM_TIMEOUT_MS)
@@ -754,7 +1028,7 @@ async function openaiTurn(system: string, messages: LlmMsg[], tools: ToolDef[]):
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model, max_tokens: 1500, messages: oaMsgs,
-      tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+      ...(tools.length ? { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) } : {}),
     }),
   }, LLM_TIMEOUT_MS)
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
@@ -859,6 +1133,7 @@ async function _process(
       senderName: attendantName, isInternal: false, externalId: extId, ack: extId ? 1 : 0, timestamp: new Date(),
     } }).catch((e) => app.log.warn(`[aiJourney] save out: ${e}`))
     await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
+    emitOutboundMessage({ leadId, source: 'ai_journey', channel: 'whatsapp', chatbotId: chatbotId ?? null })
   }
   const saveIncoming = async (leadId: number, body: string) => {
     await prisma.message.create({ data: {
@@ -869,16 +1144,33 @@ async function _process(
     } }).catch((e) => app.log.warn(`[aiJourney] save in: ${e}`))
     await prisma.lead.update({ where: { id: leadId }, data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date() } }).catch(() => {})
   }
-  const send = async (leadId: number, body: string, options: string[]) => {
+  const estilo = estiloDaJornada(form)
+  const send = async (leadId: number, body: string, options: string[], rotulo?: string) => {
+    // Um turno da IA vira a sequência de mensagens que uma pessoa mandaria: cada
+    // ideia na sua bolha, sem travessão e sem emoji (services/messageStyle.ts).
+    // As opções/botões acompanham SEMPRE a última mensagem — é ela que faz a
+    // pergunta que as opções respondem.
+    const partes = quebrarEmMensagens(body, estilo)
+    if (!partes.length) return
+    const ultima = partes[partes.length - 1] as string
+    const anteriores = partes.slice(0, -1)
+
+    for (const [i, parte] of anteriores.entries()) {
+      const r = await sendFn(phone, parte)
+      await saveOutgoing(leadId, parte, r.messageId)
+      const proxima = anteriores[i + 1] ?? ultima
+      await new Promise((resolve) => setTimeout(resolve, intervaloDigitacao(proxima)))
+    }
+
     if (provider === 'cloud_api' && sendInteractiveFn && options.length) {
-      const choices: Choice[] = options.map((o, i) => ({ id: `opt_${i}`, title: o.slice(0, 24) }))
+      const choices: Choice[] = options.map((o, i) => ({ id: `opt_${i}`, ...splitChoiceLabel(o) }))
       try {
-        const r = await sendInteractiveFn(phone, buildChoices(body, choices))
-        await saveOutgoing(leadId, choicesToText(body, choices), r.messageId)
+        const r = await sendInteractiveFn(phone, buildChoices(ultima, choices, rotulo ? { button: rotulo, sectionTitle: rotulo } : undefined))
+        await saveOutgoing(leadId, choicesToText(ultima, choices), r.messageId)
         return
       } catch (e: any) { app.log.warn(`[aiJourney] interactive fallback: ${e?.message || e}`) }
     }
-    const full = options.length ? `${body}\n\n${options.map((o, i) => `${i + 1}) ${o}`).join('\n')}` : body
+    const full = options.length ? `${ultima}\n\n${options.map((o, i) => `${i + 1}) ${o}`).join('\n')}` : ultima
     const r = await sendFn(phone, full)
     await saveOutgoing(leadId, full, r.messageId)
   }
@@ -989,15 +1281,27 @@ async function _process(
   if (!messages.length || messages[messages.length - 1].role !== 'user') {
     messages.push({ role: 'user', content: text })
   }
+  // Só um "oi" de quem já conversou: o modelo tende a devolver "estou aqui, como
+  // posso ajudar?" (o padrão da conversa vence a instrução). O aviso o leva a
+  // retomar pela situação ATUAL da ficha, com o próximo passo.
+  if (soCumprimento(text) && messages.some((m) => m.role === 'assistant')) {
+    const ultima = messages[messages.length - 1]
+    if (typeof ultima.content === 'string') ultima.content = `${ultima.content}\n\n${AVISO_CUMPRIMENTO}`
+  }
 
   const catalogSummary = await getCatalogSummary()
   // Horário de atendimento humano (Cadastros › Atendimento) — o bot precisa dele
   // para responder "quando vocês respondem?" com o que a empresa cadastrou.
   const bhText = await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null)
+  const { getBranding } = await import('../lib/branding.js')
+  const marca = await getBranding().catch(() => null)
+  // Consultor educacional: a ficha do lead vai DENTRO do protocolo dele
+  // (contextoDoLead, que inclui inscrições e etapas) — não duplica a genérica.
   const eduBloco = edu
     ? protocoloEdu(await resumoDoCatalogo(app).catch(() => ''), await contextoDoLead(leadId).catch(() => ''), false)
     : null
-  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, eduBloco)
+  const contextoLead = edu ? null : await buildLeadContext(leadId).catch(() => '')
+  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, marca?.brandName ?? null, contextoLead, eduBloco)
   const tools = ferramentasDaJornada(form)
   const maxIters = edu ? EDU_MAX_TOOL_ITERS : MAX_TOOL_ITERS
 
@@ -1032,8 +1336,13 @@ async function _process(
         messages.push({ role: 'user', content: LEMBRETE_ROTEAR })
         continue
       }
-      const { text: out, options } = extractOptions(turn.text)
-      if (out) { await send(leadId, out, options).catch(() => {}); replied = true }
+      // Um bloco por menu: a resposta pode trazer mais de um (ex.: duas listas).
+      const blocos = extrairBlocosDeOpcoes(turn.text)
+      for (const [i, b] of blocos.entries()) {
+        if (i > 0) await new Promise((resolve) => setTimeout(resolve, intervaloDigitacao(b.text)))
+        await send(leadId, b.text, b.options, b.rotulo).catch(() => {})
+      }
+      if (blocos.length) replied = true
       else failed = true
       break
     }
@@ -1103,5 +1412,84 @@ export function prometeuEncaminharSemRotear(texto: string, form: any, state: any
   const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
   if (!routeField) return false
   if (state?.answers?.[routeField.key] != null) return false
+  // Mensagem com menu de opções está PERGUNTANDO para onde ir ("selecione uma
+  // das opções para direcionarmos seu atendimento"), não prometendo encaminhar.
+  if (new RegExp(MARCADOR_OPCOES.source, 'is').test(String(texto || ''))) return false
   return PROMESSA_ENCAMINHAR.test(String(texto || ''))
+}
+
+// ── Reativação de conversa parada ───────────────────────────────────────────
+// Chamada pelo verificador de inatividade (services/inactivity.ts) quando o
+// chatbot tem a ação "Reativar com IA e transferir". A IA escreve a retomada com
+// o prompt da própria jornada e o histórico: o texto sabe em que ponto a pessoa
+// parou (menu, dado da inscrição, documento) e o tom vem das instruções da
+// instituição (seção "Reativação", quando houver). Sai pelo canal da conversa,
+// com os botões quando a mensagem traz menu, e fica gravada no Conversas.
+export async function reativarConversaComIa(leadId: number, chatbot: any, form: any, tentativa: number, total: number): Promise<boolean> {
+  const lead: any = await prisma.lead.findUnique({ where: { id: leadId } })
+  const state: AiState | null = (lead?.formData as any)?._aiJourney || null
+  if (!lead?.whatsapp || !state) return false
+  const edu = eduSdrLigado(form)
+
+  const hist = await prisma.message.findMany({
+    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : HISTORY_LIMIT,
+    select: { id: true, fromMe: true, body: true, provider: true, evolutionInstance: true, cloudApiConnectionId: true },
+  })
+  const ultima = hist[0]
+  if (!ultima?.fromMe) return false // a pessoa respondeu: não é conversa parada
+  const messages: LlmMsg[] = hist.slice().reverse()
+    .filter((m) => (m.body || '').trim())
+    .map((m) => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }))
+  const ultimaVez = tentativa >= total
+  messages.push({ role: 'user', content: `[aviso interno do sistema, não é a pessoa] A pessoa não respondeu à sua última mensagem. Escreva a reativação ${tentativa} de ${total}, seguindo a seção "Reativação" das suas instruções, se houver. Regras: no máximo 2 mensagens curtas; sutil e amigável, sem cobrança, pressão ou culpa; chame pelo primeiro nome, se souber; retome exatamente o ponto em que a conversa parou (se a sua última mensagem tinha menu de opções, mande o mesmo menu de novo com o marcador); não repita a mensagem anterior palavra por palavra; não diga que a mensagem é automática nem quanto tempo passou; não chame ferramentas.${ultimaVez ? ' É a última tentativa: diga com leveza que, se preferir, a equipe pode continuar com ela por aqui mesmo.' : ''}` })
+
+  const { getBranding } = await import('../lib/branding.js')
+  const marca = await getBranding().catch(() => null)
+  const eduBloco = edu ? protocoloEdu('', await contextoDoLead(leadId).catch(() => ''), false) : null
+  const contextoLead = edu ? null : await buildLeadContext(leadId).catch(() => '')
+  const system = buildSystemPrompt(chatbot, form, await withSourceLabel(lead), state, '', null, marca?.brandName ?? null, contextoLead, eduBloco)
+  const turn = await llmTurn(system, messages, []).catch(() => null)
+  if (!turn || turn.kind !== 'text' || !turn.text.trim()) return false
+
+  // A pessoa pode ter respondido enquanto a IA escrevia.
+  const depois = await prisma.message.findFirst({ where: { leadId, isInternal: false, id: { gt: ultima.id } }, select: { id: true } })
+  if (depois) return false
+
+  const { getProviderForLead } = await import('./whatsappProvider.js')
+  const provider = await getProviderForLead({ id: leadId, whatsapp: lead.whatsapp })
+  const estilo = estiloDaJornada(form)
+  const gravar = async (body: string, extId: string | null) => {
+    await prisma.message.create({ data: {
+      leadId, fromMe: true, body, mediaType: 'text', provider: ultima.provider || provider.providerName,
+      ...(ultima.evolutionInstance ? { evolutionInstance: ultima.evolutionInstance } : {}),
+      ...(ultima.cloudApiConnectionId ? { cloudApiConnectionId: ultima.cloudApiConnectionId } : {}),
+      senderName: chatbot?.name || 'Atendimento', isInternal: false, externalId: extId, ack: extId ? 1 : 0, timestamp: new Date(),
+    } }).catch(() => {})
+  }
+  let enviou = false
+  for (const bloco of extrairBlocosDeOpcoes(turn.text)) {
+    const partes = quebrarEmMensagens(bloco.text, estilo)
+    if (!partes.length) continue
+    const fim = partes.pop() as string
+    for (const parte of partes) {
+      const r = await provider.sendText(lead.whatsapp, parte)
+      await gravar(parte, r?.messageId ?? null); enviou = true
+      await new Promise((resolve) => setTimeout(resolve, intervaloDigitacao(fim)))
+    }
+    const choices: Choice[] = bloco.options.map((o, i) => ({ id: `opt_${i}`, ...splitChoiceLabel(o) }))
+    const interativo = provider.providerName === 'cloud_api' && choices.length
+      ? buildChoices(fim, choices, bloco.rotulo ? { button: bloco.rotulo, sectionTitle: bloco.rotulo } : undefined)
+      : null
+    if (interativo) {
+      const r = await provider.sendInteractive(lead.whatsapp, interativo)
+      await gravar(choicesToText(fim, choices), r?.messageId ?? null)
+    } else {
+      const texto = choices.length ? `${fim}\n\n${choices.map((c, i) => `${i + 1}) ${c.title}`).join('\n')}` : fim
+      const r = await provider.sendText(lead.whatsapp, texto)
+      await gravar(texto, r?.messageId ?? null)
+    }
+    enviou = true
+  }
+  if (enviou) await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
+  return enviou
 }

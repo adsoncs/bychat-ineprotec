@@ -212,17 +212,24 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   let sentCloudConnId: number | null = null
   let sendError: string | null = null
 
+  // Mensagem que existe só para ser copiada: a continuação de uma sequência
+  // (o [[quebra]] do modelo) ou um BR Code colado sozinho no compositor. No
+  // WhatsApp, "copiar" leva a mensagem INTEIRA — então nela não entra nem o
+  // prefixo do operador nem a assinatura, ou o nome iria junto para o campo
+  // do banco do cliente.
+  const soParaCopiar = continuacao || ehCodigoCopiavel(msgBody)
+
   // Identificação do operador (Configurações › Conversas). Vai na PRIMEIRA linha
   // porque o WhatsApp não tem cabeçalho de remetente dentro da conversa. Nunca
   // em nota interna (não chega ao contato) nem em áudio/figurinha/HSM — o
   // próprio montarPrefixo devolve '' nesses casos.
-  const prefixoOperador = isInternal || continuacao || ehCodigoCopiavel(msgBody)
+  const prefixoOperador = isInternal || soParaCopiar
     ? ''
     : await montarPrefixo({ leadId: lid, mediaType: mType, actorUserId: user.userId }).catch(() => '')
 
   const finalTextBody = (() => {
     const raw = (msgBody || '').trim()
-    const comAssinatura = !isInternal && mType === 'text' && userSignature
+    const comAssinatura = !isInternal && !soParaCopiar && mType === 'text' && userSignature
       ? `${raw}\n\n_-- ${userSignature}_`
       : raw
     // Sem corpo (mídia sem legenda) o prefixo viraria uma legenda só com o nome

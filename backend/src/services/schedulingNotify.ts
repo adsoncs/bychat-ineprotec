@@ -76,7 +76,16 @@ async function textoDoModelo(key: string): Promise<string> {
 // é o nome.
 const ORDEM_AGENDAMENTO = ['nome', 'reuniao', 'quando', 'link'] as const
 
-/** Envia um HSM ao lead. Retorna false se o template não existir/não estiver aprovado. */
+/**
+ * Envia um HSM ao lead. Retorna false se o template não existir, não estiver
+ * aprovado, ou se algum parâmetro ficaria em branco.
+ *
+ * A recusa por parâmetro em branco é deliberada. A Meta aceita a mensagem com o
+ * placeholder e o envio "dá certo" — o que chega ao cliente é "Olá, —! Recebemos
+ * o seu agendamento da *—* para —". Isso é pior que não mandar nada: o cliente
+ * lê, desconfia, e ninguém fica sabendo que precisa refazer. Segurar aqui devolve
+ * o caso para o caminho alternativo (texto livre) e abre alerta para a equipe.
+ */
 async function sendHsm(
   conn: { phoneNumberId: string; systemUserToken: string; wabaId: string | null; id: number },
   templateName: string, phone: string, values: Record<string, string>, leadId: number | null,
@@ -90,6 +99,7 @@ async function sendHsm(
     console.warn(`[scheduling] template ${templateName} não aprovado (${tpl?.status ?? 'inexistente'}) — WhatsApp não enviado`)
     return false
   }
+
   const ordem = [...ORDEM_AGENDAMENTO]
   const { params, faltando } = buildBodyParams(tpl.components, values, ordem)
   if (faltando.length) {

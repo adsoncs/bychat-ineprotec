@@ -91,6 +91,39 @@ export function conexaoTemAds(scopes: string | null | undefined): boolean {
 }
 
 
+/**
+ * O que esta instalação pede ao Google.
+ *
+ * Pedir tudo de uma vez tem um custo que só aparece na hora de publicar o app:
+ * `gmail.readonly` é escopo RESTRITO pelo Google e `adwords` é sensível, e um
+ * app externo com escopo restrito passa por verificação (vídeo, política de
+ * privacidade, semanas de análise). Numa instalação que só usa agenda, isso é
+ * pedágio à toa — e é o que trava a conexão de um cliente sem Workspace, que
+ * não tem como usar o consentimento "Interno".
+ *
+ * `GOOGLE_SCOPES` no .env lista os grupos desejados (`calendar,sheets`), ou
+ * `all`. Sem a variável, nada muda: pede tudo, como sempre pediu. A identidade
+ * entra sempre — é ela que diz de quem é a conta que autorizou.
+ */
+const GRUPOS_DE_ESCOPO: Record<string, string[]> = {
+  sheets: SCOPES_SHEETS,
+  calendar: SCOPES_CALENDAR,
+  gmail: SCOPES_GMAIL,
+  tasks: SCOPES_TASKS,
+  ads: SCOPES_ADS,
+}
+
+export function escoposDesteAmbiente(): string[] {
+  const bruto = (process.env.GOOGLE_SCOPES || '').trim().toLowerCase()
+  if (!bruto || bruto === 'all') return ALL_GOOGLE_SCOPES
+  const pedidos = bruto.split(/[,\s]+/).filter(Boolean)
+  const escolhidos = pedidos.flatMap((g) => GRUPOS_DE_ESCOPO[g] ?? [])
+  // Nome de grupo errado no .env não pode virar uma conexão sem permissão
+  // nenhuma, que falha depois, no meio de um agendamento: volta para tudo.
+  if (!escolhidos.length) return ALL_GOOGLE_SCOPES
+  return [...SCOPES_IDENTITY, ...new Set(escolhidos)]
+}
+
 async function getSetting(key: string): Promise<string> {
   // env var takes precedence, then database
   const envMap: Record<string, string> = {
@@ -144,7 +177,11 @@ export async function getAuthUrl(state?: string, scopeSet?: string | null): Prom
   return client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: [...scopesFor(scopeSet)],
+    // Duas limitações que convivem: `escoposDesteAmbiente()` corta por
+    // INSTALAÇÃO (GOOGLE_SCOPES no .env) e `scopeSet` corta por FINALIDADE da
+    // conexão (o botão "somente o Google Ads"). Um pedido explícito da tela
+    // manda; sem ele, vale o que o ambiente permite, como era antes.
+    scope: scopeSet ? [...scopesFor(scopeSet)] : escoposDesteAmbiente(),
     state: state || '',
   })
 }

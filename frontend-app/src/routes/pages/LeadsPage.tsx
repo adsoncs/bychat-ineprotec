@@ -54,8 +54,8 @@ import {
   type LeadsListFilters,
   type ManualLeadInput,
   type LeadHistoryEvent,
-  eventAuthorLabel,
   type LeadContactInput,
+  eventAuthorLabel,
 } from '@/hooks/useLeads'
 import { WhatsappChoiceModal, SendWhatsAppButton } from '@/components/WhatsappSend'
 import { useFunnel, useFunnels, useFunnels as useFunnelsQuery, useStages, useStagesByFunnels } from '@/hooks/useFunnels'

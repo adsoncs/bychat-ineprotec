@@ -263,7 +263,6 @@ export async function importarChat(jobId: number): Promise<void> {
           // por externalId garante que nada seja relido à toa.
           break
         }
-
         const atual = await prisma.chatImportJob.findUnique({ where: { id: jobId }, select: { status: true } })
         if (atual?.status === 'canceled') { cancelado = true; break }
 

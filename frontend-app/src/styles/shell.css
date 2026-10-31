@@ -217,11 +217,28 @@
   width: 2.5rem;
   height: 2.5rem;
   margin: 0 auto;
+  /* âncora do contador, que no rail vira um ponto sobre o ícone */
+  position: relative;
 }
 
-.app-sidebar[data-mode='rail'] .app-sidebar-item-badge,
 .app-sidebar[data-mode='rail'] .app-sidebar-group-toggle {
   display: none;
+}
+
+/* Recolhida, a barra não tem espaço para o número — o contador vira um ponto
+ * sobre o ícone. Sumir com ele esconderia justamente o aviso de que há conversa
+ * esperando; o número continua no tooltip. */
+.app-sidebar[data-mode='rail'] .app-sidebar-item-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  min-width: 0.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  font-size: 0;
+  line-height: 0;
+  overflow: hidden;
 }
 
 /* O rótulo some por opacidade, não por `display`: cortá-lo de uma vez no meio de

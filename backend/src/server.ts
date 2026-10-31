@@ -39,6 +39,7 @@ import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
 import { kommoIntegrationRoutes } from './routes/kommoIntegration.js'
 import { kommoWebhookRoutes } from './routes/kommoWebhook.js'
+import { painelGerencialRoutes } from './routes/painelGerencial.js'
 import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
 import { seiIntegrationRoutes } from './routes/seiIntegration.js'
 import { teamsRoutes } from './routes/teams.js'
@@ -97,7 +98,6 @@ import { smartBroadcastRoutes } from './routes/smartBroadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
 import { metaAdsReportRoutes } from './routes/metaAdsReport.js'
 import { funnelReportRoutes } from './routes/funnelReport.js'
-import { painelGerencialRoutes } from './routes/painelGerencial.js'
 import { trackableLinksRoutes } from './routes/trackableLinks.js'
 import { pixelRoutes } from './routes/pixel.js'
 import { educationalRoutes } from './routes/educational.js'
@@ -341,7 +341,7 @@ const TENANT_404_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Pagina nao encontrada</title>
+<title>Página não encontrada</title>
 <style>
   /* Mesma paleta do tema claro do painel (tokens.css): fundo quase-branco
      #F5F7FA, card branco puro, azul de marca #0057C0 (--color-accent). */
@@ -364,7 +364,7 @@ const TENANT_404_HTML = `<!doctype html>
     color: #0057C0;
   }
   h1 { font-size: 19px; margin: 16px 0 8px; color: #1c2333; font-weight: 600; }
-  p { font-size: 14px; color: #64748b; margin: 0 0 26px; line-height: 1.5; }
+  p { font-size: 14px; color: #64748b; margin: 0 0 28px; line-height: 1.5; }
   .links { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   a.tile {
     display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -381,8 +381,8 @@ const TENANT_404_HTML = `<!doctype html>
 <body>
   <div class="card">
     <div class="code">404</div>
-    <h1>Essa pagina nao existe</h1>
-    <p>O endereco que voce digitou nao foi encontrado. Aqui estao alguns caminhos para voltar ao sistema:</p>
+    <h1>Essa página não existe</h1>
+    <p>O endereço que você digitou não foi encontrado. Aqui estão alguns caminhos para voltar ao sistema:</p>
     <div class="links">
       <a class="tile primary" href="/app">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
@@ -390,7 +390,7 @@ const TENANT_404_HTML = `<!doctype html>
       </a>
       <a class="tile" href="/app/dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M12 20V4"/><path d="M20 20v-7"/></svg>
-        <span>Visao geral</span>
+        <span>Visão geral</span>
       </a>
       <a class="tile" href="/app/kanban">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M9 4v17"/><path d="M15 4v17"/></svg>
@@ -591,8 +591,8 @@ app.addHook('preHandler', async (req) => {
 
 // ── CSRF PROTECTION ─────────────────────────────
 // CORS_ORIGIN/APP_URL aceitam LISTA separada por vírgula — durante o rebrand
-// ByChat→Attrae o tenant responde no domínio novo E no antigo, e sem isto o
-// login no domínio novo levaria 403 do guard de CSRF abaixo.
+// ByChat→Attrae o painel responde nos dois domínios, e sem isso o login em
+// attrae.com.br/app levaria 403 do guard de CSRF abaixo.
 const ALLOWED_ORIGINS = [
   ...(process.env.CORS_ORIGIN || '').split(',').filter(Boolean),
   ...(process.env.APP_URL || '').split(',').filter(Boolean),
@@ -869,7 +869,6 @@ await app.register(securityRoutes)
 await app.register(leadBlocklistRoutes)
 await app.register(metaAdsReportRoutes)
 await app.register(funnelReportRoutes)
-await app.register(painelGerencialRoutes)
 await app.register(trackableLinksRoutes)
 await app.register(pixelRoutes)
 await app.register(educationalRoutes)
@@ -931,6 +930,7 @@ await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
 await app.register(kommoWebhookRoutes)
+await app.register(painelGerencialRoutes)
 await app.register(crmEduIntegrationRoutes)
 await app.register(seiIntegrationRoutes)
 await app.register(helpdeskRoutes)
@@ -1160,22 +1160,30 @@ async function serveHtmlWithInjections(_req: any, reply: any) {
   return reply.code(404).type('text/html').send(TENANT_404_HTML)
 }
 
-// ── LANDING INSTITUCIONAL (bychat.ia.br) ──────────
-// A vitrine de vendas pública só é servida no host institucional. Tenants
+// ── LANDING INSTITUCIONAL (attrae.com.br + bychat.ia.br) ──────────
+// A vitrine de vendas pública só é servida nos hosts institucionais. Tenants
 // (ex.: vantari.bychat.ia.br) mantêm o comportamento legado (login/app).
-// Host derivado de MARKETING_HOST ou, na ausência, do hostname de APP_URL.
-function resolveMarketingHost(): string | null {
+// Hosts derivados de MARKETING_HOST ou, na ausência, do hostname de APP_URL.
+// MARKETING_HOST aceita LISTA separada por vírgula: durante o rebrand
+// ByChat→Attrae os dois domínios servem a mesma landing.
+function resolveMarketingHosts(): string[] {
   const explicit = process.env.MARKETING_HOST?.trim()
-  if (explicit) return explicit.toLowerCase()
+  if (explicit) {
+    return explicit
+      .split(',')
+      .map(h => h.trim().toLowerCase())
+      .filter(Boolean)
+  }
   const appUrl = process.env.APP_URL?.trim()
-  if (!appUrl) return null
+  if (!appUrl) return []
   try {
-    return new URL(appUrl).hostname.toLowerCase()
+    return [new URL(appUrl).hostname.toLowerCase()]
   } catch {
-    return null
+    return []
   }
 }
-const MARKETING_HOST = resolveMarketingHost()
+const MARKETING_HOSTS = resolveMarketingHosts()
+const isMarketingHost = (host: string): boolean => MARKETING_HOSTS.includes(host)
 
 // Contatos da landing — editáveis por painel (SUPERADMIN) sem rebuild.
 // Defaults espelham frontend-app/src/landing/landing.copy.ts e o endpoint
@@ -1264,9 +1272,9 @@ app.get('/', async (req, reply) => {
   }
   const host = String(req.headers.host || '').split(':')[0].toLowerCase()
   // Vitrine pública só na instalação PRINCIPAL (MARKETING_HOST explícito).
-  // O `isPrimaryInstall()` evita que filhas, onde resolveMarketingHost()
-  // cai no fallback do APP_URL (host === MARKETING_HOST), sirvam a landing.
-  if (isPrimaryInstall() && MARKETING_HOST && host === MARKETING_HOST) {
+  // O `isPrimaryInstall()` evita que filhas, onde resolveMarketingHosts()
+  // cai no fallback do APP_URL (host na lista), sirvam a landing.
+  if (isPrimaryInstall() && isMarketingHost(host)) {
     const served = await serveLandingPage(reply)
     if (served !== null) return served
     // Landing não buildada → cai no comportamento legado abaixo.
@@ -1286,7 +1294,7 @@ app.get('/', async (req, reply) => {
 // institucional. Filhas (tenants) redirecionam pro app.
 async function serveEducationalLanding(req: any, reply: any) {
   const host = String(req.headers.host || '').split(':')[0].toLowerCase()
-  if (isPrimaryInstall() && MARKETING_HOST && host === MARKETING_HOST) {
+  if (isPrimaryInstall() && isMarketingHost(host)) {
     const served = await serveLandingPage(reply, 'educacional.html')
     if (served !== null) return served
   }
@@ -1512,7 +1520,7 @@ import('./services/profilePictureSync.js')
     .then(m => { m.startKommoWorker(); m.startKommoCron() })
     .catch(err => console.warn('[kommoSync] init falhou:', err?.message || err))
   // Conversas da Kommo em tempo real: o webhook é o caminho rápido, este ciclo
-  // é a rede de segurança para quando o aviso não chega.
+  // é a rede de segurança para quando o aviso não chega. Sem token de chats, não faz nada.
   import('./services/kommoTalksLive.js')
     .then(m => m.startKommoTalksLive())
     .catch(err => console.warn('[kommo-live] init falhou:', err?.message || err))
@@ -1562,15 +1570,21 @@ import('./services/profilePictureSync.js')
   // Nome que a EMPRESA salvou na agenda do WhatsApp conectado → nome do lead.
   // Roda em segundo plano porque é uma varredura por instância; só melhora
   // nomes fracos (telefone/pushName), nunca o que um humano digitou.
+  import('./services/whatsappAgendaSync.js')
+    .then(m => m.startAgendaSyncJob())
+    .catch(err => console.warn('[agendaSync] init falhou:', err?.message || err))
+  // Lead parado: sinaliza (evento lead.stale) quem não dá sinal há dias, para um
+  // fluxo do painel decidir o destino. Complementa o encerramento por
+  // inatividade, que só enxerga lead vinculado a chatbot.
+  import('./services/leadStaleSweep.js')
+    .then(m => m.startLeadStaleSweep())
+    .catch(err => console.warn('[leadStale] init falhou:', err?.message || err))
   // Número sem WhatsApp: confere o telefone de todo lead novo e marca o que não
   // existe. O operador via o problema só ao tentar falar — e pela Cloud API nem
   // isso, porque lá a Meta aceita o envio e nunca entrega.
   import('./services/whatsappNumberCheck.js')
     .then(m => m.startWhatsAppNumberCheck())
     .catch(err => console.warn('[waCheck] init falhou:', err?.message || err))
-  import('./services/whatsappAgendaSync.js')
-    .then(m => m.startAgendaSyncJob())
-    .catch(err => console.warn('[agendaSync] init falhou:', err?.message || err))
   // Backfill UIDs para leads existentes
   backfillUids().then(n => { if (n > 0) console.log(`✅ UIDs gerados para ${n} leads existentes`) }).catch(() => {})
 } catch (err) {

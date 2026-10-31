@@ -22,10 +22,12 @@ import { getActiveMeetingType, getMeetingTypeSlots } from './schedulingService.j
 import { getBusinessHoursConfig, isWithinBusinessHours } from './businessHours.js'
 import { interpolate } from '../lib/interpolate.js'
 import { msg, questionText, stripTags } from './scriptedChatbotFlow.js'
+import { quebrarEmMensagens, estiloDaJornada, type OpcoesDeEstilo } from './messageStyle.js'
 import {
   buildSystemPrompt as aiBuildSystemPrompt, llmTurn as aiLlmTurn,
-  extractOptions as aiExtractOptions, getCatalogSummary as aiGetCatalogSummary,
-  mapSelectValue as aiMapSelectValue, ferramentasDaJornada as aiFerramentas, instrucaoDepartamentoEdu,
+  extractOptions as aiExtractOptions, extrairBlocosDeOpcoes as aiBlocosDeOpcoes, getCatalogSummary as aiGetCatalogSummary,
+  mapSelectValue as aiMapSelectValue, MAX_OFERTAS_AGENDA as AI_MAX_OFERTAS_AGENDA,
+  ferramentasDaJornada as aiFerramentas, instrucaoDepartamentoEdu,
   type AiState, type LlmMsg,
 } from './aiJourneyEngine.js'
 import type { FastifyInstance } from 'fastify'
@@ -233,6 +235,13 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       return JSON.stringify({ ok: true, salvos })
     }
     if (name === 'rotear_setor') {
+      // Destino provisório (route.fallback): igual à produção, não encerra nada.
+      const rf = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+      const prov = rf ? rf.options.find((o: any) => String(o.value) === String(aiMapSelectValue(rf, String(input?.setor || '')))) : null
+      if (prov?.route?.fallback) {
+        (state as any).fallbackRoute = { teamId: prov.route.teamId, funnelId: prov.route.funnelId ?? null, label: stripTags(prov.label) }
+        return JSON.stringify({ ok: true, provisorio: true, simulacao: true, noWhatsAppReal: `destino provisório: funil ${prov.route.funnelId ?? '-'} / equipe ${prov.route.teamId ?? '-'}`, instrucao: 'Destino provisório registrado nos bastidores. NÃO diga que encaminhou nem fale de setor: siga a conversa normalmente, com o próximo passo do roteiro.' })
+      }
       const missing = missingContactPreview(form, state.answers)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de encaminhar, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
       const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
@@ -271,6 +280,17 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
         if (list.length >= 12) break
       }
       if (!list.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
+
+      // Mesma contagem da produção: o simulador tem que escalar para humano na
+      // mesma hora que o bot de verdade escalaria.
+      state.ofertasAgenda = (state.ofertasAgenda ?? 0) + 1
+      if (state.ofertasAgenda > AI_MAX_OFERTAS_AGENDA) {
+        return JSON.stringify({
+          ok: false,
+          erro: `O lead já recebeu ${AI_MAX_OFERTAS_AGENDA} ofertas de horário e não fechou nenhuma.`,
+          instrucao: 'NÃO ofereça mais horários. Chame transferir_humano agora, com pedido_do_lead=false e o motivo "não fechou horário após duas ofertas".',
+        })
+      }
       return JSON.stringify({ ok: true, horarios: list })
     }
     if (name === 'agendar') {
@@ -281,17 +301,43 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       if (!startAt) return JSON.stringify({ ok: false, erro: 'Horário inválido.', instrucao: 'Chame listar_horarios e ofereça outro.' })
       state.phase = 'done'
       const quando = mt ? fmtWhen(startAt, mt.timezone) : startAt
-      return JSON.stringify({ ok: true, quando, instrucao: 'Horário reservado (SIMULAÇÃO de preview). Confirme ao lead, de forma calorosa e curta, que o horário foi reservado. Não inclua links.' })
+
+      // Quem atenderia esse horário, pelas MESMAS regras do rodízio real: sem
+      // isso o preview treinaria a IA a confirmar sem nome, e no WhatsApp ela
+      // receberia um nome que nunca viu no teste.
+      let consultor: string | null = null
+      if (mt?.assignmentMode === 'team_routing' && mt.teamId) {
+        const { operatorsFreeAt } = await import('./schedulingService.js')
+        const inicio = new Date(startAt)
+        const fim = new Date(inicio.getTime() + mt.durationMin * 60000)
+        const livres = await operatorsFreeAt(mt.teamId, inicio, fim, mt.timezone).catch(() => [] as number[])
+        if (livres.length) {
+          const u = await prisma.user.findUnique({ where: { id: livres[0] as number }, select: { displayName: true, name: true, email: true } })
+          if (u) { const { nomeExibicao } = await import('./operatorIdentity.js'); consultor = nomeExibicao(u) }
+        }
+      } else if (mt?.ownerUserId) {
+        const u = await prisma.user.findUnique({ where: { id: mt.ownerUserId }, select: { displayName: true, name: true, email: true } })
+        if (u) { const { nomeExibicao } = await import('./operatorIdentity.js'); consultor = nomeExibicao(u) }
+      }
+
+      return JSON.stringify({
+        ok: true, quando, consultor,
+        instrucao: `Horário reservado (SIMULAÇÃO de preview).${consultor ? ` Quem conduz a reunião é ${consultor} — use ESTE nome ao confirmar.` : ' Sem consultor definido: fale em "um dos nossos consultores", nunca invente um nome.'} Confirme ao lead, de forma calorosa e curta. Não inclua links.`,
+      })
     }
     if (name === 'encerrar') { state.phase = input?.qualificado === false ? 'disqualified' : 'done'; return JSON.stringify({ ok: true }) }
     if (name === 'transferir_humano') {
-      const missing = input?.sensivel === true ? [] : missingContactPreview(form, state.answers)
+      // Espelha a produção: quem PEDIU um humano (ou perdeu a paciência, ou pediu
+      // proposta) não é interrogado antes — transfere na hora.
+      const missing = input?.pedido_do_lead || input?.sensivel === true ? [] : missingContactPreview(form, state.answers)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de transferir, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
       if (input?.sensivel === true) {
-        state.phase = 'done'
+        state.phase = 'handoff'
         return JSON.stringify({ ok: true, sensivel: true, simulacao: true, noWhatsAppReal: 'nota de insatisfação gravada e IA pausada nesta conversa', instrucao: 'Responda UMA única mensagem curta: acolha sem julgar, diga que uma pessoa da equipe vai assumir o atendimento por aqui e encerre. NÃO concorde com acusações nem dê razão contra a instituição, NÃO avalie o mérito, NÃO sugira outros canais, órgãos ou medidas, NÃO prometa prazo.' })
       }
-      state.phase = 'done'
+      // 'handoff', não 'done': a jornada não morreu, o humano é que assume. Marcar
+      // 'done' aqui fazia o teste terminar num estado que a produção não usa.
+      state.phase = 'handoff'
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
     if (name === 'consultar_catalogo') {
@@ -306,6 +352,17 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
     }
     return JSON.stringify({ ok: false, erro: 'ferramenta desconhecida' })
   } catch { return JSON.stringify({ ok: false, erro: 'falha ao executar a ação' }) }
+}
+
+/** Empurra um turno da IA no preview já quebrado em mensagens; as opções vão na
+ *  última, como no envio real. Devolve false quando não sobrou nada a mostrar. */
+function empurrarMensagens(out: string[], texto: string, options: string[], estilo: OpcoesDeEstilo = {}): boolean {
+  const partes = quebrarEmMensagens(texto, estilo)
+  if (!partes.length) return false
+  const ultima = partes[partes.length - 1] as string
+  for (const parte of partes.slice(0, -1)) out.push(parte)
+  out.push(options.length ? `${ultima}\n\n${options.map((o, idx) => `${idx + 1}) ${o}`).join('\n')}` : ultima)
+  return true
 }
 
 // Roda o loop de orquestração da IA (LLM → ferramentas → LLM) até uma resposta de texto.
@@ -324,8 +381,12 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   const eduBloco = edu
     ? protocoloEdu(await resumoDoCatalogo(sess.app!).catch(() => ''), await contextoDoLead(sess.contextLeadId ?? null).catch(() => ''), true)
     : null
-  const bh = edu ? await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null) : undefined
-  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, eduBloco)
+  const bh = edu ? await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null) : null
+  // Marca vai junto no preview também: sem ela, {{brand_name}} sairia vazio no
+  // simulador e o teste mostraria um texto que não é o que o lead vai ler.
+  const { getBranding } = await import('../lib/branding.js')
+  const marca = await getBranding().catch(() => null)
+  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco)
   const tools = aiFerramentas(form)
   let replied = false
   let cobrouEncaminhamento = false
@@ -343,9 +404,13 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
         messages.push({ role: 'user', content: LEMBRETE_ROTEAR })
         continue
       }
-      const { text: t, options } = aiExtractOptions(turn.text)
-      const body = options.length ? `${t}\n\n${options.map((o, idx) => `${idx + 1}) ${o}`).join('\n')}` : t
-      if (body) { out.push(body); messages.push({ role: 'assistant', content: turn.text }); replied = true }
+      const blocos = aiBlocosDeOpcoes(turn.text)
+      // Mesmas regras de escrita da produção (services/messageStyle.ts): o
+      // simulador tem que mostrar a conversa QUEBRADA como o lead vai receber,
+      // senão testa-se um formato que não é o que sai no WhatsApp.
+      let mostrou = false
+      for (const b of blocos) if (empurrarMensagens(out, b.text, b.options, estiloDaJornada(form))) mostrou = true
+      if (mostrou) { messages.push({ role: 'assistant', content: turn.text }); replied = true }
       break
     }
     // Texto escrito JUNTO da chamada de ferramenta: mostra antes de executar as
@@ -354,8 +419,7 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     // prompt o que era só o simulador descartando o que a IA tinha escrito.
     if (turn.text.trim() && !edu) {
       const { text: pre, options: preOpts } = aiExtractOptions(turn.text)
-      const body = preOpts.length ? `${pre}\n\n${preOpts.map((o: string, idx: number) => `${idx + 1}) ${o}`).join('\n')}` : pre
-      if (body) { out.push(body); replied = true }
+      if (empurrarMensagens(out, pre, preOpts, estiloDaJornada(form))) replied = true
     }
 
     messages.push({ role: 'assistant', content: edu ? semTextoDeEspera(turn.assistant) : turn.assistant })
@@ -381,7 +445,7 @@ export interface PreviewResult { sessionId: string; messages: string[]; phase: s
 
 export async function startPreview(
   chatbotId: number,
-  opts: { app?: FastifyInstance; contextLeadId?: number | null } = {},
+  opts: { app?: FastifyInstance; contextLeadId?: number | null; primeiraMensagem?: string } = {},
 ): Promise<PreviewResult | { error: string }> {
   gc()
   const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } })
@@ -401,7 +465,9 @@ export async function startPreview(
     const aform = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (!aform || !Array.isArray((aform as any).fields)) return { error: 'Formulário do chatbot não encontrado' }
     const aiState: AiState = { leadId: null, phase: 'active', answers: {} }
-    const aiMessages: LlmMsg[] = [{ role: 'user', content: 'Olá' }]
+    // A conversa abre com o que o lead escreveu primeiro ("Olá", se não vier
+    // nada): é como testar a mensagem que já chega dizendo o que a pessoa quer.
+    const aiMessages: LlmMsg[] = [{ role: 'user', content: opts.primeiraMensagem?.trim() || 'Olá' }]
     const sess: PreviewSession = { chatbotId, chatbot, form: aform, kind: 'ai', state: { stepIndex: 0, answers: {}, phase: 'asking', fallbackCount: 0 }, aiState, aiMessages, app: opts.app, contextLeadId: opts.contextLeadId ?? null, createdAt: Date.now() }
     await runAiLoop(sess, out)
     const sid = genId()

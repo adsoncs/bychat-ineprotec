@@ -74,7 +74,9 @@ export async function pauseBotForHuman(
     actorType: operator.userId ? 'operator' : 'system',
     userId: operator.userId ?? undefined,
     userName: operator.userName ?? undefined,
-    description: 'O operador respondeu ao lead; o chatbot não responde mais nesta conversa até ser devolvido manualmente.',
+    description: opts.sensivel
+      ? 'A IA identificou insatisfação ou um caso fora da alçada dela e saiu da conversa; só a equipe responde até devolver ao bot.'
+      : 'O operador respondeu ao lead; o chatbot não responde mais nesta conversa até ser devolvido manualmente.',
   })
   return true
 }

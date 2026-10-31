@@ -126,6 +126,10 @@ async function checkInactiveLeads(): Promise<void> {
     const now = new Date()
 
     for (const bot of chatbots) {
+      if (bot.inactivityAction === 'ai_reactivate') {
+        await reativarComIa(bot, now).catch((e) => console.error(`[Inactivity] reativação com IA (bot ${bot.id}):`, e))
+        continue
+      }
       const timeoutMin = bot.inactivityTimeoutMin || 60
       const action = bot.inactivityAction || 'notify'
       const message = bot.inactivityMessage || ''
@@ -236,6 +240,99 @@ async function checkInactiveLeads(): Promise<void> {
     console.error('[Inactivity] Check failed:', err)
   } finally {
     varrendo = false
+  }
+}
+
+// ── Reativar com IA e transferir (ação 'ai_reactivate', Jornada IA) ─────────
+// Conversa parada = a última mensagem é da IA e a pessoa não respondeu. Cada
+// silêncio tem até `inactivityMaxRetries` reativações escritas pela IA, no ponto
+// em que a conversa parou (aiJourneyEngine.reativarConversaComIa). Sem resposta
+// depois da última, a conversa vai para uma pessoa: o destino provisório da
+// primeira escolha (fallbackRoute) ou a equipe do lead, com o funil junto.
+//   inactivityTimeoutMin    → espera antes da 1ª reativação
+//   inactivityCloseAfterMin → espera entre as reativações e antes de transferir
+// Só manda dentro das 24h do WhatsApp desde a última mensagem da pessoa (fora
+// disso a Meta só aceita modelo aprovado) e só entre 8h e 21h (Brasília); a
+// madrugada espera. Sem janela, transfere sem mandar nada.
+const JANELA_WHATSAPP_MS = 24 * 60 * 60 * 1000
+const MARGEM_JANELA_MS = 10 * 60 * 1000
+
+function horaDeBrasilia(d: Date): number {
+  return Number(new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }).format(d))
+}
+
+/** `soLeadId`: só esse lead (teste do fluxo sem tocar nas conversas reais). */
+export async function reativarComIa(bot: any, now: Date, soLeadId?: number): Promise<void> {
+  if (bot.mode !== 'ai_journey' || !bot.formId) return
+  const form = await prisma.form.findUnique({ where: { id: bot.formId } })
+  if (!form) return
+  const primeiraMs = (bot.inactivityTimeoutMin || 30) * 60 * 1000
+  const intervaloMs = (bot.inactivityCloseAfterMin || 120) * 60 * 1000
+  const maximo = Math.max(1, bot.inactivityMaxRetries ?? 2)
+  const horaBoa = (() => { const h = horaDeBrasilia(now); return h >= 8 && h < 21 })()
+  // Vale só para conversas que pararam DEPOIS de a reativação ser ligada: ligar
+  // não pode disparar mensagem para todo mundo que ficou em silêncio no dia.
+  const chave = `inatividade.ia.desde.${bot.id}`
+  let desde = (await prisma.setting.findUnique({ where: { key: chave } }).catch(() => null))?.value as any
+  if (!desde) {
+    desde = now.toISOString()
+    await prisma.setting.create({ data: { key: chave, value: desde, label: `Reativação com IA do chatbot ${bot.id}: vale para conversas paradas a partir de`, grp: 'chatbot' } }).catch(() => {})
+  }
+  const ligadaEm = new Date(String(desde))
+
+  const leads = await prisma.lead.findMany({
+    where: {
+      chatbotId: bot.id, completed: false, outcome: null,
+      ...(soLeadId ? { id: soLeadId } : {}),
+      lastMessageAt: { gte: new Date(now.getTime() - JANELA_WHATSAPP_MS - intervaloMs), lt: new Date(now.getTime() - primeiraMs) },
+    },
+    select: { id: true, whatsapp: true, teamId: true, formData: true },
+    orderBy: { lastMessageAt: 'asc' },
+    take: 50,
+  })
+
+  const { readBotPause } = await import('./botTakeover.js')
+  for (const lead of leads) {
+    const fd: any = lead.formData || {}
+    const state = fd._aiJourney
+    if (!lead.whatsapp || !state || state.phase !== 'active' || readBotPause(fd)) continue
+
+    const ultima = await prisma.message.findFirst({ where: { leadId: lead.id, isInternal: false }, orderBy: { id: 'desc' }, select: { id: true, fromMe: true, timestamp: true, senderName: true } })
+    if (!ultima?.fromMe || ultima.senderName !== bot.name) continue // respondeu, ou quem falou por último foi uma pessoa da equipe
+    if (new Date(ultima.timestamp) < ligadaEm && !fd._reativacao) continue
+    const daPessoa = await prisma.message.findFirst({ where: { leadId: lead.id, isInternal: false, fromMe: false }, orderBy: { id: 'desc' }, select: { id: true, timestamp: true } })
+    if (!daPessoa) continue
+
+    // Um ciclo por silêncio: a pessoa respondeu depois da última reativação, zera.
+    const reat = fd._reativacao && fd._reativacao.desde === daPessoa.id ? fd._reativacao : { desde: daPessoa.id, n: 0 }
+    const espera = reat.n === 0 ? primeiraMs : intervaloMs
+    if (now.getTime() - new Date(ultima.timestamp).getTime() < espera) continue
+
+    const janelaAberta = now.getTime() - new Date(daPessoa.timestamp).getTime() < JANELA_WHATSAPP_MS - MARGEM_JANELA_MS
+    if (reat.n < maximo && janelaAberta) {
+      if (!horaBoa) continue
+      const { reativarConversaComIa } = await import('./aiJourneyEngine.js')
+      const enviou = await reativarConversaComIa(lead.id, bot, form, reat.n + 1, maximo).catch((e) => { console.warn(`[Inactivity] lead #${lead.id}:`, e?.message || e); return false })
+      if (!enviou) continue
+      const atual: any = (await prisma.lead.findUnique({ where: { id: lead.id }, select: { formData: true } }))?.formData || {}
+      await prisma.lead.update({ where: { id: lead.id }, data: { inactiveNotifiedAt: now, formData: { ...atual, _reativacao: { desde: daPessoa.id, n: reat.n + 1, em: now.toISOString() } } } })
+      logEvent({ leadId: lead.id, type: EVENT_TYPES.INACTIVITY_NOTIFIED, category: 'system', title: `Reativação ${reat.n + 1}/${maximo} enviada pela IA`, channel: 'whatsapp', source: 'inactivity_service', actorType: 'system', metadata: { tentativa: reat.n + 1, maximo, chatbotId: bot.id } })
+      continue
+    }
+
+    // Sem resposta depois da última reativação (ou janela do WhatsApp fechada): uma pessoa assume.
+    const destino = state.fallbackRoute?.teamId ? state.fallbackRoute : (lead.teamId ? { teamId: lead.teamId, funnelId: null } : null)
+    let equipe = ''
+    if (destino) {
+      const { enviarParaEquipe } = await import('./encaminharEquipe.js')
+      await enviarParaEquipe(lead.id, { teamId: destino.teamId, funnelId: destino.funnelId }, 'inactivity')
+      equipe = (await prisma.team.findUnique({ where: { id: destino.teamId }, select: { name: true } }))?.name || ''
+    }
+    const atual: any = (await prisma.lead.findUnique({ where: { id: lead.id }, select: { formData: true } }))?.formData || {}
+    await prisma.lead.update({ where: { id: lead.id }, data: { formData: { ...atual, _aiJourney: { ...(atual._aiJourney || state), phase: 'handoff' }, _reativacao: { ...reat, transferidoEm: now.toISOString() } } } })
+    const motivo = janelaAberta ? `sem resposta depois de ${maximo} reativações` : 'sem resposta e fora da janela de 24h do WhatsApp'
+    await prisma.message.create({ data: { leadId: lead.id, fromMe: true, isInternal: true, body: `🔔 ${bot.name}: ${motivo}. Conversa transferida${equipe ? ` para ${equipe}` : ''} para uma pessoa da equipe continuar.`, senderName: bot.name, timestamp: now } }).catch(() => {})
+    logEvent({ leadId: lead.id, type: EVENT_TYPES.INACTIVITY_CLOSED, category: 'system', title: `Transferido para humano: ${motivo}`, channel: 'whatsapp', source: 'inactivity_service', actorType: 'system', metadata: { equipe, teamId: destino?.teamId ?? null, chatbotId: bot.id } })
   }
 }
 

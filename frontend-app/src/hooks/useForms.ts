@@ -178,6 +178,8 @@ export interface FormOptionRoute {
   stageKey?: string | null | undefined
   teamId?: number | null | undefined
   userIds?: number[] | undefined
+  /** Destino provisório da 1ª escolha na Jornada IA (não encerra a conversa). */
+  fallback?: boolean | undefined
   [extra: string]: unknown
 }
 

@@ -41,6 +41,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'message.received',              label: '📥 Mensagem recebida',             category: 'message' },
   { value: 'message.sent',                  label: '📤 Mensagem enviada',              category: 'message' },
   { value: 'inactivity.detected',           label: '⏱️ Inatividade detectada',         category: 'message' },
+  { value: 'lead.stale',                    label: '🕸️ Lead parado (sem resposta há dias)', category: 'lead' },
   { value: 'inactivity.closed',             label: '⏱️ Conversa fechada por inatividade', category: 'message' },
 
   // ── Atividades & chatbot ─────────────────────────────────

@@ -1036,9 +1036,19 @@ function OptionRouteEditor({ value, onChange }: {
         <p class="text-3xs text-warning">Sem etapa o lead não muda de funil.</p>
       )}
       {teamId != null && (
+        <label class="flex items-start gap-2 text-sm cursor-pointer">
+          <input type="checkbox" class="size-4 mt-0.5 accent-accent" checked={!!route.fallback}
+            onInput={(e) => set({ fallback: (e.target as HTMLInputElement).checked || undefined })} />
+          <span>
+            Só destino provisório (Jornada IA)
+            <span class="block text-3xs text-fg-muted">Para a primeira escolha da conversa: o lead vai para esta equipe e funil, mas a IA continua atendendo. Se a pessoa parar de responder ou pedir uma pessoa antes de escolher o setor, é esta equipe que assume.</span>
+          </span>
+        </label>
+      )}
+      {teamId != null && (
         <div class="space-y-1">
           <span class="text-2xs font-medium text-fg-muted">Responsáveis</span>
-          <p class="text-3xs text-fg-muted">Nenhum marcado = rodízio entre toda a equipe. Marcados = só eles recebem; se nenhum estiver disponível, vai para o primeiro marcado.</p>
+          <p class="text-3xs text-fg-muted">Nenhum marcado = rodízio entre toda a equipe. Marcados = só eles recebem; se nenhum estiver disponível, vai para um dos marcados, sorteado.</p>
           {members.length === 0 && <p class="text-3xs text-fg-muted">Equipe sem membros ativos.</p>}
           <div class="grid gap-1">
             {members.map((m) => {
@@ -1068,6 +1078,7 @@ function ResumoRota({ route, onAbrir }: { route: FormOptionRoute; onAbrir: () =>
   const equipe = teamsData?.teams.find((t) => t.id === route.teamId)?.name
   const n = route.userIds?.length ?? 0
   const partes = [
+    route.fallback && 'destino provisório',
     funil && `funil ${funil}`,
     equipe && `equipe ${equipe}`,
     n > 0 && `${n} responsáve${n === 1 ? 'l' : 'is'}`,

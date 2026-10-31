@@ -49,6 +49,11 @@ function InstagramLogo({ size = 16 }: { size?: number }) {
   )
 }
 
+// Login direto pelo Instagram (fluxo v2): a Meta recusa com "Invalid
+// redirect_uri" e o app não tem os escopos instagram_business_*. Desligado até
+// isso ser resolvido — a conexão é pelo Login do Facebook (Página + Instagram).
+const LOGIN_DIRETO_IG = false
+
 export function InstagramPage() {
   const { data, isLoading } = useInstagramConnection()
   const [signupOpen, setSignupOpen] = useState(false)
@@ -125,9 +130,15 @@ export function InstagramPage() {
               )}
             </>
           ) : (
-            <Button variant="primary" size="sm" onClick={startBusinessLoginConnect}>
-              <InstagramLogo size={14} /> Conectar com Instagram
-            </Button>
+            LOGIN_DIRETO_IG ? (
+              <Button variant="primary" size="sm" onClick={startBusinessLoginConnect}>
+                <InstagramLogo size={14} /> Conectar com Instagram
+              </Button>
+            ) : (
+              <Button variant="primary" size="sm" onClick={startConnect}>
+                <Plug size={14} /> Conectar via Facebook
+              </Button>
+            )
           )}
         </>
       }
@@ -135,7 +146,7 @@ export function InstagramPage() {
       {isLoading && <Skeleton class="h-32 w-full" />}
 
       {/* Configuração OAuth (admin) — só pro fluxo novo Login API for Business */}
-      {!isLoading && isAdmin && (
+      {!isLoading && isAdmin && LOGIN_DIRETO_IG && (
         <OAuthConfigCard onConfigure={() => setConfigOpen(true)} />
       )}
 
@@ -220,6 +231,7 @@ export function InstagramPage() {
 
       {!isLoading && !data?.connected && (
         <>
+          {LOGIN_DIRETO_IG && (
           <Card class="border-accent/40 bg-accent/5">
             <div class="flex items-start gap-4">
               <div class="size-12 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center text-white shrink-0">
@@ -254,39 +266,41 @@ export function InstagramPage() {
               </div>
             </div>
           </Card>
+          )}
 
           <Card>
             <div class="space-y-3">
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <h3 class="text-sm font-semibold text-fg">Conectar via Facebook (legado)</h3>
+                  <h3 class="text-sm font-semibold text-fg">Conectar Instagram e Messenger</h3>
                   <p class="text-2xs text-fg-muted mt-0.5">
-                    Para contas que precisam permanecer vinculadas a uma Página do Facebook ou usar token de System User.
+                    Entre com o Facebook e escolha a Página e a conta do Instagram vinculada a ela.
+                    As mensagens das duas chegam em Conversas e são respondidas por aqui.
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" onClick={startConnect}>
+                <Button variant="primary" size="sm" onClick={startConnect}>
                   <Plug size={14} /> Conectar via Facebook
                 </Button>
               </div>
               <details class="text-xs text-fg-muted">
-                <summary class="cursor-pointer text-fg-muted hover:text-fg">Pré-requisitos do fluxo legado</summary>
+                <summary class="cursor-pointer text-fg-muted hover:text-fg">Pré-requisitos</summary>
                 <ul class="mt-2 space-y-1.5 pl-1">
                   <li>• Conta Instagram <strong>Business/Creator</strong> vinculada a uma Página do Facebook</li>
                   <li>• App Meta com produto <strong>Instagram messaging</strong> habilitado</li>
-                  <li>• Permissões <code>instagram_business_basic</code> + <code>instagram_business_manage_messages</code> aprovadas no app review</li>
+                  <li>• Permissões <code>instagram_basic</code>, <code>instagram_manage_messages</code> e <code>pages_messaging</code> concedidas no login</li>
                   <li>• Webhook configurado (URL + Verify Token acima)</li>
                 </ul>
               </details>
             </div>
           </Card>
 
-          <div class="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+          {LOGIN_DIRETO_IG && <div class="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
             <AlertCircle size={14} class="mt-0.5 shrink-0 text-warning" />
             <span class="text-fg-muted">
               Sem app review aprovado pelo Meta, só contas de testers configurados conseguem autorizar.
               Solicite o review dos scopes <code>instagram_business_*</code> antes de ativar para clientes finais.
             </span>
-          </div>
+          </div>}
         </>
       )}
 
@@ -344,7 +358,7 @@ export function InstagramPage() {
           },
           {
             title: '🔌 Conecte com o Instagram',
-            body: <>Botão <strong>Conectar com Instagram</strong>: abre o fluxo OAuth oficial da Meta (Login API for Business). Você loga no Facebook, autoriza a página + conta IG, e em poucos passos a integração está ativa.</>,
+            body: <>Botão <strong>Conectar via Facebook</strong>: abre o login oficial da Meta. Você entra no Facebook, escolhe a Página e a conta do Instagram vinculada a ela, autoriza as permissões e a integração fica ativa.</>,
           },
           {
             title: '💬 Recebe DMs em "Conversas"',

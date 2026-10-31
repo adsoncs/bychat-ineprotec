@@ -315,7 +315,10 @@ export interface BookInput {
 export interface BookResult {
   ok: boolean
   error?: string
-  booking?: { id: number; token: string; startAt: string; endAt: string; status: string }
+  // operatorUserId/teamId: quem ficou responsável pela reunião. No rodízio por
+  // equipe isso só é decidido dentro desta função — quem precisa DIZER o nome do
+  // consultor ao cliente depende deste retorno.
+  booking?: { id: number; token: string; startAt: string; endAt: string; status: string; operatorUserId?: number | null; teamId?: number | null }
   /** Barrado pela lista de bloqueio. Nada foi gravado; `ok` vem true de
    *  propósito, para a página pública responder como se tivesse agendado. */
   blocked?: boolean
@@ -515,7 +518,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
       utmContent: input.utm?.content ?? null,
       utmTerm: input.utm?.term ?? null,
     },
-    select: { id: true, token: true, startAt: true, endAt: true, status: true },
+    select: { id: true, token: true, startAt: true, endAt: true, status: true, operatorUserId: true },
   })
 
   await prisma.meetingType.update({ where: { id: mt.id }, data: { totalBookings: { increment: 1 } } }).catch(() => {})
@@ -606,5 +609,18 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     } as any)
   }
 
-  return { ok: true, booking: { id: booking.id, token: booking.token, startAt: booking.startAt.toISOString(), endAt: booking.endAt.toISOString(), status: booking.status } }
+  // operatorUserId/teamId vão no retorno para quem precisa DIZER quem vai
+  // atender (a IA confirmando "fica marcado com Fulano"). No rodízio por equipe
+  // quem atende só é decidido aqui dentro — sem devolver, o chamador teria de
+  // adivinhar ou consultar o booking de novo.
+  return {
+    ok: true,
+    booking: {
+      id: booking.id, token: booking.token,
+      startAt: booking.startAt.toISOString(), endAt: booking.endAt.toISOString(),
+      status: booking.status,
+      operatorUserId: booking.operatorUserId ?? null,
+      teamId: effectiveTeamId,
+    },
+  }
 }

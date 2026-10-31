@@ -45,6 +45,7 @@ import {
   MODULE_MAP,
   NATIVE_WA,
   PILLARS,
+  REBRAND,
   SEGMENTS,
   SOCIAL_PROOF,
   STACK_MAP,
@@ -915,6 +916,57 @@ export function Helpdesk() {
         </div>
       </div>
     </Section>
+  )
+}
+
+/**
+ * Página de transição do domínio ANTIGO da marca.
+ *
+ * A pedido do usuário, o endereço antigo não mostra mais o site: nada de
+ * menu, seções ou rodapé — só o anúncio da marca nova e o botão para o site
+ * novo, centralizados na tela. Quem decide exibir isto é o `LandingPage`
+ * (e a página Educacional), que chamam `isLegacyBrandHost()` ANTES de montar
+ * o site — no attrae.com.br nada disso renderiza, porque os dois domínios
+ * compartilham o mesmo build.
+ */
+export function RebrandStandalone() {
+  // flex + w-full no filho (e não `grid place-items-center`): no grid o item
+  // fica com largura AUTO, então em telas estreitas o texto empurrava a caixa
+  // para além da viewport e vazava para fora da tela no celular.
+  return (
+    <main class="flex min-h-dvh flex-col items-center justify-center bg-brand px-5 py-16 text-center text-brand-fg">
+      <div class="mx-auto w-full max-w-2xl">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-fg/15 px-3 py-1 text-xs font-bold uppercase tracking-wide">
+          <Sparkles class="size-3.5" />
+          {REBRAND.eyebrow}
+        </span>
+        {/* Hierarquia invertida: quem tem que saltar aos olhos é o nome NOVO.
+            A frase de transição vira antecedente pequeno e o nome novo ocupa a
+            tela. Continua um <h1> só — leitores de tela leem a frase inteira.
+            `break-words` protege telas estreitas do tipo em display. */}
+        <h1 class="mt-8">
+          <span class="block text-lg font-semibold text-brand-fg/70 sm:text-xl">
+            {REBRAND.title}
+          </span>
+          <span class="mt-1 block break-words text-6xl font-extrabold leading-[0.95] tracking-tighter sm:text-8xl lg:text-9xl">
+            {REBRAND.brand}
+          </span>
+        </h1>
+        <p class="mx-auto mt-8 max-w-xl text-xl font-semibold sm:text-2xl">
+          {REBRAND.headline}
+        </p>
+        <p class="mx-auto mt-4 max-w-xl text-brand-fg/85">{REBRAND.body}</p>
+        <div class="mt-10 flex justify-center">
+          <a
+            href={REBRAND.ctaHref}
+            class="inline-flex items-center justify-center gap-2 rounded-xl bg-surface px-8 py-4 text-lg font-semibold text-brand shadow-lg transition-transform hover:scale-105"
+          >
+            {REBRAND.cta}
+            <ArrowUpRight class="size-5" />
+          </a>
+        </div>
+      </div>
+    </main>
   )
 }
 

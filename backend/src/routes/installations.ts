@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { execSync, exec } from 'child_process'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, chmodSync } from 'fs'
 import { resolve } from 'path'
 import { superadminOnly } from '../lib/auth.js'
 import { isPrimaryInstall } from '../lib/install.js'
@@ -127,7 +127,9 @@ function resolveDomain(sub: string, envContent?: string | null): string {
   if (!envContent) return fallback
   const appUrlMatch = envContent.match(/^APP_URL=["']?https?:\/\/([^"'\s/]+)/m)
   if (appUrlMatch?.[1]) return appUrlMatch[1].trim()
-  const marketingMatch = envContent.match(/^MARKETING_HOST=["']?([^"'\s]+)/m)
+  // MARKETING_HOST aceita lista separada por vírgula (rebrand: bychat.ia.br,attrae.com.br).
+  // O domain do tenant é o PRIMEIRO host — por isso a vírgula encerra a captura.
+  const marketingMatch = envContent.match(/^MARKETING_HOST=["']?([^"'\s,]+)/m)
   if (marketingMatch?.[1]) return marketingMatch[1].trim().replace(/^["']|["']$/g, '')
   return fallback
 }
@@ -222,6 +224,12 @@ function listInstallations(): Installation[] {
   return installations.sort((a, b) => a.subdomain.localeCompare(b.subdomain))
 }
 
+/** Placeholder `{{X}}` que sobrou depois da substituição (lista, para o erro). */
+function semSubstituir(conteudo: string): string {
+  const restos = [...new Set(conteudo.match(/\{\{[A-Z_]+\}\}/g) ?? [])]
+  return restos.join(', ')
+}
+
 async function provision(data: ProvisionRequest, logFn: (msg: string) => void): Promise<{ success: boolean; error?: string; credentials?: any }> {
   const sub = data.subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
   if (!sub) return { success: false, error: 'Subdomínio inválido' }
@@ -236,6 +244,14 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
   const mysqlRootPass = generatePassword(20)
   const mysqlPass = generatePassword(20)
   const jwtSecret = execSync('openssl rand -base64 48', { encoding: 'utf-8' }).trim()
+  const redisPort = findFreePort(6380)
+  const redisPass = generatePassword(18)
+  // Cifra os segredos guardados no banco (Setting, token da Cloud API, OAuth).
+  // Sem ela o backend recusa criar conexão Cloud API e grava chave em claro.
+  const cloudApiTokenKey = execSync('openssl rand -hex 32', { encoding: 'utf-8' }).trim()
+  // App Meta é compartilhado por todas as instalações (ver env.template).
+  const metaAppId = process.env.META_APP_ID || ''
+  const metaAppSecret = process.env.META_APP_SECRET || ''
   const adminPass = data.adminPass || generatePassword(12)
   const adminEmail = data.adminEmail || emailPadrao()
   // adminEmail é interpolado em comandos de shell (certbot) e escrito no .env.
@@ -256,6 +272,10 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
       .replace(/\{\{MYSQL_ROOT_PASS\}\}/g, mysqlRootPass)
       .replace(/\{\{MYSQL_PASS\}\}/g, mysqlPass)
       .replace(/\{\{MYSQL_PORT\}\}/g, String(mysqlPort))
+      .replace(/\{\{REDIS_PORT\}\}/g, String(redisPort))
+      .replace(/\{\{REDIS_PASS\}\}/g, redisPass)
+    const faltaCompose = semSubstituir(composeContent)
+    if (faltaCompose) return { success: false, error: `docker-compose incompleto: ${faltaCompose}` }
     writeFileSync(`${dir}/docker-compose.yml`, composeContent)
 
     const dcResult = await runAsync('docker compose up -d', dir)
@@ -277,6 +297,17 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
     const src = getProjectSource()
     cpSync(`${src}/backend`, `${dir}/backend`, { recursive: true, filter: (s) => !s.includes('node_modules') && !s.includes('/dist/') && !s.includes('.env') })
     cpSync(`${src}/frontend`, `${dir}/frontend`, { recursive: true })
+    // O painel em si é o frontend-app (SPA em /app/*). Sem ele a instalação sobe
+    // com a API no ar e nenhuma tela.
+    cpSync(`${src}/frontend-app`, `${dir}/frontend-app`, {
+      recursive: true,
+      filter: (p) => !p.includes('node_modules') && !p.includes('/dist/'),
+    })
+    // VITE_PRIMARY_INSTALL libera Instalações/Planejamento e só vale na mãe.
+    const envFront = `${dir}/frontend-app/.env`
+    if (existsSync(envFront)) {
+      writeFileSync(envFront, readFileSync(envFront, 'utf-8').replace(/^VITE_PRIMARY_INSTALL=.*$/gm, ''))
+    }
     mkdirSync(`${dir}/uploads`, { recursive: true })
 
     // 3. Gerar .env
@@ -298,7 +329,17 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
       .replace(/\{\{ANTHROPIC_KEY\}\}/g, data.anthropicKey || '')
       .replace(/\{\{OPENAI_KEY\}\}/g, data.openaiKey || '')
       .replace(/\{\{INSTALL_DATE\}\}/g, installDate)
+      .replace(/\{\{REDIS_PORT\}\}/g, String(redisPort))
+      .replace(/\{\{REDIS_PASS\}\}/g, redisPass)
+      .replace(/\{\{CLOUD_API_TOKEN_KEY\}\}/g, cloudApiTokenKey)
+      .replace(/\{\{META_APP_ID\}\}/g, metaAppId)
+      .replace(/\{\{META_APP_SECRET\}\}/g, metaAppSecret)
+    // Placeholder que sobra vira configuração inválida silenciosa: a instalação
+    // sobe e só quebra quando o cliente usa o recurso. Melhor abortar aqui.
+    const faltaEnv = semSubstituir(envContent)
+    if (faltaEnv) return { success: false, error: `.env incompleto: ${faltaEnv}` }
     writeFileSync(`${dir}/backend/.env`, envContent)
+    chmodSync(`${dir}/backend/.env`, 0o600)
 
     // 4. Gerar ecosystem
     const ecoTemplate = readFileSync(resolve(src, 'installer/templates/ecosystem.template.cjs'), 'utf-8')
@@ -321,6 +362,18 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
     const migrateResult = await runAsync('npx prisma migrate deploy 2>&1', `${dir}/backend`)
     if (migrateResult.stdout.includes('Error') && !migrateResult.stdout.includes('already applied')) {
       return { success: false, error: `Prisma migrate falhou: ${migrateResult.stdout}` }
+    }
+
+    // 5b. Build do painel (`npx vite build` — o script do package.json roda
+    // `tsc -b` antes e ele não passa por erros de tipo pré-existentes).
+    logFn('Compilando o painel...')
+    const frontInstall = await runAsync('npm install 2>&1', `${dir}/frontend-app`)
+    if (frontInstall.code) {
+      return { success: false, error: `npm install do painel falhou: ${frontInstall.stderr || frontInstall.stdout}` }
+    }
+    const frontBuild = await runAsync('npx vite build 2>&1', `${dir}/frontend-app`)
+    if (frontBuild.code) {
+      return { success: false, error: `build do painel falhou: ${frontBuild.stdout || frontBuild.stderr}` }
     }
 
     // 6. Nginx

@@ -5,12 +5,12 @@ import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { writeFile, mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
 import { identidadeDoContato, isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
+import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { authMiddleware, adminOnly, verifyToken } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -1292,7 +1292,6 @@ export async function whatsappRoutes(app: FastifyInstance) {
                   }
                 }
               }
-
             }
           } catch { /* ignore */ }
         }

@@ -23,6 +23,7 @@ import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './sche
 import { interpolate } from '../lib/interpolate.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
 import { buildFlowSendPayload, ingestFlowResponse, flowInputFields } from './whatsappFlows.js'
+import { emitOutboundMessage } from './outboundEvents.js'
 
 // Envia um conjunto de opções como botões/lista (Cloud API) ou texto numerado
 // (fallback). textRender permite um texto de log/fallback customizado (ex.: slots).
@@ -174,6 +175,7 @@ async function _process(
       } })
       await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } })
     } catch (e) { app.log.warn(`[scriptedChatbot] save outgoing: ${e}`) }
+    emitOutboundMessage({ leadId, source: 'chatbot', channel: 'whatsapp', chatbotId: chatbotId ?? null })
   }
   const saveIncoming = async (leadId: number, body: string) => {
     try {
@@ -275,9 +277,9 @@ async function _process(
   }
 
   // ── Localiza lead + estado ──
-  // acharLeadDoContato casa por phoneKey canônico e por waLid, além da igualdade
-  // crua — a busca antiga não achava quem chegou só com LID (whatsapp fica vazio
-  // de propósito) e reabria o roteiro do zero a cada mensagem. Ver contactIdentity.ts.
+  // Casa pela identidade canônica (phoneKey) — igualdade crua em `whatsapp` erra
+  // quando o canal entrega o número sem o 9º dígito, e o roteiro recomeçava do
+  // zero numa ficha nova. Ver services/contactIdentity.ts → acharLeadDoContato.
   // Só a conversa DESTE número da empresa — ver contactIdentity → CanalDoContato.
   const canal = canalDaMensagem(provider, instanceName, cloudApiConnectionId)
   const lead = await acharLeadDoContato(phone, { canal })
@@ -506,7 +508,8 @@ export async function applyAnswerToLead(leadId: number, field: any, answers: Rec
 // se presente, é enviado como confirmação ({{opcao}} = rótulo escolhido). É um
 // no-op quando a opção não tem `route` — não afeta forms/chatbots existentes.
 // Entre operadores candidatos, escolhe o que tem menos lead aberto atribuído
-// (empate → o primeiro da lista). Serve ao rodízio por pessoa vindo da Kommo.
+// (empate → o primeiro da lista). Serve à rota que distribui por PESSOA (lista
+// `userIds` sem equipe), como o round-robin por usuário do Salesbot da Kommo.
 async function pickLeastBusyUser(userIds: number[]): Promise<number | null> {
   const ids = userIds.filter((n) => Number.isFinite(n))
   if (ids.length === 0) return null
@@ -540,17 +543,12 @@ async function applyOptionRoute(
     if (route.funnelId != null && route.stageKey) {
       await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false })
     }
-    // Destino do atendimento: equipe (rodízio pelo pickOperatorForTeam) OU uma
-    // lista explícita de operadores — `userIds` existe porque o Salesbot da Kommo
-    // distribui por USUÁRIO (round-robin entre pessoas), não por setor. Com vários,
-    // escolhemos quem tem menos lead aberto atribuído; com um, é atribuição direta.
+    // Destino: equipe (rodízio da equipe) OU uma lista explícita de operadores
+    // sem equipe — aí vai para quem tem menos lead aberto; com um, é direto.
     if (route.teamId != null || (Array.isArray(route.userIds) && route.userIds.length > 0)) {
-      let userId: number | null = null
-      if (route.teamId != null) {
-        userId = await escolherOperadorDaRota(route.teamId, route.userIds).catch(() => null)
-      } else {
-        userId = await pickLeastBusyUser(route.userIds as number[])
-      }
+      const userId = route.teamId != null
+        ? await escolherOperadorDaRota(route.teamId, route.userIds).catch(() => null)
+        : await pickLeastBusyUser(route.userIds as number[])
       await prisma.lead.update({
         where: { id: leadId },
         data: {

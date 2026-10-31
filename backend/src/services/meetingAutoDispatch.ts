@@ -63,7 +63,8 @@ export async function findDueMeetings(nowMs: number = Date.now()): Promise<DueMe
     // O agendamento de origem já está no metadata da atividade (é de lá que sai
     // o link do Meet). Levá-lo adiante é o que permite fechar a reserva sozinha
     // quando a gravação termina: sem isso o bot grava a reunião e o agendamento
-    // continua eternamente "agendado".
+    // continua eternamente "agendado", que é como 34 reuniões passadas ficaram
+    // sem desfecho nenhum.
     const bookingId = meta.bookingId ? Number(meta.bookingId) : null
     due.push({
       activityId: a.id, userId: a.userId, leadId: a.leadId ?? null,

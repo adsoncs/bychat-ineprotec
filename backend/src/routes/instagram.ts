@@ -439,11 +439,15 @@ async function parseSignedRequest(signed: string): Promise<Record<string, unknow
   if (!sigB64 || !payloadB64) throw new Error('formato inválido')
   const fromB64Url = (s: string) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
   const sig = fromB64Url(sigB64)
-  const secret = await getInstagramAppSecret()
-  const expected = createHmac('sha256', secret).update(payloadB64).digest()
-  if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) {
-    throw new Error('assinatura inválida')
-  }
+  // Quem chama pode ser o app principal (Login do Facebook) ou o produto
+  // Instagram — cada um assina com o próprio segredo (o mesmo par do webhook).
+  // Só o do Instagram era aceito: a exclusão pedida pelo app principal dava 400.
+  const segredos = await segredosDoWebhook(await getMetaAppSecret())
+  const confere = segredos.some(({ valor }) => {
+    const expected = createHmac('sha256', valor).update(payloadB64).digest()
+    return sig.length === expected.length && timingSafeEqual(sig, expected)
+  })
+  if (!confere) throw new Error('assinatura inválida')
   const payload = JSON.parse(fromB64Url(payloadB64).toString('utf8'))
   return payload as Record<string, unknown>
 }
@@ -469,6 +473,12 @@ async function debugToken(input: string): Promise<{ type?: string; expiresAt?: n
 }
 
 export async function instagramRoutes(app: FastifyInstance) {
+  // A Meta chama desautorização e exclusão de dados com o signed_request em
+  // formulário (x-www-form-urlencoded). Sem este parser o Fastify respondia 415
+  // e o pedido real nunca era atendido. Vale só para as rotas deste plugin.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(String(body ?? ''))))
+  })
   // GET /api/instagram/connection — devolve a conexão ativa, dando preferência
   // ao fluxo novo (Instagram Login API for Business).
   app.get('/api/instagram/connection', { preHandler: authMiddleware }, async () => {
@@ -753,7 +763,9 @@ export async function instagramRoutes(app: FastifyInstance) {
     const code = randomBytes(8).toString('hex')
     const appUrl = (process.env.APP_URL || `https://${req.hostname}`).replace(/\/$/, '')
     return {
-      url: `${appUrl}/app/instagram?deletion=${code}`,
+      // Página pública (routes/legal.ts): quem pediu a exclusão acompanha sem
+      // precisar entrar no painel, como a Meta exige.
+      url: `${appUrl}/exclusao-de-dados?codigo=${code}`,
       confirmation_code: code,
     }
   })

@@ -148,7 +148,7 @@ export async function autoDispatchCalendarMeetings(): Promise<number> {
       // O vigia enxerga o evento do Google, não o CRM: não conhece lead nem
       // reserva. O link do Meet é o fio comum — amarrar aqui é o que permite a
       // reunião se fechar sozinha quando a gravação termina, em vez de ficar
-      // eternamente "agendada".
+      // eternamente "agendada" como as 34 que motivaram isto.
       let bookingId: number | null = null
       try {
         const { resolverBookingPorLink } = await import('./meetingOutcome.js')

@@ -27,9 +27,10 @@ export async function tagsRoutes(app: FastifyInstance) {
   //
   // É o que a tela de Etiquetas consome. Era `adminOnly`, e isso brigava com a
   // permissão do módulo: o menu aparecia para quem tinha `tags.canView`, a
-  // página abria e a chamada voltava 403 — etiqueta nenhuma na tela, sem
-  // explicação. Quem decide o acesso é a permissão do módulo, que é onde o
-  // admin configura. Criar, editar e apagar também seguem essa permissão.
+  // página abria e a chamada voltava 403 — nenhuma etiqueta na tela, sem
+  // explicação para o operador nem para o admin que acabara de dar a permissão.
+  // Quem decide o acesso é a permissão do módulo, que é onde o admin configura.
+  // Criar, editar, apagar e reordenar também seguem a permissão do módulo.
   app.get('/api/tags/all', { preHandler: [authMiddleware, requireModule('tags', 'view')] }, async () => {
     const tags = await prisma.tag.findMany({
       orderBy: [{ position: 'asc' }, { name: 'asc' }],

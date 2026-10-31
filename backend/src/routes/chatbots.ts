@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly, type JwtPayload } from '../lib/auth.js'
+import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotChatbot } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { startPreview, messagePreview } from '../services/chatbotPreview.js'
@@ -439,7 +439,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
   })
 
   // ── Preview interativo: roda o motor REAL do chatbot em memória (sem lead/booking) ──
-  app.post('/api/chatbots/:id/preview/start', async (req, reply) => {
+  app.post('/api/chatbots/:id/preview/start', { preHandler: authMiddleware }, async (req, reply) => {
     const chatbotId = Number((req.params as any).id)
     if (isNaN(chatbotId)) return reply.code(400).send({ error: 'id inválido' })
     // Teste com o CONTEXTO de um lead real (consultor educacional): só para quem
@@ -458,7 +458,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     return reply.header('Access-Control-Allow-Origin', '*').send(r)
   })
 
-  app.post('/api/chatbots/:id/preview/message', async (req, reply) => {
+  app.post('/api/chatbots/:id/preview/message', { preHandler: authMiddleware }, async (req, reply) => {
     const { sessionId, message } = (req.body || {}) as { sessionId?: string; message?: string }
     if (!sessionId || !message) return reply.code(400).send({ error: 'sessionId e message são obrigatórios' })
     const r = await messagePreview(sessionId, message)

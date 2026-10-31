@@ -23,20 +23,55 @@ declare global {
   }
 }
 
+const CONTACT_OVERRIDE: LandingContactOverride =
+  (typeof window !== 'undefined' && window.__LANDING_CONTACT__) || {}
+
+/** Nome exibido em toda a landing — vem da instalação, nunca do código. */
+export const MARCA = (CONTACT_OVERRIDE.marca || '').trim()
+
+/**
+ * `true` num domínio ANTIGO da marca: os hosts de MARKETING_HOST que não são
+ * o principal (o servidor manda a lista em `dominiosAntigos`).
+ *
+ * Os domínios servem o MESMO build, então tudo que é específico da transição
+ * de marca depende desta checagem — sem ela o site novo exibiria avisos para
+ * ir até ele mesmo. Comparação exata (ou subdomínio): `falso<antigo>` não casa.
+ */
+export function isLegacyBrandHost(): boolean {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname.toLowerCase()
+  return (CONTACT_OVERRIDE.dominiosAntigos || []).some((d) => host === d || host.endsWith(`.${d}`))
+}
+
+/**
+ * Aviso de troca de nome — exibido SOMENTE no domínio antigo.
+ * Os domínios servem o MESMO build; no principal este bloco
+ * mandaria o visitante para a própria página em que já está, então o
+ * componente `RebrandNotice` (sections.tsx) checa o hostname antes de render.
+ */
+export const REBRAND = {
+  eyebrow: 'Novo nome, mesma plataforma',
+  title: 'Agora somos',
+  brand: MARCA,
+  headline: 'A mesma plataforma, com um novo nome.',
+  body:
+    'Mudou a marca, não a essência: a mesma plataforma, a mesma equipe e o mesmo compromisso de transformar cada real de anúncio em receita rastreada — do primeiro clique ao pagamento confirmado.',
+  cta: `Conhecer ${MARCA}`,
+  ctaHref: CONTACT_OVERRIDE.dominioPrincipal ? `https://${CONTACT_OVERRIDE.dominioPrincipal}` : '/',
+  clientNote: 'Já é cliente?',
+  clientCta: 'Acessar o painel',
+  clientHref: CONTACT_OVERRIDE.loginUrl || '/app/',
+} as const
+
 /** Fallback estático — espelha os defaults do backend (server.ts/settings.ts). */
 const CONTACT_DEFAULTS = {
   /** Número no formato internacional sem símbolos, ex: 5511999999999. */
   whatsappNumber: '5511944742843',
   whatsappMessage: 'Olá! Quero agendar uma demonstração.',
   /** Onde o botão "Entrar" leva (app servido em /app). */
-  loginUrl: '/app',
+  loginUrl: 'https://app.attrae.com.br/app/',
 }
 
-const CONTACT_OVERRIDE: LandingContactOverride =
-  (typeof window !== 'undefined' && window.__LANDING_CONTACT__) || {}
-
-/** Nome exibido em toda a landing — vem da instalação, nunca do código. */
-export const MARCA = (CONTACT_OVERRIDE.marca || '').trim()
 
 export const CONTACT = {
   whatsappNumber: CONTACT_OVERRIDE.whatsappNumber || CONTACT_DEFAULTS.whatsappNumber,

@@ -78,8 +78,13 @@ export async function pixCopiaECola(opts?: { valor?: number | null; txid?: strin
 
 /** Endereço em uma linha, do jeito que vai para a mensagem. */
 export function enderecoEmLinha(c: CompanyIdentity): string {
-  const partes = [c.endereco, c.cidade && c.estado ? `${c.cidade}/${c.estado}` : c.cidade, c.cep]
-  return partes.filter((p) => (p || '').trim()).join(' — ')
+  // Espaço sobrando no cadastro vira erro visível na mensagem ao cliente:
+  // "Goiânia " com o estado colado saía "Goiânia /GO".
+  const limpar = (s: string) => (s || '').trim()
+  const cidade = limpar(c.cidade)
+  const estado = limpar(c.estado)
+  const partes = [limpar(c.endereco), cidade && estado ? `${cidade}/${estado}` : cidade, limpar(c.cep)]
+  return partes.filter(Boolean).join(' — ')
 }
 
 /**

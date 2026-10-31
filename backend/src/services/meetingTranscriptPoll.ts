@@ -149,7 +149,8 @@ export async function pollMeetingTranscripts(): Promise<{ updated: number; compl
         })
 
         // A gravação terminou, logo a reunião aconteceu: fecha o agendamento
-        // sozinho. É o único caminho de desfecho que não pede nada a ninguém.
+        // sozinho. É o único caminho de desfecho que não pede nada a ninguém —
+        // e o motivo de 34 reuniões terem ficado eternamente "agendadas".
         // Best-effort de propósito: a transcrição é o que importa aqui, e uma
         // falha ao fechar a reserva não pode derrubar o poller.
         try {

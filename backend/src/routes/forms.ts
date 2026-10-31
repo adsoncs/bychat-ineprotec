@@ -492,12 +492,13 @@ export async function formsRoutes(app: FastifyInstance) {
     const embed = (req.query as any)?.embed === '1' || (req.query as any)?.embed === 'true'
     // URLs RELATIVAS de propósito (não `APP_URL`): esta página é sempre servida
     // pelo NOSSO host — inclusive dentro de iframe, onde o iframe aponta para cá.
-    // Com APP_URL fixo, o formulário aberto num domínio e apontando para outro
-    // fazia fetch cross-origin e o navegador BLOQUEAVA por CSP (o `connect-src`
-    // não lista o outro domínio). O sintoma era o agendamento travado em
-    // "Carregando horários…" e a reserva falhando no fim. Relativo funciona em
-    // qualquer domínio. O script de EMBED (/api/forms/embed/:id.js) roda no site
-    // do cliente e continua precisando de URL absoluta — não mexer nele.
+    // Com APP_URL fixo, o formulário aberto em app.attrae.com.br chamava
+    // https://bychat.ia.br/api/... e o navegador BLOQUEAVA por CSP: o
+    // `connect-src` do nginx não lista o domínio antigo (só errors.bychat.ia.br).
+    // O sintoma era o agendamento travado em "Carregando horários…" e a reserva
+    // falhando no fim. Relativo funciona em qualquer domínio (attrae, bychat,
+    // tenant) sem cross-origin. O script de EMBED (rota /api/forms/embed/:id.js),
+    // esse sim roda no site do cliente e continua precisando de URL absoluta.
     const baseUrl = ''
     const fields: any[] = await aplicarOpcoesDeCampoPersonalizado(Array.isArray(form.fields) ? form.fields as any[] : [])
     const settings = form.settings as any || {}

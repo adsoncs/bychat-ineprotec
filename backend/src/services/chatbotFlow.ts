@@ -16,6 +16,7 @@ import { saveLeadOrigin, type OriginData } from './originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from './teamRouting.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { emitOutboundMessage } from './outboundEvents.js'
 import { textoDoSistema } from './modelosDoSistema.js'
 
 // Protocolo de opções clicáveis: injetado no system prompt só quando o canal é
@@ -218,6 +219,7 @@ export async function postJourneyAiReply(params: {
       senderName: chatbot?.name || 'IA', isInternal: false, externalId: r.messageId, ack: r.messageId ? 1 : 0, timestamp: new Date(),
     } }).catch(() => {})
     await prisma.lead.update({ where: { id: lead.id }, data: { formData: { ...fd, _postChat: history.slice(-20) }, lastMessageAt: new Date() } }).catch(() => {})
+    emitOutboundMessage({ leadId: lead.id, source: 'chatbot', channel: 'whatsapp', chatbotId: chatbot?.id ?? null })
   } catch (e: any) {
     app.log.warn(`[postChatAi] ${e?.message || e}`)
   }
@@ -290,17 +292,19 @@ export async function chatbotTriggerAllows(chatbotId: number | null | undefined,
   // Takeover humano: se um operador já respondeu a este lead pelo painel, o bot
   // NUNCA responde (pausa definitiva até devolverem pelas Conversas). Precede
   // o filtro de palavra-chave. Ver services/botTakeover.ts.
-  // Pelo número desta conversa: o takeover de um número não cala o bot do outro.
+  // Pelo phoneKey canônico: com a busca crua em `whatsapp` o bot não reconhecia a
+  // ficha do contato (número sem o 9º dígito na Cloud API) e voltava a responder
+  // por cima do operador que já tinha assumido.
   const paused = await acharLeadDoContato(phone, { reconciliar: false, canal }).catch(() => null)
   if (paused) {
     const { readBotPause } = await import('./botTakeover.js')
     if (readBotPause(paused.formData)) return false
   }
   const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { active: true, triggerMode: true, triggerKeywords: true, mode: true, formId: true } }).catch(() => null)
-  // Chatbot desativado (ou apagado) NUNCA responde — antes esta função ignorava
-  // `active` por completo: uma conexão/instância deixada com chatbotId vinculado
+  // Chatbot desativado (ou apagado) NUNCA responde — antes esta funcao ignorava
+  // `active` por completo: uma conexao/instancia deixada com chatbotId vinculado
   // continuava disparando a IA mesmo com o toggle "Inativo" na tela de Chatbots,
-  // que só bloqueava rotas de admin (widget/embed), não o atendimento real.
+  // que so bloqueava rotas de admin (widget/embed), nao o atendimento real.
   if (!cb || !cb.active) return false
   // Roteiro e jornada de IA dependem do formulário: inativo ou apagado, o bot não
   // responde e a conversa fica para a equipe. Antes caía no fluxo de conversa
@@ -382,7 +386,9 @@ export async function processChatbotMessage(
     ? chatbot.greetingMessage.replace(/\{\{attendant_name\}\}/g, attendantName).replace(/\{\{brand_name\}\}/g, brand.brandName)
     : null
 
-  // Busca ou cria lead pelo número de WhatsApp
+  // Busca ou cria lead pelo contato (identidade canônica, ver contactIdentity.ts).
+  // `somenteAbertos` é o mesmo `completed: false` da busca anterior: ficha já
+  // concluída não é retomada, o motor abre uma conversa nova.
   // Só a conversa DESTE número da empresa — ver contactIdentity → CanalDoContato.
   const canal = canalDaMensagem(provider, instanceName, cloudApiConnectionId)
   let lead = await acharLeadDoContato(phone, { somenteAbertos: true, canal })
@@ -531,6 +537,8 @@ export async function processChatbotMessage(
       app.log.warn(`Failed to save greeting message: ${msgErr}`)
     }
 
+    emitOutboundMessage({ leadId: novo.id, source: 'chatbot', channel: 'whatsapp', chatbotId: novo.chatbotId ?? chatbotId ?? null, funnelId: novo.funnelId ?? null })
+
     return { lead: novo, saudou: true }
     })
 
@@ -674,6 +682,8 @@ export async function processChatbotMessage(
         app.log.warn(`Failed to save AI response (completed): ${msgErr}`)
       }
 
+      emitOutboundMessage({ leadId: lead.id, source: 'chatbot', channel: 'whatsapp', chatbotId: lead.chatbotId ?? chatbotId ?? null, funnelId: lead.funnelId ?? null })
+
       // Update unread + lastMessageAt (completed path)
       try {
         await prisma.lead.update({
@@ -812,6 +822,8 @@ export async function processChatbotMessage(
   } catch (msgErr) {
     app.log.warn(`Failed to save AI response message: ${msgErr}`)
   }
+
+  emitOutboundMessage({ leadId: lead.id, source: 'chatbot', channel: 'whatsapp', chatbotId: lead.chatbotId ?? chatbotId ?? null, funnelId: lead.funnelId ?? null })
 
   // Increment unread and update lastMessageAt
   try {

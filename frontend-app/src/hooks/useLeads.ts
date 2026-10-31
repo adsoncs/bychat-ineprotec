@@ -10,7 +10,7 @@ import { comJustificativa } from '@/lib/justificativa'
  */
 export function getRegistrationConflict(e: unknown): { count: number; leadIds?: number[] | undefined } | null {
   if (e instanceof ApiError && e.status === 409) {
-    const p = e.payload as { error?: string; registrationCount?: number; leadIds?: number[] } | null
+    const p = e.payload as { error?: string | undefined; registrationCount?: number; leadIds?: number[] } | null
     if (p && (p.error === 'lead_has_registrations' || p.error === 'leads_have_registrations')) {
       return { count: p.registrationCount ?? 0, leadIds: p.leadIds }
     }
@@ -52,7 +52,6 @@ export interface LeadListItem {
   aiScoredAt: string | null
   status: string | null
   // Rótulo humano da etapa (Stage.name) resolvido no backend por (funnelId, status).
-  // Sempre preferir statusLabel na UI; status é a chave técnica (ex.: "kommo_143").
   statusLabel?: string | null
   source: string | null
   funnelId: number | null
@@ -70,7 +69,7 @@ export interface LeadListItem {
   // Lead Routing F6: responsável e setor
   assignedUserId?: number | null
   assignedAt?: string | null
-  assignedUser?: { id: number; name: string; email?: string } | null
+  assignedUser?: { id: number; name: string; email?: string | undefined } | null
   teamId?: number | null
   team?: { id: number; name: string; color?: string } | null
   // Colunas "Educacional" — ausente quando o módulo Educacional está desligado.
@@ -166,12 +165,12 @@ export interface LeadDetail extends LeadListItem {
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
   outcomeBy?: number | null
-  /** Quem fechou o lead. O backend resolve o usuário e envia junto. */
+  /** Quem classificou o desfecho — resolvido no GET /leads/:id (outcomeBy é escalar) */
   outcomeByUser?: { id: number; name: string | null } | null
   /** Quem estava com o lead no Ganho (comissão/placar contam por ele). */
   vendedorUser?: { id: number; name: string | null } | null
   outcomeNote?: string | null
-  lostReasonId?: number | null
+  lostReasonId?: number | null | undefined
   lostReason?: { id: number; name: string; color: string | null } | null
   // Educational fields
   studentName?: string | null

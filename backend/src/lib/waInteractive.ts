@@ -77,7 +77,7 @@ export function buildList(
 
 /**
  * Escolhe o melhor formato interativo para um conjunto de opções:
- *   ≤3 → botões | 4–10 → lista | >10 → null (chamador usa texto numerado).
+ *   ≤3 (títulos até 20) → botões | até 10 → lista | >10 → null (chamador usa texto numerado).
  */
 export function buildChoices(
   body: string,
@@ -85,13 +85,41 @@ export function buildChoices(
   opts?: { button?: string; sectionTitle?: string },
 ): any | null {
   if (!choices.length) return null
-  if (choices.length <= MAX_BUTTONS) return buildButtons(body, choices)
+  // Botão corta o título em 20; a linha da lista aceita 24. Se algum título
+  // não cabe no botão, vai como lista em vez de chegar cortado ("Sede - Pindamonhang…").
+  const cabeEmBotao = choices.every((c) => String(c.title ?? '').trim().length <= BTN_TITLE_MAX)
+  if (choices.length <= MAX_BUTTONS && cabeEmBotao) return buildButtons(body, choices)
   if (choices.length <= MAX_ROWS) return buildList(body, choices, opts)
   return null
 }
 
 /** Representação textual das opções (fallback p/ Evolution e log de auditoria). */
 export function choicesToText(body: string, choices: Choice[], hint = 'Responda com o número da opção.'): string {
-  const list = choices.map((c, i) => `${i + 1}) ${c.title}`).join('\n')
+  const list = choices
+    .map((c, i) => `${i + 1}) ${c.title}${c.description ? ` — ${c.description}` : ''}`)
+    .join('\n')
   return `${body}\n\n${list}\n\n_${hint}_`
+}
+
+/**
+ * Separa um label de opção em título curto + descrição, para caber nos limites
+ * da Meta (row title ≤ 24) sem perder informação: o resto vai para a
+ * description da row (≤ 72). Reconhece "*Nome* — descrição" (negrito) e os
+ * separadores comuns (— – : ou " - " com espaços). Sem separador reconhecido, o
+ * label inteiro vira o título (comportamento idêntico ao anterior).
+ */
+export function splitChoiceLabel(label: string | null | undefined): { title: string; description?: string } {
+  const s = String(label ?? '').trim()
+  if (!s) return { title: '' }
+  // "*Nome* — descrição": nome em negrito markdown, resto é descrição.
+  const bold = s.match(/^\*([^*]+)\*\s*(?:[—–:-]\s*)?(.*)$/)
+  if (bold && bold[1].trim()) {
+    const title = bold[1].trim()
+    const rest = bold[2].trim()
+    return rest ? { title, description: rest } : { title }
+  }
+  // "Nome — descrição" / "Nome: descrição" / "Nome - descrição" (com espaços).
+  const m = s.match(/^(.{1,24}?)\s*[—–:]\s*(.+)$/) || s.match(/^(.{1,24}?)\s+-\s+(.+)$/)
+  if (m && m[2].trim()) return { title: m[1].trim(), description: m[2].trim() }
+  return { title: s }
 }
