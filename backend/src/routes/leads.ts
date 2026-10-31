@@ -580,7 +580,10 @@ export async function leadsRoutes(app: FastifyInstance) {
       scope: { leadId: parseInt(id) },
     })
 
-    return { ok: true, lead: updated }
+    // `updated` é a fotografia de antes do desfecho automático: devolvê-la faria
+    // o card voltar sem a marcação que acabou de acontecer.
+    const final = await prisma.lead.findUnique({ where: { id: parseInt(id) } })
+    return { ok: true, lead: final ?? updated }
   })
 
   // ── POST /api/bychat/leads/:id/won ─── Classificar como Ganho ──

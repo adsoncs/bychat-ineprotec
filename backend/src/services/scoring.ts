@@ -146,7 +146,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: await getOpenAiModel(),
       max_tokens: 1200,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
     }),

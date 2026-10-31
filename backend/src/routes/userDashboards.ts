@@ -225,7 +225,11 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     // Antes "Novos leads" contava toda ficha criada: 101 no card × 42 na lista.
     const ENTRE_LEADS = { not: null }
     const leadWhere: any = { qualifiedAt: hasDate ? dateFilter : ENTRE_LEADS }
+    // Um contato só entra nos KPIs de lead depois de classificado num funil
+    // (regra "lead = funil"): conversa ainda não triada é atendimento, não
+    // geração de demanda. Com um funil escolhido, o recorte já exclui os sem funil.
     if (cfg.funnelId) leadWhere.funnelId = Number(cfg.funnelId)
+    else leadWhere.funnelId = { not: null }
 
     // Recorte por permissão (`scoped`): a Tela Inicial serve o MESMO painel a
     // papéis diferentes, então o número precisa vir pelo scope do módulo leads —

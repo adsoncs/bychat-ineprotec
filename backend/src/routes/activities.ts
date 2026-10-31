@@ -35,7 +35,9 @@ export async function activitiesRoutes(app: FastifyInstance) {
       }
 
       // Verifica se lead existe
-      const lead = await prisma.lead.findUnique({ where: { id: body.leadId }, select: { id: true, whatsapp: true, email: true, empresa: true } })
+      // Lead completo: buildLeadVars precisa de nome/segmento/cidade/scores/customFields
+      // (não só id/whatsapp/email) para resolver {{nome}}, {{aluno}}, etc. no template.
+      const lead = await prisma.lead.findUnique({ where: { id: body.leadId } })
       if (!lead) return reply.code(404).send({ error: 'Lead nao encontrado' })
 
       // Se template selecionado, substituir variaveis

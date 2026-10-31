@@ -187,7 +187,16 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       nome: lead.nome ?? '', empresa: lead.empresa ?? '', whatsapp: lead.whatsapp ?? '',
       email: lead.email ?? '', segmento: lead.segmento ?? '', cidade: lead.cidade ?? '',
     }
-    return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m: string, k: string) => map[k] ?? '')
+    // Campos personalizados do lead viram variáveis pela chave ({{filho_1_nome}},
+    // {{ano_ingresso}}…), como nos fluxos; {{aluno}} = filho_1_nome.
+    const cf = ((lead as { customFields?: unknown }).customFields ?? {}) as Record<string, unknown>
+    for (const [k, v] of Object.entries(cf)) {
+      if (v != null && v !== '' && map[k] === undefined) map[k] = String(v)
+    }
+    if (cf.filho_1_nome && !map.aluno) map.aluno = String(cf.filho_1_nome)
+    // Variável que este lead não tem fica visível no rascunho ({{x}}), para o
+    // atendente ver e completar antes de enviar — em vez de sumir sem aviso.
+    return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m: string, k: string) => (k in map ? map[k] ?? '' : `{{${k}}}`))
   }
 
   function resetComposition() {

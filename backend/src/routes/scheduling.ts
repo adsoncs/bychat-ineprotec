@@ -533,6 +533,17 @@ export async function schedulingRoutes(app: FastifyInstance) {
     const status = String(body.status || '')
     if (!['scheduled', 'confirmed', 'completed', 'no_show', 'cancelled'].includes(status)) return reply.code(400).send({ error: 'Status inválido' })
     await prisma.booking.update({ where: { id }, data: { status, ...(status === 'cancelled' ? { cancelReason: body.reason ? String(body.reason).substring(0, 255) : 'Cancelado pelo painel' } : {}) } })
+    // Cancelamento feito pelo painel avisa o lead por WhatsApp só quando o tenant
+    // pede (Setting `agendamento.avisar_cancelamento_painel` = true). O
+    // autocancelamento pelo link público já avisa sempre — é resposta à ação da
+    // própria pessoa; o do painel é decisão da equipe, então é opção.
+    if (status === 'cancelled' && bk.status !== 'cancelled') {
+      const opt = await prisma.setting.findUnique({ where: { key: 'agendamento.avisar_cancelamento_painel' } }).catch(() => null)
+      const v = String(opt?.value ?? '').replace(/"/g, '').trim().toLowerCase()
+      if (v === 'true' || v === '1') {
+        import('../services/schedulingNotify.js').then((m) => m.notifyCancelled(id)).catch(() => {})
+      }
+    }
     if (bk.activityId) {
       if (status === 'cancelled') {
         await prisma.activity.update({ where: { id: bk.activityId }, data: { status: 'cancelled' } }).catch(() => {})
