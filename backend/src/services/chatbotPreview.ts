@@ -32,6 +32,7 @@ import {
   type AiState, type LlmMsg, type ConfigJornada,
 } from './aiJourneyEngine.js'
 import type { FastifyInstance } from 'fastify'
+import { lerModoComercial, decidirModoComercial, sortearPerguntas, blocoDeQualificacao } from './journey/modoComercial.js'
 import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
 
 // O fluxo de atendimento/triagem (supportFlow) é opt-in por chatbot
@@ -347,12 +348,9 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       // 'handoff', não 'done': a jornada não morreu, o humano é que assume. Marcar
       // 'done' aqui fazia o teste terminar num estado que a produção não usa.
       state.phase = 'handoff'
-      // `ai.journey.silence_after_handoff`: na produção o bot cala depois desta fala.
-      if (cfg.calarAposTransferir) {
-        return JSON.stringify({ ok: true, encerrado: true, simulacao: true, noWhatsAppReal: 'bot pausado nesta conversa até devolverem ao bot',
-          instrucao: 'Escreva UMA última mensagem: confirme com carinho que o time responsável vai continuar o atendimento daqui e se despeça. Esta é a sua última fala nesta conversa — não faça novas perguntas nem prometa prazo.' })
-      }
-      return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
+      // Na produção o bot cala depois desta fala (sempre, desde 01/11/2026).
+      return JSON.stringify({ ok: true, encerrado: true, simulacao: true, noWhatsAppReal: 'bot pausado nesta conversa até devolverem ao bot',
+        instrucao: 'Escreva UMA última mensagem: confirme com carinho que o time responsável vai continuar o atendimento daqui e se despeça. Esta é a sua última fala nesta conversa — não faça novas perguntas nem prometa prazo.' })
     }
     if (name === 'consultar_catalogo') {
       const busca = String(input?.busca || '').trim()
@@ -401,8 +399,15 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   const { getBranding } = await import('../lib/branding.js')
   const marca = await getBranding().catch(() => null)
   const cfg = await configDaJornada()
-  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco, { cfg })
-  const tools = aiFerramentas(form, cfg)
+  // Modo comercial: mesma regra da produção (decidido ao abrir a sessão).
+  const cfgComercial = lerModoComercial(chatbot?.modoComercial)
+  const qualificando = !!cfgComercial && state.comercial?.modo === 'qualifica'
+  const equipe = qualificando && cfgComercial?.teamId
+    ? (await prisma.team.findUnique({ where: { id: cfgComercial.teamId }, select: { name: true } }).catch(() => null))?.name ?? null
+    : null
+  const qualificacao = qualificando ? blocoDeQualificacao(state.comercial?.perguntas ?? [], equipe) : null
+  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco, { cfg, qualificacao })
+  const tools = aiFerramentas(form, cfg, { qualificacao: qualificando })
   let replied = false
   let cobrouEncaminhamento = false
   for (let i = 0; i < (edu ? 10 : AI_MAX_ITERS); i++) {
@@ -463,7 +468,7 @@ export interface PreviewResult { sessionId: string; messages: string[]; phase: s
 
 export async function startPreview(
   chatbotId: number,
-  opts: { app?: FastifyInstance; contextLeadId?: number | null; primeiraMensagem?: string } = {},
+  opts: { app?: FastifyInstance; contextLeadId?: number | null; primeiraMensagem?: string; modoComercial?: 'auto' | 'qualifica' | 'completo' } = {},
 ): Promise<PreviewResult | { error: string }> {
   gc()
   const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } })
@@ -483,6 +488,16 @@ export async function startPreview(
     const aform = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (!aform || !Array.isArray((aform as any).fields)) return { error: 'Formulário do chatbot não encontrado' }
     const aiState: AiState = { leadId: null, phase: 'active', answers: {} }
+    // Modo comercial: 'auto' decide como a produção (horário + presença real);
+    // o teste pode forçar 'qualifica' ou 'completo' para ver os dois lados.
+    const cfgComercial = lerModoComercial((chatbot as any).modoComercial)
+    if (cfgComercial) {
+      const forcado = opts.modoComercial === 'qualifica' || opts.modoComercial === 'completo' ? opts.modoComercial : null
+      const d = await decidirModoComercial(cfgComercial)
+      aiState.comercial = forcado === 'qualifica'
+        ? { ...d, modo: 'qualifica', motivo: 'forçado no teste', perguntas: d.perguntas ?? sortearPerguntas(cfgComercial.perguntas, cfgComercial.minPerguntas, cfgComercial.maxPerguntas) }
+        : forcado === 'completo' ? { ...d, modo: 'completo', motivo: 'forçado no teste' } : d
+    }
     // A conversa abre com o que o lead escreveu primeiro ("Olá", se não vier
     // nada): é como testar a mensagem que já chega dizendo o que a pessoa quer.
     const aiMessages: LlmMsg[] = [{ role: 'user', content: opts.primeiraMensagem?.trim() || 'Olá' }]
@@ -546,6 +561,8 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
   // Modo ai_journey: continua o loop de IA em memória.
   if (sess.kind === 'ai') {
     if (!sess.aiState || !sess.aiMessages) return { sessionId, messages: [], phase: 'done', ended: true }
+    // Espelha a trava da produção: conversa entregue à equipe não recebe resposta da IA.
+    if (sess.aiState.phase === 'handoff') return { sessionId, messages: ['[simulação] Conversa com a equipe: a IA não responde mais aqui até devolverem ao bot.'], phase: 'handoff', ended: true }
     sess.aiMessages.push({ role: 'user', content: text })
     await runAiLoop(sess, out)
     return { sessionId, messages: out, phase: sess.aiState.phase, ended: sess.aiState.phase !== 'active' }

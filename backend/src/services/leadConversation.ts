@@ -243,8 +243,8 @@ export const conversationFilters = {
  * rodízio com outra pessoa. O VENDEDOR (Lead.vendedorUserId) também não muda.
  *
  * O contato voltando a escrever tira a conversa da fila (lib/prisma.ts) e ela
- * segue o fluxo normal: o chatbot atende (devolverAoBotAoLiberar) e encaminha —
- * mesma equipe fica com o mesmo responsável; outra equipe vai ao rodízio dela.
+ * segue com o responsável. O chatbot só atende quem não estava com humano
+ * (ver devolverAoBotAoLiberar): conversa com humano volta à IA só pelo botão.
  *
  * Chamado só pelas rotas do botão Resolver: fechamento automático (inatividade,
  * fluxo) não libera.
@@ -273,34 +273,21 @@ export async function liberarAoResolver(leadId: number, opts: OpenOpts = {}): Pr
 }
 
 /**
- * Conversa liberada volta para o CHATBOT: se o contato escrever de novo, quem
- * responde é o bot (e ele encaminha para a equipe como sempre) — não fica
- * esperando um agente na fila. Tira a pausa de "humano assumiu", o "concluído"
- * que o Resolver grava (o bot não fala com lead concluído) e reabre a jornada
- * de IA encerrada; roteiro concluído recomeça. Desqualificado continua calado.
+ * Conversa liberada ao resolver: tira o "concluído" que o Resolver grava e
+ * reabre a jornada/roteiro encerrados, para o bot poder atender quem nunca
+ * passou por um humano.
+ *
+ * NÃO devolve ao bot uma conversa que estava com humano (01/11/2026): a pausa
+ * de "humano assumiu" e a entrega a um setor ficam. Antes, resolver tirava a
+ * pausa e o bot respondia o próximo "oi" de quem estava com o atendente — foram
+ * 46 casos em 6 dias na fabad. A volta à IA é só pelo botão "Devolver ao bot"
+ * (botTakeover.resumeBot). Desqualificado continua calado.
  */
 async function devolverAoBotAoLiberar(leadId: number): Promise<void> {
   const l = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
   if (!l) return
   const fd: any = { ...((l.formData || {}) as object) }
-  // Caso sensível (insatisfação passada à equipe pela IA) não volta para o bot
-  // nem resolvido: quem decide é a pessoa, pelo botão de devolver ao bot.
-  if (fd._botPaused?.sensivel === true || fd._botPaused?.setor === 'caso sensível') return
-  const pausado = !!fd._botPaused
-  delete fd._botPaused
   if (fd._aiJourney && typeof fd._aiJourney === 'object' && fd._aiJourney.phase === 'done') fd._aiJourney = { ...fd._aiJourney, phase: 'active' }
   if (fd._script && typeof fd._script === 'object' && fd._script.phase === 'done') delete fd._script
   await prisma.lead.update({ where: { id: leadId }, data: { formData: fd, completed: false } })
-  if (pausado) {
-    const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
-    logEvent({
-      leadId,
-      type: EVENT_TYPES.BOT_RESUMED,
-      category: 'system',
-      title: 'Chatbot reativado — conversa liberada ao resolver',
-      source: 'panel',
-      actorType: 'system',
-      description: 'Se o contato voltar a escrever, o chatbot atende e encaminha para a equipe.',
-    })
-  }
 }

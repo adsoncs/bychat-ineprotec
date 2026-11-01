@@ -897,6 +897,13 @@ model Chatbot {
   // Ver services/scriptedSupportFlow.ts (getSupportCfg) e hrResumeIntake.ts.
   scriptedConfig Json? @db.Json
 
+  // Modo comercial da jornada de IA (null = a IA atende 100% do tempo).
+  // { modo: 'integral' | 'fora_do_horario', teamId, perguntas: string[],
+  //   minPerguntas, maxPerguntas, presencaMinutos }
+  // 'fora_do_horario': com a equipe comercial no horário E alguém dela online,
+  // a IA só qualifica e passa para a equipe. Ver services/journey/modoComercial.ts.
+  modoComercial Json? @db.Json
+
   // Portal de matrícula vinculado — ao completar conversa, envia link pré-preenchido.
   enrollmentPortalId Int?
 

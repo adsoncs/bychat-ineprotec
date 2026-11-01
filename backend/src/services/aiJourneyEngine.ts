@@ -13,6 +13,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { registrarUsoIA } from '../lib/consumo.js'
+import { iaPodeFalar } from './botTakeover.js'
+import { lerModoComercial, decidirModoComercial, eNovoAtendimento, blocoDeQualificacao, type DecisaoComercial } from './journey/modoComercial.js'
 import { matriculaPeloChatLigada, matriculaPorLink, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA, PROTOCOLO_MATRICULA_POR_LINK, semSecaoDeMatricula } from './journey/eduSdr.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
@@ -73,8 +75,9 @@ const EDU_JANELA_MAX_MS = 12000
 //                                                anterior no prompt), em vez de silenciar
 //   ai.journey.handoff_contact     string  'form' 'nome_whatsapp' = para encaminhar basta
 //                                                nome + WhatsApp (não cobra e-mail/cidade)
-//   ai.journey.silence_after_handoff bool  false transferir_humano dá a última mensagem
-//                                                e CALA o bot até devolverem a conversa
+//   ai.journey.silence_after_handoff bool  false (desde 01/11/2026 é SEMPRE assim:
+//                                                transferir_humano dá a última mensagem e
+//                                                cala o bot até devolverem a conversa)
 //   ai.journey.agenda_by_date      bool    false listar_horarios aceita data/período,
 //                                                devolve "hoje"/"amanhã" e calendário de
 //                                                14 dias, recusa data passada
@@ -196,6 +199,8 @@ interface AiState {
    * escolher o setor. Ver services/inactivity.ts (reativação com IA).
    */
   fallbackRoute?: { teamId: number; funnelId: number | null; label?: string }
+  /** Modo comercial decidido no começo do atendimento (journey/modoComercial). */
+  comercial?: DecisaoComercial
 }
 
 /** Ofertas de horário antes de a conversa ir para um humano (regra do roteiro).
@@ -484,7 +489,15 @@ const EDU_BASE = new Set(['salvar_dados', 'transferir_humano'])
 export function temDepartamentos(form: any): boolean {
   return (form?.fields || []).some((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
 }
-export function ferramentasDaJornada(form: any, cfg: ConfigJornada = CONFIG_JORNADA_PADRAO): ToolDef[] {
+// Modo qualificação (modo comercial com a equipe online): sem nada que inscreva,
+// cobre, mande link ou agende — isso é da equipe. Tirar a ferramenta é o que
+// garante; a instrução no prompt sozinha não bastaria.
+const SO_DA_EQUIPE_COMERCIAL = new Set([...EDU_TOOLS_MATRICULA, 'pre_inscricao_curso_indisponivel', 'listar_horarios', 'agendar'])
+export function ferramentasDaJornada(form: any, cfg: ConfigJornada = CONFIG_JORNADA_PADRAO, opts: { qualificacao?: boolean } = {}): ToolDef[] {
+  const todas = ferramentasDaJornadaCompleta(form, cfg)
+  return opts.qualificacao ? todas.filter((t) => !SO_DA_EQUIPE_COMERCIAL.has(t.name)) : todas
+}
+function ferramentasDaJornadaCompleta(form: any, cfg: ConfigJornada): ToolDef[] {
   if (!eduSdrLigado(form)) return comVariantes(TOOLS, cfg)
   // rotear_setor entra só quando há departamentos configurados: quem escreve
   // sobre boleto, histórico ou acesso à plataforma não é matrícula e tem de
@@ -504,7 +517,7 @@ export function instrucaoDepartamentoEdu(rotulo: string): string {
   // O rótulo da opção traz o escopo entre parênteses para a IA escolher; para
   // falar com a pessoa basta o nome do departamento.
   const setor = rotulo.replace(/\s*\(.*\)\s*$/, '').trim() || rotulo
-  return `Assunto encaminhado para: ${setor} (a equipe já foi atribuída). Diga à pessoa, numa mensagem curta e acolhedora, que o assunto dela fica com a equipe de ${setor} e que a equipe continua o atendimento por aqui mesmo, neste WhatsApp, em horário comercial. Se ela já contou o problema, não peça para repetir; se ainda não contou, peça que descreva em uma mensagem para a equipe já pegar com tudo. NÃO tente resolver o assunto você mesmo e NÃO chame transferir_humano depois disto.`
+  return `Assunto encaminhado para: ${setor} (a equipe já foi atribuída). Diga à pessoa, numa mensagem curta e acolhedora, que o assunto dela fica com a equipe de ${setor} e que a equipe continua o atendimento por aqui mesmo, neste WhatsApp, em horário comercial. Se ela já contou o problema, não peça para repetir; se ainda não contou, peça que descreva em uma mensagem para a equipe já pegar com tudo. NÃO tente resolver o assunto você mesmo e NÃO chame transferir_humano depois disto. Esta é a sua última mensagem nesta conversa: daqui em diante quem responde é a equipe.`
 }
 
 // ── Trilhas de entrada (rotas do mesmo bot) ─────────────────────────────────
@@ -636,6 +649,8 @@ export interface ExtrasDoPrompt {
   routeBlock?: string | null
   /** Contexto de retomada de atendimento encerrado. Tem precedência sobre a trilha. */
   resumeBlock?: string | null
+  /** Modo qualificação do modo comercial: tira a matrícula do protocolo e vai no fim. */
+  qualificacao?: string | null
 }
 
 export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, brandName?: string | null, contextoLead?: string | null, edu?: string | null, extras: ExtrasDoPrompt = {}): string {
@@ -778,7 +793,7 @@ REGRA ABSOLUTA: não cite, não repita, não resuma e não dê a entender o cont
           : greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     // Consultor educacional: o protocolo dele (portal como fonte da verdade,
     // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
-    edu ? (matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + (matriculaPorLink(form) ? PROTOCOLO_MATRICULA_POR_LINK : PROTOCOLO_SEM_MATRICULA)) : `\n## Como agir
+    edu ? (extras.qualificacao ? semSecaoDeMatricula(edu) : matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + (matriculaPorLink(form) ? PROTOCOLO_MATRICULA_POR_LINK : PROTOCOLO_SEM_MATRICULA)) : `\n## Como agir
 - Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
 - Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
@@ -832,6 +847,8 @@ ${cfg.semMenus
   // `ai.journey.no_menus`: atendimento 100% conversacional, sem botão nem lista.
   ? '- NUNCA apresente menus, listas de opções ou opções numeradas ("1) ... 2) ..."). Fale como um atendente humano: conduza a conversa em frases naturais e, quando precisar oferecer caminhos ou horários, escreva-os de forma corrida dentro da própria mensagem (ex.: "consigo te receber na terça de manhã ou na quinta à tarde, qual fica melhor?"). Não use o marcador [[OPTIONS]].'
   : '- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões (até 3) ou lista (4 a 10). Botão tem no máximo 20 caracteres; item de lista, 24 no título — para explicar o item, escreva "Título — descrição" (a descrição aparece embaixo, até 72). Com mais de 10 opções, use dois marcadores seguidos, cada um com o seu texto antes e um rótulo curto: [[OPTIONS Núcleos: a | b]] e [[OPTIONS Setores: c | d]].'}`,
+    // Modo comercial: no fim, para valer acima das seções de inscrição e preço.
+    extras.qualificacao || '',
   ].filter(Boolean).join('\n')
 }
 
@@ -1261,6 +1278,9 @@ async function executeTool(
       if (!route.saveNote) await notaDeEncaminhamento(leadId, chatbot, nomeDoSetor, input?.resumo)
       if (eduSdrLigado(form)) {
         state.phase = 'handoff'
+        // A conversa agora é do departamento: a IA dá o aviso e cala (iaPodeFalar).
+        const { pauseBotForHandoff } = await import('./botTakeover.js')
+        await pauseBotForHandoff(leadId, nomeDoSetor).catch(() => {})
         return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: instrucaoDepartamentoEdu(stripTags(opt.label)) })
       }
       return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado ao setor certo nos bastidores. NÃO mencione "setor" nem "encaminhamento" — apenas siga ajudando o lead com naturalidade.' })
@@ -1388,20 +1408,24 @@ async function executeTool(
           instrucao: 'Você já avisou que alguém do time vai continuar. NÃO repita o aviso e não diga que vai transferir de novo: siga atendendo a pessoa normalmente enquanto o time não entra.' })
       }
       state.phase = 'handoff'
+      // Modo qualificação: quem quer estudar vai para a equipe comercial (rodízio dela).
+      const equipeComercial = state.comercial?.modo === 'qualifica' ? lerModoComercial(chatbot?.modoComercial)?.teamId ?? null : null
       // Antes de um setor definido, a pessoa vai para o destino provisório da
       // primeira escolha (ex.: aluno → Secretaria), com equipe e funil juntos.
       // Depois de um setor definido, a pessoa já está nele: não volta ao provisório.
-      if (state.fallbackRoute?.teamId && !(state.encaminhamentos || []).length) {
+      if (equipeComercial && !(state.encaminhamentos || []).length) {
+        await enviarParaEquipe(leadId, { teamId: equipeComercial, funnelId: null }, 'chatbot')
+      } else if (state.fallbackRoute?.teamId && !(state.encaminhamentos || []).length) {
         await enviarParaEquipe(leadId, { teamId: state.fallbackRoute.teamId, funnelId: state.fallbackRoute.funnelId }, 'chatbot')
       }
       await notaDeEncaminhamento(leadId, chatbot, 'atendimento humano', input?.motivo)
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
-      // `ai.journey.silence_after_handoff` (veio do severiano): a conversa passa a
-      // ser do setor — o bot dá esta última mensagem e cala até alguém devolver
-      // a conversa ao bot (sem auto-resume). A pausa vale a partir do PRÓXIMO
-      // turno, então a despedida ainda sai. Padrão: o bot segue atendendo
-      // enquanto nenhum operador entra (fase 'handoff', comportamento de sempre).
-      if (cfg.calarAposTransferir) {
+      // A conversa passa a ser da equipe: o bot dá esta última mensagem e cala
+      // até alguém devolver a conversa ao bot (sem auto-resume). A despedida
+      // ainda sai porque a pausa é da própria IA neste turno (iaPodeFalar).
+      // Era opcional (`ai.journey.silence_after_handoff`); desde 01/11/2026 é
+      // sempre: a IA nunca fala com quem está com a equipe.
+      {
         const atual = await prisma.lead.findUnique({ where: { id: leadId }, select: { teamId: true } }).catch(() => null)
         const setor = atual?.teamId ? (await prisma.team.findUnique({ where: { id: atual.teamId }, select: { name: true } }).catch(() => null))?.name ?? null : null
         const { pauseBotForHandoff } = await import('./botTakeover.js')
@@ -1409,7 +1433,6 @@ async function executeTool(
         return JSON.stringify({ ok: true, encerrado: true,
           instrucao: 'Escreva UMA última mensagem: confirme com carinho que o time responsável vai continuar o atendimento daqui e se despeça. Esta é a sua última fala nesta conversa — não faça novas perguntas nem prometa prazo.' })
       }
-      return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
 
     if (name === 'consultar_catalogo') {
@@ -1647,6 +1670,16 @@ async function _process(
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[aiJourney] form sem fields'); return }
   const attendantName = chatbot?.name || 'Atendimento'
   const cfg = await configDaJornada()
+  // Trava absoluta (botTakeover.iaPodeFalar): conferida antes de CADA mensagem.
+  const turnoDesde = new Date()
+  let calada = false
+  const podeFalar = async (leadId: number) => {
+    if (calada) return false
+    if (await iaPodeFalar(leadId, turnoDesde)) return true
+    calada = true
+    app.log.info(`[aiJourney] lead ${leadId}: conversa com a equipe — resposta da IA descartada`)
+    return false
+  }
 
   // Mídia que o webhook já persistiu (foto sem legenda) chega aqui com o mesmo
   // externalId — a checagem abaixo acharia "duplicata" e o bot nunca responderia.
@@ -1700,12 +1733,14 @@ async function _process(
     if (!eduSdrLigado(form) && cfg.ritmoHumanoMs > 0) await new Promise((r) => setTimeout(r, typingDelayMs(partes[0] as string)))
 
     for (const [i, parte] of anteriores.entries()) {
+      if (!(await podeFalar(leadId))) return
       const r = await sendFn(phone, parte)
       await saveOutgoing(leadId, parte, r.messageId)
       const proxima = anteriores[i + 1] ?? ultima
       await new Promise((resolve) => setTimeout(resolve, intervaloDigitacao(proxima)))
     }
 
+    if (!(await podeFalar(leadId))) return
     if (provider === 'cloud_api' && sendInteractiveFn && options.length) {
       const choices: Choice[] = options.map((o, i) => ({ id: `opt_${i}`, ...splitChoiceLabel(o) }))
       try {
@@ -1741,7 +1776,9 @@ async function _process(
   let state: AiState | null = fd._aiJourney || null
 
   const cname = (contactName || '').trim()
+  let estadoNovo = false
   if (!lead || !state) {
+    estadoNovo = true
     let leadId = lead?.id ?? null
     if (!leadId) {
       const body = { ctwaClid: originData?.ctwaClid ?? null, originType: originData?.originType ?? null, utmSource: originData?.utmSource ?? null, gclid: originData?.gclid ?? null }
@@ -1797,6 +1834,13 @@ async function _process(
       return
     }
   }
+  // Conversa já entregue à equipe (fase 'handoff'): é dela. A IA não fala até
+  // alguém devolver a conversa ao bot (que reabre a fase).
+  if (state.phase === 'handoff') {
+    await saveIncoming(leadId, text)
+    app.log.info(`[aiJourney] lead ${leadId}: conversa entregue à equipe — sem resposta automática`)
+    return
+  }
 
   // Conversa encerrada → não reabre o roteiro (pós-atendimento humano).
   // Com `ai.journey.resume_after_done` (veio do severiano) a jornada é RETOMADA:
@@ -1822,6 +1866,20 @@ async function _process(
   }
 
   await saveIncoming(leadId, text)
+
+  // Modo comercial (journey/modoComercial): decidido no começo do atendimento e
+  // mantido até ele acabar — conversa iniciada termina como começou.
+  const cfgComercial = lerModoComercial(chatbot?.modoComercial)
+  if (cfgComercial) {
+    const novo = estadoNovo || !!resumedFrom || await eNovoAtendimento(leadId)
+    if (novo || !state.comercial) {
+      state.comercial = novo
+        ? await decidirModoComercial(cfgComercial)
+        : { modo: 'completo', em: new Date().toISOString(), motivo: 'atendimento já em andamento' }
+      app.log.info(`[aiJourney] lead ${leadId}: modo comercial = ${state.comercial.modo} (${state.comercial.motivo})`)
+    }
+  }
+  const qualificando = !!cfgComercial && state.comercial?.modo === 'qualifica'
 
   const edu = eduSdrLigado(form)
   // Ritmo humano (`ai.journey.human_pace_seconds`): a mesma espera da rajada do
@@ -1886,8 +1944,12 @@ async function _process(
   // Atendimento retomado: o desfecho anterior vira contexto explícito, senão o
   // modelo recomeça a jornada do zero.
   const resumeBlock = resumedFrom ? await buildResumeContext(leadId, lead, resumedFrom).catch(() => null) : null
-  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, marca?.brandName ?? null, contextoLead, eduBloco, { cfg, routeBlock, resumeBlock })
-  const tools = ferramentasDaJornada(form, cfg)
+  const nomeEquipeComercial = qualificando && cfgComercial?.teamId
+    ? (await prisma.team.findUnique({ where: { id: cfgComercial.teamId }, select: { name: true } }).catch(() => null))?.name ?? null
+    : null
+  const qualificacao = qualificando ? blocoDeQualificacao(state.comercial?.perguntas ?? [], nomeEquipeComercial) : null
+  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, marca?.brandName ?? null, contextoLead, eduBloco, { cfg, routeBlock, resumeBlock, qualificacao })
+  const tools = ferramentasDaJornada(form, cfg, { qualificacao: qualificando })
   const maxIters = edu ? EDU_MAX_TOOL_ITERS : MAX_TOOL_ITERS
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
@@ -2043,6 +2105,8 @@ export async function reativarConversaComIa(leadId: number, chatbot: any, form: 
   // A pessoa pode ter respondido enquanto a IA escrevia.
   const depois = await prisma.message.findFirst({ where: { leadId, isInternal: false, id: { gt: ultima.id } }, select: { id: true } })
   if (depois) return false
+  // Trava absoluta: conversa com a equipe não recebe reativação da IA.
+  if (!(await iaPodeFalar(leadId))) return false
 
   const { getProviderForLead } = await import('./whatsappProvider.js')
   const provider = await getProviderForLead({ id: leadId, whatsapp: lead.whatsapp })
@@ -2061,10 +2125,12 @@ export async function reativarConversaComIa(leadId: number, chatbot: any, form: 
     if (!partes.length) continue
     const fim = partes.pop() as string
     for (const parte of partes) {
+      if (!(await iaPodeFalar(leadId))) return enviou
       const r = await provider.sendText(lead.whatsapp, parte)
       await gravar(parte, r?.messageId ?? null); enviou = true
       await new Promise((resolve) => setTimeout(resolve, intervaloDigitacao(fim)))
     }
+    if (!(await iaPodeFalar(leadId))) return enviou
     const choices: Choice[] = bloco.options.map((o, i) => ({ id: `opt_${i}`, ...splitChoiceLabel(o) }))
     const interativo = provider.providerName === 'cloud_api' && choices.length
       ? buildChoices(fim, choices, bloco.rotulo ? { button: bloco.rotulo, sectionTitle: bloco.rotulo } : undefined)

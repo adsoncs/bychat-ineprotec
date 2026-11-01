@@ -455,6 +455,12 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     aiInterpret: chatbot?.aiInterpret ?? false,
     interpretPrompt: chatbot?.interpretPrompt ?? '',
     aiJourneyPrompt: chatbot?.aiJourneyPrompt ?? '',
+    mcModo: (chatbot?.modoComercial?.modo ?? 'integral') as 'integral' | 'fora_do_horario',
+    mcTeamId: chatbot?.modoComercial?.teamId ? String(chatbot.modoComercial.teamId) : '',
+    mcPerguntas: (chatbot?.modoComercial?.perguntas ?? []).join('\n'),
+    mcMin: chatbot?.modoComercial?.minPerguntas ?? 2,
+    mcMax: chatbot?.modoComercial?.maxPerguntas ?? 3,
+    mcPresenca: chatbot?.modoComercial?.presencaMinutos ?? 5,
     triggerMode: chatbot?.triggerMode ?? 'always',
     triggerKeywords: (chatbot?.triggerKeywords ?? []).join(', '),
     schedulingIntro: chatbot?.schedulingIntro ?? '',
@@ -491,12 +497,25 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
 
   function handleSubmit() {
     if (!form.name.trim()) { toast('Nome é obrigatório', 'danger'); return }
+    if (form.mode === 'ai_journey' && form.mcModo === 'fora_do_horario' && !form.mcTeamId) {
+      toast('Escolha a equipe comercial do modo "só fora do horário".', 'danger'); setTab('general'); return
+    }
     const payload = {
       name: form.name.trim(),
       channel: form.channel,
       mode: form.mode,
       formId: (form.mode === 'scripted' || form.mode === 'ai_journey') && form.formId ? Number(form.formId) : null,
       aiJourneyPrompt: form.mode === 'ai_journey' ? (form.aiJourneyPrompt || null) : null,
+      ...(form.mode === 'ai_journey' ? {
+        modoComercial: {
+          modo: form.mcModo,
+          teamId: form.mcTeamId ? Number(form.mcTeamId) : null,
+          perguntas: form.mcPerguntas.split('\n').map((x) => x.trim()).filter(Boolean),
+          minPerguntas: Number(form.mcMin) || 0,
+          maxPerguntas: Number(form.mcMax) || 0,
+          presencaMinutos: Number(form.mcPresenca) || 5,
+        },
+      } : {}),
       triggerMode: form.triggerMode,
       triggerKeywords: form.triggerMode === 'keyword'
         ? form.triggerKeywords.split(',').map((s) => s.trim()).filter(Boolean)
@@ -652,6 +671,50 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
                 placeholder="Ex.: Você é um(a) consultor(a) comercial da [empresa]. Seu objetivo é entender a necessidade do lead, coletar os dados, qualificar e agendar uma reunião. Tom cordial e objetivo…"
                 hint="Vazio = usa um prompt padrão. Os dados a coletar vêm dos campos do formulário vinculado."
               />
+            </div>
+          )}
+          {form.mode === 'ai_journey' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
+              <div class="text-sm font-medium text-fg">Atendimento comercial</div>
+              <div class="space-y-2">
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="mcModo" class="mt-0.5" checked={form.mcModo === 'integral'} onChange={() => patch('mcModo', 'integral')} />
+                  <span class="text-sm text-fg">
+                    A IA atende 100% do tempo
+                    <span class="block text-xs text-fg-muted">Apresenta, tira dúvidas, faz a inscrição e acompanha o pagamento, a qualquer hora.</span>
+                  </span>
+                </label>
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" name="mcModo" class="mt-0.5" checked={form.mcModo === 'fora_do_horario'} onChange={() => patch('mcModo', 'fora_do_horario')} />
+                  <span class="text-sm text-fg">
+                    A IA atende completa só quando a equipe comercial está fora
+                    <span class="block text-xs text-fg-muted">Com a equipe no horário (Equipes › Horário) e alguém dela online, a IA só faz a triagem, as perguntas de qualificação e passa para a equipe, sem inscrição, link ou valores. Fora do horário, no fim de semana, no feriado ou sem ninguém online, ela atende completa. Alunos e departamentos não mudam.</span>
+                  </span>
+                </label>
+              </div>
+              {form.mcModo === 'fora_do_horario' && (
+                <>
+                  <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                    <Select label="Equipe comercial" value={form.mcTeamId} onChange={(e) => patch('mcTeamId', (e.target as HTMLSelectElement).value)} hint="O horário e a presença desta equipe decidem o modo. Quem a IA qualifica vai para o rodízio dela.">
+                      <option value="">— Selecione a equipe —</option>
+                      {teamsData?.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </Select>
+                    <Input label="Online = painel aberto nos últimos (min)" type="number" min={1} max={120} value={String(form.mcPresenca)} onInput={(e) => patch('mcPresenca', Number((e.target as HTMLInputElement).value))} />
+                  </div>
+                  <Textarea
+                    label="Perguntas de qualificação (uma por linha)"
+                    rows={6}
+                    value={form.mcPerguntas}
+                    onInput={(e) => patch('mcPerguntas', (e.target as HTMLTextAreaElement).value)}
+                    hint="A cada atendimento o sistema sorteia algumas, e a IA pula as que a ficha já responde."
+                  />
+                  <div class="grid gap-3 grid-cols-2">
+                    <Input label="Sortear no mínimo" type="number" min={0} max={10} value={String(form.mcMin)} onInput={(e) => patch('mcMin', Number((e.target as HTMLInputElement).value))} />
+                    <Input label="Sortear no máximo" type="number" min={0} max={10} value={String(form.mcMax)} onInput={(e) => patch('mcMax', Number((e.target as HTMLInputElement).value))} />
+                  </div>
+                  <p class="text-xs text-fg-muted">O modo é decidido quando o atendimento começa e não muda no meio: conversa iniciada termina como começou.</p>
+                </>
+              )}
             </div>
           )}
           {form.mode === 'scripted' && (

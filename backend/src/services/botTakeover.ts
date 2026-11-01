@@ -47,6 +47,46 @@ export async function isBotPaused(leadId: number): Promise<boolean> {
 }
 
 /**
+ * Trava absoluta: a IA só fala com quem está com ela ou foi devolvido a ela.
+ * Conversa pausada (humano assumiu, caso sensível, entrega a um setor) ou em
+ * fase 'handoff' é da equipe: nenhuma mensagem automática da IA sai para ela.
+ *
+ * Chamada ANTES DE CADA mensagem que a IA envia, não só na chegada: entre
+ * receber e responder há a espera da rajada e a chamada ao modelo (segundos),
+ * e o atendente que entra nesse intervalo grava a pausa — a resposta que
+ * estava sendo escrita é descartada.
+ *
+ * `turnoDesde`: a pausa que a PRÓPRIA IA gravou neste turno (ao transferir ou
+ * num caso sensível) ainda deixa sair a última mensagem dela, a despedida.
+ */
+export async function iaPodeFalar(leadId: number, turnoDesde?: Date | null): Promise<boolean> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+  if (!lead) return false
+  return iaPodeFalarPelaFicha(lead.formData, turnoDesde)
+}
+
+/** A regra de iaPodeFalar sobre o formData já lido (sem banco). */
+export function iaPodeFalarPelaFicha(formData: unknown, turnoDesde?: Date | null): boolean {
+  const mark = readBotPause(formData)
+  if (mark) {
+    const t = new Date(mark.at).getTime()
+    const daPropriaIa = !mark.byUserId && (mark.reason === 'handoff' || mark.sensivel === true)
+    return !!(turnoDesde && daPropriaIa && Number.isFinite(t) && t >= turnoDesde.getTime())
+  }
+  return (formData as any)?._aiJourney?.phase !== 'handoff'
+}
+
+/** A conversa volta a ser da IA: jornada entregue/encerrada reabre e o modo
+ *  comercial é decidido de novo no próximo atendimento. Desqualificado fica. */
+function reabrirJornada(fd: any): void {
+  const j = fd?._aiJourney
+  if (j && typeof j === 'object') {
+    fd._aiJourney = { ...j, ...(j.phase === 'handoff' || j.phase === 'done' ? { phase: 'active' } : {}) }
+    delete fd._aiJourney.comercial
+  }
+}
+
+/**
  * Marca a conversa como assumida por humano. Idempotente: se já estava pausada,
  * mantém o carimbo original (quem assumiu primeiro) e não duplica evento.
  */
@@ -137,7 +177,8 @@ export async function resumeBot(
 
   const base: any = { ...((lead.formData || {}) as object) }
   delete base._botPaused
-  await prisma.lead.update({ where: { id: leadId }, data: { formData: base } }).catch(() => {})
+  reabrirJornada(base)
+  await prisma.lead.update({ where: { id: leadId }, data: { formData: base, completed: false } }).catch(() => {})
 
   logEvent({
     leadId,
@@ -191,6 +232,7 @@ export async function autoResumeIfStale(leadId: number): Promise<boolean> {
 
   const base: any = { ...((lead?.formData || {}) as object) }
   delete base._botPaused
+  reabrirJornada(base)
   await prisma.lead.update({ where: { id: leadId }, data: { formData: base } }).catch(() => {})
 
   logEvent({

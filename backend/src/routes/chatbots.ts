@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { Prisma } from '@prisma/client'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotChatbot } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -55,7 +56,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
   // visível em GET /api/admin/audit-log (superadmin). Campos de texto longo
   // (prompts, mensagens) entram truncados: o que importa é flagrar A MUDANÇA e
   // o autor, não arquivar o prompt inteiro a cada edição.
-  const CHATBOT_UPDATE_FIELDS = ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'scriptedConfig', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin'] as const
+  const CHATBOT_UPDATE_FIELDS = ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'scriptedConfig', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin', 'modoComercial'] as const
 
   app.put('/api/admin/chatbots/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
@@ -63,6 +64,10 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     const data: any = {}
     for (const k of CHATBOT_UPDATE_FIELDS) {
       if (body[k] !== undefined) data[k] = body[k]
+    }
+    if (data.modoComercial !== undefined) {
+      const { normalizarModoComercial } = await import('../services/journey/modoComercial.js')
+      data.modoComercial = normalizarModoComercial(data.modoComercial) ?? Prisma.JsonNull
     }
 
     const before = await prisma.chatbot.findUnique({
@@ -459,7 +464,10 @@ export async function chatbotsRoutes(app: FastifyInstance) {
       catch { return reply.code(401).send({ error: 'Entre no painel para testar com o contexto de um lead.' }) }
       contextLeadId = pedido
     }
-    const r = await startPreview(chatbotId, { app, contextLeadId })
+    // Modo comercial no teste: 'auto' (como a produção), 'qualifica' ou 'completo'.
+    const mc = String((req.body as any)?.modoComercial || '')
+    const modoComercial = mc === 'qualifica' || mc === 'completo' ? mc : 'auto'
+    const r = await startPreview(chatbotId, { app, contextLeadId, modoComercial })
     if ('error' in r) return reply.code(404).send(r)
     return reply.header('Access-Control-Allow-Origin', '*').send(r)
   })

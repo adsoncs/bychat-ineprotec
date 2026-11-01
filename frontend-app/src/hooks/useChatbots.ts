@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
+/** Modo comercial da jornada de IA (null/integral = a IA atende 100% do tempo). */
+export interface ModoComercial {
+  modo: 'integral' | 'fora_do_horario'
+  teamId: number | null
+  perguntas: string[]
+  minPerguntas: number
+  maxPerguntas: number
+  presencaMinutos: number
+}
+
 export interface ChatbotItem {
   id: number
   name: string
@@ -13,6 +23,7 @@ export interface ChatbotItem {
   aiInterpret: boolean
   interpretPrompt: string | null
   aiJourneyPrompt: string | null
+  modoComercial?: ModoComercial | null
   triggerMode: string
   triggerKeywords: string[] | null
   schedulingIntro: string | null
@@ -48,6 +59,7 @@ export interface ChatbotInput {
   aiInterpret?: boolean | undefined
   interpretPrompt?: string | null | undefined
   aiJourneyPrompt?: string | null | undefined
+  modoComercial?: ModoComercial | null | undefined
   triggerMode?: string | undefined
   triggerKeywords?: string[] | null | undefined
   schedulingIntro?: string | null | undefined
