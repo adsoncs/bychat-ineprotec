@@ -890,7 +890,12 @@ async function persist(leadId: number, state: ScriptState, completed = false): P
 export async function applyAnswerToLead(leadId: number, field: any, answers: Record<string, any>): Promise<void> {
   const data: any = {}
   const v = answers[field.key]
-  if (field.mapTo === 'nome') data.nome = String(v)
+  // Campo sem resposta (a pessoa mandou outra coisa e o roteiro seguiu, ou o
+  // passo foi pulado): não grava nada no campo nativo — `String(undefined)`
+  // virava o texto "undefined" no nome do lead e na conversa ("Perfeito, undefined!").
+  const vazio = v === undefined || v === null || String(v).trim() === ''
+  if (vazio) { /* nada no campo nativo */ }
+  else if (field.mapTo === 'nome') data.nome = String(v)
   else if (field.mapTo === 'email') data.email = String(v)
   // whatsapp coletado na conversa (canal web). No WhatsApp o número já nasce no
   // lead; só grava quando vier um valor não-vazio para não sobrescrever à toa.
