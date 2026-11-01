@@ -132,11 +132,18 @@ export async function sendEmailGeneric(opts: { from: string, to: string, cc?: st
       return null
     }
     const resend = new Resend(apiKey)
+    // Vários destinatários chegam como "a@x.com, b@y.com" (lista de avisos,
+    // cópia aos agentes). O Resend recusa esse texto inteiro ("Invalid `to`
+    // field") — quer uma lista. Um destinatário só segue como texto.
+    const comoLista = (v?: string) => {
+      const itens = String(v ?? '').split(/[,;]/).map((x) => x.trim()).filter(Boolean)
+      return itens.length > 1 ? itens : (itens[0] ?? '')
+    }
     return registrarEnvioDeEmail({ to: opts.to, subject: opts.subject, origem: opts.origem, origemId: opts.origemId, leadId: opts.leadId, registro: opts.registro, provider }, async ({ headers, tags }) => {
       const result = await resend.emails.send({
         from: opts.from,
-        to: opts.to,
-        ...(opts.cc ? { cc: opts.cc } : {}),
+        to: comoLista(opts.to),
+        ...(opts.cc ? { cc: comoLista(opts.cc) } : {}),
         ...(replyTo ? { reply_to: replyTo } : {}),
         headers, tags,
         subject: opts.subject,
