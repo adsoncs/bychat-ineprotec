@@ -32,7 +32,7 @@ import {
   type AiState, type LlmMsg, type ConfigJornada,
 } from './aiJourneyEngine.js'
 import type { FastifyInstance } from 'fastify'
-import { lerModoComercial, decidirModoComercial, sortearPerguntas, blocoDeQualificacao } from './journey/modoComercial.js'
+import { lerModoComercial, decidirModoComercial, sortearPerguntas, blocoDeQualificacao, comLembreteDeQualificacao } from './journey/modoComercial.js'
 import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
 
 // O fluxo de atendimento/triagem (supportFlow) é opt-in por chatbot
@@ -412,7 +412,7 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   let cobrouEncaminhamento = false
   for (let i = 0; i < (edu ? 10 : AI_MAX_ITERS); i++) {
     let turn
-    try { turn = await aiLlmTurn(system, messages, tools) }
+    try { turn = await aiLlmTurn(system, qualificando ? comLembreteDeQualificacao(messages) : messages, tools) }
     catch {
       out.push('⚠️ Não consegui falar com a IA no preview. Verifique se a chave de IA está configurada (Configurações › APIs).')
       return

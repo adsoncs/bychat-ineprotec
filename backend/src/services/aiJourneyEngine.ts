@@ -14,7 +14,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { registrarUsoIA } from '../lib/consumo.js'
 import { iaPodeFalar } from './botTakeover.js'
-import { lerModoComercial, decidirModoComercial, eNovoAtendimento, blocoDeQualificacao, type DecisaoComercial } from './journey/modoComercial.js'
+import { lerModoComercial, decidirModoComercial, eNovoAtendimento, blocoDeQualificacao, comLembreteDeQualificacao, type DecisaoComercial } from './journey/modoComercial.js'
 import { matriculaPeloChatLigada, matriculaPorLink, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA, PROTOCOLO_MATRICULA_POR_LINK, semSecaoDeMatricula } from './journey/eduSdr.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
@@ -747,6 +747,8 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
   ].join('\n')
 
   return [
+    // Modo comercial: abre o prompt (e fecha, mais abaixo) para valer acima do resto.
+    extras.qualificacao ? `# ATENÇÃO: ATENDIMENTO EM MODO QUALIFICAÇÃO (leia a seção "MODO QUALIFICAÇÃO" no fim; ela vale acima de tudo o que vem a seguir)\n` : '',
     base,
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
     setores && edu ? `\n## Departamentos (use rotear_setor)\n${setores}\n\nQuando a pessoa trouxer um assunto que NÃO é conhecer cursos ou fazer/continuar a inscrição (ex.: aluno com dúvida de boleto, histórico, acesso à plataforma, estágio), identifique o departamento e chame **rotear_setor** com a chave certa — uma única vez. Na dúvida entre dois, pergunte uma coisa só para decidir. Se for algo que nenhum departamento cobre, use transferir_humano.` : '',
@@ -1968,7 +1970,7 @@ async function _process(
   for (let i = 0; i < maxIters; i++) {
     if (Date.now() - startedAt > TURN_BUDGET_MS) { app.log.warn('[aiJourney] orçamento do turno esgotado'); failed = true; break }
     let turn: LlmTurn
-    try { turn = await llmTurn(system, messages, tools) }
+    try { turn = await llmTurn(system, qualificando ? comLembreteDeQualificacao(messages) : messages, tools) }
     catch (e: any) {
       app.log.error(`[aiJourney] LLM: ${e?.message || e}`)
       failed = true

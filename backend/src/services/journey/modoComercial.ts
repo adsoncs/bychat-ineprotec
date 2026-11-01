@@ -126,7 +126,22 @@ export async function eNovoAtendimento(leadId: number, agora = new Date()): Prom
   return agora.getTime() - anterior.createdAt.getTime() > NOVO_ATENDIMENTO_HORAS * 3600_000
 }
 
-/** Instruções do modo qualificação (vão no fim do prompt e valem acima dele). */
+/**
+ * Lembrete por turno do modo qualificação, junto da mensagem da pessoa (cópia:
+ * não vai para o histórico). Só o bloco no prompt não basta: num prompt longo
+ * que manda apresentar preço e inscrever, o modelo seguia o roteiro de venda.
+ */
+export const LEMBRETE_QUALIFICACAO = '[aviso interno do sistema, não é a pessoa] MODO QUALIFICAÇÃO ATIVO (a equipe comercial está online): neste atendimento você NÃO fala valores, preços, bolsas ou condições, NÃO faz inscrição, NÃO manda link e NÃO oferece fazer a inscrição. Siga só a seção "MODO QUALIFICAÇÃO": entenda o interesse, faça a próxima pergunta de qualificação que ainda falta e, quando acabarem (ou se a pessoa quiser se inscrever, pedir valores ou pedir alguém), chame salvar_dados e transferir_humano. Aluno ou outro assunto: departamentos, como sempre.'
+export function comLembreteDeQualificacao<T extends { role: string; content: any }>(messages: T[]): T[] {
+  const i = messages.length - 1
+  const ultima = messages[i]
+  if (!ultima || ultima.role !== 'user' || typeof ultima.content !== 'string') return messages
+  const copia = [...messages]
+  copia[i] = { ...ultima, content: `${ultima.content}\n\n${LEMBRETE_QUALIFICACAO}` }
+  return copia
+}
+
+/** Instruções do modo qualificação (abrem e fecham o prompt e valem acima dele). */
 export function blocoDeQualificacao(perguntas: string[], equipe: string | null): string {
   const lista = perguntas.length
     ? perguntas.map((p, i) => `${i + 1}. ${p}`).join('\n')
@@ -138,7 +153,7 @@ Neste atendimento, quem conclui a inscrição e a matrícula é ${quem}. O seu p
 - Primeiro entenda o interesse (qual curso ou nível). Pode tirar dúvidas rápidas sobre o curso, sem valores.
 - Depois que a pessoa disser o interesse, faça estas perguntas, UMA por mensagem, com as suas palavras, pulando a que a ficha ou a conversa já responderam:
 ${lista}
-- NÃO faça inscrição, não mande link do portal, não gere pagamento e não fale de valores, preços, bolsas ou condições. Se perguntarem, diga que a pessoa da equipe que vai atender passa os valores e as condições.
+- NÃO faça inscrição, não ofereça fazer a inscrição, não mande link do portal, não gere pagamento e não fale de valores, preços, bolsas ou condições, mesmo que outra parte destas instruções mande apresentar o investimento, mandar o link ou inscrever: neste atendimento isso é da equipe. Se perguntarem valores, diga que a pessoa da equipe que vai atender passa os valores e as condições. Se a pessoa quiser se inscrever ou pedir o link, transfira na hora.
 - Terminadas as perguntas, ou se a pessoa pedir para falar com alguém, quiser se inscrever agora ou não quiser responder: chame salvar_dados com um resumo (interesse + respostas) e, em seguida, transferir_humano (motivo: "qualificado: " + o curso + as respostas). Depois escreva UMA mensagem curta dizendo que uma pessoa da equipe continua com ela por aqui, neste mesmo WhatsApp. Essa é a sua última mensagem.
 - Aluno ou outro assunto que não é estudar na instituição: siga as regras de departamentos normalmente.`
 }
