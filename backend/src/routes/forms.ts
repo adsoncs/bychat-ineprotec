@@ -986,6 +986,12 @@ function generateEmbedScript(
 ): string {
   const d = getDefaultFormStyling()
   const s = styling ?? {}
+  // Pixel do próprio formulário (Configurações › Conversões): no modo clássico
+  // o envio redireciona na hora, então sem isto o anúncio não via o Lead.
+  // Só dígitos — o valor vai cru para dentro do script.
+  const pxCfg = (settings?.pixels ?? {}) as any
+  const pxMeta = String(pxCfg.metaPixelId ?? '').replace(/\D/g, '')
+  const pxEvento = /^[A-Za-z_]{1,40}$/.test(String(pxCfg.metaEventName ?? '')) ? String(pxCfg.metaEventName) : 'Lead'
   // Resolve cada token com fallback no default — qualquer chave ausente cai
   // no padrão sem quebrar o CSS.
   const v = {
@@ -1203,8 +1209,15 @@ function generateEmbedScript(
         }).then(function(r){return r.json()}).then(function(res){
           if(res.ok){
             form.style.display='none';ok.style.display='block';
+            var avisou=false;try{var evid='f'+fid+'-'+Date.now();var px='${pxMeta}';
+              if(px){if(!window.fbq){!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');}
+                var ja=false;try{var st=fbq.getState&&fbq.getState();ja=!!(st&&st.pixels&&st.pixels.some(function(p){return String(p.id)===px}))}catch(e2){}
+                if(!ja)fbq('init',px);
+                fbq('trackSingle',px,'${pxEvento}',{content_name:document.title},{eventID:evid});avisou=true;}
+              (window.dataLayer=window.dataLayer||[]).push({event:'attrae_form_submit',form_id:fid,lead_id:res.leadId||null,event_id:evid});
+              window.dispatchEvent(new CustomEvent('attrae:form-submit',{detail:{formId:fid,leadId:res.leadId||null,redirect:res.redirect||null}}));}catch(ex){}
             try{if(window.BT){var id={};if(data.email)id.email=data.email;if(data.whatsapp||data.telefone||data.phone)id.phone=data.whatsapp||data.telefone||data.phone;if(data.nome||data.name)id.name=data.nome||data.name;if(Object.keys(id).length>0&&BT.identify)BT.identify(id);if(BT.track)BT.track('form_conversion',{formId:fid})}}catch(ex){}
-            if(res.redirect){if(window.top!==window.self){try{window.top.location.href=res.redirect;return}catch(ex){}var a=document.createElement('a');a.href=res.redirect;a.target='_top';a.rel='noopener';a.className='bf-btn';a.style.cssText='display:inline-block;margin-top:12px;text-decoration:none';a.textContent='Continuar';ok.appendChild(a);return}window.location.href=res.redirect;}
+            if(res.redirect){if(window.top!==window.self){try{window.top.location.href=res.redirect;return}catch(ex){}var a=document.createElement('a');a.href=res.redirect;a.target='_top';a.rel='noopener';a.className='bf-btn';a.style.cssText='display:inline-block;margin-top:12px;text-decoration:none';a.textContent='Continuar';ok.appendChild(a);return}var ir=function(){window.location.href=res.redirect};if(avisou)setTimeout(ir,600);else ir();}
           }else{btn.disabled=false;btn.textContent='${esc(settings.submitText||'Enviar')}';alert(res.error||'Erro')}
         }).catch(function(){btn.disabled=false;btn.textContent='${esc(settings.submitText||'Enviar')}';alert('Erro de conexao')});
       });
