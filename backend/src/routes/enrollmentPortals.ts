@@ -42,7 +42,7 @@ import { logSecurityEvent } from '../services/security.js'
 import { portalLeadSource } from '../lib/leadSourceLabel.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
 import { redis } from '../lib/redis.js'
-import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, ondeDoToken } from '../lib/candidateAuth.js'
+import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, verifyFormContinue, ondeDoToken } from '../lib/candidateAuth.js'
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
 import QRCode from 'qrcode'
@@ -2331,6 +2331,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         lead = await prisma.lead.findUnique({ where: { id: ml.leadId } })
         if (!lead) continuationLeadId = null
       }
+      // Veio do formulário do site: a inscrição fica no MESMO lead que o envio
+      // acabou de criar (antes nascia uma segunda ficha, marcada como duplicada).
+      // Só se esse lead ainda não tem inscrição neste portal e o envio é dele.
+      const fc = !lead ? verifyFormContinue(body.continueToken) : null
+      if (fc && fc.portalSlug === slug) {
+        const [envio, jaInscrito] = await Promise.all([
+          prisma.formSubmission.findUnique({ where: { id: fc.submissionId }, select: { leadId: true } }),
+          prisma.enrollmentRegistration.count({ where: { leadId: fc.leadId, portalId: portal.id } }),
+        ])
+        if (envio?.leadId === fc.leadId && !jaInscrito) {
+          lead = await prisma.lead.findUnique({ where: { id: fc.leadId } })
+          continuationLeadId = lead ? fc.leadId : null
+        }
+      }
     }
     // Fase 24 (Categoria A): SEM dedup automático na inscrição. Sempre cria lead novo
     // e sinaliza match via flagDuplicate. Continuação por magic link (acima) mantém
@@ -4158,6 +4172,41 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { slug } = req.params as any
     const q = req.query as any
     const token = String(q.t || '')
+
+    // Veio do formulário do site: devolve só o que foi digitado naquele envio.
+    // Nunca dados do cadastro do lead nem a inscrição — o formulário é público
+    // e este link não prova que a pessoa é dona da ficha.
+    const doForm = verifyFormContinue(token)
+    if (doForm) {
+      if (doForm.portalSlug !== slug) return reply.code(401).send({ error: 'Link expirado ou inválido. Solicite um novo link.' })
+      const envio = await prisma.formSubmission.findUnique({
+        where: { id: doForm.submissionId },
+        select: { leadId: true, data: true, form: { select: { fields: true } } },
+      })
+      if (!envio || envio.leadId !== doForm.leadId) return reply.code(401).send({ error: 'Link expirado ou inválido. Solicite um novo link.' })
+      const portalDoForm = await prisma.enrollmentPortal.findUnique({ where: { slug }, select: { id: true } })
+      const jaInscrito = portalDoForm
+        ? await prisma.enrollmentRegistration.count({ where: { leadId: doForm.leadId, portalId: portalDoForm.id } })
+        : 0
+      if (jaInscrito) {
+        return reply.code(409).send({ error: 'Você já tem uma inscrição neste portal. Use "Entrar" no topo da página para continuar de onde parou.' })
+      }
+      const dados = (envio.data as Record<string, unknown>) || {}
+      const campos = Array.isArray(envio.form?.fields) ? (envio.form!.fields as any[]) : []
+      const valor = (alvo: string) => {
+        const c = campos.find((f) => f?.mapTo === alvo) ?? campos.find((f) => f?.key === alvo)
+        const v = c ? dados[c.key] : dados[alvo]
+        return typeof v === 'string' && v.trim() ? v.trim() : null
+      }
+      return {
+        ok: true,
+        lead: null,
+        prefill: { nome: valor('nome'), email: valor('email'), whatsapp: valor('whatsapp'), offeringId: null, cidade: null },
+        temSenha: false,
+        registration: null,
+      }
+    }
+
     const payload = verifyMagicLink(token)
     if (!payload || payload.portalSlug !== slug) {
       return reply.code(401).send({ error: 'Link expirado ou inválido. Solicite um novo link.' })

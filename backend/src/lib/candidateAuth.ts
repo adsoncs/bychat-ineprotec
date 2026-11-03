@@ -97,3 +97,43 @@ export function verifyMagicLink(token: string | null | undefined): MagicLinkPayl
     return payload
   } catch { return null }
 }
+
+// Continuação de FORMULÁRIO (form do site → portal). Mais estreito que o magic
+// link: quem o recebe é só quem acabou de enviar o formulário público, então
+// ele (1) dura horas, não dias; (2) traz o id do ENVIO — o prefill sai do que
+// foi digitado nele, nunca do cadastro do lead; (3) não abre inscrição já
+// existente (a rota /continue recusa e pede login). Um magic link de
+// secretaria continua sendo o único caminho que retoma uma inscrição.
+export interface FormContinuePayload {
+  leadId: number
+  portalSlug: string
+  submissionId: number
+  exp: number
+  kind: 'form'
+}
+
+export function signFormContinue(leadId: number, portalSlug: string, submissionId: number, ttlHours: number = 6): string {
+  const payload: FormContinuePayload = {
+    leadId, portalSlug, submissionId,
+    exp: Date.now() + ttlHours * 60 * 60 * 1000,
+    kind: 'form',
+  }
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
+
+export function verifyFormContinue(token: string | null | undefined): FormContinuePayload | null {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null
+  const [body, sig] = token.split('.')
+  const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
+  if (!sig || sig.length !== expected.length) return null
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+  try {
+    const payload: FormContinuePayload = JSON.parse(Buffer.from(body, 'base64url').toString())
+    if (!payload || payload.kind !== 'form') return null
+    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return null
+    if (typeof payload.leadId !== 'number' || typeof payload.portalSlug !== 'string' || typeof payload.submissionId !== 'number') return null
+    return payload
+  } catch { return null }
+}

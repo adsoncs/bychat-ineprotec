@@ -208,12 +208,13 @@ export interface RespostaInscricao {
   temSenha?: boolean
 }
 
-export const enviarInscricao = (slug: string, formData: Record<string, unknown>, curso?: string | null) =>
+export const enviarInscricao = (slug: string, formData: Record<string, unknown>, curso?: string | null, continueToken?: string | null) =>
   pedir<RespostaInscricao>(`/api/public/portals/${encodeURIComponent(slug)}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // O curso do link vai junto: o servidor confere que a oferta é a dele.
-    body: JSON.stringify({ formData, ...(curso ? { curso } : {}) }),
+    // O link de continuação (?t=) também: a inscrição fica no lead de origem.
+    body: JSON.stringify({ formData, ...(curso ? { curso } : {}), ...(continueToken ? { continueToken } : {}) }),
   })
 
 /** Captura de interesse: cria o contato e manda o link de continuação por WhatsApp/e-mail. */

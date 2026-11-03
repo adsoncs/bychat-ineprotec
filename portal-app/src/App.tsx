@@ -308,7 +308,7 @@ export function App() {
       for (const c of passos.flatMap((p) => (p.fields ?? []) as Campo[])) {
         if (!dependenciaAtende(c, valores)) delete enviados[c.name]
       }
-      const r = await enviarInscricao(slug, { ...enviados, lgpdConsent: true }, dados?.cursoDoLink?.slug)
+      const r = await enviarInscricao(slug, { ...enviados, lgpdConsent: true }, dados?.cursoDoLink?.slug, retomado ? token : null)
       localStorage.removeItem(chaveRascunho(slug))
       // Antes do redirecionamento configurável: se a instituição manda o
       // candidato para outra página, a conversão precisa ter sido contada aqui.

@@ -19,6 +19,7 @@ import { rastreamentoSnippet, rastreamentoInlineJs } from '../lib/rastreamento.j
 import { dispatchConversion } from '../services/googleAdsConversions.js'
 import { logTitularConsent } from './consent.js'
 import { createHmac } from 'crypto'
+import { signFormContinue } from '../lib/candidateAuth.js'
 import { blocoGtag } from '../lib/gtagInstalacao.js'
 
 // ── Token de progresso (captura parcial) ──────────────────────────────────────
@@ -324,11 +325,32 @@ export async function formsRoutes(app: FastifyInstance) {
         return null
       }
 
+      // Destino é um portal de matrícula DESTE sistema: o link leva a continuação
+      // do envio (?t=), e o portal abre o cadastro com o que a pessoa acabou de
+      // digitar — a inscrição segue no mesmo lead. Outro domínio, ou portal que
+      // não existe, segue sem nada (nunca mandamos token para fora).
+      const comContinuacao = async (url: string): Promise<string> => {
+        if (!leadId) return url
+        try {
+          const app = process.env.APP_URL ? new URL(process.env.APP_URL) : null
+          if (!app) return url
+          const u = new URL(url, app)
+          if (u.host !== app.host) return url
+          const m = u.pathname.match(/^\/portal\/([^/]+)/)
+          if (!m) return url
+          const slugPortal = decodeURIComponent(m[1])
+          const existe = await prisma.enrollmentPortal.findUnique({ where: { slug: slugPortal }, select: { id: true } })
+          if (!existe) return url
+          u.searchParams.set('t', signFormContinue(leadId, slugPortal, submission.id))
+          return url.startsWith('/') ? `${u.pathname}${u.search}${u.hash}` : u.toString()
+        } catch { return url }
+      }
+
       // Finalização por QUALIFICAÇÃO tem precedência sobre o redirect global do form.
       if (qualify && qualify.finish) {
         if (qualify.finishAction === 'redirect') {
           const rr = buildRedirect(qualify.redirectUrl)
-          if (rr) response.redirect = rr
+          if (rr) response.redirect = await comContinuacao(rr)
         } else {
           const msg = sanitizeBlockHtml(qualify.message)
           if (msg) response.successHtml = msg // senão, client usa a mensagem padrão
@@ -343,7 +365,7 @@ export async function formsRoutes(app: FastifyInstance) {
         : !!(settings.redirectUrl && String(settings.redirectUrl).trim())
       if (redirectEnabled) {
         const rr = buildRedirect(settings.redirectUrl)
-        if (rr) response.redirect = rr
+        if (rr) response.redirect = await comContinuacao(rr)
       }
 
       return response
