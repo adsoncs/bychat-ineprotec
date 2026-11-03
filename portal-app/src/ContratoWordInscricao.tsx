@@ -134,22 +134,24 @@ export function ContratoWordInscricao(props: {
     try { await navigator.clipboard.writeText(link) } catch { /* sem permissão: o link está visível */ }
   }
 
+  const termo = word.modelo.tipo === 'termo'
+  const doc = termo ? 'termo' : 'contrato'
   return (
     <div class="contrato-inscricao">
       <dl class="resumo-contrato">
-        <div><dt>Contrato</dt><dd>{word.modelo.nome}</dd></div>
+        <div><dt>{termo ? 'Termo' : 'Contrato'}</dt><dd>{word.modelo.nome}</dd></div>
         <div><dt>Curso</dt><dd>{dados.curso}</dd></div>
         {dados.valorTotalCentavos > 0 && <div><dt>Valor total</dt><dd>{money(dados.valorTotalCentavos)}</dd></div>}
       </dl>
 
       {pdf ? <iframe class="contrato-pdf" src={pdf} title="Contrato" /> : null}
       <button class={assinado ? 'principal' : 'secundario'} type="button" onClick={abrirPdf}>
-        {assinado ? 'Ver contrato assinado (PDF)' : 'Ler o contrato completo (PDF)'}
+        {assinado ? `Ver ${doc} assinado (PDF)` : `Ler o ${doc} completo (PDF)`}
       </button>
 
       {assinado ? (
         <div class="assinado" style="margin-top:16px">
-          <strong>Contrato assinado</strong>
+          <strong>{termo ? 'Termo de aceite assinado' : 'Contrato assinado'}</strong>
           <span class="sub">{dados.assinadoEm || assinatura?.assinadoEm ? `Em ${new Date((dados.assinadoEm || assinatura?.assinadoEm)!).toLocaleDateString('pt-BR')}` : ''}</span>
         </div>
       ) : word.menorSemResponsavel ? (
@@ -198,7 +200,7 @@ export function ContratoWordInscricao(props: {
         </div>
       ) : (
         <div style="margin-top:16px">
-          <label class="caixa"><input type="checkbox" checked={li} onChange={(e: any) => setLi(e.currentTarget.checked)} /> Li o contrato completo e concordo com ele.</label>
+          <label class="caixa"><input type="checkbox" checked={li} onChange={(e: any) => setLi(e.currentTarget.checked)} /> Li o {doc} completo e concordo com ele.</label>
           <div class="campo">
             <label for="assinatura-word">Escreva seu nome completo para assinar</label>
             <input id="assinatura-word" type="text" autocomplete="name" value={nome} placeholder={dados.aluno} disabled={!li}
@@ -206,9 +208,9 @@ export function ContratoWordInscricao(props: {
           </div>
           {erro && <div class="aviso erro">{erro}</div>}
           <button class="principal" type="button" disabled={!li || ocupado || nome.trim().length < 5 || !nome.trim().includes(' ')} onClick={aceitarAqui}>
-            {ocupado ? 'Registrando…' : 'Assinar contrato'}
+            {ocupado ? 'Registrando…' : termo ? 'Aceitar o termo' : 'Assinar contrato'}
           </button>
-          <p class="sub legal">Ao assinar, ficam registrados seu nome, a data e uma cópia do contrato exatamente como está agora.</p>
+          <p class="sub legal">Ao {termo ? 'aceitar' : 'assinar'}, ficam registrados seu nome, a data, o IP e uma cópia do {doc} exatamente como está agora. Depois você pode revê-lo no seu painel quando quiser.</p>
         </div>
       )}
     </div>

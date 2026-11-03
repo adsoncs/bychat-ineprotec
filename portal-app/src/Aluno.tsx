@@ -63,6 +63,9 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
                 {p.acao && (
                   <a class="passo-acao" href={p.acao.href}>{p.acao.rotulo}</a>
                 )}
+                {p.documento && (
+                  <a class="passo-acao" href={p.documento.href} target="_blank" rel="noopener">{p.documento.rotulo}</a>
+                )}
               </span>
             </li>
           ))}

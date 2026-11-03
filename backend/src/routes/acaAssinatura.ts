@@ -261,7 +261,7 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
     const aceite = (reg?.contratoAceite ?? null) as any
     return {
       modelo: modelo ? { id: modelo.id, nome: modelo.nome } : null,
-      eletronica: await assinaturaEletronicaAtiva(),
+      eletronica: await assinaturaEletronicaAtiva(modelo),
       assinatura: await estadoDaAssinaturaDaInscricao(regId),
       aceite: aceite?.em ? { em: aceite.em, nome: aceite.nome ?? null, via: aceite.via ?? 'TERMO', ip: aceite.ip || null } : null,
     }

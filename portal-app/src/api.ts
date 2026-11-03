@@ -351,6 +351,8 @@ export interface Passo {
   detalhe: string
   situacao: 'feito' | 'pendente' | 'travado'
   acao?: { rotulo: string; href: string } | null
+  /** Contrato/termo já assinado: abre o PDF. */
+  documento?: { rotulo: string; href: string }
 }
 
 export interface Parcela {
@@ -767,7 +769,7 @@ export interface AssinaturaDoContrato {
   }>
 }
 export interface ContratoWord {
-  modelo: { id: number; nome: string }
+  modelo: { id: number; nome: string; tipo?: 'contrato' | 'termo' }
   eletronica: boolean
   /** AUTENTIQUE | CLICKSIGN | SIMULADO */
   provedor?: string

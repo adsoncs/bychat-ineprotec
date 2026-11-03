@@ -22,6 +22,7 @@ import { proximosEventosDoAluno } from '../routes/acaCalendario.js'
 import { ofertasAbertas } from './acaRematricula.js'
 import { etapasDaInscricao } from './portalJornada.js'
 import { requisitosQueValem } from './docCondicional.js'
+import { documentoAssinadoDoAluno } from './contratoDoPortal.js'
 
 export interface Passo {
   chave: string
@@ -29,6 +30,8 @@ export interface Passo {
   detalhe: string
   situacao: 'feito' | 'pendente' | 'travado'
   acao?: { rotulo: string; href: string } | null
+  /** Documento já assinado para rever (abre o PDF). */
+  documento?: { rotulo: string; href: string }
 }
 
 const reais = (centavos: number) =>
@@ -175,7 +178,6 @@ export async function painelDoAluno(alunoId: number) {
       acao: assinado ? null : { rotulo: 'Ler e assinar', href: '/portal/contrato' },
     })
   }
-
   if (parcelas.length) {
     passos.push({
       chave: 'financeiro',
@@ -228,6 +230,21 @@ export async function painelDoAluno(alunoId: number) {
       })
     }
     passos = [...inicio, ...meio, ...fim]
+  }
+  // Assinado (ERP ou portal): o aluno revê o PDF quando quiser — o passo
+  // "Contrato" pode nem existir para quem assinou só na inscrição.
+  const assinadoDoc = await documentoAssinadoDoAluno(alunoId).catch(() => null)
+  if (assinadoDoc) {
+    const termo = assinadoDoc.tipo === 'termo'
+    const pc = passos.find((p) => p.chave === 'contrato')
+    const documento = { rotulo: termo ? 'Ver termo de aceite' : 'Ver contrato', href: '/api/public/aca/aluno/contrato/pdf' }
+    if (pc) { pc.documento = documento; if (termo) pc.titulo = 'Termo de aceite' }
+    else {
+      // Entra antes da "Matrícula" (que fecha a lista), ou no fim.
+      const iMat = passos.findIndex((p) => p.chave === 'matricula')
+      const novo: Passo = { chave: 'contrato', titulo: termo ? 'Termo de aceite' : 'Contrato', detalhe: 'Assinado', situacao: 'feito', acao: null, documento }
+      passos.splice(iMat >= 0 ? iMat : passos.length, 0, novo)
+    }
   }
 
   return {

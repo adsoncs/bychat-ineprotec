@@ -464,10 +464,31 @@ export async function estadoDaAssinaturaDaInscricao(registrationId: number, atua
   return env ? estado(env, await widgetDoEnvelope(env)) : null
 }
 
-/** Há provedor de assinatura configurado de verdade (credencial)? Sem ele, o aceite é no portal. */
-export async function assinaturaEletronicaAtiva(): Promise<boolean> {
+/**
+ * Como o modelo se comporta no portal (config do modelo):
+ *  - assinatura 'PROVEDOR' (padrão): Autentique/Clicksign quando configurados;
+ *    'ACEITE': sempre aceite no próprio portal, mesmo com provedor ligado.
+ *  - tipo 'contrato' (padrão) ou 'termo': só muda o nome nos botões do aluno.
+ */
+export function comportamentoDoModelo(config: unknown): { assinatura: 'PROVEDOR' | 'ACEITE'; tipo: 'contrato' | 'termo' } {
+  const c = (config && typeof config === 'object' ? config : {}) as Record<string, unknown>
+  return { assinatura: c.assinatura === 'ACEITE' ? 'ACEITE' : 'PROVEDOR', tipo: c.tipo === 'termo' ? 'termo' : 'contrato' }
+}
+
+/**
+ * Há provedor de assinatura configurado de verdade (credencial)? Sem ele, o
+ * aceite é no portal. Com o modelo, respeita a escolha dele ("aceite no portal").
+ */
+export async function assinaturaEletronicaAtiva(modelo?: { config?: unknown } | null): Promise<boolean> {
+  if (modelo && comportamentoDoModelo(modelo.config).assinatura === 'ACEITE') return false
   const { provedorAtivo } = await import('./assinaturaProvedor.js')
   return (await provedorAtivo()) !== 'SIMULADO'
+}
+
+/** Modelo que vale para a inscrição (sem gerar PDF). */
+export async function modeloDaInscricao(registrationId: number) {
+  const d = await dadosDoContratoDaInscricao(registrationId)
+  return d ? modeloDoPortal(d.portalId, d.courseId) : null
 }
 
 type Resultado = { ok: true; assinatura: EstadoDaAssinatura } | { ok: false; erro: string }
@@ -482,7 +503,7 @@ type Resultado = { ok: true; assinatura: EstadoDaAssinatura } | { ok: false; err
 export async function iniciarAssinaturaDaInscricao(registrationId: number): Promise<Resultado> {
   // Sem Autentique, o "envelope" seria simulado e o link não abriria nada: o
   // caminho é o aceite no portal (aceitarContratoNoPortal).
-  if (!(await assinaturaEletronicaAtiva())) return { ok: false, erro: 'A assinatura eletrônica não está configurada — assine pelo aceite nesta página.' }
+  if (!(await assinaturaEletronicaAtiva(await modeloDaInscricao(registrationId)))) return { ok: false, erro: 'A assinatura eletrônica não está configurada — assine pelo aceite nesta página.' }
   const { redis } = await import('../lib/redis.js')
   const trava = `contrato:insc:${registrationId}`
   if (!(await redis.set(trava, '1', 'EX', 90, 'NX'))) return { ok: false, erro: 'O contrato já está sendo preparado — aguarde alguns segundos.' }
@@ -546,7 +567,7 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
  * sobre o contrato em Word de verdade — o PDF fica guardado no envelope, que
  * nasce assinado e segue o mesmo caminho (aceite da inscrição, GED, matrícula).
  */
-export async function aceitarContratoNoPortal(registrationId: number, nome: string): Promise<Resultado> {
+export async function aceitarContratoNoPortal(registrationId: number, nome: string, ip?: string | null): Promise<Resultado> {
   const atual = await envelopeDaInscricao(registrationId)
   if (atual?.status === 'ASSINADO') return { ok: true, assinatura: estado(atual) }
   const r = await pdfDoContratoDaInscricao(registrationId)
@@ -554,13 +575,92 @@ export async function aceitarContratoNoPortal(registrationId: number, nome: stri
   const svc = await import('./acaAssinatura.js')
   const env = await svc.criar({
     titulo: `${r.modelo.nome} — ${r.dados.aluno.nome}`, origem: 'UPLOAD', templateId: r.modelo.id,
-    arquivoBase64: r.pdf.toString('base64'), arquivoNome: `${r.modelo.nome}.pdf`, registrationId,
+    arquivoBase64: (await comRegistroDoAceite(r.pdf, {
+      titulo: r.modelo.nome, nome, cpf: r.dados.aluno.cpf, email: r.dados.aluno.email,
+      codigo: String(r.dados.vars.codigo_inscricao ?? ''), ip: ip ?? null,
+    })).toString('base64'), arquivoNome: `${r.modelo.nome}.pdf`, registrationId,
     signatarios: [{ nome: nome.slice(0, 191), email: r.dados.aluno.email, cpf: r.dados.aluno.cpf, papel: 'ALUNO', deliveryMethod: 'LINK' }],
   })
   await prisma.acaAssinatura.update({ where: { id: env.id }, data: { provider: 'PORTAL', status: 'ENVIADO', enviadoEm: new Date() } })
   for (const s of env.signatarios) await svc.simularAssinatura(env.id, s.id)
   const fim = await envelopeDaInscricao(registrationId)
   return { ok: true, assinatura: estado(fim!) }
+}
+
+/**
+ * O contrato/termo ASSINADO do aluno, para ele rever no portal a qualquer
+ * momento: o da matrícula (ERP) ou, se ainda não foi adotado, o da inscrição
+ * feita pelo portal. Mais recente primeiro.
+ */
+export async function documentoAssinadoDoAluno(alunoId: number) {
+  const aluno = await prisma.aluno.findUnique({ where: { id: alunoId }, select: { leadId: true } })
+  if (!aluno) return null
+  const [mats, regs] = await Promise.all([
+    prisma.acaMatricula.findMany({ where: { alunoId }, select: { id: true } }),
+    aluno.leadId ? prisma.enrollmentRegistration.findMany({ where: { leadId: aluno.leadId }, select: { id: true } }) : Promise.resolve([]),
+  ])
+  const env = await prisma.acaAssinatura.findFirst({
+    where: { status: 'ASSINADO', OR: [{ alunoId }, { matriculaId: { in: mats.map((m) => m.id) } }, { registrationId: { in: regs.map((r) => r.id) } }] },
+    orderBy: { id: 'desc' },
+    select: { id: true, titulo: true, templateId: true, arquivoAssinadoUrl: true, arquivoBase64: true },
+  })
+  if (!env) return null
+  const t = env.templateId ? await prisma.acaContratoTemplate.findUnique({ where: { id: env.templateId }, select: { config: true } }) : null
+  return { ...env, tipo: comportamentoDoModelo(t?.config).tipo }
+}
+
+/**
+ * PDF assinado de um envelope: a via do provedor; sem ela, o documento guardado;
+ * sem nenhum dos dois (contrato em texto do ERP), o PDF gerado do envelope.
+ */
+export async function pdfDoEnvelopeAssinado(env: { id: number; arquivoAssinadoUrl: string | null; arquivoBase64: string | null }): Promise<Buffer | null> {
+  let pdf: Buffer | null = null
+  if (env.arquivoAssinadoUrl) {
+    const { lerPdfAssinado } = await import('./assinaturaProvedor.js')
+    pdf = await lerPdfAssinado(env.arquivoAssinadoUrl)
+  }
+  if (!pdf && env.arquivoBase64) pdf = Buffer.from(env.arquivoBase64, 'base64')
+  if (!pdf) pdf = await (await import('./acaAssinatura.js')).gerarPdf(env.id).then((r) => r.buffer).catch(() => null)
+  return pdf
+}
+
+/**
+ * Aceite no portal não passa por provedor: sem isto o PDF "assinado" seria o
+ * mesmo documento sem nenhuma marca do aceite. Acrescenta uma página final com
+ * quem aceitou, quando, de onde e o código da inscrição. Se falhar, segue o PDF
+ * original — o aceite também fica gravado na inscrição.
+ */
+export async function comRegistroDoAceite(pdf: Buffer, a: { titulo: string; nome: string; cpf?: string | null; email?: string | null; codigo: string; ip: string | null }): Promise<Buffer> {
+  const os = await import('node:os'); const path = await import('node:path'); const fs = await import('node:fs/promises')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aceite-'))
+  try {
+    const PDFDocument = (await import('pdfkit')).default
+    const doc = new PDFDocument({ size: 'A4', margin: 64 })
+    const partes: Buffer[] = []
+    doc.on('data', (b: Buffer) => partes.push(b))
+    const fim = new Promise<void>((ok) => doc.on('end', () => ok()))
+    const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    doc.fontSize(15).font('Helvetica-Bold').text('Registro de aceite eletrônico', { align: 'left' })
+    doc.moveDown(0.6).fontSize(10.5).font('Helvetica')
+      .text(`O documento "${a.titulo}" foi lido e aceito eletronicamente no portal de matrículas, nos termos da sua cláusula de declaração de aceite.`)
+    doc.moveDown(1)
+    const linhas: [string, string][] = [
+      ['Aceito por', a.nome], ['CPF', a.cpf || '—'], ['E-mail', a.email || '—'],
+      ['Data e hora', `${quando} (horário de Brasília)`], ['Endereço IP', a.ip || '—'], ['Código da inscrição', a.codigo || '—'],
+    ]
+    for (const [k, v] of linhas) doc.font('Helvetica-Bold').text(`${k}: `, { continued: true }).font('Helvetica').text(v)
+    doc.end(); await fim
+    const a1 = path.join(dir, 'doc.pdf'), a2 = path.join(dir, 'aceite.pdf'), out = path.join(dir, 'final.pdf')
+    await fs.writeFile(a1, pdf); await fs.writeFile(a2, Buffer.concat(partes))
+    const { execFile } = await import('node:child_process')
+    await new Promise<void>((ok, nok) => execFile('pdfunite', [a1, a2, out], { timeout: 20_000 }, (e) => (e ? nok(e) : ok())))
+    return await fs.readFile(out)
+  } catch (e) {
+    console.warn('[contrato] registro do aceite não anexado:', (e as Error).message)
+    return pdf
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 /**

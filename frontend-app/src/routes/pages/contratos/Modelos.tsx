@@ -86,6 +86,7 @@ function ModeloModal({ base, erp, template, onClose }: { base: string; erp: bool
     nome: template?.nome || '', tipoNegocio: template?.tipoNegocio || 'OUTRO', descricao: template?.descricao || '',
     corpoTexto: template?.corpoTexto || '', ativo: template?.ativo ?? true,
     deadlineDias: c.deadlineDias ?? '', reminder: c.reminder || '', sortable: !!c.sortable, refusable: c.refusable !== false, mensagem: c.mensagem || '',
+    assinatura: c.assinatura === 'ACEITE' ? 'ACEITE' : 'PROVEDOR', tipoDoc: c.tipo === 'termo' ? 'termo' : 'contrato',
     portalIds: template?.portalIds ?? [], cursoIds: template?.cursoIds ?? [],
   })
   const [wordPendente, setWordPendente] = useState<File | null>(null)
@@ -95,7 +96,7 @@ function ModeloModal({ base, erp, template, onClose }: { base: string; erp: bool
   const salvar = async () => {
     const body: any = { nome: f.nome, tipoNegocio: f.tipoNegocio, descricao: f.descricao, corpoTexto: f.corpoTexto, ativo: f.ativo,
       portalIds: f.portalIds, cursoIds: f.cursoIds,
-      config: { deadlineDias: f.deadlineDias ? Number(f.deadlineDias) : null, reminder: f.reminder || null, sortable: f.sortable, refusable: f.refusable, mensagem: f.mensagem || null },
+      config: { deadlineDias: f.deadlineDias ? Number(f.deadlineDias) : null, reminder: f.reminder || null, sortable: f.sortable, refusable: f.refusable, mensagem: f.mensagem || null, assinatura: f.assinatura, tipo: f.tipoDoc },
       signatariosPadrao: template?.signatariosPadrao || [{ papel: 'ALUNO', acao: 'SIGN', deliveryMethod: 'EMAIL' }, { papel: 'RESPONSAVEL', acao: 'SIGN', deliveryMethod: 'EMAIL' }] }
     setSalvando(true)
     try {
@@ -122,6 +123,16 @@ function ModeloModal({ base, erp, template, onClose }: { base: string; erp: bool
         <ArquivoWord base={base} templateId={template?.id ?? null} nomeArquivo={atual?.arquivoDocxNome ?? null} campos={atual?.camposDocx ?? null}
           pendente={wordPendente} onPendente={setWordPendente} onMudou={() => void lista.refetch()} />
         <OndeVale base={base} portalIds={f.portalIds} cursoIds={f.cursoIds} onChange={(v) => setF({ ...f, ...v })} />
+        <div class="grid sm:grid-cols-2 gap-3">
+          <Select label="Como o aluno assina" value={f.assinatura} onChange={(e: any) => set('assinatura', e.currentTarget.value)}>
+            <option value="PROVEDOR">Assinatura eletrônica (Autentique/Clicksign, se configurada)</option>
+            <option value="ACEITE">Aceite no próprio portal (sem Autentique)</option>
+          </Select>
+          <Select label="Nome do documento para o aluno" value={f.tipoDoc} onChange={(e: any) => set('tipoDoc', e.currentTarget.value)}>
+            <option value="contrato">Contrato</option>
+            <option value="termo">Termo de aceite</option>
+          </Select>
+        </div>
         {erp && !temWord && <div class="space-y-1">
           <Textarea label="Corpo do contrato em texto (sem arquivo Word; use variáveis {{...}})" rows={9} value={f.corpoTexto} onInput={(e: any) => set('corpoTexto', e.currentTarget.value)} />
           <div class="flex flex-wrap gap-1">{(vars.data?.variaveis ?? []).map((v) => <button key={v.chave} title={v.desc} class="text-[0.7rem] px-2 py-0.5 rounded bg-surface-2 border border-border text-fg-muted hover:text-fg" onClick={() => set('corpoTexto', `${f.corpoTexto}{{${v.chave}}}`)}>{`{{${v.chave}}}`}</button>)}</div>

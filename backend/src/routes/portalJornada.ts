@@ -13,7 +13,7 @@ import { contaDaRequisicao } from '../lib/portalSession.js'
 import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, emitirParecer, responderParecer, etapaDeAnalise, CHAVES, type ChaveEtapa, type EtapaDaInscricao } from '../services/portalJornada.js'
 import {
   dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
-  iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva,
+  iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva, comportamentoDoModelo,
 } from '../services/contratoDoPortal.js'
 import {
   dadosEfetivos, camposDaEtapa, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
@@ -67,8 +67,8 @@ async function contratoWordDaInscricao(registrationId: number) {
   const provedor = await provedorAtivo()
   const widgetClicksign = provedor === 'CLICKSIGN' && (await (await import('../services/clicksign.js')).getConfig()).widget
   return {
-    modelo: { id: modelo.id, nome: modelo.nome },
-    eletronica: await assinaturaEletronicaAtiva(),
+    modelo: { id: modelo.id, nome: modelo.nome, tipo: comportamentoDoModelo(modelo.config).tipo },
+    eletronica: await assinaturaEletronicaAtiva(modelo),
     provedor,
     widget: widgetClicksign,
     menorSemResponsavel: d.menor && !d.responsavel,
@@ -327,7 +327,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       if (word.eletronica) return reply.code(400).send({ error: 'Este contrato é assinado eletronicamente — use o botão "Assinar".' })
       const nome = String((req.body as any)?.nome || '').trim()
       if (nome.length < 5 || !nome.includes(' ')) return reply.code(400).send({ error: 'Escreva seu nome completo para assinar.' })
-      const r = await aceitarContratoNoPortal(s.enrollmentId, nome)
+      const r = await aceitarContratoNoPortal(s.enrollmentId, nome, ipDe(req))
       if (!r.ok) return reply.code(400).send({ error: r.erro })
       return { ok: true, jaAssinado: false }
     }

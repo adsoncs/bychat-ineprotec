@@ -42,6 +42,19 @@ export async function acaAlunoApiRoutes(app: FastifyInstance) {
     return { contrato }
   })
 
+  // Contrato/termo assinado, para o aluno rever a qualquer momento (botão no painel).
+  app.get('/api/public/aca/aluno/contrato/pdf', async (req, reply) => {
+    const alunoId = await alunoDaRequisicao(req)
+    if (!alunoId) return reply.code(401).send({ error: 'Entre no portal para ver seu contrato.' })
+    const { documentoAssinadoDoAluno, pdfDoEnvelopeAssinado } = await import('../services/contratoDoPortal.js')
+    const doc = await documentoAssinadoDoAluno(alunoId)
+    const pdf = doc ? await pdfDoEnvelopeAssinado(doc) : null
+    if (!doc || !pdf) return reply.code(404).send({ error: 'Nenhum documento assinado encontrado.' })
+    const nome = doc.tipo === 'termo' ? 'termo-de-aceite-assinado.pdf' : 'contrato-assinado.pdf'
+    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${nome}"`)
+      .header('Cache-Control', 'no-store').send(pdf)
+  })
+
   app.post('/api/public/aca/aluno/contrato/assinar', async (req, reply) => {
     const alunoId = await alunoDaRequisicao(req)
     if (!alunoId) return reply.code(401).send({ error: 'Entre no portal para assinar.' })
