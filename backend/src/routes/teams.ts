@@ -36,7 +36,7 @@ const TEAM_SELECT = {
 }
 
 const MEMBER_SELECT = {
-  id: true, isLeader: true, podeTransferir: true, podePegarDeOutros: true, createdAt: true,
+  id: true, isLeader: true, podeTransferir: true, podePegarDeOutros: true, participaRodizio: true, createdAt: true,
   user: { select: { id: true, name: true, email: true, role: true, active: true, lastSeenAt: true } },
 }
 
@@ -314,6 +314,16 @@ export async function teamsRoutes(app: FastifyInstance) {
       const tri = (v: unknown) => (v === null || v === 'equipe' ? null : v === true)
       if (body.podeTransferir !== undefined) data.podeTransferir = tri(body.podeTransferir)
       if (body.podePegarDeOutros !== undefined) data.podePegarDeOutros = tri(body.podePegarDeOutros)
+    }
+    // Entrar ou sair do rodízio: decide quem recebe leads automaticamente, então
+    // é do administrador — o líder não se tira (nem tira outro) da distribuição.
+    if (body.participaRodizio !== undefined) {
+      const quem = (req as any).user
+      if (quem?.role !== 'ADMIN' && quem?.role !== 'SUPERADMIN') {
+        return reply.code(403).send({ error: 'Só um administrador tira ou coloca alguém no rodízio.' })
+      }
+      if (typeof body.participaRodizio !== 'boolean') return reply.code(400).send({ error: 'participaRodizio deve ser verdadeiro ou falso.' })
+      data.participaRodizio = body.participaRodizio
     }
 
     try {

@@ -86,7 +86,9 @@ export async function donoDaMesmaPessoa(dados: {
     if (temCpf && cpfDela.length === 11 && cpfDela !== cpf) continue
     const userId = c.assignedUserId!
     if (!(await usuarioQueAtende(userId))) continue
-    const membro = await prisma.teamMember.findFirst({ where: { teamId: dados.teamId, userId }, select: { id: true } })
+    const membro = await prisma.teamMember.findFirst({ where: { teamId: dados.teamId, userId }, select: { id: true, participaRodizio: true } })
+    // Fora do rodízio desta equipe: a inscrição não cai com ele por herança.
+    if (membro && !membro.participaRodizio) continue
     // Outro processo da mesma pessoa (ela já tem inscrição aberta nesta ficha):
     // o responsável é o mesmo, seja de que equipe for (fabad, 22/10).
     const { processosAbertos } = await import('./juncaoSegura.js')
@@ -111,10 +113,14 @@ async function direcaoDoLead(lead: { id: number; teamId: number | null; funnelId
   return reg?.portal?.teamId ?? null
 }
 
-/** Líder ativo da equipe; sem líder, o membro ativo com menos leads abertos. */
+/**
+ * Líder ativo da equipe; sem líder, o membro ativo com menos leads abertos.
+ * Só entre quem participa do rodízio — o líder que é gestor e saiu do rodízio
+ * não vira a reserva de quem ficou sem dono.
+ */
 async function reservaDaEquipe(teamId: number): Promise<number | null> {
   const membros = await prisma.teamMember.findMany({
-    where: { teamId, user: { active: true, role: { not: 'VIEWER' } } },
+    where: { teamId, participaRodizio: true, user: { active: true, role: { not: 'VIEWER' } } },
     select: { userId: true, isLeader: true },
     orderBy: { id: 'asc' },
   })

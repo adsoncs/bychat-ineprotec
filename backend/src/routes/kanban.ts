@@ -1,7 +1,35 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
-import { buildLeadAccessWhere } from '../lib/teamAccess.js'
+import { buildLeadAccessWhere, getLeadScope } from '../lib/teamAccess.js'
+
+/**
+ * Funis que a pessoa enxerga no Kanban. Admin e quem tem alcance "todos" veem
+ * todos (null). Os demais veem o funil das equipes de que participam
+ * (Configurações › Equipes › "Funil da equipe" e o funil de cliente ganho) e
+ * os funis onde têm lead seu — para nunca perder de vista o próprio trabalho.
+ * Antes qualquer agente via os funis de todos os setores, com os contadores.
+ */
+async function funisPermitidos(user: JwtPayload): Promise<number[] | null> {
+  if (user.role === 'SUPERADMIN' || user.role === 'ADMIN') return null
+  if ((await getLeadScope(user.userId, user.role)) === 'all') return null
+  const ids = new Set<number>()
+  const equipes = await prisma.teamMember.findMany({
+    where: { userId: user.userId, team: { active: true } },
+    select: { team: { select: { funnelId: true, oportunidadeFunnelId: true } } },
+  })
+  for (const e of equipes) {
+    if (e.team.funnelId) ids.add(e.team.funnelId)
+    if (e.team.oportunidadeFunnelId) ids.add(e.team.oportunidadeFunnelId)
+  }
+  const [meus, meusAdicionais] = await Promise.all([
+    prisma.lead.findMany({ where: { assignedUserId: user.userId, qualifiedAt: { not: null }, funnelId: { not: null } }, distinct: ['funnelId'], select: { funnelId: true } }),
+    prisma.leadFunnel.findMany({ where: { assignedUserId: user.userId, saiuEm: null }, distinct: ['funnelId'], select: { funnelId: true } }),
+  ])
+  for (const l of meus) if (l.funnelId) ids.add(l.funnelId)
+  for (const l of meusAdicionais) ids.add(l.funnelId)
+  return [...ids]
+}
 
 /**
  * Fatia uma lista de ids para caber numa prepared statement.
@@ -23,9 +51,14 @@ function emLotes<T>(itens: T[], tamanho = 2000): T[][] {
 export async function kanbanRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/kanban/funnels-summary ──
-  app.get('/api/admin/kanban/funnels-summary', { preHandler: authMiddleware }, async () => {
+  app.get('/api/admin/kanban/funnels-summary', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user as JwtPayload
+    const permitidos = await funisPermitidos(user)
+    // Quem não vê tudo conta só os leads que pode ver (antes o card mostrava
+    // o total do setor inteiro).
+    const acesso = permitidos ? await buildLeadAccessWhere(user.userId, user.role) : {}
     const funnels = await prisma.funnel.findMany({
-      where: { active: true },
+      where: { active: true, ...(permitidos ? { id: { in: permitidos } } : {}) },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
       include: {
         stages: { where: { active: true }, orderBy: { position: 'asc' }, select: { id: true, key: true, name: true, color: true } },
@@ -37,7 +70,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
     const result = await Promise.all(funnels.map(async (f) => {
       const stageCounts = await prisma.lead.groupBy({
         by: ['status'],
-        where: { funnelId: f.id },
+        where: { funnelId: f.id, ...(permitidos ? { AND: [acesso] } : {}) },
         _count: true
       })
       const stageMap: Record<string, number> = {}
@@ -45,7 +78,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
       // Cards de funil adicional contam na coluna deles (mesma régua do quadro).
       const adicionais = await prisma.leadFunnel.groupBy({
         by: ['stageKey'],
-        where: { funnelId: f.id, saiuEm: null, lead: { funnelId: { not: f.id } } },
+        where: { funnelId: f.id, saiuEm: null, lead: { funnelId: { not: f.id }, ...(permitidos ? { AND: [acesso] } : {}) } },
         _count: true,
       })
       let totalAdicionais = 0
@@ -55,6 +88,9 @@ export async function kanbanRoutes(app: FastifyInstance) {
         totalAdicionais += a._count
       })
 
+      const principais = permitidos
+        ? await prisma.lead.count({ where: { funnelId: f.id, AND: [acesso] } })
+        : f._count.leads
       return {
         id: f.id,
         name: f.name,
@@ -62,7 +98,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
         isDefault: f.isDefault,
         createdAt: f.createdAt,
         stageCount: f._count.stages,
-        leadCount: f._count.leads + totalAdicionais,
+        leadCount: principais + totalAdicionais,
         stages: f.stages.map(s => ({ ...s, leadCount: stageMap[s.key] || 0 }))
       }
     }))
@@ -77,8 +113,20 @@ export async function kanbanRoutes(app: FastifyInstance) {
     const qFunnelId = q.funnelId
 
     // Resolve funnel
+    const permitidos = await funisPermitidos(user)
     let funnelId: number | undefined
-    if (qFunnelId) {
+    if (permitidos) {
+      // Só os funis da pessoa: o pedido fora deles cai no primeiro permitido
+      // (padrão da casa primeiro, mesma ordem do seletor). Sem nenhum, o quadro
+      // fica vazio — nunca "sem filtro".
+      const meus = await prisma.funnel.findMany({
+        where: { active: true, id: { in: permitidos } },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        select: { id: true },
+      })
+      const pedido = qFunnelId ? Number(qFunnelId) : null
+      funnelId = pedido && meus.some((m) => m.id === pedido) ? pedido : (meus[0]?.id ?? -1)
+    } else if (qFunnelId) {
       funnelId = Number(qFunnelId)
     } else {
       // Sem funil escolhido, vale o padrão da casa. E se NENHUM funil está
@@ -218,7 +266,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
         }
       }),
       prisma.kanbanPermission.findUnique({ where: { role: user.role as any } }),
-      prisma.funnel.findMany({ where: { active: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }], select: { id: true, name: true, isDefault: true } })
+      prisma.funnel.findMany({ where: { active: true, ...(permitidos ? { id: { in: permitidos } } : {}) }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }], select: { id: true, name: true, isDefault: true } })
     ])
 
     // Count pending activities per lead
@@ -353,7 +401,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
       stages,
       leads: grouped,
       funnels,
-      currentFunnelId: funnelId,
+      currentFunnelId: funnelId === -1 ? null : funnelId,
       permissions: {
         // SUPERADMIN sempre tudo. Caso a row da role esteja na tabela, vale ela.
         // Senão, default seguro: ADMIN/MANAGER/AGENT podem avançar (operacional);

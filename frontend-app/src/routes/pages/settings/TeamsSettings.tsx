@@ -542,6 +542,14 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
   }
   const triValor = (v: boolean | null | undefined) => (v == null ? 'equipe' : v ? 'sim' : 'nao')
 
+  // Rodízio por pessoa nesta equipe — só admin muda (o servidor também recusa).
+  function handleToggleRodizio(userId: number, participaRodizio: boolean) {
+    updateMember.mutate({ userId, participaRodizio }, {
+      onSuccess: () => toast(participaRodizio ? 'Voltou a receber leads desta equipe pelo rodízio' : 'Fora do rodízio desta equipe: não recebe leads automaticamente', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
   function handleToggleLeader(userId: number, isLeader: boolean) {
     updateMember.mutate({ userId, isLeader }, {
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -638,6 +646,9 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
                           {m.isLeader && (
                             <Badge tone="warning" solid><Star size={10} class="inline mr-0.5" />Líder</Badge>
                           )}
+                          {m.participaRodizio === false && (
+                            <Badge tone="neutral">Fora do rodízio</Badge>
+                          )}
                         </div>
                         <div class="text-2xs text-fg-muted truncate">
                           {m.user.email} · {m.user.role}
@@ -674,6 +685,20 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
                       <span class="text-2xs" style={{ color: presence.color }}>
                         {presence.label}
                       </span>
+                      <label
+                        class={`flex items-center gap-1 text-xs text-fg-muted ${souAdmin ? 'cursor-pointer' : 'opacity-60'}`}
+                        title={souAdmin
+                          ? 'Ligado: recebe leads desta equipe pelo rodízio (e agenda/varredura). Desligado: continua na equipe, mas nada cai para ele automaticamente — só por transferência manual.'
+                          : 'Só um administrador tira ou coloca alguém no rodízio.'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={m.participaRodizio !== false}
+                          disabled={!souAdmin || updateMember.isPending}
+                          onChange={(e) => handleToggleRodizio(m.user.id, (e.target as HTMLInputElement).checked)}
+                        />
+                        Rodízio
+                      </label>
                       <label class="flex items-center gap-1 text-xs text-fg-muted cursor-pointer">
                         <input
                           type="checkbox"

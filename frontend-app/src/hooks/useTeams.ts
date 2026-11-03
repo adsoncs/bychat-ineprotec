@@ -131,6 +131,8 @@ export interface TeamMemberDetail {
   /** null = igual à equipe. */
   podeTransferir?: boolean | null
   podePegarDeOutros?: boolean | null
+  /** Entra no rodízio desta equipe (padrão: sim). */
+  participaRodizio?: boolean
   createdAt: string
   user: {
     id: number
@@ -200,7 +202,7 @@ export function useAddTeamMember(teamId: number) {
 export function useUpdateTeamMember(teamId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ userId, ...dados }: { userId: number; isLeader?: boolean; podeTransferir?: boolean | null; podePegarDeOutros?: boolean | null }) =>
+    mutationFn: ({ userId, ...dados }: { userId: number; isLeader?: boolean; podeTransferir?: boolean | null; podePegarDeOutros?: boolean | null; participaRodizio?: boolean }) =>
       api.put<{ ok: true }>(`/admin/teams/${teamId}/members/${userId}`, dados),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['team-members'] }) },
   })

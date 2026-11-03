@@ -402,6 +402,13 @@ const APOIO_LEADS_READ_PATHS = new Set<string>([
 ])
 const APOIO_LEADS_READ_MODULES = ['leads', 'kanban', 'atendimento', 'contatos']
 
+// Transferir pela tela de Leads/Kanban/Contatos usa a rota de atribuição do
+// Conversas. Quem edita leads mas não tem o Conversas (ex.: polos parceiros)
+// precisa transferir sem ganhar a caixa de conversas. A própria rota confere o
+// acesso ao lead, "pode transferir" da equipe e o dono fixo.
+const TRANSFERIR_LEAD_PATH = /^\/api\/atendimento\/tickets\/\d+\/assign$/
+const TRANSFERIR_LEAD_MODULES = ['leads', 'kanban', 'contatos']
+
 // Tenta resolver o user a partir do Bearer token DIRETAMENTE no hook global,
 // sem depender do `authMiddleware` da rota (que é preHandler de ROTA — roda
 // DEPOIS deste preHandler global e portanto deixaria `req.user` indefinido).
@@ -525,6 +532,9 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
       return
     }
     if (req.method === 'GET' && APOIO_LEADS_READ_PATHS.has(pathOnly) && APOIO_LEADS_READ_MODULES.some(m => perms[m]?.canView)) {
+      return
+    }
+    if (req.method === 'POST' && TRANSFERIR_LEAD_PATH.test(pathOnly) && TRANSFERIR_LEAD_MODULES.some(m => perms[m]?.canEdit)) {
       return
     }
 

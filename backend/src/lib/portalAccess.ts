@@ -58,8 +58,11 @@ export async function alcanceDePortais(userId: number, role: string): Promise<Al
   const hit = cache.get(chave)
   if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.alc
 
-  // Motor de Papéis: alcance de inscrições "Tudo" no papel = vê todos os portais.
+  // Motor de Papéis: alcance de inscrições "Tudo" no papel = vê todos os portais;
+  // "Equipe" = vê todas as inscrições dos portais das suas equipes, como o líder
+  // (ex.: gestor do polo, que não precisa ser marcado líder para acompanhar).
   const { motorDePapeisLigado } = await import('./permissions.js')
+  let equipeInteira = false
   if (await motorDePapeisLigado()) {
     const pa = await prisma.papelAlcance.findFirst({ where: { tipo: 'INSCRICOES', papel: { usuarios: { some: { id: userId } } } }, select: { alcance: true } })
     if (pa?.alcance === 'TUDO') {
@@ -67,6 +70,7 @@ export async function alcanceDePortais(userId: number, role: string): Promise<Al
       cache.set(chave, { alc, ts: Date.now() })
       return alc
     }
+    equipeInteira = pa?.alcance === 'EQUIPE'
   }
 
   const [membros, linhas] = await Promise.all([
@@ -84,7 +88,7 @@ export async function alcanceDePortais(userId: number, role: string): Promise<Al
   if (membros.some((m) => m.team.veTodosOsPortais)) {
     alc = { todos: true, ...vazio }
   } else {
-    const minhas = new Map(membros.map((m) => [m.teamId, m.isLeader]))
+    const minhas = new Map(membros.map((m) => [m.teamId, m.isLeader || equipeInteira]))
     const restritos = new Set<number>()
     const lider = new Set<number>()
     const membro = new Set<number>()

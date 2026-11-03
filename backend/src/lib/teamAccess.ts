@@ -78,12 +78,23 @@ export async function isTeamLeader(userId: number, teamId: number): Promise<bool
  */
 export const CONVERSA_LIBERADA = { conversaLiberadaEm: { not: null } } as const
 
+/**
+ * A conversa liberada é um recurso do Conversas (quem atende puxa da fila
+ * geral). Quem não tem o módulo Conversas — ex.: polos parceiros, que só
+ * cuidam da matrícula — não ganha por ela os leads de outros setores.
+ */
+async function veConversasLiberadas(userId: number, role: AccessRole): Promise<boolean> {
+  const perms = await resolvePermissions(userId, role)
+  return !!perms.atendimento?.canView
+}
+
 export async function buildLeadAccessWhere(userId: number, role: AccessRole): Promise<any> {
   const scope = await getLeadScope(userId, role)
   if (scope === 'all') return {}
-  if (scope === 'own') return { OR: [await whereProprioOuLider(userId), CONVERSA_LIBERADA] }
+  const liberadas = (await veConversasLiberadas(userId, role)) ? [CONVERSA_LIBERADA] : []
+  if (scope === 'own') return { OR: [await whereProprioOuLider(userId), ...liberadas] }
   // 'team': leads dos setores do user OU atribuídos a si (cobre líder que atende).
-  return { OR: [{ assignedUserId: userId }, ...await ramosDoSetor(userId), CONVERSA_LIBERADA] }
+  return { OR: [{ assignedUserId: userId }, ...await ramosDoSetor(userId), ...liberadas] }
 }
 
 /**
@@ -144,7 +155,7 @@ export async function canUserAccessLead(
   if (!lead) return false
 
   // Conversa liberada ao resolver: qualquer agente abre e pode puxar.
-  if (lead.conversaLiberadaEm) return true
+  if (lead.conversaLiberadaEm && await veConversasLiberadas(userId, role)) return true
 
   // Sempre permite o dono do lead, independente de scope (cobre transferências
   // que migraram lead pra setor que o user não participa).

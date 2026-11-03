@@ -348,8 +348,10 @@ async function getEligibleMembers(
     }
   }
 
+  // `participaRodizio`: quem está na equipe só para ver/gerir (ex.: gestor)
+  // não recebe nada automaticamente — vale com ou sem o roteamento V2.
   const members = await prisma.teamMember.findMany({
-    where: { teamId, user: userFilter as any },
+    where: { teamId, participaRodizio: true, user: userFilter as any },
     select: { userId: true, user: { select: { capacity: true, lastSeenAt: true, agentProfile: { select: { weight: true, maxDailyLeads: true } } } } },
   })
   if (members.length === 0) return []
@@ -659,7 +661,7 @@ export async function listSchedulableOperators(teamId: number, at?: Date): Promi
     }
   }
   const members = await prisma.teamMember.findMany({
-    where: { teamId, user: userFilter as any },
+    where: { teamId, participaRodizio: true, user: userFilter as any },
     select: { userId: true },
   })
   return members.map((m) => m.userId)

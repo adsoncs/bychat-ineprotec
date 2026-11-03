@@ -718,6 +718,10 @@ model TeamMember {
   // Por pessoa (null = igual à equipe): vale mais que a marcação da equipe.
   podeTransferir    Boolean?
   podePegarDeOutros Boolean?
+  /// Entra no rodízio DESTA equipe (leads, agenda, varredura sem dono, reserva
+  /// da equipe). Desligado = continua na equipe (vê, gere, recebe por
+  /// transferência manual), mas nada cai para ele automaticamente.
+  participaRodizio  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
