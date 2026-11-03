@@ -45,7 +45,7 @@ const SITUACAO: Record<SituacaoFin, { rotulo: string; tom: 'success' | 'warning'
   sem_cobranca: { rotulo: 'Sem cobrança', tom: 'neutral' },
 }
 const MEIO: Record<string, string> = { pix: 'PIX', boleto: 'Boleto', cartao: 'Cartão', link: 'Link', manual: 'Manual', outro: 'Outro' }
-const GATEWAY: Record<string, string> = { iugu: 'iugu', asaas: 'Asaas', pagarme: 'Pagar.me', simulado: 'Simulado', manual: 'Manual' }
+const GATEWAY: Record<string, string> = { iugu: 'iugu', asaas: 'Asaas', pagarme: 'Pagar.me', simulado: 'Simulado', manual: 'Manual', isencao: 'Isento (cupom)' }
 
 function hojeMenos(dias: number) {
   const d = new Date(Date.now() - dias * 86400_000)

@@ -289,6 +289,12 @@ export function Pagamento(props: {
     const tabela = opcoes.tabela ?? null
     const ultimaCartao = opcoesCartao.length ? opcoesCartao[opcoesCartao.length - 1] : null
     const ultimaBoleto = opcoesBoleto.length > 1 ? opcoesBoleto[opcoesBoleto.length - 1] : null
+    // Cupom que zera o valor (ex.: 100% para ex-aluno): não há o que pagar.
+    // Um botão só — escolher PIX/boleto/cartão de R$ 0,00 não faz sentido, e o
+    // cartão ainda pediria os dados à toa. O servidor conclui por isenção.
+    const zerado = !!opcoes.cupom?.aplicado
+      && (m.pix.ativo ? m.pix.valor === 0 : opcoes.valor === 0)
+    const meioDaIsencao: Meio | null = mostraPix ? 'pix' : mostraBoleto ? 'boleto' : mostraCartao ? 'credit_card' : null
 
     return (
       <div class="cartao">
@@ -365,6 +371,16 @@ export function Pagamento(props: {
           )}
         </div>
 
+        {zerado && meioDaIsencao ? (
+          <div class="aviso info" role="status">
+            <p style="margin:0 0 10px">
+              Com o cupom <b>{opcoes.cupom?.code}</b>, você está <b>isento</b> deste pagamento. Não há nada a pagar — é só confirmar para seguir com a inscrição.
+            </p>
+            <button class="principal" onClick={() => escolher(meioDaIsencao)} disabled={carregando}>
+              {carregando ? 'Confirmando…' : 'Confirmar isenção'}
+            </button>
+          </div>
+        ) : (
         <div class="pagamento-opcoes">
           {mostraPix && (
             <button class="opcao-pagamento" onClick={() => escolher('pix')} disabled={carregando}>
@@ -413,6 +429,7 @@ export function Pagamento(props: {
             </button>
           )}
         </div>
+        )}
       </div>
     )
   }

@@ -48,6 +48,8 @@ export const PAYMENT_METHOD_LABEL: Record<string, string> = {
   PIX: 'PIX',
   BOLETO: 'Boleto',
   UNDEFINED: 'A escolher',
+  // Cupom de 100%: etapa concluída sem cobrança (services/isencaoPorCupom).
+  ISENTO: 'Isento (cupom)',
 }
 
 export function paymentMethodLabel(m: string | null | undefined): string {
@@ -60,6 +62,7 @@ export const PAYMENT_PROVIDER_LABEL: Record<string, string> = {
   asaas: 'Asaas',
   iugu: 'iugu',
   simulado: 'Simulado',
+  isencao: 'Isento (cupom)',
 }
 
 export function paymentProviderLabel(p: string | null | undefined): string {

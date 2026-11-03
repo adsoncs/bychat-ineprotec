@@ -3176,6 +3176,29 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           : 'Processo seletivo sem taxa de inscrição definida',
       })
     }
+    // Cupom que zera o valor (100%): não existe fatura de R$ 0,00 em gateway
+    // nenhum. A etapa fica concluída por isenção, antes de tocar no provedor
+    // (services/isencaoPorCupom). Mesma conta do checkout — cupom revalidado.
+    if (body.cupom) {
+      const contaZero = await montarCobrancaDoCheckout({
+        registrationId: enrollment.id,
+        portalId: enrollment.portal.id,
+        paymentMethodsConfig: enrollment.portal.paymentMethodsConfig,
+        paymentScope: enrollment.portal.paymentScope,
+        cpf: (enrollment.formData as any)?.cpf,
+        method,
+        body,
+        taxa: Number(taxaInscricao),
+        parcelamosNos: false,
+      })
+      if ('erro' in contaZero) return reply.code(400).send({ error: contaZero.erro })
+      if (contaZero.valorCobrado <= 0) {
+        const { isentarPorCupom } = await import('../services/isencaoPorCupom.js')
+        const r = await isentarPorCupom({ registrationId: enrollment.id, method, paymentPlan: contaZero.paymentPlan() })
+        if (!r.ok) return reply.code(400).send({ error: r.erro })
+        return reply.send({ ok: true, isento: true, method: r.methodRow ? serializePaymentMethod(r.methodRow) : null })
+      }
+    }
     // Cartão, por provedor:
     //  · Pagar.me — o navegador tokeniza com a chave pública e manda o token: o
     //    número não passa por aqui (PCI SAQ A).
