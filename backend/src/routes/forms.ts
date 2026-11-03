@@ -1128,14 +1128,16 @@ function generateEmbedScript(
   ${welcomeHTML}
   <form id="bf"${hasWelcome ? ' style="display:none"' : ''}>
     ${fieldsHTML}
-    <div class="bf-field bf-lgpd">
+    ${settings.consentCheckbox === false
+      ? (linksEmNovaAba(sanitizeBlockHtml(settings.consentNote)) ? `<div class="bf-field"><div class="bf-nota">${linksEmNovaAba(sanitizeBlockHtml(settings.consentNote))}</div></div>` : '')
+      : `    <div class="bf-field bf-lgpd">
       <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;font-size:13px;cursor:pointer">
         <input type="checkbox" id="bf-lgpd" style="width:auto;margin:3px 0 0">
         <span style="font-size:13px;color:${v.labelColor}">${linksEmNovaAba(sanitizeBlockHtml(settings.consentLabel)) || `Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary};text-decoration:underline">Política de Privacidade</a>.`}</span>
       </label>
       ${linksEmNovaAba(sanitizeBlockHtml(settings.consentNote)) ? `<div class="bf-nota" style="margin-top:6px">${linksEmNovaAba(sanitizeBlockHtml(settings.consentNote))}</div>` : ''}
       <div class="bf-lgpd-err" style="color:${v.errorBorder};font-size:12px;margin-top:4px;display:none">É necessário aceitar para enviar.</div>
-    </div>
+    </div>`}
     <button type="submit" class="bf-btn">${esc(settings.submitText||'Enviar')}</button>
     ${linksEmNovaAba(sanitizeBlockHtml(settings.footerNote)) ? `<div class="bf-nota" style="margin-top:12px;text-align:center">${linksEmNovaAba(sanitizeBlockHtml(settings.footerNote))}</div>` : ''}
   </form>

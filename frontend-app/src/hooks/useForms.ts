@@ -286,6 +286,8 @@ export interface FormSettings {
   consentLabel?: string | undefined
   /** Texto logo abaixo do aceite (ex.: "Ao informar meus dados, concordo com…"). HTML. */
   consentNote?: string | undefined
+  /** false = sem caixa de aceite no modo clássico (mostra só o consentNote). Padrão: true. */
+  consentCheckbox?: boolean | undefined
   /** Nota abaixo do botão de envio (ex.: "Não enviamos SPAM"). HTML. */
   footerNote?: string | undefined
   redirectUrl?: string | null

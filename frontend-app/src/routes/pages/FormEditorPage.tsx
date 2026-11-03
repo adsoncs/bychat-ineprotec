@@ -111,6 +111,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
   const [successHtml, setSuccessHtml] = useState('')
   const [consentLabel, setConsentLabel] = useState('')
   const [consentNote, setConsentNote] = useState('')
+  const [consentCheckbox, setConsentCheckbox] = useState(true)
   const [footerNote, setFooterNote] = useState('')
   const [successMode, setSuccessMode] = useState<'message' | 'redirect'>('message')
   const [redirectUrl, setRedirectUrl] = useState('')
@@ -155,6 +156,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     setSuccessHtml(s.successHtml ?? '')
     setConsentLabel(s.consentLabel ?? '')
     setConsentNote(s.consentNote ?? '')
+    setConsentCheckbox(s.consentCheckbox !== false)
     setFooterNote(s.footerNote ?? '')
     setRedirectUrl(s.redirectUrl ?? '')
     setSuccessMode(s.successMode ?? ((s.redirectEnabled ?? !!(s.redirectUrl && s.redirectUrl.trim())) ? 'redirect' : 'message'))
@@ -207,6 +209,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     successHtml: successHtml.trim(),
     consentLabel: stripHtml(consentLabel).trim() ? consentLabel.trim() : '',
     consentNote: stripHtml(consentNote).trim() ? consentNote.trim() : '',
+    consentCheckbox,
     footerNote: stripHtml(footerNote).trim() ? footerNote.trim() : '',
     successMode,
     redirectUrl: successMode === 'redirect' ? (redirectUrl.trim() || null) : null,
@@ -231,7 +234,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
       qualifyPositive: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyPositiveStage || null },
       qualifyNegative: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyNegativeStage || null },
     },
-  }), [submitText, successTitle, successMessage, successHtml, consentLabel, consentNote, footerNote, successMode, redirectUrl, displayMode, fireConversions, sourceLabel, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
+  }), [submitText, successTitle, successMessage, successHtml, consentLabel, consentNote, consentCheckbox, footerNote, successMode, redirectUrl, displayMode, fireConversions, sourceLabel, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
 
   // ── Canvas: re-render via endpoint SSR (modo edit), com debounce ──
   useEffect(() => {
@@ -561,7 +564,8 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                     />
                     <SectionTitle>Aceite e notas</SectionTitle>
                     <p class="text-xs text-fg-muted">No modo clássico. Em branco, fica o padrão: "Li e aceito a Política de Privacidade". Links abrem em nova aba.</p>
-                    <RichText label="Texto do aceite (caixa obrigatória)" value={consentLabel} onChange={(v) => { setConsentLabel(v); touch() }} placeholder="Eu concordo em receber comunicações." />
+                    <label class="flex items-start gap-2 text-sm text-fg"><input type="checkbox" class="size-4 mt-0.5 accent-accent shrink-0" checked={consentCheckbox} onChange={(e) => { setConsentCheckbox((e.target as HTMLInputElement).checked); touch() }} /> <span>Exigir caixa de aceite da Política de Privacidade<span class="block text-xs text-fg-muted">Desmarcado, o formulário envia sem a caixa e mostra só o "Texto abaixo do aceite", se houver.</span></span></label>
+                    {consentCheckbox && <RichText label="Texto do aceite (caixa obrigatória)" value={consentLabel} onChange={(v) => { setConsentLabel(v); touch() }} placeholder="Eu concordo em receber comunicações." />}
                     <RichText label="Texto abaixo do aceite" value={consentNote} onChange={(v) => { setConsentNote(v); touch() }} placeholder="Ao informar meus dados, eu concordo com a Política de Privacidade e com os Termos de Uso." />
                     <RichText label="Nota abaixo do botão" value={footerNote} onChange={(v) => { setFooterNote(v); touch() }} placeholder="Não enviamos SPAM." />
                   </section>
