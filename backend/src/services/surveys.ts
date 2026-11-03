@@ -128,7 +128,12 @@ export async function dispatchSurvey(
   // (WABA) desse número: com números de empresas diferentes, escolher na tela o
   // modelo da outra empresa faria todos os envios morrerem na Meta (132001).
   if (opts.templateName) {
-    const tpl = await prisma.cloudApiTemplate.findFirst({
+    // Mesmo nome nas duas contas (modelo clonado) não é "da outra conta".
+    const daConta = conn.wabaId ? await prisma.cloudApiTemplate.findFirst({
+      where: { name: opts.templateName, wabaId: conn.wabaId },
+      select: { id: true },
+    }) : null
+    const tpl = daConta ? null : await prisma.cloudApiTemplate.findFirst({
       where: { name: opts.templateName },
       select: { wabaId: true },
     })

@@ -400,7 +400,15 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
               select: { wabaId: true, displayName: true, displayPhone: true },
             })
             if (dono) {
-              const tpl = await prisma.cloudApiTemplate.findFirst({
+              // Modelo clonado existe com o MESMO nome nas duas contas: procurar
+              // primeiro na conta do número; só recusa se ele existe apenas em
+              // outra. (Antes o findFirst sem conta pegava a cópia da outra
+              // empresa e barrava um envio válido — terram, boletofinanceiro2.)
+              const daConta = await prisma.cloudApiTemplate.findFirst({
+                where: { name: template.name, language: template.language, wabaId: dono.wabaId },
+                select: { id: true },
+              })
+              const tpl = daConta ? null : await prisma.cloudApiTemplate.findFirst({
                 where: { name: template.name, language: template.language },
                 select: { wabaId: true },
               })
