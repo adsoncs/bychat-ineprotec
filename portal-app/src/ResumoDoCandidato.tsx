@@ -48,6 +48,8 @@ export function ResumoDoCandidato(props: {
   /** Edição controlada por fora (menu da conta no topo). */
   editando?: boolean
   aoMudarEdicao?: (v: boolean) => void
+  /** Título no lugar do "Olá, fulano" (Meu Portal já cumprimenta no topo). */
+  titulo?: string
 }) {
   const [r, setR] = useState<Resumo | null>(null)
   const [versao, setVersao] = useState(0)
@@ -69,7 +71,7 @@ export function ResumoDoCandidato(props: {
   return (
     <div class="cartao resumo-candidato">
       <div class="rc-topo">
-        <h2>Olá, {props.nomeCompleto ? props.nomeCompleto.trim().split(/\s+/)[0] : r.candidato.nome} <span aria-hidden="true">👋</span></h2>
+        {props.titulo ? <h2>{props.titulo}</h2> : <h2>Olá, {props.nomeCompleto ? props.nomeCompleto.trim().split(/\s+/)[0] : r.candidato.nome} <span aria-hidden="true">👋</span></h2>}
         <span class={`rc-situacao ${tomDaSituacao(i.situacao)}`}>{SITUACAO[i.situacao] ?? i.situacao}</span>
       </div>
       {editando ? (

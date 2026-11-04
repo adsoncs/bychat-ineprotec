@@ -63,6 +63,7 @@ import { paymentsDashboardRoutes } from './routes/paymentsDashboard.js'
 import { couponsRoutes } from './routes/coupons.js'
 import { portalFinanceiroRoutes } from './routes/portalFinanceiro.js'
 import { portalJornadaRoutes } from './routes/portalJornada.js'
+import { areaDoAlunoRoutes } from './routes/areaDoAluno.js'
 import { leadHistoryRoutes } from './routes/leadHistory.js'
 import { activitiesRoutes, startActivityScheduler } from './routes/activities.js'
 import { alertsRoutes } from './routes/alerts.js'
@@ -853,6 +854,7 @@ await app.register(paymentsDashboardRoutes)
 await app.register(couponsRoutes)
 await app.register(portalFinanceiroRoutes)
 await app.register(portalJornadaRoutes)
+await app.register(areaDoAlunoRoutes)
 await app.register(leadHistoryRoutes)
 await app.register(activitiesRoutes)
 await app.register(alertsRoutes)

@@ -13,6 +13,7 @@ import { Moldura, MenuDaConta } from './Moldura'
 import { Jornada } from './Jornada'
 import { ResumoDoCandidato, tomDaSituacao } from './ResumoDoCandidato'
 import { SecoesDoAluno } from './Aluno'
+import { AreaDoAluno, type Area } from './AreaDoAluno'
 import { carregarJornadaDoPortal, carregarPainelAluno, type PainelAluno } from './api'
 import { t as tx } from './textos'
 
@@ -44,7 +45,18 @@ export function Portal() {
     requestAnimationFrame(() => document.querySelector('.resumo-candidato')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // "Meu Portal" (AreaDoAluno): a instituição liga; `undefined` = consultando.
+  const [area, setArea] = useState<Area | null | undefined>(undefined)
+  function carregarArea(codigo?: string) {
+    const u = '/api/public/portal/area' + (codigo ? `?codigo=${encodeURIComponent(codigo)}` : '')
+    return fetch(u, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((a) => setArea(a?.ativa && a.modo === 'aluno' ? a : null))
+      .catch(() => setArea(null))
+  }
+
   useEffect(() => {
+    void carregarArea()
     void carregarMarca().then(setMarca)
     fetch('/api/public/portal/eu', { credentials: 'same-origin' })
       .then(async (r) => {
@@ -69,6 +81,20 @@ export function Portal() {
   const ativas = (eu?.inscricoes ?? []).filter((i) => i.status !== 'merged')
   const outras = ativas.filter((i) => i.candidateCode !== jornada?.inscricao.candidateCode)
   // Mesmo visual do "Fazer agora" das etapas (estilo.css › .botao-contorno).
+
+  if (area) {
+    return (
+      <Moldura marca={marca} acesso={eu ? <MenuDaConta nome={eu.nome} temSenha={eu.temSenha} aoEditar={() => setEditando(true)} /> : undefined}>
+        {q.get('aviso') && <div class="aviso info">{q.get('aviso')}</div>}
+        {!eu ? <div class="esqueleto" style="height:320px" /> : (
+          <AreaDoAluno area={area} nome={eu.nome} jornada={jornada}
+            editando={editando} aoMudarEdicao={setEditando} aoSalvarDados={(novo) => setEu({ ...eu, ...(novo as Eu) })}
+            aoTrocarInscricao={(c) => { setArea(undefined); void carregarArea(c) }} aoRecarregar={() => void carregarArea(area.inscricao.codigo)} />
+        )}
+      </Moldura>
+    )
+  }
+  if (area === undefined) return <Moldura marca={marca}><div class="esqueleto" style="height:320px" /></Moldura>
 
   return (
     <Moldura marca={marca} acesso={eu ? <MenuDaConta nome={eu.nome} temSenha={eu.temSenha} aoEditar={jornada ? editar : undefined} /> : undefined}>

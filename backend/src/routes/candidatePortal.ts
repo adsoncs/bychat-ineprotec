@@ -34,6 +34,15 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
   const session = verifyCandidateToken(auth)
   const conta = await contaDaRequisicao(req)
   if (conta) {
+    // Token de OUTRA inscrição da mesma pessoa (Meu Portal com várias
+    // inscrições): vale a do token — senão os documentos e o contrato abriam
+    // sempre os da inscrição mais recente. De outra pessoa, não vale nunca.
+    if (session) {
+      const doToken = await prisma.enrollmentRegistration.findFirst({
+        where: { id: session.enrollmentId, leadId: conta.leadId, status: { not: 'merged' } }, select: { id: true },
+      })
+      if (doToken) return { ...session, onde: ondeDoToken(session) }
+    }
     const reg = await prisma.enrollmentRegistration.findFirst({
       where: { leadId: conta.leadId, status: { not: 'merged' } },
       orderBy: { id: 'desc' },
