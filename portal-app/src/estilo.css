@@ -581,6 +581,24 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
    na mesma olhada. Empilhados, viram duas paradas desnecessárias. */
 .cartao-linha { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 
+/* ── Valor personalizado (só no atendimento pelo painel) ───────── */
+.valor-personalizado {
+  margin: 12px 0 16px; padding: 12px 14px; border-radius: calc(var(--raio) - 4px);
+  border: 1px dashed var(--marca); background: var(--marca-suave); font-size: 14px;
+}
+.valor-personalizado .vp-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.valor-personalizado .vp-selo { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--tinta-2); }
+.valor-personalizado .vp-resumo { margin-top: 6px; display: grid; gap: 2px; }
+.valor-personalizado .vp-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.valor-personalizado .vp-form { display: grid; gap: 10px; margin-top: 10px; }
+.valor-personalizado .vp-form label { display: grid; gap: 4px; font-size: 13.5px; font-weight: 600; }
+.valor-personalizado .vp-form input, .valor-personalizado .vp-form textarea {
+  width: 100%; padding: 10px 12px; font: inherit; font-size: 16px; font-weight: 400;
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); background: var(--papel); color: var(--tinta);
+}
+.valor-personalizado .vp-form input:focus, .valor-personalizado .vp-form textarea:focus { outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
+.valor-personalizado .erro { display: block; margin-top: 6px; font-size: 13px; color: var(--erro); }
+
 /* ── Cupom ───────────────────────────────────────────────────── */
 .cupom { margin: 4px 0 16px; }
 .cupom label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }

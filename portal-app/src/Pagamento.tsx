@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
-  consultarPagamento, iniciarPagamento, opcoesDePagamento, simularPagamento,
-  type EscolhaDePlano, type MetodoPagamento, type OpcoesDePagamento,
+  consultarPagamento, iniciarPagamento, opcoesDePagamento, removerValorPersonalizado, salvarValorPersonalizado, simularPagamento,
+  type EscolhaDePlano, type MetodoPagamento, type NegociacaoNaTela, type OpcoesDePagamento,
 } from './api'
 import {
   bandeira, errosDoCartao, mascaraCartao, mascaraValidade, type DadosDoCartao,
@@ -71,6 +71,8 @@ export function Pagamento(props: {
   const [cupomDigitado, setCupomDigitado] = useState('')
   const [cupomAtivo, setCupomAtivo] = useState('')
   const [validandoCupom, setValidandoCupom] = useState(false)
+  // Valor personalizado salvo pelo agente: recarrega as opções com o novo preço.
+  const [recarga, setRecarga] = useState(0)
   const confirmado = useRef(false)
   // Abrindo a etapa de novo: procura a cobrança já gerada antes de oferecer a
   // escolha do meio. Sem isto, cada "Fazer agora" recomeçava do zero e a pessoa
@@ -99,7 +101,7 @@ export function Pagamento(props: {
         }
       })
     return () => { vivo = false }
-  }, [props.codigo, props.token, cupomAtivo, plano?.planoId, plano?.opcao])
+  }, [props.codigo, props.token, cupomAtivo, plano?.planoId, plano?.opcao, recarga])
 
   useEffect(() => {
     let vivo = true
@@ -322,6 +324,20 @@ export function Pagamento(props: {
           <EscolhaDoPlano
             opcoes={opcoes}
             aoEscolher={(e) => { setOpcoes(null); setPlano(e) }}
+          />
+        )}
+
+        {/* Só no atendimento pelo painel (o servidor manda `negociacao` só ao agente). */}
+        {opcoes.negociacao && (
+          <ValorPersonalizado
+            codigo={props.codigo}
+            token={props.token}
+            negociacao={opcoes.negociacao}
+            aoMudar={(avisos) => {
+              // Cobrança aberta com o valor antigo foi cancelada no servidor.
+              setCobranca(null); setMetodo(null); setErro(avisos.length ? avisos.join(' ') : null)
+              setOpcoes(null); setRecarga((n) => n + 1)
+            }}
           />
         )}
 
@@ -753,6 +769,116 @@ function FormularioDeCartao(props: {
       <p class="ajuda" style="margin-top:4px">
         Os dados do cartão são usados só para esta cobrança e não ficam guardados.
       </p>
+    </div>
+  )
+}
+
+/**
+ * Valor personalizado — só para a equipe, no atendimento pelo painel. O agente
+ * troca a matrícula e/ou a mensalidade do plano em tela; o candidato vê só o
+ * valor final (nada aqui aparece para ele). Sem teto: pode ficar acima ou abaixo
+ * da tabela. Descontos à vista e de pontualidade continuam valendo sobre o novo.
+ */
+function ValorPersonalizado(props: {
+  codigo: string
+  token: string
+  negociacao: NegociacaoNaTela
+  aoMudar: (avisos: string[]) => void
+}) {
+  const { plano, atual, pode } = props.negociacao
+  const [editando, setEditando] = useState(false)
+  const [matricula, setMatricula] = useState('')
+  const [mensalidade, setMensalidade] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  if (!plano) return null
+  const ativoAqui = atual && atual.planoId === plano.id ? atual : null
+  const emOutroPlano = atual && atual.planoId !== plano.id
+  const pedeMensalidade = plano.temMensalidade || !plano.temMatricula
+  const fmt = (v: number) => v.toFixed(2).replace('.', ',')
+
+  function abrir() {
+    setMatricula(fmt(ativoAqui?.matricula ?? plano!.matricula))
+    setMensalidade(fmt(ativoAqui?.mensalidade ?? plano!.mensalidade))
+    setMotivo(ativoAqui?.motivo ?? '')
+    setErro(null); setEditando(true)
+  }
+  async function salvar() {
+    setSalvando(true); setErro(null)
+    try {
+      const r = await salvarValorPersonalizado(props.codigo, props.token, {
+        planoId: plano!.id, motivo,
+        ...(plano!.temMatricula ? { matricula } : {}),
+        ...(pedeMensalidade ? { mensalidade } : {}),
+      })
+      setEditando(false); props.aoMudar(r.avisos ?? [])
+    } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
+  }
+  async function voltarATabela() {
+    setSalvando(true); setErro(null)
+    try { const r = await removerValorPersonalizado(props.codigo, props.token); setEditando(false); props.aoMudar(r.avisos ?? []) }
+    catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
+  }
+
+  return (
+    <div class="valor-personalizado">
+      <div class="vp-topo">
+        <b>Valor personalizado</b>
+        <span class="vp-selo">só a equipe vê</span>
+      </div>
+      {emOutroPlano && !ativoAqui && (
+        <p class="ajuda">Há um valor personalizado em outro plano desta inscrição. Ele vale só lá.</p>
+      )}
+      {ativoAqui && !editando && (
+        <div class="vp-resumo">
+          {plano.temMatricula && <div>Matrícula: <b>{dinheiro(ativoAqui.matricula)}</b> <span class="ajuda">(tabela {dinheiro(ativoAqui.tabela.matricula)})</span></div>}
+          {pedeMensalidade && <div>Mensalidade: <b>{dinheiro(ativoAqui.mensalidade)}</b> <span class="ajuda">(tabela {dinheiro(ativoAqui.tabela.mensalidade)})</span></div>}
+          <div class="ajuda">Motivo: {ativoAqui.motivo}{ativoAqui.por ? ` · por ${ativoAqui.por}` : ''}{dia(ativoAqui.em) ? ` em ${dia(ativoAqui.em)}` : ''}</div>
+          <p class="ajuda" style="margin:6px 0 0">O candidato vê só o valor final. Os descontos do Pix/boleto à vista e de pontualidade valem sobre estes valores.</p>
+        </div>
+      )}
+      {!ativoAqui && !editando && (
+        <p class="ajuda" style="margin:4px 0 0">
+          Tabela deste plano: {plano.temMatricula ? `matrícula ${dinheiro(plano.matricula)}` : ''}{plano.temMatricula && pedeMensalidade ? ' + ' : ''}{pedeMensalidade ? `mensalidade ${dinheiro(plano.mensalidade)}` : ''}.
+        </p>
+      )}
+      {!pode && <p class="ajuda" style="margin:6px 0 0">Seu perfil não pode personalizar valores (permissão "Valor personalizado").</p>}
+      {pode && !editando && (
+        <div class="vp-acoes">
+          <button class="secundario" onClick={abrir} disabled={salvando}>{ativoAqui ? 'Alterar valor' : 'Personalizar valor'}</button>
+          {ativoAqui && <button class="link" onClick={voltarATabela} disabled={salvando}>{salvando ? 'Voltando…' : 'Voltar ao valor da tabela'}</button>}
+        </div>
+      )}
+      {pode && editando && (
+        <div class="vp-form">
+          {plano.temMatricula && (
+            <label>Matrícula (R$)
+              <input inputMode="decimal" value={matricula} onInput={(e) => setMatricula((e.target as HTMLInputElement).value)} />
+              <span class="ajuda">tabela {dinheiro(plano.matricula)}</span>
+            </label>
+          )}
+          {pedeMensalidade && (
+            <label>{plano.temMatricula ? 'Mensalidade' : 'Parcela'} (R$)
+              <input inputMode="decimal" value={mensalidade} onInput={(e) => setMensalidade((e.target as HTMLInputElement).value)} />
+              <span class="ajuda">tabela {dinheiro(plano.mensalidade)} · {plano.totalParcelas - (plano.temMatricula ? 1 : 0)}x</span>
+            </label>
+          )}
+          <label>Motivo
+            <textarea rows={2} value={motivo} placeholder="Ex.: condição combinada com o gerente, convênio, retenção" onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
+          </label>
+          {erro && <span class="erro">{erro}</span>}
+          <div class="vp-acoes">
+            <button class="principal" onClick={salvar} disabled={salvando || motivo.trim().length < 3}>{salvando ? 'Salvando…' : 'Salvar valor'}</button>
+            <button class="link" onClick={() => setEditando(false)} disabled={salvando}>Cancelar</button>
+          </div>
+          {plano.precoPorForma && (
+            <p class="ajuda" style="margin:6px 0 0">Este plano tem preço próprio por forma de pagamento (ex.: boleto parcelado diferente do cartão). Com valor personalizado, todas as formas passam a usar o valor combinado — confira os valores abaixo depois de salvar.</p>
+          )}
+          <p class="ajuda" style="margin:6px 0 0">Se já houver um Pix ou boleto gerado com o valor anterior, ele é cancelado.</p>
+        </div>
+      )}
+      {erro && !editando && <span class="erro">{erro}</span>}
     </div>
   )
 }

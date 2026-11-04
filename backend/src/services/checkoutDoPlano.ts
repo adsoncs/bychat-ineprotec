@@ -9,6 +9,7 @@ import { avaliarCupom, precoPorMeio } from './portalCupom.js'
 import { planoDeBoleto, type PlanoDeBoleto } from './portalPagamento.js'
 import type { CobrancaDoPortal } from './portalCobranca.js'
 import {
+  condicaoNegociadaDaInscricao,
   baseDaForma, descreverOpcao, menorPrecoDaOpcao, escolhaParaGravar, formasDaOpcao, opcoesDoBoletoParcelado, opcoesDoCartao,
   opcoesDoPlano, planoEscolhido, resumoDoPlano, valorDaOpcao, valorEmDia,
   type FormasDePagamento, type OpcaoDePagamento, type PlanoDaOferta,
@@ -17,9 +18,10 @@ import {
 type Meio = 'pix' | 'boleto' | 'credit_card'
 type Escolha = NonNullable<Awaited<ReturnType<typeof planoEscolhido>>>
 
-export async function escolhaDoCheckoutPeloPlano(cob: CobrancaDoPortal | null, planoId: unknown, opcao: unknown): Promise<Escolha | null> {
+export async function escolhaDoCheckoutPeloPlano(cob: CobrancaDoPortal | null, planoId: unknown, opcao: unknown, registrationId?: number | null): Promise<Escolha | null> {
   if (!cob || cob.escopo !== 'curso') return null
-  return planoEscolhido(cob.contexto.offeringId, planoId, opcao)
+  // Valor personalizado pelo agente (só vale no plano em que foi combinado).
+  return planoEscolhido(cob.contexto.offeringId, planoId, opcao, await condicaoNegociadaDaInscricao(registrationId))
 }
 
 const rotuloDaOpcao = (p: PlanoDaOferta, o: OpcaoDePagamento) => descreverOpcao(p, o).rotulo
@@ -233,6 +235,8 @@ export async function contaPeloPlano(input: {
     // É por aqui que a efetivação monta o contrato (acaFinanceiro) e o SEI
     // escolhe a condição de pagamento (seiIntegracao).
     planoFinanceiro: escolhaParaGravar(plano, opcao, !!boleto),
+    // Valor personalizado: congelado com a cobrança (contrato e parcelas leem daqui).
+    ...(input.escolha.negociada ? { condicaoNegociada: input.escolha.negociada } : {}),
     ...extra,
   })
 

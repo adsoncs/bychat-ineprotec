@@ -17,7 +17,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import type { TabelaDePrecos } from './tabelaDePrecos.js'
-import { opcoesDoPlano, planosDaOferta, valorDaOpcao } from './planoFinanceiro.js'
+import { aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, opcoesDoPlano, planosDaOferta, valorDaOpcao } from './planoFinanceiro.js'
 
 export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
@@ -103,7 +103,9 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   // Plano de pagamento (services/planoFinanceiro). O valor aqui é o da 1ª
   // opção do 1º plano; a tela de pagamento troca de plano e de opção
   // (services/checkoutDoPlano).
-  const [plano1] = await planosDaOferta(of?.id)
+  const [plano1Tabela] = await planosDaOferta(of?.id)
+  // Valor personalizado pelo agente (quando foi combinado neste plano).
+  const plano1 = plano1Tabela ? aplicarCondicaoNegociada(plano1Tabela, await condicaoNegociadaDaInscricao(registrationId)) : undefined
   const opcao1 = plano1 ? opcoesDoPlano(plano1)[0] : undefined
   if (plano1 && opcao1) {
     return {

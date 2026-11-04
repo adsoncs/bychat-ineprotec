@@ -722,7 +722,7 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
   // Plano de pagamento da oferta (services/planoFinanceiro): o escolhido no
   // checkout; antes de pagar, o primeiro liberado.
   const { condicaoDoContrato } = await import('./planoFinanceiro.js')
-  const cond = await condicaoDoContrato(of.id, pp)
+  const cond = await condicaoDoContrato(of.id, pp, registrationId)
   if (cond) {
     numParcelas = cond.numParcelas
     valorParcela = cond.valorParcelaCentavos

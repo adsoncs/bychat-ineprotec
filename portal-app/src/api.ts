@@ -645,6 +645,8 @@ export interface OpcoesDePagamento {
   /** Tabela de preços da oferta: cada meio tem o seu preço (o do site). */
   tabela?: TabelaPrecos | null
   cupom?: CupomNaTela | null
+  /** Só no atendimento pelo painel: o valor personalizado pelo agente. */
+  negociacao?: NegociacaoNaTela | null
   meios: {
     pix: { ativo: boolean; valor?: number; descontoPct?: number; expiraHoras?: number }
     boleto: { ativo: boolean; parcelado?: boolean; parcelasMax?: number; opcoes?: OpcaoBoleto[]; descontoPct?: number }
@@ -662,6 +664,27 @@ export interface OpcoesDePagamento {
  * O que este portal aceita e quanto fica cada opção — a conta vem do servidor.
  * Com `cupom`, os valores já voltam com o desconto aplicado.
  */
+/** Valor personalizado (atendimento pelo painel). O candidato nunca recebe isto. */
+export interface NegociacaoNaTela {
+  pode: boolean
+  plano: { id: number; nome: string; temMatricula: boolean; temMensalidade: boolean; totalParcelas: number; matricula: number; mensalidade: number; precoPorForma?: boolean } | null
+  atual: {
+    planoId: number; matricula: number; mensalidade: number
+    tabela: { matricula: number; mensalidade: number }
+    motivo: string; por: string | null; em: string
+  } | null
+}
+
+export const salvarValorPersonalizado = (code: string, token: string, body: { planoId: number; matricula?: string; mensalidade?: string; motivo: string }) =>
+  pedir<{ ok: true; avisos: string[] }>(`/api/public/registrations/${encodeURIComponent(code)}/valor-personalizado`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+
+export const removerValorPersonalizado = (code: string, token: string) =>
+  pedir<{ ok: true; avisos: string[] }>(`/api/public/registrations/${encodeURIComponent(code)}/valor-personalizado`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  })
+
 export const opcoesDePagamento = (code: string, token: string, cupom?: string, plano?: EscolhaDePlano) => {
   const q = new URLSearchParams()
   if (cupom) q.set('cupom', cupom)

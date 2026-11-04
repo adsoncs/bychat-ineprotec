@@ -242,7 +242,7 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   }
   // Plano de pagamento da oferta: a frase e os campos do plano escolhido.
   const { condicaoDoContrato } = await import('./planoFinanceiro.js')
-  const doPlano = await condicaoDoContrato(of.id, pp)
+  const doPlano = await condicaoDoContrato(of.id, pp, reg.id)
   if (doPlano) forma = doPlano.descricao
   const pont = doPlano?.plano.regras.pontualidade
   const { precosDeTabelaDoPlano } = await import('./planoFinanceiro.js')

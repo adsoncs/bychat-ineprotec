@@ -4955,6 +4955,12 @@ model EnrollmentRegistration {
   /// efetivação da matrícula, porque não se cobra mensalidade de quem ainda não
   /// é aluno. Ver services/portalPagamento.ts.
   paymentPlan Json?
+  /// Valor personalizado pelo agente no atendimento pelo painel (04/11/2026):
+  /// { planoId, taxaMatriculaCentavos, valorParcelaCentavos, tabela, motivo,
+  ///   porUserId, porNome, em }. Substitui matrícula e mensalidade do plano em
+  /// tela, cobrança, contrato e parcelas. Trava depois do pagamento.
+  /// Ver services/planoFinanceiro (aplicarCondicaoNegociada).
+  condicaoNegociada Json? @db.Json
   /// Aceite do contrato feito na própria inscrição (etapa "Contrato" do portal):
   /// { termo, nome, ip, userAgent, em, plano }. Reaproveitado quando a matrícula
   /// é efetivada — o contrato do ERP já nasce assinado.

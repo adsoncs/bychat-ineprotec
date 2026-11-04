@@ -4,7 +4,7 @@
 // boleto/PIX e confirma por webhook), reusando services/paymentAsaas.ts e a
 // PaymentProviderConnection existente. Idempotência via AcaIntegracaoEvento.
 
-import { lerEscolhaDoPlano, parcelasDoPlano, planoPorId, pontualidadeDaFatura, type EscolhaDoPlano, type RegrasDoPlano } from './planoFinanceiro.js'
+import { aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, lerCondicaoNegociada, lerEscolhaDoPlano, parcelasDoPlano, planoPorId, pontualidadeDaFatura, type EscolhaDoPlano, type RegrasDoPlano } from './planoFinanceiro.js'
 import { prisma } from '../lib/prisma.js'
 import { calcularEncargos, getEncargosConfig } from './acaEncargos.js'
 import {
@@ -145,6 +145,13 @@ export interface EscolhaDoCheckout {
  * confirmado. Intenção sem pagamento não abate nada: quem escolheu cartão e
  * abandonou a tela continua devendo o curso inteiro.
  */
+/** O valor personalizado congelado no pagamento (ou, sem ele, o da inscrição). */
+async function negociadaDaMatricula(registrationId: number | null | undefined) {
+  if (!registrationId) return null
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPlan: true } }).catch(() => null)
+  return lerCondicaoNegociada((reg?.paymentPlan as any)?.condicaoNegociada) ?? await condicaoNegociadaDaInscricao(registrationId)
+}
+
 async function escolhaDoCheckout(registrationId: number | null | undefined): Promise<EscolhaDoCheckout | null> {
   if (!registrationId) return null
   const reg = await prisma.enrollmentRegistration.findUnique({
@@ -280,7 +287,9 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   // Pago por um plano de pagamento da oferta (services/planoFinanceiro): o
   // contrato nasce do plano escolhido e da opção paga (entrada ou integral).
   // Bolsa não entra — o valor foi fechado no checkout.
-  const pf = escolha?.planoFinanceiro ? await planoPorId(escolha.planoFinanceiro.planoId) : null
+  const pf0 = escolha?.planoFinanceiro ? await planoPorId(escolha.planoFinanceiro.planoId) : null
+  // Valor personalizado pelo agente: as mensalidades do contrato saem do combinado.
+  const pf = pf0 ? aplicarCondicaoNegociada(pf0, await negociadaDaMatricula(mat.enrollmentRegistrationId)) : null
   if (escolha && escolha.planoFinanceiro && pf) {
     const geradas = parcelasDoPlano(pf, {
       opcao: escolha.planoFinanceiro.opcao, meio: escolha.meio, parcelas: escolha.parcelas,

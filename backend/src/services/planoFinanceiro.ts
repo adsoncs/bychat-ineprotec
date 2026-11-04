@@ -167,6 +167,85 @@ export async function planoPorId(id: number | null | undefined): Promise<PlanoDa
   return l ? paraPlano(l as LinhaDoPlano) : null
 }
 
+// ─── Valor personalizado (condição negociada no atendimento) ───────────────
+//
+// No atendimento pelo painel o agente pode trocar a matrícula e a mensalidade
+// do plano escolhido, sem teto (para cima ou para baixo). A troca vale para
+// esta inscrição e só para aquele plano: é aplicada sobre o objeto do plano, e
+// daí em diante tela, cobrança, contrato e parcelas fazem a conta de sempre —
+// descontos à vista e de pontualidade incidem sobre o valor combinado. O
+// candidato vê só o valor final (a tabela não aparece riscada). Fica em
+// bychat_enrollment_registrations.condicaoNegociada e trava depois do pagamento.
+
+export interface CondicaoNegociada {
+  planoId: number
+  /** 0 quando o plano não tem matrícula separada. */
+  taxaMatriculaCentavos: number
+  valorParcelaCentavos: number
+  /** Os valores do plano no momento da troca (para o histórico e a equipe). */
+  tabela: { taxaMatriculaCentavos: number; valorParcelaCentavos: number }
+  motivo: string
+  porUserId: number | null
+  porNome: string | null
+  em: string
+}
+
+const centavosInteiros = (v: unknown) => {
+  const n = Math.round(Number(v))
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+export function lerCondicaoNegociada(raw: unknown): CondicaoNegociada | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const r = raw as any
+  const planoId = Number(r.planoId)
+  const taxa = centavosInteiros(r.taxaMatriculaCentavos)
+  const parcela = centavosInteiros(r.valorParcelaCentavos)
+  if (!Number.isInteger(planoId) || planoId <= 0 || taxa === null || parcela === null) return null
+  return {
+    planoId, taxaMatriculaCentavos: taxa, valorParcelaCentavos: parcela,
+    tabela: {
+      taxaMatriculaCentavos: centavosInteiros(r.tabela?.taxaMatriculaCentavos) ?? 0,
+      valorParcelaCentavos: centavosInteiros(r.tabela?.valorParcelaCentavos) ?? 0,
+    },
+    motivo: typeof r.motivo === 'string' ? r.motivo.slice(0, 500) : '',
+    porUserId: Number.isInteger(Number(r.porUserId)) ? Number(r.porUserId) : null,
+    porNome: typeof r.porNome === 'string' ? r.porNome.slice(0, 191) : null,
+    em: typeof r.em === 'string' ? r.em : '',
+  }
+}
+
+export async function condicaoNegociadaDaInscricao(registrationId: number | null | undefined): Promise<CondicaoNegociada | null> {
+  if (!registrationId) return null
+  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { condicaoNegociada: true } }).catch(() => null)
+  return lerCondicaoNegociada(r?.condicaoNegociada)
+}
+
+/**
+ * O plano com a matrícula e a mensalidade combinadas. Preço próprio por forma
+ * (valorBase) deixa de valer: o preço passa a sair dos valores combinados.
+ */
+export function aplicarCondicaoNegociada(p: PlanoDaOferta, cn: CondicaoNegociada | null | undefined): PlanoDaOferta {
+  if (!cn || cn.planoId !== p.id) return p
+  const semBase = (f: FormasDePagamento): FormasDePagamento => ({
+    pix: { ...f.pix, valorBase: null },
+    boleto: { ...f.boleto, valorBase: null },
+    cartao: { ...f.cartao, valorBase: null },
+    boletoParcelado: { ...f.boletoParcelado, valorBase: null },
+  })
+  return {
+    ...p,
+    // Plano sem matrícula separada continua sem: a entrada é a 1ª mensalidade.
+    taxaMatriculaCentavos: p.taxaMatriculaCentavos > 0 ? cn.taxaMatriculaCentavos : 0,
+    valorParcelaCentavos: cn.valorParcelaCentavos,
+    regras: {
+      ...p.regras,
+      entrada: { ...p.regras.entrada, ...semBase(p.regras.entrada) },
+      integral: { ...p.regras.integral, ...semBase(p.regras.integral) },
+    },
+  }
+}
+
 // ─── Valores ───────────────────────────────────────────────────────────────
 
 /** Total de parcelas do plano (a matrícula conta como a 1ª). */
@@ -371,13 +450,16 @@ export async function planoEscolhido(
   offeringId: number | null | undefined,
   planoId: unknown,
   opcao: unknown,
-): Promise<{ planos: PlanoDaOferta[]; plano: PlanoDaOferta; opcao: OpcaoDePagamento } | null> {
-  const planos = (await planosDaOferta(offeringId)).filter((p) => opcoesDoPlano(p).length > 0)
+  negociada: CondicaoNegociada | null = null,
+): Promise<{ planos: PlanoDaOferta[]; plano: PlanoDaOferta; opcao: OpcaoDePagamento; negociada: CondicaoNegociada | null } | null> {
+  const planos = (await planosDaOferta(offeringId))
+    .map((p) => aplicarCondicaoNegociada(p, negociada))
+    .filter((p) => opcoesDoPlano(p).length > 0)
   if (!planos.length) return null
   const plano = planos.find((p) => p.id === Number(planoId)) ?? planos[0]!
   const liberadas = opcoesDoPlano(plano)
   const o = liberadas.includes(opcao as OpcaoDePagamento) ? (opcao as OpcaoDePagamento) : liberadas[0]!
-  return { planos, plano, opcao: o }
+  return { planos, plano, opcao: o, negociada: negociada && negociada.planoId === plano.id ? negociada : null }
 }
 
 /** Como a opção aparece para o candidato. */
@@ -430,10 +512,13 @@ export interface CondicaoDoContrato {
  * que foi pago), ou — antes do pagamento — a do primeiro plano liberado.
  * null = a oferta não tem plano com regras de portal.
  */
-export async function condicaoDoContrato(offeringId: number, paymentPlan: unknown): Promise<CondicaoDoContrato | null> {
+export async function condicaoDoContrato(offeringId: number, paymentPlan: unknown, registrationId?: number | null): Promise<CondicaoDoContrato | null> {
   const pp = (paymentPlan ?? null) as Record<string, any> | null
   const escolha = lerEscolhaDoPlano(pp)
-  const plano = escolha ? await planoPorId(escolha.planoId) : (await planosDaOferta(offeringId))[0] ?? null
+  // Valor personalizado: o gravado no pagamento; antes dele, o da inscrição.
+  const negociada = lerCondicaoNegociada(pp?.condicaoNegociada) ?? await condicaoNegociadaDaInscricao(registrationId)
+  const doPlano = escolha ? await planoPorId(escolha.planoId) : (await planosDaOferta(offeringId))[0] ?? null
+  const plano = doPlano ? aplicarCondicaoNegociada(doPlano, negociada) : null
   if (!plano) return null
   const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'boleto', credit_card: 'cartão de crédito' }

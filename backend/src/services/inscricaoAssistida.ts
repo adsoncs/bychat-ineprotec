@@ -227,4 +227,6 @@ export const ROTULO_ACAO: Record<string, string> = {
   pagamento_manual: 'Pagamento manual registrado',
   dados_corrigidos: 'Dados do cadastro corrigidos',
   contrato_presencial: 'Contrato assinado no papel registrado',
+  valor_personalizado: 'Valor personalizado definido',
+  valor_personalizado_removido: 'Valor personalizado removido (voltou à tabela)',
 }

@@ -363,7 +363,7 @@ async function montarCobrancaDoCheckout(input: {
   const cob = await cobrancaDoPortal(input.registrationId)
   // Plano de pagamento da oferta (Educacional › Ofertas › Planos): preço,
   // formas e parcelas vêm do plano escolhido na tela.
-  const peloPlano = await escolhaDoCheckoutPeloPlano(cob, body?.planoId, body?.opcao)
+  const peloPlano = await escolhaDoCheckoutPeloPlano(cob, body?.planoId, body?.opcao, input.registrationId)
   if (cob && peloPlano) {
     return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos, equipe: input.equipe ?? null })
   }
@@ -3106,13 +3106,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Plano de pagamento da oferta: a tela escolhe plano e opção (só a
     // entrada ou o curso inteiro) e os meios saem do plano.
     const q = req.query as any
-    const peloPlano = await escolhaDoCheckoutPeloPlano(cob, q?.plano, q?.opcao)
+    const peloPlano = await escolhaDoCheckoutPeloPlano(cob, q?.plano, q?.opcao, enrollment.id)
     if (cob && peloPlano) {
-      return reply.send(await opcoesDaTelaPeloPlano({
+      const tela = await opcoesDaTelaPeloPlano({
         cob, escolha: peloPlano, cupomCodigo: codigoCupom, portalId: enrollment.portal!.id,
         cpf: (enrollment.formData as any)?.cpf, pixExpiraHoras: regras.pix.expiraHoras,
         cartaoDisponivel: gatewayAceitaCartao, tokenizacao, equipe: equipeCupom,
-      }))
+      })
+      // Valor personalizado: só no atendimento pelo painel (o candidato vê só o final).
+      const { negociacaoParaAtendimento } = await import('../services/valorPersonalizado.js')
+      const negociacao = await negociacaoParaAtendimento(req, enrollment.id, peloPlano.plano.id)
+      return reply.send(negociacao ? { ...tela, negociacao } : tela)
     }
     if (cob?.escopo === 'curso') {
       return reply.send({
@@ -3196,6 +3200,29 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           : { ativo: false },
       },
     })
+  })
+
+  // PUT/DELETE /api/public/registrations/:code/valor-personalizado
+  // Só no atendimento pelo painel, com a permissão "Valor personalizado":
+  // body { planoId, matricula, mensalidade, motivo } (reais). Ver
+  // services/valorPersonalizado.
+  app.put('/api/public/registrations/:code/valor-personalizado', async (req, reply) => {
+    const { code } = req.params as any
+    const sess = requirePaymentSession(req, code)
+    if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const { salvarValorPersonalizado } = await import('../services/valorPersonalizado.js')
+    const r = await salvarValorPersonalizado(req, sess.enrollmentId, req.body)
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return reply.send({ ok: true, avisos: r.avisos })
+  })
+  app.delete('/api/public/registrations/:code/valor-personalizado', async (req, reply) => {
+    const { code } = req.params as any
+    const sess = requirePaymentSession(req, code)
+    if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const { removerValorPersonalizado } = await import('../services/valorPersonalizado.js')
+    const r = await removerValorPersonalizado(req, sess.enrollmentId)
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return reply.send({ ok: true, avisos: r.avisos })
   })
 
   // POST /api/public/registrations/:code/payment-init
@@ -5813,7 +5840,7 @@ async function condicaoParaFicha(reg: any): Promise<string | null> {
   const offeringId = reg?.processRegistration?.offering?.id ?? reg?.processRegistration?.offeringId
   if (!offeringId) return null
   const { condicaoDoContrato } = await import('../services/planoFinanceiro.js')
-  const c = await condicaoDoContrato(Number(offeringId), reg.paymentStatus === 'paid' ? reg.paymentPlan : null).catch(() => null)
+  const c = await condicaoDoContrato(Number(offeringId), reg.paymentStatus === 'paid' ? reg.paymentPlan : null, reg.id ?? null).catch(() => null)
   return c ? `${c.plano.nome} — ${c.descricao}` : null
 }
 
