@@ -420,6 +420,11 @@ export async function gerarParcela(leadId: number, codigo: string, chave: string
     const f = faturas.find((x) => x.chave === chave)
     if (!f) return { ok: false as const, status: 409, erro: 'Esta parcela já foi gerada. Atualize a página.' }
     if (!f.podeGerar) return { ok: false as const, status: 409, erro: 'Gere uma parcela por vez, na ordem.' }
+    // Inscrição de demonstração (aluno de teste da equipe): mostra o botão como
+    // o aluno vê, mas nunca cria cobrança no gateway.
+    if ((r.paymentPlan as any)?.demonstracao) {
+      return { ok: false as const, status: 409, erro: 'Inscrição de demonstração: o boleto não é gerado de verdade.' }
+    }
     const numero = Number(chave.split(':')[2])
     const cfg = await configDoPortal(r.portalId)
     if (!cfg) return { ok: false as const, status: 503, erro: 'Pagamento indisponível no momento. Fale com a secretaria.' }
