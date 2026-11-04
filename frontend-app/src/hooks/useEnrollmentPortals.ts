@@ -505,6 +505,10 @@ export interface RegistrationFilters {
   search?: string
   /** '1' = só inscrições em possível duplicidade. */
   duplicates?: '1'
+  /** 'me' = só as que eu conduzi pelo painel (ou o id de um agente). */
+  atendidoPor?: string
+  /** portal | assistida | formulario | link | administrativa */
+  origem?: string
   /** andamento | concluida | cancelled | expired | merged */
   situacao?: string
   /** Filtro por etapa: chave da etapa + situação dela (feito | aguardando | pendente). */

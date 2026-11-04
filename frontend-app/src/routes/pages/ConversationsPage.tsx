@@ -130,6 +130,7 @@ import { useTags, useCreateTag } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
 import { Clock as ClockIcon, LayoutTemplate, MessageSquarePlus, Smartphone as SmartphoneIcon } from '@/components/ui/icon-set'
+import { MatricularPeloPainel } from '@/routes/pages/enrollmentPortal/InscricaoAssistida'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
@@ -4390,6 +4391,9 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
       </header>
 
       <div class="flex-1 overflow-y-auto">
+        {/* Matrícula interna pelo agente, sem sair do atendimento: o Voltar da
+            tela de matrícula traz de volta para esta conversa. */}
+        <MatricularPeloPainel leadId={leadId} de={`/conversations?leadId=${leadId}`} variante="linha" />
         {/* Banner qualificação */}
         <div
           class={cn(

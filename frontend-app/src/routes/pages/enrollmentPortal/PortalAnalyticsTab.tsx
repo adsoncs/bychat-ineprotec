@@ -6,6 +6,7 @@ import {
   type PortalAnalytics,
 } from '@/hooks/useEnrollmentPortals'
 import { Card } from '@/components/ui/Card'
+import { RelatorioDaEquipe } from './InscricaoAssistida'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Select } from '@/components/ui/Input'
 import { LineChart } from '@/components/charts/LineChart'
@@ -58,6 +59,7 @@ export function PortalAnalyticsTab({ portal }: { portal: EnrollmentPortal }) {
           </div>
         </>
       )}
+      <RelatorioDaEquipe portalId={portal.id} />
     </div>
   )
 }

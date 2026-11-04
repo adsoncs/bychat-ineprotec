@@ -18,6 +18,8 @@ function getAppUrl() { return appUrlObrigatoria() }
 
 export interface EnrollmentConfirmationInput {
   enrollmentId: number
+  /** Inscrição feita pelo agente no painel (services/inscricaoAssistida). */
+  porEquipe?: { userId: number; nome: string }
 }
 
 // ── Carrega payload comum a partir do enrollment ──
@@ -54,6 +56,9 @@ async function buildEnrollmentPayload(enrollmentId: number) {
       paymentDeadline: deadline,
       candidateUrl,
       ctaMessage: e.portal?.ctaMessage || '',
+      // Matrícula interna: de onde veio e quem atendeu (variáveis dos fluxos).
+      origem: e.origem || '',
+      atendidoPorUserId: e.atendidoPorUserId ?? null,
     },
   }
 }
@@ -67,6 +72,17 @@ export async function sendEnrollmentConfirmation(input: EnrollmentConfirmationIn
     payload: ctx.payload,
     timestamp: new Date(),
   })
+  // Gatilho próprio para fluxos: "Inscrição feita pela equipe (painel)". Além
+  // do "Inscrição recebida" (que continua valendo): a instituição decide, na
+  // UX de Fluxos, o que acontece quando é a equipe quem matricula.
+  if (input.porEquipe) {
+    eventBus.emitDomain({
+      type: 'enrollment.submitted_by_team',
+      leadId: ctx.lead.id,
+      payload: { ...ctx.payload, atendidoPorUserId: input.porEquipe.userId, atendidoPorNome: input.porEquipe.nome },
+      timestamp: new Date(),
+    })
+  }
 }
 
 export async function sendPaymentConfirmation(input: EnrollmentConfirmationInput): Promise<void> {

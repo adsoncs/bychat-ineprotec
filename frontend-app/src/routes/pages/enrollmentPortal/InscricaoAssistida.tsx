@@ -18,7 +18,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
-import { ChevronLeft, ExternalLink, UserPlus } from '@/components/ui/icon-set'
+import { ChevronLeft, ExternalLink, UserPlus, GraduationCap } from '@/components/ui/icon-set'
+import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
+import { useCan } from '@/hooks/usePermissions'
 
 interface LeadDaBusca { id: number; nome: string | null; email: string | null; whatsapp: string | null; inscricaoNoPortal: string | null }
 interface RespostaAtendimento {
@@ -28,9 +30,74 @@ interface RespostaAtendimento {
   inscricaoExistente: { candidateCode: string; status: string } | null
 }
 
-/** Endereço da tela interna de atendimento. */
-export const rotaDoAtendimento = (portalId: number, leadId?: number | null) =>
-  `/enrollment-portals/${portalId}/atendimento${leadId ? `?lead=${leadId}` : ''}`
+/** Endereço da tela interna de atendimento. `de` = para onde o "Voltar" leva
+ *  (ficha do lead, conversa); sem ele, volta às inscrições do portal. */
+export const rotaDoAtendimento = (portalId: number, leadId?: number | null, de?: string | null) => {
+  const q = new URLSearchParams()
+  if (leadId) q.set('lead', String(leadId))
+  if (de && de.startsWith('/')) q.set('de', de)
+  const s = q.toString()
+  return `/enrollment-portals/${portalId}/atendimento${s ? `?${s}` : ''}`
+}
+
+/**
+ * "Matricular pelo painel" a partir da ficha do lead ou da conversa: escolhe o
+ * portal e abre a tela interna com o lead. Só aparece para quem cria inscrição
+ * no Portal de Matrículas; portais de interesse ficam de fora (não têm inscrição).
+ */
+export function MatricularPeloPainel({ leadId, de, variante = 'botao', aoAbrir }: {
+  leadId: number
+  /** Para onde o "Voltar" da tela de matrícula leva (a página atual). */
+  de: string
+  variante?: 'botao' | 'linha'
+  aoAbrir?: (() => void) | undefined
+}) {
+  const pode = useCan('enrollment_portals', 'create')
+  const [aberto, setAberto] = useState(false)
+  if (!pode) return null
+  const gatilho = variante === 'linha'
+    ? <button type="button" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-accent hover:bg-surface-3 border-b border-border" onClick={() => { aoAbrir?.(); setAberto(true) }}><GraduationCap size={13} /> Matricular pelo painel</button>
+    : <Button size="sm" variant="secondary" onClick={() => { aoAbrir?.(); setAberto(true) }}><GraduationCap size={12} /> Matricular pelo painel</Button>
+  return (
+    <>
+      {gatilho}
+      {aberto && <EscolherPortalModal leadId={leadId} de={de} onClose={() => setAberto(false)} />}
+    </>
+  )
+}
+
+function EscolherPortalModal({ leadId, de, onClose }: { leadId: number; de: string; onClose: () => void }) {
+  const [, navigate] = useLocation()
+  const portais = useEnrollmentPortals()
+  const lista = (portais.data?.portals ?? []).filter((p) => p.active && p.formMode !== 'interest')
+  const inscricoes = useQuery({
+    queryKey: ['inscricoes-do-lead-por-portal', leadId],
+    queryFn: () => api.get<{ porPortal: Record<string, string> }>(`/admin/inscricao-assistida/lead/${leadId}`),
+    staleTime: 10_000,
+  })
+  const ja = inscricoes.data?.porPortal ?? {}
+  return (
+    <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Matricular pelo painel"
+      description="Escolha o portal. A matrícula abre aqui no painel, nas mesmas etapas do portal do candidato, e fica registrada em seu nome."
+      size="md" footer={<Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>}>
+      {portais.isLoading ? <div class="text-xs text-fg-muted">Carregando portais…</div> : lista.length === 0 ? (
+        <div class="text-xs text-fg-muted">Nenhum portal com inscrição completa disponível para você.</div>
+      ) : (
+        <div class="grid gap-1.5 max-h-80 overflow-auto">
+          {lista.map((p) => (
+            <button key={p.id} type="button" class="w-full text-left rounded-md border border-border px-3 py-2 hover:bg-surface-3"
+              onClick={() => { onClose(); navigate(rotaDoAtendimento(p.id, leadId, de)) }}>
+              <div class="text-sm text-fg">{p.nome}</div>
+              {ja[String(p.id)]
+                ? <div class="text-2xs text-info">Já tem a inscrição {ja[String(p.id)]} — continuar de onde parou</div>
+                : <div class="text-2xs text-fg-muted">Nova inscrição</div>}
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 export function NovaInscricaoModal({ portalId, portalNome, onClose }: {
   portalId: number
@@ -120,7 +187,10 @@ export function NovaInscricaoModal({ portalId, portalNome, onClose }: {
 
 export function AtendimentoPortalPage({ params }: { params: { id: string } }) {
   const portalId = parseInt(params.id)
-  const leadId = (() => { const v = new URLSearchParams(window.location.search).get('lead'); return v && /^\d+$/.test(v) ? Number(v) : null })()
+  const busca = new URLSearchParams(window.location.search)
+  const leadId = (() => { const v = busca.get('lead'); return v && /^\d+$/.test(v) ? Number(v) : null })()
+  // Voltar para onde a pessoa estava (ficha do lead, conversa) — só caminho interno.
+  const de = (() => { const v = busca.get('de'); return v && v.startsWith('/') && !v.startsWith('//') ? v : null })()
   const [, navigate] = useLocation()
   const qc = useQueryClient()
   const abrir = useMutation({
@@ -131,7 +201,8 @@ export function AtendimentoPortalPage({ params }: { params: { id: string } }) {
   const r = abrir.data
   const voltar = () => {
     void qc.invalidateQueries({ queryKey: ['portal-registrations'] })
-    navigate(`/enrollment-portals/${portalId}`)
+    void qc.invalidateQueries({ queryKey: ['inscricoes-do-lead-por-portal'] })
+    navigate(de ?? `/enrollment-portals/${portalId}`)
   }
 
   return (
@@ -140,7 +211,7 @@ export function AtendimentoPortalPage({ params }: { params: { id: string } }) {
       description={r ? `${r.portal.nome} · as mesmas etapas do portal do candidato, registradas em seu nome` : 'Abrindo o portal em atendimento…'}
       actions={
         <>
-          <Button variant="ghost" size="sm" onClick={voltar}><ChevronLeft size={14} /> Voltar às inscrições</Button>
+          <Button variant="ghost" size="sm" onClick={voltar}><ChevronLeft size={14} /> {de ? 'Voltar' : 'Voltar às inscrições'}</Button>
           {r && (
             <Button variant="secondary" size="sm" onClick={() => abrir.mutate()} disabled={abrir.isPending}
               title="Abre uma sessão nova (a anterior vale 2 horas)">Recomeçar sessão</Button>
@@ -404,5 +475,89 @@ export function HistoricoDaInscricao({ registrationId }: { registrationId: numbe
         </ol>
       )}
     </div>
+  )
+}
+
+// ── Relatório: matrícula pela equipe (aba Analytics do portal) ──────────────
+
+interface RelatorioEquipe {
+  dias: number
+  origens: Record<string, number>
+  agentes: Array<{ userId: number; nome: string; total: number; assistidas: number; pagas: number; valorPago: number; contratos: number; matriculadas: number; canceladas: number }>
+}
+
+export function RelatorioDaEquipe({ portalId }: { portalId: number }) {
+  const [dias, setDias] = useState(30)
+  const q = useQuery({
+    queryKey: ['atendimento-relatorio', portalId, dias],
+    queryFn: () => api.get<RelatorioEquipe>(`/admin/enrollment-portals/${portalId}/atendimento-relatorio?dias=${dias}`),
+    staleTime: 30_000,
+  })
+  const r = q.data
+  const totalOrigens = r ? Object.values(r.origens).reduce((a, b) => a + b, 0) : 0
+  const pct = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—')
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return (
+    <Card>
+      <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <div class="text-sm font-medium text-fg">Matrícula pela equipe</div>
+          <div class="text-xs text-fg-muted mt-0.5">Inscrições conduzidas por cada agente no painel e como andaram.</div>
+        </div>
+        <Select value={String(dias)} onChange={(e) => setDias(Number((e.target as HTMLSelectElement).value))} aria-label="Período">
+          <option value="7">Últimos 7 dias</option>
+          <option value="30">Últimos 30 dias</option>
+          <option value="90">Últimos 90 dias</option>
+          <option value="365">Últimos 12 meses</option>
+        </Select>
+      </div>
+      {q.isLoading && <div class="text-xs text-fg-muted">Carregando…</div>}
+      {q.error && <div class="text-xs text-danger">{(q.error as Error).message}</div>}
+      {r && (
+        <div class="grid gap-4">
+          <div class="flex flex-wrap gap-2 text-2xs">
+            {Object.entries(r.origens).sort((a, b) => b[1] - a[1]).map(([o, n]) => (
+              <span key={o} class="rounded-full border border-border px-2 py-0.5 text-fg-muted">
+                {ROTULO_ORIGEM[o] ?? (o === 'sem_registro' ? 'Sem origem registrada' : o)}: <strong class="text-fg tabular-nums">{n}</strong> <span class="tabular-nums">({pct(n, totalOrigens)})</span>
+              </span>
+            ))}
+          </div>
+          {r.agentes.length === 0 ? (
+            <div class="text-xs text-fg-muted">Nenhuma inscrição conduzida pela equipe no período.</div>
+          ) : (
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="text-left text-fg-subtle border-b border-border">
+                    <th class="py-1.5 pr-3 font-medium">Agente</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Conduzidas</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Pelo painel</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Pagas</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Contrato</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Matriculadas</th>
+                    <th class="py-1.5 px-2 font-medium text-right">Canceladas</th>
+                    <th class="py-1.5 pl-2 font-medium text-right">Recebido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.agentes.map((a) => (
+                    <tr key={a.userId} class="border-b border-border last:border-0">
+                      <td class="py-1.5 pr-3 text-fg">{a.nome}</td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.total}</td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.assistidas}</td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.pagas} <span class="text-fg-subtle">({pct(a.pagas, a.total)})</span></td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.contratos}</td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.matriculadas}</td>
+                      <td class="py-1.5 px-2 text-right tabular-nums">{a.canceladas}</td>
+                      <td class="py-1.5 pl-2 text-right tabular-nums">{brl(a.valorPago)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   )
 }

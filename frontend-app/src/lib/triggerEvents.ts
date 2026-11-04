@@ -57,6 +57,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
 
   // ── Portal de Matrículas (requer módulo `enrollment_portals`) ──
   { value: 'enrollment.submitted',                label: '🎓 Inscrição recebida',                category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.submitted_by_team',        label: '🧑‍💼 Inscrição feita pela equipe (painel)', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.cancelled',                label: '🚫 Inscrição cancelada',               category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.interest_submitted',       label: '🌱 Interesse capturado (magic link)',  category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.payment_confirmed',        label: '💳 Pagamento confirmado',              category: 'enrollment_portal', requiresModule: 'enrollment_portals' },

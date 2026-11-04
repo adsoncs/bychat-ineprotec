@@ -35,6 +35,7 @@ import { LeadStatusSummaryControl } from '@/components/LeadStatusSummaryControl'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
 import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
+import { MatricularPeloPainel } from '@/routes/pages/enrollmentPortal/InscricaoAssistida'
 import { LeadExportModal } from '@/components/LeadExportModal'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
@@ -302,6 +303,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         <ConversaInternaButton leadId={id} />
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
+
+        {/* Matrícula interna pelo agente: escolhe o portal e abre no painel. */}
+        <MatricularPeloPainel leadId={id} de={`/leads/${id}`} />
 
         <Button variant="secondary" size="sm" onClick={() => setExportOpen(true)} title="Exportar todos os dados deste lead">
           <DownloadIcon size={14} /> Exportar

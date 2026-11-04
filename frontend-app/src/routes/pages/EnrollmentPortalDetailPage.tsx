@@ -680,6 +680,9 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [soDuplicidades, setSoDuplicidades] = useState(false)
+  // Matrícula interna: "atendidas por mim" e a origem da inscrição.
+  const [soMinhas, setSoMinhas] = useState(false)
+  const [origem, setOrigem] = useState('')
   const [revisando, setRevisando] = useState(false)
   const [page, setPage] = useState(0)
   const limit = 50
@@ -693,9 +696,11 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
     ...(dateTo ? { dateTo } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(soDuplicidades ? { duplicates: '1' as const } : {}),
+    ...(soMinhas ? { atendidoPor: 'me' } : {}),
+    ...(origem ? { origem } : {}),
     limit,
     offset: page * limit,
-  }), [situacao, etapa, etapaSituacao, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, page])
+  }), [situacao, etapa, etapaSituacao, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, soMinhas, origem, page])
 
   const { data, isLoading } = usePortalRegistrations(portal.id, filters)
   const items = data?.items ?? []
@@ -714,8 +719,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const permPortal = usePodeNaTela('enrollment_portals')
   const [deleting, setDeleting] = useState<EnrollmentRegistration | null>(null)
 
-  const activeFiltersCount = [situacao, etapa && etapaSituacao, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
-  const maisFiltrosAtivos = [utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
+  const activeFiltersCount = [situacao, etapa && etapaSituacao, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades, soMinhas, origem].filter(Boolean).length
+  const maisFiltrosAtivos = [utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades, origem].filter(Boolean).length
 
   function handleExport() {
     const qs = new URLSearchParams()
@@ -813,7 +818,11 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                 </Select>
               </>
             )}
-            <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)} class="ml-auto self-end">
+            <label class="flex items-center gap-2 self-end pb-2 text-sm text-fg-muted ml-auto" title="Inscrições que você conduziu pelo painel">
+              <input type="checkbox" checked={soMinhas} onChange={(e) => { setSoMinhas((e.target as HTMLInputElement).checked); setPage(0) }} />
+              Atendidas por mim
+            </label>
+            <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)} class="self-end">
               <Plus size={12} /> Nova inscrição
             </Button></Pode>
             <Button size="sm" variant="secondary" onClick={handleExport} class="self-end">
@@ -860,6 +869,14 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               <input type="checkbox" checked={soDuplicidades} onChange={(e) => { setSoDuplicidades((e.target as HTMLInputElement).checked); setPage(0) }} />
               Só possíveis duplicidades
             </label>
+            <Select label="Origem" value={origem} onChange={(e) => { setOrigem((e.target as HTMLSelectElement).value); setPage(0) }}>
+              <option value="">Todas</option>
+              <option value="portal">Candidato pelo portal</option>
+              <option value="assistida">Equipe pelo painel</option>
+              <option value="formulario">Formulário do site</option>
+              <option value="link">Link enviado pela equipe</option>
+              <option value="administrativa">Cadastro administrativo (antigo)</option>
+            </Select>
           </div>
           )}
         </div>

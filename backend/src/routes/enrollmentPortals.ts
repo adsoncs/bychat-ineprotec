@@ -1203,6 +1203,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (q.paymentStatus) where.paymentStatus = q.paymentStatus
     if (q.leadStatus) where.lead = { status: q.leadStatus }
     if (q.utmSource) where.utmSource = q.utmSource
+    // Matrícula interna pelo agente: "atendidas por mim" / por pessoa, e origem.
+    if (q.atendidoPor) {
+      const quem = q.atendidoPor === 'me' ? ((req as any).user as JwtPayload | undefined)?.userId : parseInt(q.atendidoPor)
+      if (quem) where.atendidoPorUserId = quem
+    }
+    if (q.origem && ['portal', 'assistida', 'formulario', 'link', 'administrativa'].includes(String(q.origem))) where.origem = String(q.origem)
     if (q.utmMedium) where.utmMedium = q.utmMedium
     if (q.utmCampaign) where.utmCampaign = q.utmCampaign
     if (q.dateFrom || q.dateTo) {
@@ -2941,7 +2947,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     // Fase A.7: envio de confirmação email + WhatsApp (fire-and-forget)
     import('../services/enrollmentNotify.js').then(m =>
-      m.sendEnrollmentConfirmation({ enrollmentId: enrollment.id }).catch(e =>
+      m.sendEnrollmentConfirmation({ enrollmentId: enrollment.id, ...(atendente ? { porEquipe: { userId: atendente.userId, nome: atendente.nome } } : {}) }).catch(e =>
         req.log.warn(`[enrollment] notify falhou: ${e.message}`)
       )
     )
@@ -4883,6 +4889,62 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const doLead = new Map<number, string>()
     for (const i of inscricoes) if (i.leadId && !doLead.has(i.leadId)) doLead.set(i.leadId, i.candidateCode)
     return { leads: leads.map((l) => ({ ...l, inscricaoNoPortal: doLead.get(l.id) ?? null })) }
+  })
+
+  // GET /api/admin/inscricao-assistida/lead/:leadId — em que portais o lead já
+  // tem inscrição aberta (o "Matricular pelo painel" da ficha/conversa mostra
+  // "continuar" em vez de "nova").
+  app.get('/api/admin/inscricao-assistida/lead/:leadId', { preHandler: guardTela('login') }, async (req, reply) => {
+    const u = (req as any).user as JwtPayload
+    const leadId = parseInt((req.params as any).leadId)
+    if (!Number.isFinite(leadId)) return reply.code(400).send({ error: 'Lead inválido' })
+    const { canUserAccessLead } = await import('../lib/teamAccess.js')
+    if (!(await canUserAccessLead(u.userId, u.role as any, leadId))) return reply.code(403).send({ error: 'Você não tem acesso a este lead.' })
+    const regs = await prisma.enrollmentRegistration.findMany({
+      where: { leadId, status: { notIn: ['merged', 'cancelled'] } }, orderBy: { id: 'desc' },
+      select: { portalId: true, candidateCode: true },
+    })
+    const porPortal: Record<string, string> = {}
+    for (const r of regs) if (!porPortal[String(r.portalId)]) porPortal[String(r.portalId)] = r.candidateCode
+    return { porPortal }
+  })
+
+  // GET /api/admin/enrollment-portals/:id/atendimento-relatorio?dias=30
+  // Matrícula interna: por agente, quantas inscrições conduziu e como andaram
+  // (paga, contrato, matriculada, cancelada) — e a origem de todas no período.
+  app.get('/api/admin/enrollment-portals/:id/atendimento-relatorio', { preHandler: guardTela('login') }, async (req, reply) => {
+    const portalId = parseInt((req.params as any).id)
+    if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'Portal inválido' })
+    const dias = Math.min(Math.max(parseInt((req.query as any).dias) || 30, 1), 730)
+    const desde = new Date(Date.now() - dias * 86400_000)
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    const base: any = { portalId, createdAt: { gte: desde }, status: { not: 'merged' }, ...(recorte ? { AND: [recorte] } : {}) }
+    const [porOrigem, linhas] = await Promise.all([
+      prisma.enrollmentRegistration.groupBy({ by: ['origem'], where: base, _count: { _all: true } }),
+      prisma.enrollmentRegistration.findMany({
+        where: { ...base, atendidoPorUserId: { not: null } }, take: 20000,
+        select: { atendidoPorUserId: true, origem: true, status: true, paymentStatus: true, paymentAmount: true, contratoAceite: true, createdAt: true },
+      }),
+    ])
+    const ids = [...new Set(linhas.map((l) => l.atendidoPorUserId!))]
+    const nomes = new Map((ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []).map((x) => [x.id, x.name]))
+    const porAgente = new Map<number, { userId: number; nome: string; total: number; assistidas: number; pagas: number; valorPago: number; contratos: number; matriculadas: number; canceladas: number }>()
+    for (const l of linhas) {
+      const id = l.atendidoPorUserId!
+      const a = porAgente.get(id) ?? { userId: id, nome: nomes.get(id) ?? `#${id}`, total: 0, assistidas: 0, pagas: 0, valorPago: 0, contratos: 0, matriculadas: 0, canceladas: 0 }
+      a.total++
+      if (l.origem === 'assistida') a.assistidas++
+      if (l.paymentStatus === 'paid') { a.pagas++; a.valorPago += Number(l.paymentAmount ?? 0) }
+      if ((l.contratoAceite as any)?.em) a.contratos++
+      if (l.status === 'enrolled') a.matriculadas++
+      if (l.status === 'cancelled') a.canceladas++
+      porAgente.set(id, a)
+    }
+    return {
+      dias,
+      origens: Object.fromEntries(porOrigem.map((o) => [o.origem ?? 'sem_registro', o._count._all])),
+      agentes: [...porAgente.values()].sort((a, b) => b.total - a.total).map((a) => ({ ...a, valorPago: Math.round(a.valorPago * 100) / 100 })),
+    }
   })
 
   // POST /api/public/portals/:slug/atendimento/link  { candidateCode? }
