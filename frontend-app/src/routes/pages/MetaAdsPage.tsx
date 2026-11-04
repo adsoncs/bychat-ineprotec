@@ -14,6 +14,7 @@ import {
   ScrollText,
   HelpCircle,
   Plus,
+  EyeOff,
 } from '@/components/ui/icon-set'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCreateCustomField } from '@/hooks/useCustomFields'
@@ -251,8 +252,22 @@ function IntegrationCard({ integ, onAskDelete }: IntegrationCardProps) {
             <tbody class="divide-y divide-border">
               {integ.forms.map((f) => (
                 <tr key={f.id} class="group">
-                  <td class="max-w-[14rem] truncate px-3 py-1.5 text-fg" title={f.formName}>
-                    {f.formName}
+                  <td class="max-w-[16rem] px-3 py-1.5 text-fg">
+                    <div class="truncate" title={f.formName}>{f.formName}</div>
+                    {(f.metadata?.trackingParameters?.length ?? 0) > 0 && (
+                      <div class="mt-0.5 flex flex-wrap gap-1">
+                        {f.metadata!.trackingParameters!.map((tp) => (
+                          <span
+                            key={tp.key}
+                            class="inline-flex max-w-full items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-3xs text-fg-muted"
+                            title="Campo oculto da Meta (parâmetro de rastreamento configurado no formulário). Vai sozinho para o campo personalizado de mesmo nome."
+                          >
+                            <EyeOff size={10} class="shrink-0" />
+                            <span class="truncate">{tp.key} = {tp.value || '—'}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td class="px-3 py-1.5">
                     <Badge tone={f.status === 'ACTIVE' || f.status === 'active' ? 'accent' : 'neutral'}>{metaFormStatusLabel(f.status)}</Badge>
@@ -531,6 +546,42 @@ function MetaFormMappingModal({ form, onClose }: { form: MetaForm; onClose: () =
       }
     >
       {isLoading && <Skeleton class="h-32 w-full" />}
+      {!isLoading && data && (data.trackingFields?.length ?? 0) > 0 && (
+        <div class="mb-3 rounded-md border border-border bg-surface-2 p-3">
+          <div class="flex items-center gap-1.5 text-sm font-medium text-fg">
+            <EyeOff size={14} class="shrink-0" />
+            Campos ocultos da Meta (parâmetros de rastreamento)
+          </div>
+          <p class="mt-1 text-2xs text-fg-muted">
+            Configurados no próprio formulário, na Meta: Lead Ads → Configurações → Parâmetros de rastreamento
+            (nome do parâmetro + valor). O lead não vê nem responde. O valor chega pronto em todo lead deste
+            formulário e vai sozinho para o campo personalizado abaixo — não precisa mapear. Para mudar o valor,
+            edite o parâmetro na Meta; a mudança é lida em até 30 minutos (ou na hora, em "Sincronizar formulários").
+          </p>
+          <table class="mt-2 w-full text-sm">
+            <thead class="text-3xs uppercase tracking-wider text-fg-muted">
+              <tr>
+                <th class="px-2 py-1 text-left font-medium">Parâmetro</th>
+                <th class="px-2 py-1 text-left font-medium">Valor neste formulário</th>
+                <th class="px-2 py-1 text-left font-medium">Vai para</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+              {data.trackingFields!.map((tf) => (
+                <tr key={tf.key}>
+                  <td class="px-2 py-1.5 font-mono text-xs text-fg">{tf.key}</td>
+                  <td class="px-2 py-1.5 text-xs text-fg">{tf.value || '—'}</td>
+                  <td class="px-2 py-1.5 text-xs text-fg-muted">
+                    {tf.customFieldKey
+                      ? <>Campo: {tf.customFieldLabel}{!tf.customFieldActive && <span class="text-warning"> (campo excluído — reative em Campos personalizados para ver o valor)</span>}</>
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {!isLoading && data?.metaFields.length === 0 && (
         <div class="text-sm text-fg-muted text-center py-6">
           Sem campos catalogados ainda. Sincronize os formulários e tente novamente.

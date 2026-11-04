@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { phoneKey } from '../lib/phone.js'
 import { DEFAULT_FIELD_MAP, normKey, guessCoreField, buildAutoMapping } from '../lib/metaFieldMap.js'
+import { createTrackingResolver, trackingParamsOf, trackingMappingOf, withTrackingValues, sameTrackingParams } from '../lib/metaTrackingParams.js'
 import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp, getOperator, EVENT_TYPES } from '../services/leadHistory.js'
@@ -94,12 +95,29 @@ async function discoverNewForms(integration: any): Promise<number> {
   lastFormDiscovery.set(integration.id, Date.now())
 
   const forms = await metaFetchAll(
-    `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`,
+    `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions,tracking_parameters&limit=100`,
     integration.pageAccessToken
   )
-  const known = new Set((await prisma.metaForm.findMany({
-    where: { integrationId: integration.id }, select: { formId: true }
-  })).map(f => f.formId))
+  const knownForms = await prisma.metaForm.findMany({
+    where: { integrationId: integration.id }, select: { id: true, formId: true, metadata: true }
+  })
+  const known = new Set(knownForms.map(f => f.formId))
+  const resolveTracking = createTrackingResolver()
+
+  // Parâmetro de rastreamento é editado na Meta a qualquer momento (form novo
+  // OU antigo). Atualiza o metadata dos forms conhecidos quando mudou, para o
+  // próximo lead já sair com o campo certo sem ninguém clicar em sincronizar.
+  const byFormId = new Map(knownForms.map(f => [f.formId, f]))
+  for (const f of forms) {
+    const prev = byFormId.get(String(f.id))
+    if (!prev) continue
+    const tp = await resolveTracking(f.tracking_parameters)
+    if (sameTrackingParams(tp, trackingParamsOf(prev.metadata))) continue
+    await prisma.metaForm.update({
+      where: { id: prev.id },
+      data: { metadata: { ...((prev.metadata as any) || {}), trackingParameters: tp as any } },
+    })
+  }
 
   const novos = forms.filter((f: any) => !known.has(String(f.id)))
   if (novos.length === 0) return 0
@@ -108,6 +126,7 @@ async function discoverNewForms(integration: any): Promise<number> {
   const inherited = await inheritFormTargeting(integration.id)
 
   for (const f of novos) {
+    const trackingParameters = await resolveTracking(f.tracking_parameters)
     await prisma.metaForm.create({
       data: {
         integrationId: integration.id,
@@ -119,7 +138,7 @@ async function discoverNewForms(integration: any): Promise<number> {
         stageKey: inherited?.stageKey || 'NOVO',
         defaultTeamId: inherited?.defaultTeamId ?? undefined,
         autoComplete: inherited?.autoComplete || false,
-        metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
+        metadata: { questions: f.questions, trackingParameters: trackingParameters as any, status: f.status, leads_count: f.leads_count, created_time: f.created_time, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
       }
     })
     console.log(`[Meta] Formulário novo descoberto na página ${integration.pageId}: ${f.name || f.id} (${f.id})`)
@@ -547,8 +566,10 @@ export async function metaRoutes(app: FastifyInstance) {
       // Sincronizar formularios (preservando contadores historicos)
       let formCount = 0
       try {
-        const formsData = await metaFetchAll(`/${page.id}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`, finalPageToken)
+        const formsData = await metaFetchAll(`/${page.id}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions,tracking_parameters&limit=100`, finalPageToken)
+        const resolveTracking = createTrackingResolver()
         for (const f of formsData) {
+          const trackingParameters = await resolveTracking(f.tracking_parameters)
           // Contar leads reais a partir da tabela Lead (fonte da verdade);
           // metaLeadLog pode estar truncado em imports/snapshots e divergir.
           const realCount = await prisma.lead.count({
@@ -565,7 +586,7 @@ export async function metaRoutes(app: FastifyInstance) {
 
           await prisma.metaForm.upsert({
             where: { integrationId_formId: { integrationId: integration.id, formId: String(f.id) } },
-            update: { formName: f.name || f.id, leadsReceived: realCount, lastLeadAt: lastLog?.createdAt || undefined, metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count } },
+            update: { formName: f.name || f.id, leadsReceived: realCount, lastLeadAt: lastLog?.createdAt || undefined, metadata: { questions: f.questions, trackingParameters: trackingParameters as any, status: f.status, leads_count: f.leads_count } },
             create: {
               integrationId: integration.id, formId: String(f.id), formName: f.name || f.id,
               leadsReceived: realCount, lastLeadAt: lastLog?.createdAt || null,
@@ -573,7 +594,7 @@ export async function metaRoutes(app: FastifyInstance) {
               funnelId: prevForm?.funnelId || undefined,
               stageKey: prevForm?.stageKey || 'NOVO',
               autoComplete: prevForm?.autoComplete || false,
-              metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count }
+              metadata: { questions: f.questions, trackingParameters: trackingParameters as any, status: f.status, leads_count: f.leads_count }
             }
           })
           formCount++
@@ -833,7 +854,7 @@ export async function metaRoutes(app: FastifyInstance) {
 
       // Buscar forms da pagina via Graph API (paginado: o Graph corta em 25)
       const forms = await metaFetchAll(
-        `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`,
+        `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions,tracking_parameters&limit=100`,
         integration.pageAccessToken
       )
 
@@ -842,8 +863,10 @@ export async function metaRoutes(app: FastifyInstance) {
       // Load custom fields for auto-mapping
       const cfLookup = await loadCustomFieldLookup()
       const inherited = await inheritFormTargeting(integration.id)
+      const resolveTracking = createTrackingResolver()
 
       for (const f of forms) {
+        const trackingParameters = await resolveTracking(f.tracking_parameters)
         const prevForm = await prisma.metaForm.findFirst({ where: { formId: String(f.id) }, select: { fieldMapping: true, funnelId: true, stageKey: true, autoComplete: true, defaultTeamId: true } })
 
         // Auto-generate mapping if no existing mapping
@@ -856,7 +879,7 @@ export async function metaRoutes(app: FastifyInstance) {
           update: {
             formName: f.name || f.id,
             ...(autoMapping && !prevForm?.fieldMapping ? { fieldMapping: autoMapping } : {}),
-            metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time },
+            metadata: { questions: f.questions, trackingParameters: trackingParameters as any, status: f.status, leads_count: f.leads_count, created_time: f.created_time },
           },
           create: {
             integrationId: integration.id,
@@ -870,7 +893,7 @@ export async function metaRoutes(app: FastifyInstance) {
             stageKey: prevForm?.stageKey || inherited?.stageKey || 'NOVO',
             defaultTeamId: prevForm?.defaultTeamId ?? inherited?.defaultTeamId ?? undefined,
             autoComplete: prevForm?.autoComplete || inherited?.autoComplete || false,
-            metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time, ...(!prevForm && inherited ? { inheritedFromFormId: inherited.id } : {}) },
+            metadata: { questions: f.questions, trackingParameters: trackingParameters as any, status: f.status, leads_count: f.leads_count, created_time: f.created_time, ...(!prevForm && inherited ? { inheritedFromFormId: inherited.id } : {}) },
           }
         })
         synced.push(form)
@@ -1008,7 +1031,8 @@ export async function metaRoutes(app: FastifyInstance) {
       const form = await prisma.metaForm.findUnique({ where: { id: parseInt(id) } })
       if (!form) return reply.code(404).send({ error: 'Form nao encontrado' })
 
-      const mapping = (form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP
+      // Parâmetro de rastreamento vai sempre para o seu campo (ver metaTrackingParams).
+      const mapping = { ...((form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP), ...trackingMappingOf(form.metadata) }
 
       // Find all processed logs for this form that have rawData
       const logs = await prisma.metaLeadLog.findMany({
@@ -1094,7 +1118,9 @@ export async function metaRoutes(app: FastifyInstance) {
       const form = await prisma.metaForm.findUnique({ where: { id: parseInt(id) } })
       if (!form) return reply.code(404).send({ error: 'Form nao encontrado' })
 
-      const mapping = (form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP
+      // Inclui o parâmetro de rastreamento: é o caminho para preencher os leads
+      // que entraram antes de o sistema ler esse campo (valor vem do rawData).
+      const mapping = { ...((form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP), ...trackingMappingOf(form.metadata) }
       const hasCustomTarget = Object.values(mapping).some(
         (v) => typeof v === 'string' && v.startsWith('cf_'),
       )
@@ -1169,6 +1195,23 @@ export async function metaRoutes(app: FastifyInstance) {
       type: q.type || 'CUSTOM',
     }))
 
+    // Campos ocultos (parâmetros de rastreamento): vêm configurados na Meta e
+    // o destino é fixo — a tela mostra, mas não deixa mapear.
+    const tracking = trackingParamsOf(meta)
+    const cfLabels = tracking.length
+      ? new Map((await prisma.customField.findMany({
+          where: { key: { in: tracking.map(t => t.customFieldKey).filter(Boolean) as string[] } },
+          select: { key: true, label: true, active: true },
+        })).map(cf => [cf.key, cf]))
+      : new Map<string, { key: string; label: string; active: boolean }>()
+    const trackingFields = tracking.map(t => ({
+      key: t.key,
+      value: t.value,
+      customFieldKey: t.customFieldKey,
+      customFieldLabel: t.customFieldKey ? (cfLabels.get(t.customFieldKey)?.label ?? t.customFieldKey) : null,
+      customFieldActive: t.customFieldKey ? (cfLabels.get(t.customFieldKey)?.active ?? false) : false,
+    }))
+
     const leadFields = [
       { key: 'nome', label: 'Nome do contato' },
       { key: 'empresa', label: 'Nome da empresa' },
@@ -1218,7 +1261,7 @@ export async function metaRoutes(app: FastifyInstance) {
       }
     }
 
-    return { metaFields, leadFields, currentMapping, autoSuggest }
+    return { metaFields, leadFields, currentMapping, autoSuggest, trackingFields }
   })
 
   // ══════════════════════════════════════════════════════
@@ -1309,10 +1352,12 @@ async function processMetaLead(metaLeadId: string, metaFormId: string, pageId: s
     // telefone, no funil padrão do sistema.
     const resolvedForm = form || await (async () => {
       let questions: any[] | undefined
+      let trackingRaw: unknown
       let formName = `Form ${metaFormId}`
       try {
-        const meta = await metaFetch(`/${metaFormId}?fields=id,name,questions`, integration.pageAccessToken)
+        const meta = await metaFetch(`/${metaFormId}?fields=id,name,questions,tracking_parameters`, integration.pageAccessToken)
         questions = meta?.questions
+        trackingRaw = meta?.tracking_parameters
         if (meta?.name) formName = meta.name
       } catch (err: any) {
         app.log.warn(`[Meta] Não consegui ler o formulário ${metaFormId}: ${err.message}`)
@@ -1329,7 +1374,7 @@ async function processMetaLead(metaLeadId: string, metaFormId: string, pageId: s
           stageKey: inherited?.stageKey || 'NOVO',
           defaultTeamId: inherited?.defaultTeamId ?? undefined,
           autoComplete: inherited?.autoComplete || false,
-          metadata: { questions, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
+          metadata: { questions, trackingParameters: (await createTrackingResolver()(trackingRaw)) as any, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
         },
         include: { integration: true }
       })
@@ -1430,12 +1475,16 @@ async function inheritFormTargeting(integrationId: number) {
 
 async function createLeadFromMeta(
   form: any,
-  fields: Record<string, string>,
+  fieldsIn: Record<string, string>,
   meta: { metaLeadId: string; pageId: string; campaignData: any },
   app: any
 ) {
+  // Parâmetro de rastreamento (campo oculto do form nativo): valor fixo do
+  // formulário se a Meta não o mandou, e destino imposto no seu campo
+  // personalizado — não depende do mapeamento feito na tela.
+  const fields = withTrackingValues(fieldsIn, form.metadata)
   // Aplicar mapeamento (custom ou default)
-  const mapping = (form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP
+  const mapping = { ...((form.fieldMapping as Record<string, string>) || DEFAULT_FIELD_MAP), ...trackingMappingOf(form.metadata) }
   const mapped: Record<string, string> = {}
   const extraData: Record<string, string> = {} // campos mapeados para _formData
   const customFieldValues: Record<string, string> = {} // campos cf_*

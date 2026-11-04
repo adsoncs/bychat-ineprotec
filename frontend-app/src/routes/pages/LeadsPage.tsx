@@ -2841,7 +2841,7 @@ function FieldsTab({ customFields }: { leadId: number; customFields: Record<stri
           <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-2">{group}</div>
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
             {fields.map((f) => (
-              <Field key={f.id} label={f.label} value={readValue(f.key)} />
+              <Field key={f.id} label={f.label} value={readValue(f.key)} hint={f.description} />
             ))}
           </div>
         </div>
@@ -2850,10 +2850,10 @@ function FieldsTab({ customFields }: { leadId: number; customFields: Record<stri
   )
 }
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({ label, value, hint }: { label: string; value: string | null | undefined; hint?: string | null | undefined }) {
   return (
     <div>
-      <div class="text-2xs text-fg-muted uppercase tracking-wider">{label}</div>
+      <div class="text-2xs text-fg-muted uppercase tracking-wider" title={hint || undefined}>{label}</div>
       <div class="text-sm text-fg truncate">{value ?? '—'}</div>
     </div>
   )

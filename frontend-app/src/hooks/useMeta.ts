@@ -11,6 +11,14 @@ export interface MetaForm {
   defaultTeamId: number | null
   leadsReceived: number
   lastLeadAt: string | null
+  /** trackingParameters = campos ocultos do form nativo (Parâmetros de rastreamento). */
+  metadata?: { trackingParameters?: MetaTrackingParam[] | undefined } | null | undefined
+}
+
+export interface MetaTrackingParam {
+  key: string
+  value: string
+  customFieldKey: string | null
 }
 
 export interface MetaIntegration {
@@ -201,6 +209,14 @@ export interface MetaFormFieldsResponse {
   leadFields: { key: string; label: string }[]
   currentMapping: Record<string, string>
   autoSuggest: Record<string, string>
+  /** Campos ocultos (parâmetros de rastreamento): destino fixo, não mapeável. */
+  trackingFields?: {
+    key: string
+    value: string
+    customFieldKey: string | null
+    customFieldLabel: string | null
+    customFieldActive: boolean
+  }[] | undefined
 }
 
 export function useMetaFormFields(id: number | null) {
