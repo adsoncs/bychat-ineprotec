@@ -4823,6 +4823,10 @@ model Coupon {
   allowedCpfs   Json? @db.Json // lista fechada (convênio): só estes CPFs
   emailDomains  Json? @db.Json // ex.: ["empresa.com.br"]
   stackWithPix  Boolean @default(false) // soma com o desconto à vista do PIX
+  /// Desconto da EQUIPE: só vale aplicado pelo agente no atendimento pelo
+  /// painel, e por quem tem a permissão "Desconto da equipe". Para o público
+  /// o código não existe (services/portalCupom).
+  somenteEquipe Boolean @default(false)
   maxInstallments Int? // teto de parcelas quando o cupom é usado
   campaign      String? @db.VarChar(100)
   batch         String? @db.VarChar(60) // lote gerado junto (códigos únicos)

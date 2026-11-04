@@ -33,12 +33,13 @@ const entradaEmDia = (p: PlanoDaOferta, o: OpcaoDePagamento, b: PlanoDeBoleto) =
   o === 'integral' && b.parcelas > 1 ? valorEmDia(b.valorEntrada, p.regras.pontualidade) : b.valorEntrada
 
 /** O cupom, revalidado sobre o valor da opção (curso inteiro ≠ matrícula). */
-async function cupomDaOpcao(input: { codigo: string; valor: number; portalId: number; cpf: string | undefined; cob: CobrancaDoPortal; metodo?: Meio }) {
+async function cupomDaOpcao(input: { codigo: string; valor: number; portalId: number; cpf: string | undefined; cob: CobrancaDoPortal; metodo?: Meio; equipe?: { pode: boolean } | null | undefined }) {
   if (!input.codigo) return null
   return avaliarCupom({
     codigo: input.codigo, valor: input.valor, portalId: input.portalId, cpf: input.cpf,
     descontoAVistaPct: 0, contexto: input.cob.contexto, escopo: 'curso',
     ...(input.metodo ? { metodo: input.metodo } : {}),
+    equipe: input.equipe ?? null,
   })
 }
 
@@ -52,17 +53,18 @@ export async function opcoesDaTelaPeloPlano(input: {
   pixExpiraHoras: number
   cartaoDisponivel: boolean
   tokenizacao: Record<string, unknown> | null
+  equipe?: { pode: boolean } | null | undefined
 }) {
   const { plano, opcao, planos } = input.escolha
   const formas = formasDaOpcao(plano, opcao)
   const base = valorDaOpcao(plano, opcao)
-  const cupom = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: base, portalId: input.portalId, cpf: input.cpf, cob: input.cob })
+  const cupom = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: base, portalId: input.portalId, cpf: input.cpf, cob: input.cob, equipe: input.equipe })
   const cupomOk = cupom && !('valido' in cupom) ? cupom : null
   // Cada forma pode ter preço próprio: o cupom é recalculado sobre ele.
   const cupomNa = async (forma: keyof FormasDePagamento) => {
     const b = baseDaForma(plano, opcao, forma)
     if (!cupomOk || b === base) return cupomOk
-    const r = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: b, portalId: input.portalId, cpf: input.cpf, cob: input.cob })
+    const r = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: b, portalId: input.portalId, cpf: input.cpf, cob: input.cob, equipe: input.equipe })
     return r && !('valido' in r) ? r : null
   }
 
@@ -147,6 +149,7 @@ export async function contaPeloPlano(input: {
   portalId: number
   cpf: string | undefined
   parcelamosNos: boolean
+  equipe?: { pode: boolean } | null | undefined
 }): Promise<{ erro: string } | {
   valorCobrado: number
   parcelasCartao: number
@@ -175,7 +178,7 @@ export async function contaPeloPlano(input: {
       : vezes > 1 ? 'boletoParcelado' : 'boleto'
   const baseForma = baseDaForma(plano, opcao, forma)
   const cupom = input.body?.cupom
-    ? await cupomDaOpcao({ codigo: String(input.body.cupom), valor: baseForma, portalId: input.portalId, cpf: input.cpf, cob: input.cob, metodo: method })
+    ? await cupomDaOpcao({ codigo: String(input.body.cupom), valor: baseForma, portalId: input.portalId, cpf: input.cpf, cob: input.cob, equipe: input.equipe, metodo: method })
     : null
   if (cupom && 'valido' in cupom) return { erro: cupom.motivo }
   if (cupom?.maxParcelas && vezes > cupom.maxParcelas) return { erro: `Com este cupom, o limite é ${cupom.maxParcelas}x.` }

@@ -40,6 +40,22 @@ export function atendenteDe(req: FastifyRequest): Atendente | null {
   return ((req as any).atendente as Atendente | undefined) ?? null
 }
 
+/**
+ * Para o cupom "só a equipe" (services/portalCupom): null = não é atendimento
+ * (o código não existe para o público); `pode` = o agente tem a permissão
+ * "Desconto da equipe".
+ */
+export async function equipeDoCupom(req: FastifyRequest): Promise<{ pode: boolean; userId: number } | null> {
+  const at = atendenteDe(req)
+  if (!at) return null
+  const u = await prisma.user.findUnique({ where: { id: at.userId }, select: { role: true } }).catch(() => null)
+  if (!u) return { pode: false, userId: at.userId }
+  if (u.role === 'SUPERADMIN') return { pode: true, userId: at.userId }
+  const { resolvePermissions } = await import('../lib/permissions.js')
+  const perms = await resolvePermissions(at.userId, u.role).catch(() => ({} as any))
+  return { pode: !!perms.edu_desconto_equipe?.canEdit, userId: at.userId }
+}
+
 /** A requisição veio de uma sessão de atendimento (mesmo antes de validar)? */
 export function veioDeAtendimento(req: FastifyRequest): boolean {
   return !!req.headers[CABECALHO_ATENDENTE]
@@ -51,9 +67,9 @@ const SO_O_CANDIDATO: Array<{ metodo: string; rota: string; motivo: string }> = 
   { metodo: 'POST', rota: '/api/candidate/essay/start', motivo: 'A redação precisa ser feita pelo próprio candidato.' },
   { metodo: 'PUT', rota: '/api/candidate/essay/:id/draft', motivo: 'A redação precisa ser feita pelo próprio candidato.' },
   { metodo: 'POST', rota: '/api/candidate/essay/:id/submit', motivo: 'A redação precisa ser feita pelo próprio candidato.' },
-  { metodo: 'POST', rota: '/api/public/registrations/:code/contrato/iniciar', motivo: 'O contrato precisa ser assinado pelo próprio candidato.' },
-  { metodo: 'POST', rota: '/api/public/registrations/:code/contrato/assinar', motivo: 'O contrato precisa ser assinado pelo próprio candidato.' },
-  { metodo: 'POST', rota: '/api/public/aca/aluno/contrato/assinar', motivo: 'O contrato precisa ser assinado pelo próprio candidato.' },
+  { metodo: 'POST', rota: '/api/public/registrations/:code/contrato/iniciar', motivo: 'O contrato precisa ser assinado pelo próprio candidato (se ele assinou a via impressa, registre em "Contrato assinado no papel", na página da inscrição).' },
+  { metodo: 'POST', rota: '/api/public/registrations/:code/contrato/assinar', motivo: 'O contrato precisa ser assinado pelo próprio candidato (se ele assinou a via impressa, registre em "Contrato assinado no papel", na página da inscrição).' },
+  { metodo: 'POST', rota: '/api/public/aca/aluno/contrato/assinar', motivo: 'O contrato precisa ser assinado pelo próprio candidato (se ele assinou a via impressa, registre em "Contrato assinado no papel", na página da inscrição).' },
   { metodo: 'POST', rota: '/api/public/registrations/:code/analise/decisao', motivo: 'Aceitar ou recusar o parecer é decisão do próprio candidato.' },
   { metodo: 'POST', rota: '/api/public/portal/senha-inicial', motivo: 'A senha de acesso é criada pelo próprio candidato.' },
   { metodo: 'POST', rota: '/api/public/portal/senha', motivo: 'A senha de acesso é criada pelo próprio candidato.' },
@@ -178,7 +194,11 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
     const registrationId = await inscricaoDaRequisicao(req).catch(() => null)
     if (!registrationId) return
     const dados: Record<string, unknown> = {}
-    if (r.acao === 'cobranca_gerada') dados.meio = (req.body as any)?.method ?? null
+    if (r.acao === 'cobranca_gerada') {
+      dados.meio = (req.body as any)?.method ?? null
+      const cupom = String((req.body as any)?.cupom || '').trim()
+      if (cupom) dados.cupom = cupom.toUpperCase()
+    }
     if (r.acao === 'documento_removido') dados.documentoId = Number((req.params as any)?.id) || null
     if (r.acao === 'dados_salvos') dados.etapa = (req.query as any)?.etapa ?? null
     await registrarEventoDaInscricao({
@@ -206,4 +226,5 @@ export const ROTULO_ACAO: Record<string, string> = {
   redacao_enviada: 'Redação enviada',
   pagamento_manual: 'Pagamento manual registrado',
   dados_corrigidos: 'Dados do cadastro corrigidos',
+  contrato_presencial: 'Contrato assinado no papel registrado',
 }

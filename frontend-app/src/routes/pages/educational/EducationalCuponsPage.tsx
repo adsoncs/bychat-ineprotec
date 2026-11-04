@@ -174,7 +174,7 @@ export function EducationalCuponsPage() {
                       </TD>
                       <TD>
                         <div class="text-sm font-medium">{descontoTxt(c)}</div>
-                        <div class="text-2xs text-fg-muted">{[c.minAmount && `mín. ${brl(c.minAmount)}`, c.stackWithPix && 'soma com PIX', c.maxInstallments && `até ${c.maxInstallments}x`].filter(Boolean).join(' · ')}</div>
+                        <div class="text-2xs text-fg-muted">{[c.somenteEquipe && 'só a equipe', c.minAmount && `mín. ${brl(c.minAmount)}`, c.stackWithPix && 'soma com PIX', c.maxInstallments && `até ${c.maxInstallments}x`].filter(Boolean).join(' · ')}</div>
                       </TD>
                       <TD>
                         {regras.length ? <div class="flex flex-wrap gap-1 max-w-[22rem]">{regras.map((t) => <span key={t} class="text-2xs leading-tight px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">{t}</span>)}</div> : <span class="text-xs text-fg-muted">Em qualquer inscrição</span>}
@@ -278,6 +278,7 @@ function CupomModal({ cupom, cat, lote, onClose }: { cupom: CupomEdu | null; cat
     levelIds: c?.levelIds ?? [], modalityIds: c?.modalityIds ?? [],
     paymentMethods: (c?.paymentMethods ?? []) as MeioCupom[], scope: (c?.scope ?? '') as '' | 'taxa' | 'curso',
     stackWithPix: c?.stackWithPix ?? false,
+    somenteEquipe: c?.somenteEquipe ?? false,
     allowedCpfs: (c?.allowedCpfs ?? []).join('\n'), emailDomains: (c?.emailDomains ?? []).join(', '),
     quantidade: '50', prefixo: 'CAMPANHA', loteNome: '',
   })
@@ -300,7 +301,7 @@ function CupomModal({ cupom, cat, lote, onClose }: { cupom: CupomEdu | null; cat
     validUntil: s.validUntil ? new Date(s.validUntil).toISOString() : null,
     portalIds: s.portalIds, courseIds: s.courseIds, offeringIds: s.offeringIds, processIds: s.processIds,
     levelIds: s.levelIds, modalityIds: s.modalityIds,
-    paymentMethods: s.paymentMethods, scope: s.scope || null, stackWithPix: s.stackWithPix,
+    paymentMethods: s.paymentMethods, scope: s.scope || null, stackWithPix: s.stackWithPix, somenteEquipe: s.somenteEquipe,
     allowedCpfs: s.allowedCpfs, emailDomains: s.emailDomains,
   }
   const regras = ondeVale({ ...payload, allowedCpfs: s.allowedCpfs.split(/[\s,;]+/).filter(Boolean), emailDomains: s.emailDomains.split(/[\s,;]+/).filter(Boolean) } as CupomInput, cat)
@@ -380,6 +381,10 @@ function CupomModal({ cupom, cat, lote, onClose }: { cupom: CupomEdu | null; cat
               <input type="checkbox" class="mt-1" checked={s.stackWithPix} onChange={(e) => upd({ stackWithPix: (e.target as HTMLInputElement).checked })} />
               <span>Somar com o desconto à vista do PIX<div class="text-2xs text-fg-muted">Desligado (padrão): no PIX vale o maior dos dois descontos. Ligado: o desconto do PIX incide depois do cupom.</div></span>
             </label>
+            <label class="flex items-start gap-2 text-sm cursor-pointer">
+              <input type="checkbox" class="mt-1" checked={s.somenteEquipe} onChange={(e) => upd({ somenteEquipe: (e.target as HTMLInputElement).checked })} />
+              <span>Desconto da equipe (só no atendimento pelo painel)<div class="text-2xs text-fg-muted">O candidato não consegue usar este código sozinho — para ele, o cupom não existe. Só vale aplicado pelo agente na matrícula feita pelo painel, e por quem tem a permissão “Desconto da equipe”.</div></span>
+            </label>
           </div>
         )}
 
@@ -453,6 +458,7 @@ function CupomModal({ cupom, cat, lote, onClose }: { cupom: CupomEdu | null; cat
             {s.maxInstallments && `, até ${s.maxInstallments}x`}
             {s.validUntil ? `, até ${new Date(s.validUntil).toLocaleString('pt-BR')}` : ''}
             {s.stackWithPix ? '. Soma com o desconto do PIX.' : '.'}
+            {s.somenteEquipe ? ' Só a equipe aplica, no atendimento pelo painel.' : ''}
           </div>
         </div>
       </div>

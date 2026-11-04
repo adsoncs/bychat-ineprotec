@@ -103,6 +103,9 @@ export async function avaliarCupom(params: {
   escopo?: 'taxa' | 'curso'
   /** Quando já se sabe o meio (na hora de cobrar), a trava de meio é conferida. */
   metodo?: MeioDePagamento
+  /** Agente no atendimento pelo painel (services/inscricaoAssistida.equipeDoCupom):
+   *  só com ele um cupom "só a equipe" existe; `pode` = permissão "Desconto da equipe". */
+  equipe?: { pode: boolean } | null | undefined
 }): Promise<CupomAplicado | CupomRecusado> {
   const code = normalizar(params.codigo)
   const valor = Number(params.valor)
@@ -111,6 +114,12 @@ export async function avaliarCupom(params: {
 
   const c = await prisma.coupon.findUnique({ where: { code } })
   if (!c) return { valido: false, motivo: 'Cupom não encontrado.' }
+  // Desconto da equipe: para o público o código nem existe (não revela que há
+  // um desconto a pedir); no atendimento, só quem tem a permissão aplica.
+  if (c.somenteEquipe) {
+    if (!params.equipe) return { valido: false, motivo: 'Cupom não encontrado.' }
+    if (!params.equipe.pode) return { valido: false, motivo: 'Este é um desconto da equipe e o seu perfil não pode aplicá-lo (permissão "Desconto da equipe").' }
+  }
   if (!c.active || c.archivedAt) return { valido: false, motivo: 'Este cupom não está mais ativo.' }
 
   const agora = new Date()

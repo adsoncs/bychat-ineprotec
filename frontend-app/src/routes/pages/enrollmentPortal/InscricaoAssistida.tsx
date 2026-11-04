@@ -259,6 +259,64 @@ export function PagamentoManualModal({ registrationId, candidateCode, onClose, e
   )
 }
 
+// ── Contrato assinado no papel (página da inscrição) ─────────────────────────
+
+/** A via assinada à mão vira o contrato da inscrição: a etapa Contrato fecha,
+ *  e o arquivo segue para a matrícula e o GED como as assinaturas eletrônicas. */
+export function ContratoPresencialModal({ registrationId, candidateCode, nomeCandidato, onClose }: {
+  registrationId: number; candidateCode: string; nomeCandidato: string | null | undefined; onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+  const [assinadoPor, setAssinadoPor] = useState(nomeCandidato ?? '')
+  const [assinadoEm, setAssinadoEm] = useState(hoje)
+  const [observacao, setObservacao] = useState('')
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const enviar = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData()
+      fd.append('assinadoPor', assinadoPor); fd.append('assinadoEm', assinadoEm); fd.append('observacao', observacao)
+      fd.append('contrato', arquivo as File)
+      return api.post<{ ok: true }>(`/admin/enrollment-registrations/${registrationId}/contrato-presencial`, fd)
+    },
+  })
+  const pronto = assinadoPor.trim().includes(' ') && assinadoEm && arquivo
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title={`Contrato assinado no papel — ${candidateCode}`}
+      description="Para quando o candidato assinou a via impressa (secretaria, polo, evento). Anexe a via assinada digitalizada: a etapa Contrato fica concluída e o documento vai para a matrícula e o GED. Fica registrado em seu nome."
+      size="md"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={enviar.isPending}>Cancelar</Button>
+          <Button variant="primary" size="sm" disabled={!pronto || enviar.isPending} onClick={() => enviar.mutate(undefined, {
+            onSuccess: () => { toast('Contrato registrado', 'success'); void qc.invalidateQueries(); onClose() },
+            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          })}>{enviar.isPending ? 'Registrando…' : 'Registrar contrato'}</Button>
+        </>
+      }
+    >
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        <Input label="Assinado por (nome completo)" value={assinadoPor} onInput={(e) => setAssinadoPor((e.target as HTMLInputElement).value)} />
+        <Input label="Data da assinatura" type="date" value={assinadoEm} max={hoje} onInput={(e) => setAssinadoEm((e.target as HTMLInputElement).value)} />
+        <label class="grid gap-1 text-xs sm:col-span-2">
+          <span class="font-medium text-fg">Via assinada (PDF, ou foto JPG/PNG)</span>
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png" class="text-xs" onChange={(e) => setArquivo((e.target as HTMLInputElement).files?.[0] ?? null)} />
+        </label>
+        <label class="grid gap-1 text-xs sm:col-span-2">
+          <span class="font-medium text-fg">Observação (opcional)</span>
+          <textarea class="w-full text-sm px-2 py-1.5 rounded-md bg-surface border border-border text-fg min-h-14" value={observacao}
+            placeholder='Ex.: "assinado na secretaria do polo Centro, via original arquivada na pasta 12"'
+            onInput={(e) => setObservacao((e.target as HTMLTextAreaElement).value)} />
+        </label>
+        <p class="text-2xs text-fg-subtle sm:col-span-2">Se havia uma assinatura eletrônica em andamento (Autentique/Clicksign), ela é cancelada — o candidato não assina duas vezes.</p>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Histórico da inscrição (página da inscrição) ─────────────────────────────
 
 interface EventoDaInscricao {
@@ -336,6 +394,8 @@ export function HistoricoDaInscricao({ registrationId }: { registrationId: numbe
                 <span class="text-fg">{e.rotulo}</span>
                 {e.dados?.meio ? <span class="text-fg-muted"> ({String(e.dados.meio)})</span> : null}
                 {Array.isArray(e.dados?.campos) ? <span class="text-fg-muted"> ({(e.dados!.campos as string[]).join(', ')})</span> : null}
+                {e.dados?.cupom ? <span class="text-fg-muted"> · cupom {String(e.dados.cupom)}</span> : null}
+                {e.dados?.assinadoPor ? <span class="text-fg-muted"> (assinado por {String(e.dados.assinadoPor)})</span> : null}
                 <span class="text-fg-muted"> · {e.ator === 'atendente' ? (e.userName || 'Atendente') : e.ator === 'candidato' ? 'Candidato' : 'Sistema'}</span>
               </div>
               <time class="text-fg-subtle tabular-nums whitespace-nowrap">{quando(e.createdAt)}</time>

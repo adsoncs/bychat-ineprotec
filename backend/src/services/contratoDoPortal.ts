@@ -673,7 +673,9 @@ export async function aceiteDaInscricaoPeloEnvelope(envelopeId: number): Promise
   const dados = await dadosDoContratoDaInscricao(env.registrationId).catch(() => null)
   const aluno = env.signatarios.find((s) => s.papel === 'ALUNO') ?? env.signatarios[0]
   const aceite = {
-    termo: `${env.titulo} — assinado eletronicamente${env.provider === 'AUTENTIQUE' || env.provider === 'CLICKSIGN' ? ` na ${env.provider === 'CLICKSIGN' ? 'Clicksign' : 'Autentique'} (documento ${env.documentoExternoId})` : ' no portal'}.`,
+    termo: env.provider === 'PRESENCIAL'
+      ? `${env.titulo} — assinado em papel; via digitalizada registrada pela equipe (services/contratoPresencial).`
+      : `${env.titulo} — assinado eletronicamente${env.provider === 'AUTENTIQUE' || env.provider === 'CLICKSIGN' ? ` na ${env.provider === 'CLICKSIGN' ? 'Clicksign' : 'Autentique'} (documento ${env.documentoExternoId})` : ' no portal'}.`,
     nome: aluno?.nome ?? '', ip: '', userAgent: '', em: (env.finalizadoEm ?? new Date()).toISOString(),
     via: env.provider, envelopeId: env.id,
     plano: dados?.plano ?? null,

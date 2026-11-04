@@ -70,6 +70,7 @@ function summarize(c: any) {
     allowedCpfs: c.allowedCpfs ?? null,
     emailDomains: c.emailDomains ?? null,
     stackWithPix: !!c.stackWithPix,
+    somenteEquipe: !!c.somenteEquipe,
     maxInstallments: c.maxInstallments ?? null,
     campaign: c.campaign ?? null,
     batch: c.batch ?? null,
@@ -127,6 +128,7 @@ function lerCorpo(body: any, parcial: boolean): { erro: string } | { data: Recor
   if (tem('allowedCpfs')) data.allowedCpfs = textosOuNull(body.allowedCpfs, cpfLimpo)
   if (tem('emailDomains')) data.emailDomains = textosOuNull(body.emailDomains, dominioLimpo)
   if (tem('stackWithPix')) data.stackWithPix = !!body.stackWithPix
+  if (tem('somenteEquipe')) data.somenteEquipe = !!body.somenteEquipe
   if (tem('campaign')) data.campaign = body.campaign ? String(body.campaign).trim().slice(0, 100) || null : null
   if (tem('notes')) data.notes = body.notes ? String(body.notes).slice(0, 5000) : null
   if (tem('validFrom')) data.validFrom = body.validFrom ? new Date(body.validFrom) : null
@@ -407,6 +409,8 @@ export async function couponsRoutes(app: FastifyInstance) {
       cpf: (reg.formData as any)?.cpf, descontoAVistaPct: regras.pix.descontoPct,
       contexto: cob?.contexto ?? null, escopo: cob?.escopo ?? 'taxa',
       ...(MEIOS.includes(b.metodo) ? { metodo: b.metodo } : {}),
+      // Prévia no painel: quem administra cupons vê também os da equipe.
+      equipe: { pode: true },
     })
     return { cobranca: cob ? { valor: cob.valor, rotulo: cob.rotulo, escopo: cob.escopo } : null, resultado: r }
   })

@@ -43,7 +43,7 @@ import { portalLeadSource } from '../lib/leadSourceLabel.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
 import { redis } from '../lib/redis.js'
 import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, verifyFormContinue, verifyAtendimento, signAtendimento, ondeDoToken } from '../lib/candidateAuth.js'
-import { atendenteDe, registrarEventoDaInscricao, ROTULO_ACAO } from '../services/inscricaoAssistida.js'
+import { atendenteDe, equipeDoCupom, registrarEventoDaInscricao, ROTULO_ACAO } from '../services/inscricaoAssistida.js'
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
 import QRCode from 'qrcode'
@@ -351,6 +351,8 @@ async function montarCobrancaDoCheckout(input: {
   body: any
   taxa: number
   parcelamosNos: boolean
+  /** Agente no atendimento: cupons "só a equipe" (services/inscricaoAssistida). */
+  equipe?: { pode: boolean } | null
 }): Promise<{ erro: string } | {
   valorCobrado: number
   parcelasCartao: number
@@ -363,7 +365,7 @@ async function montarCobrancaDoCheckout(input: {
   // formas e parcelas vêm do plano escolhido na tela.
   const peloPlano = await escolhaDoCheckoutPeloPlano(cob, body?.planoId, body?.opcao)
   if (cob && peloPlano) {
-    return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos })
+    return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos, equipe: input.equipe ?? null })
   }
   // O plano é a única fonte do preço do curso: sem plano, não se cobra.
   if (cob?.escopo === 'curso') return { erro: SEM_PLANO }
@@ -394,6 +396,7 @@ async function montarCobrancaDoCheckout(input: {
         contexto: cob?.contexto ?? null,
         escopo: cob?.escopo ?? 'taxa',
         metodo: method,
+        equipe: input.equipe ?? null,
       })
     : null
   if (cupom && 'valido' in cupom) return { erro: cupom.motivo }
@@ -3009,6 +3012,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { code } = req.params as any
     const sess = requirePaymentSession(req, code)
     if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const equipeCupom = await equipeDoCupom(req)
 
     const enrollment = await prisma.enrollmentRegistration.findUnique({
       where: { id: sess.enrollmentId },
@@ -3049,6 +3053,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           descontoAVistaPct: regras.pix.descontoPct,
           contexto: cob?.contexto ?? null,
           escopo: cob?.escopo ?? 'taxa',
+          equipe: equipeCupom,
         })
       : null
     const cupomOk = cupom && !('valido' in cupom) ? cupom : null
@@ -3060,7 +3065,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const r = await avaliarCupom({
         codigo: codigoCupom, valor: valorBase, portalId: enrollment.portal!.id,
         cpf: (enrollment.formData as any)?.cpf, descontoAVistaPct: regras.pix.descontoPct,
-        contexto: cob?.contexto ?? null, escopo: cob?.escopo ?? 'taxa',
+        contexto: cob?.contexto ?? null, escopo: cob?.escopo ?? 'taxa', equipe: equipeCupom,
       })
       return 'valido' in r ? null : r
     }
@@ -3100,7 +3105,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       return reply.send(await opcoesDaTelaPeloPlano({
         cob, escolha: peloPlano, cupomCodigo: codigoCupom, portalId: enrollment.portal!.id,
         cpf: (enrollment.formData as any)?.cpf, pixExpiraHoras: regras.pix.expiraHoras,
-        cartaoDisponivel: gatewayAceitaCartao, tokenizacao,
+        cartaoDisponivel: gatewayAceitaCartao, tokenizacao, equipe: equipeCupom,
       }))
     }
     if (cob?.escopo === 'curso') {
@@ -3193,6 +3198,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { code } = req.params as any
     const sess = requirePaymentSession(req, code)
     if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const equipeCupom = await equipeDoCupom(req)
     {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(sess.enrollmentId, 'pagamento', ondeDoToken(sess))
       if (trava) return reply.code(409).send({ error: trava, travada: true })
@@ -3262,7 +3268,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // nenhum. A etapa fica concluída por isenção, antes de tocar no provedor
     // (services/isencaoPorCupom). Mesma conta do checkout — cupom revalidado.
     if (body.cupom) {
-      const contaZero = await montarCobrancaDoCheckout({
+      const contaZero = await montarCobrancaDoCheckout({ equipe: equipeCupom,
         registrationId: enrollment.id,
         portalId: enrollment.portal.id,
         paymentMethodsConfig: enrollment.portal.paymentMethodsConfig,
@@ -3360,7 +3366,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         // Mesma conta dos provedores reais (cupom, parcelas, tabela de preços):
         // o simulado existe para exercitar o fluxo, e cobrar o valor base em
         // qualquer meio escondia justamente o que se queria testar.
-        const conta = await montarCobrancaDoCheckout({
+        const conta = await montarCobrancaDoCheckout({ equipe: equipeCupom,
           registrationId: enrollment.id,
           portalId: enrollment.portal!.id,
           paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
@@ -3470,7 +3476,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         const parcelamosNos = method === 'credit_card' && !cartaoHospedado
         // Cupom, juros do cartão e boleto parcelado: regra comum a todo
         // gateway do checkout transparente (montarCobrancaDoCheckout).
-        const conta = await montarCobrancaDoCheckout({
+        const conta = await montarCobrancaDoCheckout({ equipe: equipeCupom,
           registrationId: enrollment.id,
           portalId: enrollment.portal!.id,
           paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
@@ -3556,7 +3562,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           return reply.code(400).send({ error: 'Informe um e-mail na inscrição para receber a cobrança.' })
         }
 
-        const conta = await montarCobrancaDoCheckout({
+        const conta = await montarCobrancaDoCheckout({ equipe: equipeCupom,
           registrationId: enrollment.id,
           portalId: enrollment.portal!.id,
           paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
@@ -4916,6 +4922,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
     const { pagamentoManualDaRequisicao } = await import('../services/pagamentoManual.js')
     const r = await pagamentoManualDaRequisicao(req, id, { id: u.userId, nome: usuario?.name || u.name })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+
+  // POST /api/admin/enrollment-registrations/:id/contrato-presencial (multipart)
+  //   campos: assinadoPor (nome de quem assinou), assinadoEm (AAAA-MM-DD), observacao; arquivo: contrato
+  // Permissão própria: tela "Contrato assinado no papel" — só admin herda.
+  app.post('/api/admin/enrollment-registrations/:id/contrato-presencial', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const u = (req as any).user as JwtPayload
+    const id = parseInt((req.params as any).id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Inscrição inválida' })
+    const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
+    const { contratoPresencialDaRequisicao } = await import('../services/contratoPresencial.js')
+    const r = await contratoPresencialDaRequisicao(req, id, { id: u.userId, nome: usuario?.name || u.name })
     if (!r.ok) return reply.code(r.status).send({ error: r.erro })
     return { ok: true }
   })

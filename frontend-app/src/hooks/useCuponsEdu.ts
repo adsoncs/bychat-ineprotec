@@ -27,6 +27,8 @@ export interface CupomEdu {
   allowedCpfs: string[] | null
   emailDomains: string[] | null
   stackWithPix: boolean
+  /** Desconto da equipe: só vale aplicado pelo agente no atendimento pelo painel. */
+  somenteEquipe?: boolean
   maxInstallments: number | null
   campaign: string | null
   batch: string | null

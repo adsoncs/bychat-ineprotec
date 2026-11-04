@@ -1,5 +1,5 @@
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
-import { HistoricoDaInscricao, PagamentoManualModal, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
+import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
 import { useState } from 'preact/hooks'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
@@ -86,6 +86,8 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
   const pmFinanceiro = useCan('edu_financeiro_portal', 'edit')
   const podePagamentoManual = pmTela || pmFinanceiro
   const [pagamentoManual, setPagamentoManual] = useState(false)
+  const podeContratoPapel = useCan('edu_contrato_presencial', 'edit')
+  const [contratoPapel, setContratoPapel] = useState(false)
   // Mesma consulta do cabeçalho (cache compartilhado): ordena os cards das etapas.
   const etapasDaPagina = useQuery({
     queryKey: ['registration-etapas', regId],
@@ -123,6 +125,13 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
             <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)}
               title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha) — com comprovante">
               Registrar pagamento manual
+            </Button>
+          )}
+          {review && podeContratoPapel && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status))
+            && [...(etapasDaPagina.data?.inscricao ?? []), ...(etapasDaPagina.data?.painel ?? [])].some((e) => e.chave === 'contrato' && e.situacao !== 'feito') && (
+            <Button variant="secondary" size="sm" onClick={() => setContratoPapel(true)}
+              title="O candidato assinou a via impressa: anexe a via digitalizada">
+              Contrato assinado no papel
             </Button>
           )}
           {review && (
@@ -186,6 +195,10 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
           {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
           <SeiInscricaoCard registrationId={review.registration.id} />
+          {contratoPapel && (
+            <ContratoPresencialModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode}
+              nomeCandidato={review.lead?.nome} onClose={() => setContratoPapel(false)} />
+          )}
           {pagamentoManual && (
             <PagamentoManualModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode} onClose={() => setPagamentoManual(false)} />
           )}

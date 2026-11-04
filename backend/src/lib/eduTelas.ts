@@ -94,6 +94,13 @@ export const EDU_TELAS: TelaDef[] = [
   // vira pago com comprovante. Ação sensível — só admin herda (03/11/2026).
   { id: 'edu_pagamento_manual', legado: 'admin', name: 'Pagamento manual', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
     rotas: ['/api/admin/enrollment-registrations/:id/pagamento-manual'], alternativos: ['edu_financeiro_portal'] },
+  // Contrato assinado NO PAPEL: a secretaria anexa a via digitalizada e a
+  // etapa Contrato fecha como as outras assinaturas (envelope, GED, efetivação).
+  { id: 'edu_contrato_presencial', legado: 'admin', name: 'Contrato assinado no papel', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: ['/api/admin/enrollment-registrations/:id/contrato-presencial'] },
+  // Cupons marcados "só a equipe": quem pode aplicá-los no atendimento pelo painel.
+  { id: 'edu_desconto_equipe', legado: 'admin', name: 'Desconto da equipe', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: [] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
   // Painel comercial do Educacional: vendas (propostas ganhas das inscrições),
