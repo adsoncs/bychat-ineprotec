@@ -15,7 +15,9 @@
 import { prisma } from '../lib/prisma.js'
 import { signCandidateToken } from '../lib/candidateAuth.js'
 import { decryptToken } from './cloudApi.js'
-import { fetchAsaasBoletoLinha, fetchAsaasPixQr, type AsaasConfig } from './paymentAsaas.js'
+import { createAsaasPayment, createOrFindAsaasCustomer, fetchAsaasBoletoLinha, fetchAsaasPixQr, type AsaasConfig } from './paymentAsaas.js'
+import { planoPorId, pontualidadeDaFatura } from './planoFinanceiro.js'
+import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 
 export type SituacaoDaFatura = 'paga' | 'aberta' | 'vencida' | 'cancelada' | 'estornada' | 'prevista'
 
@@ -38,6 +40,8 @@ export interface Fatura {
   linha: string | null
   /** Dá para buscar PIX/linha no gateway (parcela do Asaas em aberto). */
   buscarCodigos: boolean
+  /** Parcela prevista que o aluno pode transformar em boleto agora (a próxima da fila). */
+  podeGerar: boolean
 }
 
 export interface ContratoDoAluno {
@@ -97,7 +101,7 @@ async function asaasGet(cfg: AsaasConfig, path: string): Promise<any> {
   const base = cfg.environment === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3'
   const r = await fetch(base + path, { headers: { access_token: cfg.apiKey, 'User-Agent': 'crm-integracao/1.0' }, signal: AbortSignal.timeout(10_000) })
   const dados = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(`Asaas: ${dados?.errors?.[0]?.description || `HTTP ${r.status}`}`)
+  if (!r.ok) throw Object.assign(new Error(`Asaas: ${dados?.errors?.[0]?.description || `HTTP ${r.status}`}`), { status: r.status })
   cache.set(chave, { em: Date.now(), dados })
   if (cache.size > 500) cache.delete(cache.keys().next().value as string)
   return dados
@@ -132,13 +136,15 @@ export function faturaDoAsaas(p: any, total: number): Fatura | null {
     recibo: situacao === 'paga' ? (p.transactionReceiptUrl || null) : null,
     pix: null, linha: null,
     buscarCodigos: aberta && ['BOLETO', 'PIX', 'UNDEFINED'].includes(String(p.billingType)),
+    podeGerar: false,
   }
 }
 
 // ─── A inscrição da conta ───────────────────────────────────────────────────
 
 const SELECT_REG = {
-  id: true, candidateCode: true, status: true, portalId: true, createdAt: true, contratoAceite: true,
+  id: true, candidateCode: true, status: true, portalId: true, createdAt: true, contratoAceite: true, formData: true,
+  lead: { select: { nome: true, email: true, whatsapp: true } },
   paymentId: true, paymentStatus: true, paymentAmount: true, paymentMethod: true, paymentPaidAt: true,
   paymentExpiresAt: true, paymentUrl: true, paymentPlan: true,
   portal: { select: { nome: true, slug: true, paymentScope: true } },
@@ -227,25 +233,58 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
       pix: aberta ? (ultima?.qrCode || null) : null,
       linha: aberta ? (ultima?.boletoLine || null) : null,
       buscarCodigos: false,
+      podeGerar: false,
     })
   }
 
-  // 3) Boleto parcelado: o portal cobra a 1ª; as demais são do contrato e só
-  //    viram boleto quando forem geradas. Mostramos como previstas — sem link,
-  //    sem prometer data de envio.
+  // 3) Boleto parcelado: o portal cobra a 1ª; as demais são do contrato. No
+  //    ineprotec não há ERP para emiti-las: o aluno gera a PRÓXIMA aqui
+  //    ("Gerar boleto e PIX" → gerarParcela), uma de cada vez. A gerada vira
+  //    uma cobrança do Asaas, lida ao vivo como as do cartão parcelado.
   const n = Number(plano.parcelas) || 1
   if (plano.meio === 'boleto' && n > 1 && !plano.installmentId && situacao !== 'cancelada') {
     const valor = Number(plano.valorParcela) || 0
     const dia = await diaDoVencimento(plano.planoFinanceiro?.planoId)
     const base = r.paymentPaidAt ?? r.createdAt
+    const geradas = (plano.parcelasPortal ?? {}) as Record<string, ParcelaGerada>
+    // Só depois da 1ª paga: antes disso, a matrícula nem está confirmada.
+    let fila = situacao === 'paga' && !!cfg
     for (let i = 2; i <= n; i++) {
+      const g = geradas[String(i)]
+      if (g && cfg) {
+        let removida = false
+        const p = await asaasGet(cfg, `/payments/${encodeURIComponent(g.id)}`).catch((e: any) => { removida = e?.status === 404; return null })
+        const f = removida ? null : p ? faturaDoAsaas(p, n) : {
+          // Asaas fora do ar: mostra o que guardamos, com o link da fatura.
+          chave: `asaas:${g.id}`, titulo: '', detalhe: null, valor: g.valor, vencimento: g.vencimento,
+          situacao: (g.vencimento < hojeBr() ? 'vencida' : 'aberta') as SituacaoDaFatura, pagaEm: null, meio: 'Boleto',
+          pagar: g.invoiceUrl ?? null, boletoPdf: g.boletoPdf ?? null, recibo: null, pix: null, linha: null, buscarCodigos: true, podeGerar: false,
+        }
+        if (f) {
+          faturas.push({ ...f, titulo: `Parcela ${i} de ${n}` })
+          // A próxima só depois desta paga (ou estornada/cancelada pela secretaria).
+          if (f.situacao === 'aberta' || f.situacao === 'vencida') fila = false
+          continue
+        }
+        // Apagada no Asaas: volta a ser prevista (e pode ser gerada de novo).
+      }
       faturas.push({
         chave: `prevista:${r.id}:${i}`, titulo: `Parcela ${i} de ${n}`, detalhe: null, valor,
         vencimento: dia ? vencimentoPrevisto(base, i - 1, dia) : null, situacao: 'prevista', pagaEm: null,
         meio: 'Boleto', pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false,
+        podeGerar: fila,
       })
+      fila = false
     }
-    aviso = aviso ?? 'As parcelas previstas seguem o seu plano de pagamento. Quando o boleto de cada uma for emitido, ele aparece aqui para pagar.'
+    if (faturas.some((f) => f.podeGerar)) {
+      aviso = aviso ?? 'Quando quiser pagar a próxima parcela, use "Gerar boleto e PIX". O boleto sai na hora, com a data de vencimento do seu plano.'
+    } else if (faturas.some((f) => f.situacao === 'prevista')) {
+      aviso = aviso ?? (!cfg
+        ? 'As parcelas previstas seguem o seu plano de pagamento. Quando o boleto de cada uma for emitido, ele aparece aqui para pagar.'
+        : situacao === 'paga'
+          ? 'Pague ou aguarde a confirmação da parcela em aberto para gerar a próxima.'
+          : 'As próximas parcelas podem ser geradas aqui depois que a 1ª for paga.')
+    }
   }
   return { faturas, aviso }
 }
@@ -340,4 +379,72 @@ export async function codigosDaFatura(leadId: number, codigo: string, chave: str
   const id = chave.slice('asaas:'.length)
   const [pix, linha] = await Promise.all([fetchAsaasPixQr(cfg, id).catch(() => null), fetchAsaasBoletoLinha(cfg, id).catch(() => null)])
   return { pix: pix?.payload ?? null, linha: linha?.linha ?? null }
+}
+
+// ─── Gerar a próxima parcela do boleto parcelado ────────────────────────────
+
+interface ParcelaGerada { id: string; vencimento: string; valor: number; em: string; invoiceUrl?: string | null; boletoPdf?: string | null }
+
+const gerando = new Map<number, Promise<unknown>>()
+
+/**
+ * O aluno pediu o boleto da próxima parcela. Cria a cobrança no Asaas (mesma
+ * conta da 1ª, boleto com PIX, desconto de pontualidade do plano) e guarda a
+ * referência em paymentPlan.parcelasPortal. Uma por vez, só a da fila.
+ */
+export async function gerarParcela(leadId: number, codigo: string, chave: string, req?: any):
+  Promise<{ ok: true; pix: string | null; linha: string | null } | { ok: false; status: number; erro: string }> {
+  const regs = await inscricoesDaConta(leadId)
+  const r0 = regs.find((x) => x.candidateCode === codigo)
+  if (!r0) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
+  // Cliques repetidos (ou duas abas): enfileira — cada pedido espera o anterior
+  // e, quando chega a vez, encontra a parcela já gerada.
+  const anterior = gerando.get(r0.id) ?? Promise.resolve()
+  const tarefa = anterior.catch(() => {}).then(async () => {
+    const r = (await inscricoesDaConta(leadId)).find((x) => x.id === r0.id)!
+    const { faturas } = await faturasDaInscricao(r)
+    const f = faturas.find((x) => x.chave === chave)
+    if (!f) return { ok: false as const, status: 409, erro: 'Esta parcela já foi gerada. Atualize a página.' }
+    if (!f.podeGerar) return { ok: false as const, status: 409, erro: 'Gere uma parcela por vez, na ordem.' }
+    const numero = Number(chave.split(':')[2])
+    const cfg = await configDoPortal(r.portalId)
+    if (!cfg) return { ok: false as const, status: 503, erro: 'Pagamento indisponível no momento. Fale com a secretaria.' }
+    const plano = (r.paymentPlan ?? {}) as any
+    const regras = (await planoPorId(plano.planoFinanceiro?.planoId).catch(() => null))?.regras ?? null
+    // Vencimento do plano; se já passou (ou é hoje), amanhã — o Asaas não aceita data passada.
+    const amanha = hojeBrDe(new Date(Date.now() + 86_400_000))
+    const venc = f.vencimento && f.vencimento >= amanha ? f.vencimento : amanha
+    const dueDate = new Date(`${venc}T12:00:00-03:00`)
+    const pontual = pontualidadeDaFatura(regras, dueDate, new Date(), f.valor)
+    const fd = (r.formData ?? {}) as Record<string, any>
+    const cpf = String(fd.cpf || '').replace(/\D/g, '')
+    try {
+      const cliente = await createOrFindAsaasCustomer(cfg, {
+        name: r.lead?.nome || String(fd.nome || 'Aluno'), email: r.lead?.email || fd.email || undefined,
+        cpfCnpj: cpf || undefined, mobilePhone: r.lead?.whatsapp || fd.whatsapp || undefined,
+        externalReference: `lead-${leadId}`,
+      })
+      const pg = await createAsaasPayment(cfg, {
+        customerId: cliente.id, billingType: 'BOLETO', value: f.valor, dueDate,
+        description: `${f.titulo} — ${nomeDoCurso(r)} (${r.candidateCode})`,
+        externalReference: `portal-parcela:${r.id}:${numero}`,
+        ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct, fixo: pontual.fixo } } : {}),
+      } as any)
+      // Relê antes de gravar: outro campo do paymentPlan pode ter mudado.
+      const atual = await prisma.enrollmentRegistration.findUnique({ where: { id: r.id }, select: { paymentPlan: true } })
+      const pp = { ...((atual?.paymentPlan ?? {}) as any) }
+      pp.parcelasPortal = { ...(pp.parcelasPortal ?? {}), [String(numero)]: { id: pg.id, vencimento: venc, valor: f.valor, em: new Date().toISOString(), invoiceUrl: pg.invoiceUrl ?? null, boletoPdf: pg.bankSlipUrl ?? null } satisfies ParcelaGerada }
+      await prisma.enrollmentRegistration.update({ where: { id: r.id }, data: { paymentPlan: pp } })
+      await registrarEventoDaInscricao({
+        registrationId: r.id, etapa: 'pagamento', acao: 'parcela_gerada', ator: 'candidato', req: req ?? null,
+        dados: { parcela: numero, de: Number(plano.parcelas) || null, valor: f.valor, vencimento: venc, cobranca: pg.id, ...(pontual ? { pontualidadePct: pontual.pct } : {}) },
+      })
+      const [pix, linha] = await Promise.all([fetchAsaasPixQr(cfg, pg.id).catch(() => null), fetchAsaasBoletoLinha(cfg, pg.id).catch(() => null)])
+      return { ok: true as const, pix: pix?.payload ?? null, linha: linha?.linha ?? null }
+    } catch (e: any) {
+      return { ok: false as const, status: 502, erro: 'Não foi possível gerar o boleto agora. Tente de novo em alguns minutos ou fale com a secretaria.' }
+    }
+  })
+  gerando.set(r0.id, tarefa)
+  try { return await tarefa } finally { if (gerando.get(r0.id) === tarefa) gerando.delete(r0.id) }
 }

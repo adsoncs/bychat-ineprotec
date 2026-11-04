@@ -20,7 +20,7 @@ interface Fatura {
   chave: string; titulo: string; detalhe: string | null; valor: number; vencimento: string | null
   situacao: Situacao; pagaEm: string | null; meio: string | null
   pagar: string | null; boletoPdf: string | null; recibo: string | null
-  pix: string | null; linha: string | null; buscarCodigos: boolean
+  pix: string | null; linha: string | null; buscarCodigos: boolean; podeGerar: boolean
 }
 interface Contrato { id: number; titulo: string; forma: 'eletronica' | 'aceite' | 'papel'; situacao: 'assinado' | 'aguardando'; assinadoEm: string | null; temPdf: boolean }
 export interface Area {
@@ -174,7 +174,7 @@ export function AreaDoAluno(props: {
                 </div>
                 {area.financeiro.faturas.length === 0
                   ? <p class="ada-vazio">Nenhuma fatura por enquanto.</p>
-                  : <ListaDeFaturas faturas={proximasEUltimas(area.financeiro.faturas)} codigo={area.inscricao.codigo} compacta />}
+                  : <ListaDeFaturas faturas={proximasEUltimas(area.financeiro.faturas)} codigo={area.inscricao.codigo} compacta aoMudar={props.aoRecarregar} />}
               </div>
             </div>
             <div class="ada-coluna">
@@ -199,7 +199,7 @@ export function AreaDoAluno(props: {
             <h2 class="ada-titulo">Suas faturas</h2>
             {area.financeiro.faturas.length === 0
               ? <p class="ada-vazio">Nenhuma fatura por enquanto. Quando houver cobrança, ela aparece aqui.</p>
-              : <ListaDeFaturas faturas={area.financeiro.faturas} codigo={area.inscricao.codigo} />}
+              : <ListaDeFaturas faturas={area.financeiro.faturas} codigo={area.inscricao.codigo} aoMudar={props.aoRecarregar} />}
             {area.financeiro.aviso && <p class="ada-nota">{area.financeiro.aviso}</p>}
           </div>
         </section>
@@ -279,11 +279,11 @@ function Numero(p: { rotulo: string; valor: string; tom: string }) {
   return <div class={`ada-numero tom-${p.tom}`}><span>{p.rotulo}</span><b>{p.valor}</b></div>
 }
 
-function ListaDeFaturas(p: { faturas: Fatura[]; codigo: string; compacta?: boolean }) {
-  return <ul class={`ada-faturas${p.compacta ? ' compacta' : ''}`}>{p.faturas.map((f) => <LinhaDeFatura key={f.chave} f={f} codigo={p.codigo} compacta={p.compacta} />)}</ul>
+function ListaDeFaturas(p: { faturas: Fatura[]; codigo: string; compacta?: boolean; aoMudar: () => void }) {
+  return <ul class={`ada-faturas${p.compacta ? ' compacta' : ''}`}>{p.faturas.map((f) => <LinhaDeFatura key={f.chave} f={f} codigo={p.codigo} compacta={p.compacta} aoMudar={p.aoMudar} />)}</ul>
 }
 
-function LinhaDeFatura({ f, codigo, compacta }: { f: Fatura; codigo: string; compacta?: boolean }) {
+function LinhaDeFatura({ f, codigo, compacta, aoMudar }: { f: Fatura; codigo: string; compacta?: boolean; aoMudar: () => void }) {
   const [pix, setPix] = useState(f.pix)
   const [linha, setLinha] = useState(f.linha)
   const [copiado, setCopiado] = useState<string | null>(null)
@@ -311,6 +311,19 @@ function LinhaDeFatura({ f, codigo, compacta }: { f: Fatura; codigo: string; com
     } catch (e: any) { setErro(e.message) } finally { setBuscando(false) }
   }
 
+  async function gerar() {
+    if (buscando) return
+    setBuscando(true); setErro(null)
+    try {
+      const r = await fetch('/api/public/portal/area/fatura/gerar', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, chave: f.chave }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || 'Não foi possível gerar o boleto agora.')
+      aoMudar()
+    } catch (e: any) { setErro(e.message); setBuscando(false) }
+  }
+
   const quando = f.situacao === 'paga'
     ? `Paga em ${dia(f.pagaEm)}`
     : f.situacao === 'prevista' ? (f.vencimento ? `Previsão ${dia(f.vencimento)}` : 'Data a definir')
@@ -328,6 +341,11 @@ function LinhaDeFatura({ f, codigo, compacta }: { f: Fatura; codigo: string; com
           <span class={`ada-selo ${s.tom}`}>{s.rotulo}</span>
         </span>
       </div>
+      {f.podeGerar && (
+        <div class="ada-fatura-acoes">
+          <button type="button" class="ada-botao" disabled={buscando} onClick={gerar}>{buscando ? 'Gerando…' : 'Gerar boleto e PIX'}</button>
+        </div>
+      )}
       {!compacta && (aberta || f.recibo) && (
         <div class="ada-fatura-acoes">
           {aberta && f.pagar && <a class="ada-botao" href={f.pagar} target="_blank" rel="noopener">Pagar</a>}

@@ -3,7 +3,7 @@
 // e o portal segue como era.
 import { FastifyInstance } from 'fastify'
 import { contaDaRequisicao } from '../lib/portalSession.js'
-import { areaAtiva, codigosDaFatura, montarArea } from '../services/areaDoAluno.js'
+import { areaAtiva, codigosDaFatura, gerarParcela, montarArea } from '../services/areaDoAluno.js'
 
 export async function areaDoAlunoRoutes(app: FastifyInstance) {
   app.get('/api/public/portal/area', async (req, reply) => {
@@ -24,6 +24,20 @@ export async function areaDoAlunoRoutes(app: FastifyInstance) {
     const r = await codigosDaFatura(conta.leadId, String(b.codigo || ''), String(b.chave || ''))
     if (!r) return reply.code(404).send({ error: 'Fatura não encontrada.' })
     if (!r.pix && !r.linha) return reply.code(502).send({ error: 'O código ainda não ficou pronto. Use "Pagar" para abrir a fatura.' })
+    return r
+  })
+
+  // "Gerar boleto e PIX" da próxima parcela do boleto parcelado.
+  app.post('/api/public/portal/area/fatura/gerar', async (req, reply) => {
+    reply.header('cache-control', 'no-store')
+    if (!(await areaAtiva())) return reply.code(404).send({ error: 'Indisponível' })
+    const conta = await contaDaRequisicao(req)
+    if (!conta) return reply.code(401).send({ error: 'Entre no portal de novo.' })
+    const b = (req.body as any) || {}
+    const chave = String(b.chave || '')
+    if (!/^prevista:\d+:\d+$/.test(chave)) return reply.code(400).send({ error: 'Parcela inválida.' })
+    const r = await gerarParcela(conta.leadId, String(b.codigo || ''), chave, req)
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
     return r
   })
 }

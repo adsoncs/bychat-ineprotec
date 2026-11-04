@@ -1301,3 +1301,4 @@ button.principal.perigo { background: var(--erro); }
 .ada .rc-dados { grid-template-columns: 1fr; gap: 10px; }
 .ada .rc-dados .rc-largo { grid-column: auto; }
 .ada .rc-dados dd { overflow-wrap: anywhere; }
+.ada-botao:disabled { opacity: .6; cursor: wait; }
