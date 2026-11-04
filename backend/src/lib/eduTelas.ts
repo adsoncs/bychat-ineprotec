@@ -90,6 +90,10 @@ export const EDU_TELAS: TelaDef[] = [
   { id: 'enrollment_portals', name: 'Portal de Matrículas', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'create', 'edit', 'delete'],
     // portal-accounts: gera o login do candidato — antes só exigia estar logado.
     rotas: ['/api/admin/enrollment-portals', '/api/admin/enrollment-registrations', '/api/admin/portal-accounts'] },
+  // Pagamento recebido FORA do gateway (dinheiro, Pix direto, maquininha):
+  // vira pago com comprovante. Ação sensível — só admin herda (03/11/2026).
+  { id: 'edu_pagamento_manual', legado: 'admin', name: 'Pagamento manual', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: ['/api/admin/enrollment-registrations/:id/pagamento-manual'], alternativos: ['edu_financeiro_portal'] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
   // Painel comercial do Educacional: vendas (propostas ganhas das inscrições),

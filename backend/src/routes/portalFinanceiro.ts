@@ -11,7 +11,6 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, type JwtPayload } from '../lib/auth.js'
 import { logEvent } from '../services/leadHistory.js'
-import { consumirCupom } from '../services/portalCupom.js'
 import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu, buscarFaturaIugu, enviarFaturaPorEmailIugu } from '../services/paymentIugu.js'
 import { appUrl } from '../lib/appUrl.js'
 import { guardTela } from '../lib/eduTelas.js'
@@ -286,51 +285,15 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   })
 
   // Baixa manual: pagou por fora (dinheiro, transferência, PIX direto na conta).
-  // Mesmos efeitos da confirmação do gateway, uma vez só.
+  // Mesmo caminho da página da inscrição (services/pagamentoManual): comprovante
+  // obrigatório, motivo, dia do pagamento; efeitos de pagamento confirmado uma
+  // vez só; na iugu a fatura aberta fica "paga externamente".
   app.post(`${BASE}/:id/baixa-manual`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
-    const b = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
-    const valor = Number(b.valor)
-    if (!Number.isFinite(valor) || valor <= 0) return reply.code(400).send({ error: 'Informe o valor recebido' })
-    const forma = ['dinheiro', 'transferencia', 'pix_direto', 'cartao_maquininha', 'outro'].includes(b.forma) ? b.forma : 'outro'
-    const obs = String(b.observacao || '').slice(0, 500)
-    const quando = b.pagoEm ? new Date(b.pagoEm) : new Date()
-    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { id: true, leadId: true, portalId: true, candidateCode: true, paymentStatus: true, paymentPlan: true } })
-    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
-    if (reg.paymentStatus === 'paid') return reply.code(400).send({ error: 'Esta inscrição já está paga' })
-
-    const r = await prisma.enrollmentRegistration.updateMany({
-      where: { id, paymentStatus: { not: 'paid' } },
-      data: {
-        paymentStatus: 'paid', status: 'paid', paymentPaidAt: quando, paymentAmount: valor, paymentMethod: 'MANUAL',
-        paymentPlan: { ...((reg.paymentPlan as any) ?? {}), baixaManual: { forma, observacao: obs, por: user.userId, em: new Date().toISOString() } } as any,
-      },
-    })
-    if (r.count !== 1) return reply.code(409).send({ error: 'Pagamento já confirmado por outro caminho' })
-
-    // Cobranças abertas no gateway ficam sem efeito: na iugu, "paga externamente".
-    const abertas = await prisma.enrollmentPaymentMethod.findMany({ where: { registrationId: id, status: 'pending', externalId: { not: null } } })
-    const cfg = abertas.some((m) => m.provider === 'iugu') ? await conexaoIuguDa(id) : null
-    for (const m of abertas) {
-      if (m.provider === 'iugu' && cfg) await baixaExternaIugu(cfg, m.externalId!, `inscricao-${id}`, 'Baixa manual na secretaria')
-      await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'canceled', lastErrorMessage: 'Substituída por baixa manual' } }).catch(() => {})
-    }
-    await prisma.enrollmentPaymentMethod.create({
-      data: { registrationId: id, provider: 'manual', method: forma, status: 'paid', amount: valor, paidAt: quando, lastErrorMessage: obs || null },
-    })
-    void consumirCupom(id)
-    await prisma.enrollmentPortal.update({ where: { id: reg.portalId }, data: { conversions: { increment: 1 } } }).catch(() => {})
-    if (reg.leadId) {
-      logEvent({
-        leadId: reg.leadId, type: 'payment_received', category: 'lifecycle', channel: 'payment', source: 'manual',
-        title: `Pagamento recebido (baixa manual) — ${reg.candidateCode}`,
-        description: `${forma.replace('_', ' ')} · ${valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${obs ? ` · ${obs}` : ''}`,
-        actorType: 'operator', userId: user.userId, userName: user.name,
-        metadata: { registrationId: id, manual: true, forma, valor },
-      })
-    }
-    import('../services/enrollmentNotify.js').then((m) => m.sendPaymentConfirmation?.({ enrollmentId: id }).catch(() => {})).catch(() => {})
+    const { pagamentoManualDaRequisicao } = await import('../services/pagamentoManual.js')
+    const r = await pagamentoManualDaRequisicao(req, id, { id: user.userId, nome: user.name })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
     return { ok: true }
   })
 

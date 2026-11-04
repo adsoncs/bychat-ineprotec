@@ -520,6 +520,10 @@ const FormEditor = lazy(() =>
   import('./pages/FormEditorPage').then((m) => ({ default: m.FormEditorPage })),
 )
 
+const AtendimentoPortal = lazy(() =>
+  import('./pages/enrollmentPortal/InscricaoAssistida').then((m) => ({ default: m.AtendimentoPortalPage })),
+)
+
 const EnrollmentPortalDetail = lazy(() =>
   import('./pages/EnrollmentPortalDetailPage').then(
     (m) => ({ default: m.EnrollmentPortalDetailPage }),
@@ -760,6 +764,11 @@ export function Router() {
           <Route path="/forms/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="captacao"><FormEditor params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/enrollment-portals/:id/atendimento">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="enrollment_portals"><AtendimentoPortal params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/enrollment-portals/:portalId/registrations/:regId">

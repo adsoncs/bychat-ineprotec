@@ -137,3 +137,45 @@ export function verifyFormContinue(token: string | null | undefined): FormContin
     return payload
   } catch { return null }
 }
+
+// Sessão de ATENDIMENTO (inscrição assistida): o atendente abre o portal pelo
+// painel e faz a inscrição com o candidato. O token vai no cabeçalho
+// X-Attrae-Atendente de cada pedido do portal — é ele que identifica quem da
+// equipe fez cada passo (services/inscricaoAssistida.ts). Curto (2h) e preso a
+// um portal; com leadId, também serve de link de continuação para aquele lead.
+export interface AtendimentoPayload {
+  userId: number
+  /** Nome para a faixa do portal ("Atendimento por Fulano"). */
+  nome: string
+  portalSlug: string
+  leadId: number | null
+  exp: number
+  kind: 'atendimento'
+}
+
+export function signAtendimento(p: { userId: number; nome: string; portalSlug: string; leadId?: number | null }, ttlHours: number = 2): string {
+  const payload: AtendimentoPayload = {
+    userId: p.userId, nome: p.nome, portalSlug: p.portalSlug, leadId: p.leadId ?? null,
+    exp: Date.now() + ttlHours * 60 * 60 * 1000,
+    kind: 'atendimento',
+  }
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
+
+export function verifyAtendimento(token: string | null | undefined): AtendimentoPayload | null {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null
+  const [body, sig] = token.split('.')
+  const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
+  if (!sig || sig.length !== expected.length) return null
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+  try {
+    const payload: AtendimentoPayload = JSON.parse(Buffer.from(body, 'base64url').toString())
+    if (!payload || payload.kind !== 'atendimento') return null
+    if (typeof payload.exp !== 'number' || payload.exp < Date.now()) return null
+    if (typeof payload.userId !== 'number' || typeof payload.portalSlug !== 'string') return null
+    if (payload.leadId != null && typeof payload.leadId !== 'number') return null
+    return payload
+  } catch { return null }
+}

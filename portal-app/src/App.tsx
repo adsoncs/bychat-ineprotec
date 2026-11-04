@@ -6,6 +6,7 @@ import {
   type DadosPortal, type Oferta, type Passo,
 } from './api'
 import { criarSenhaInicial, enviarDocumento } from './api'
+import { emAtendimento, definirInscricaoDoAtendimento } from './atendimento'
 import { comprimirSePreciso } from './imagem'
 import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
@@ -103,6 +104,9 @@ export function App() {
   const [temSenha, setTemSenha] = useState(false)
   const [abrirSenha, setAbrirSenha] = useState(false)
   const topo = useRef<HTMLDivElement>(null)
+  // Inscrição assistida: a faixa do topo precisa saber qual inscrição está aberta.
+  const atendimento = useMemo(emAtendimento, [])
+  useEffect(() => { if (atendimento) definirInscricaoDoAtendimento(concluido?.codigo ?? null) }, [atendimento, concluido?.codigo])
 
   // ── carga inicial + rascunho ──
   useEffect(() => {
@@ -312,13 +316,17 @@ export function App() {
       localStorage.removeItem(chaveRascunho(slug))
       // Antes do redirecionamento configurável: se a instituição manda o
       // candidato para outra página, a conversão precisa ter sido contada aqui.
-      marcarConversao(r.candidateCode, dados?.portal.nome ?? '')
+      // No atendimento, não: o navegador é do agente — a conversão de anúncio
+      // (Pixel/Google) sairia com os cookies dele, não do candidato.
+      if (!atendimento) marcarConversao(r.candidateCode, dados?.portal.nome ?? '')
 
       // Conclusão configurada no builder: quando for redirecionamento, a
       // instituição escolheu levar o candidato para outra página (obrigado
       // própria, campanha, matrícula) — respeitamos em vez de mostrar a nossa.
       const fim = dados ? conclusaoDoPortal(dados.portal) : null
-      if (fim?.behavior === 'redirect' && fim.target) {
+      // No atendimento o agente continua nas etapas (o redirecionamento levaria
+      // embora a tela do painel onde o portal está aberto).
+      if (fim?.behavior === 'redirect' && fim.target && !atendimento) {
         irPara(fim.target)
         return
       }
@@ -388,7 +396,8 @@ export function App() {
         portal={portal} codigo={concluido.codigo} pagamentoUrl={concluido.pagamentoUrl}
         token={concluido.token} precisaPagar={portal.requirePayment} oferta={ofertaEscolhida}
         mensagem={fim?.behavior !== 'redirect' ? fim?.message : undefined}
-        temSenha={temSenha}
+        // No atendimento a senha não é criada aqui: é do candidato (link no topo).
+        temSenha={temSenha || atendimento}
         abrirSenha={abrirSenha}
         aoAbrirSenha={() => setAbrirSenha(true)}
         aoFecharSenha={() => setAbrirSenha(false)}
@@ -478,7 +487,7 @@ export function App() {
       )}
       {portal.brandHeaderStyle === 'barra' && <Capa portal={portal} />}
 
-      {retomado && !naRevisao && (
+      {retomado && !naRevisao && !atendimento && (
         <div class="aviso info">
           Retomamos de onde você parou. Confira os dados antes de seguir.
         </div>
@@ -612,6 +621,10 @@ function AcessoNoTopo(props: {
   podeCriar: boolean
   aoCriarSenha: () => void
 }) {
+  // Atendimento assistido: ninguém entra na conta do candidato nem cria a
+  // senha dele por aqui (o servidor também barra) — a faixa do topo oferece
+  // "Passar para o candidato".
+  if (emAtendimento()) return null
   if (props.podeCriar && !props.temSenha) {
     return (
       <button class="acesso-topo" type="button" onClick={props.aoCriarSenha}>
@@ -1292,7 +1305,9 @@ function Consentimento(props: { marcado: boolean; aoMudar: (v: boolean) => void 
   return (
     <label class="consentimento">
       <input type="checkbox" checked={props.marcado} onChange={(e) => props.aoMudar((e.target as HTMLInputElement).checked)} />
-      <span>Concordo com o uso dos meus dados para contato sobre a inscrição, conforme a política de privacidade.</span>
+      <span>{emAtendimento()
+        ? 'O candidato autorizou o uso dos dados dele para contato sobre a inscrição, conforme a política de privacidade. (Registrado em nome do atendente.)'
+        : 'Concordo com o uso dos meus dados para contato sobre a inscrição, conforme a política de privacidade.'}</span>
     </label>
   )
 }

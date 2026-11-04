@@ -48,6 +48,7 @@ import { channelGovernanceRoutes } from './routes/channelGovernance.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { salesCadencesRoutes } from './routes/salesCadences.js'
 import { enrollmentPortalsRoutes } from './routes/enrollmentPortals.js'
+import { instalarInscricaoAssistida } from './services/inscricaoAssistida.js'
 import { eduGeralRoutes } from './routes/eduGeral.js'
 import { portalAcessoRoutes } from './routes/portalAcesso.js'
 import { papeisRoutes } from './routes/papeis.js'
@@ -758,6 +759,9 @@ app.addHook('preHandler', modulePermissionHook)
 // Acesso por portal (lib/portalGuard.ts): depois do gate de módulo/tela, antes
 // do código da rota — recorta inscrição, aluno e matrícula pelo portal.
 app.addHook('preHandler', portalAccessHook)
+// Inscrição assistida: identifica o atendente que opera o portal, barra o que só
+// o candidato faz e grava o histórico de cada etapa (services/inscricaoAssistida).
+instalarInscricaoAssistida(app)
 
 // ── ROUTES ───────────────────────────────────
 await // ⚠️ ORDEM IMPORTA: este handler precisa vir ANTES do primeiro `app.register`

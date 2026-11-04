@@ -42,7 +42,8 @@ import { logSecurityEvent } from '../services/security.js'
 import { portalLeadSource } from '../lib/leadSourceLabel.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
 import { redis } from '../lib/redis.js'
-import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, verifyFormContinue, ondeDoToken } from '../lib/candidateAuth.js'
+import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, verifyFormContinue, verifyAtendimento, signAtendimento, ondeDoToken } from '../lib/candidateAuth.js'
+import { atendenteDe, registrarEventoDaInscricao, ROTULO_ACAO } from '../services/inscricaoAssistida.js'
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
 import QRCode from 'qrcode'
@@ -1329,8 +1330,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const etapasDaLinha = (rid: number) => (etapasCalculadas.get(rid) ?? etapasDaPagina.get(rid) ?? [])
       .map((e) => ({ chave: e.chave, situacao: e.situacao, detalhe: e.detalhe, ...(e.progresso ? { progresso: e.progresso } : {}), ...(e.bloqueada ? { bloqueada: e.bloqueada.motivo } : {}) }))
 
+    // Inscrição feita pela equipe: o nome de quem atendeu/criou vai na linha.
+    const daEquipe = [...new Set(items.flatMap((r) => [r.atendidoPorUserId, r.criadoPorUserId]).filter((x): x is number => !!x))]
+    const nomesDaEquipe = new Map((daEquipe.length ? await prisma.user.findMany({ where: { id: { in: daEquipe } }, select: { id: true, name: true } }) : []).map((x) => [x.id, x.name]))
     return {
-      items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0, etapas: etapasDaLinha(r.id) })),
+      items: items.map((r) => ({
+        ...r, duplicidade: duplicidade.get(r.id) ?? 0, etapas: etapasDaLinha(r.id),
+        atendidoPorNome: (r.atendidoPorUserId ?? r.criadoPorUserId) ? nomesDaEquipe.get((r.atendidoPorUserId ?? r.criadoPorUserId)!) ?? null : null,
+      })),
       total, portal, colunas,
       kpis: {
         total, today: todayCount, week: weekCount, conversions,
@@ -1722,7 +1729,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
 
-    const status = body.status && REGISTRATION_STATUSES.includes(body.status) ? body.status : 'submitted'
+    // Status e pagamento não se escolhem (03/11/2026): marcar "Paga" ou
+    // "Matriculada" à mão virava receita, comissão e etapa concluída sem nada
+    // ter acontecido. A inscrição nasce como no portal e anda pelas etapas; o
+    // pagamento fora do gateway é a ação "Registrar pagamento manual".
+    if (body.status !== undefined || body.paymentStatus !== undefined || body.paymentAmount !== undefined) {
+      return reply.code(400).send({ error: 'Status e pagamento não são definidos à mão. A inscrição segue pelas etapas; pagamento fora do gateway: "Registrar pagamento manual".' })
+    }
+    const portalCfg = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { requirePayment: true } })
+    const status = portalCfg?.requirePayment ? 'pending' : 'submitted'
     const formData = (body.formData && typeof body.formData === 'object') ? body.formData : {}
     const candidateCode = await generateCandidateCode(portalId)
 
@@ -1731,11 +1746,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         portalId,
         candidateCode,
         status,
-        paymentStatus: body.paymentStatus || null,
-        paymentAmount: parseAmount(body.paymentAmount),
         formData,
+        origem: 'administrativa',
+        criadoPorUserId: u?.userId ?? null,
       },
       select: { id: true, candidateCode: true },
+    })
+    await registrarEventoDaInscricao({
+      registrationId: reg.id, etapa: 'inscricao', acao: 'inscricao_administrativa', ator: 'atendente',
+      userId: u?.userId ?? null, userName: u?.name ?? null, req, dados: { status },
     })
 
     // Por padrão cria/vincula um Lead (igual à submissão pública). Best-effort:
@@ -1785,12 +1804,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
 
     const data: any = {}
-    if (body.status !== undefined) {
-      if (!REGISTRATION_STATUSES.includes(body.status)) return reply.code(400).send({ error: 'Status inválido' })
-      data.status = body.status
+    // Edição corrige DADOS (nome, contato, CPF). Status muda pelas etapas e pelas
+    // ações com nome (Cancelar, Mesclar); pagamento por "Registrar pagamento
+    // manual" — com comprovante e permissão própria (03/11/2026).
+    if (body.status !== undefined || body.paymentStatus !== undefined || body.paymentAmount !== undefined) {
+      return reply.code(400).send({ error: 'Status e pagamento não se editam à mão. Use as etapas, "Cancelar inscrição" ou "Registrar pagamento manual".' })
     }
-    if (body.paymentStatus !== undefined) data.paymentStatus = body.paymentStatus || null
-    if (body.paymentAmount !== undefined) data.paymentAmount = parseAmount(body.paymentAmount)
     if (body.formData !== undefined && typeof body.formData === 'object' && body.formData) {
       // Merge sobre o formData existente (preserva campos não enviados pelo form do admin).
       data.formData = { ...((reg.formData as object) ?? {}), ...body.formData }
@@ -1801,6 +1820,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       data,
       include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
     })
+    if (data.formData) {
+      const antes = (reg.formData as Record<string, unknown>) ?? {}
+      const mudou = Object.keys(body.formData).filter((k) => String(antes[k] ?? '') !== String(body.formData[k] ?? ''))
+      if (mudou.length) {
+        await registrarEventoDaInscricao({
+          registrationId: reg.id, etapa: 'cadastro', acao: 'dados_corrigidos', ator: 'atendente',
+          userId: u?.userId ?? null, userName: u?.name ?? null, req,
+          dados: { campos: mudou, antes: Object.fromEntries(mudou.map((k) => [k, antes[k] ?? null])) },
+        })
+      }
+    }
 
     if (reg.leadId) {
       const statusChanged = data.status && data.status !== reg.status
@@ -1809,7 +1839,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         type: EVENT_TYPES.ANNOTATION_SAVED,
         category: 'operator',
         title: `Inscrição ${reg.candidateCode} editada`,
-        description: statusChanged ? `Status: ${reg.status} → ${data.status}` : 'Dados atualizados pelo admin',
+        description: statusChanged ? `Status: ${reg.status} → ${data.status}` : `Dados do cadastro corrigidos: ${Object.keys(body.formData || {}).join(', ') || '—'}`,
         actorType: 'operator',
         userId: u?.userId,
         userName: u?.name,
@@ -2113,11 +2143,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // POST /api/public/portals/:slug/register — submeter inscrição
   app.post('/api/public/portals/:slug/register', async (req, reply) => {
     const { slug } = req.params as any
+    // Inscrição assistida: o atendente já foi conferido no preHandler
+    // (services/inscricaoAssistida). Ele não passa por limite de IP nem captcha
+    // — uma secretaria inteira inscreve do mesmo IP.
+    const atendente = atendenteDe(req)
 
     // Rate-limit por IP: barra spam de inscricoes (cada submit cria lead +
     // inscricao + candidato). 30/min por IP e folgado para uma pessoa e para
     // uma turma no mesmo IP, e apertado para automacao. Em memoria, por processo.
-    {
+    if (!atendente) {
       const ipRl = req.ip
       const nowRl = Date.now()
       const eRl = portalRegisterCounts.get(ipRl) || { count: 0, reset: nowRl + 60000 }
@@ -2151,7 +2185,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     // ── Validação captcha ──
-    if (portal.captchaType && portal.captchaSecret) {
+    if (portal.captchaType && portal.captchaSecret && !atendente) {
       const { verifyCaptcha } = await import('../services/captcha.js')
       const captchaToken = String(body.captchaToken || '')
       const result = await verifyCaptcha(
@@ -2167,6 +2201,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     // Campos mínimos do formData
     const fd = body.formData || {}
+    // A senha é do candidato: numa inscrição assistida ela não vem do atendente.
+    if (atendente) { delete fd.senha; delete fd.password; delete fd.senha_confirmacao }
     const nome = String(fd.nome || '').trim()
     const email = String(fd.email || '').trim()
     const whatsapp = String(fd.whatsapp || '').trim()
@@ -2194,6 +2230,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Continuação por magic link já consentiu no portal de interesse → exceção.
     const lgpdConsent = fd.lgpdConsent === true || fd.lgpdConsent === 'true'
     const isContinuation = typeof body.continueToken === 'string' && body.continueToken.length > 0
+    if (atendente && !lgpdConsent) {
+      return reply.code(400).send({ error: 'Confirme que o candidato autorizou o uso dos dados (Política de Privacidade) antes de enviar.' })
+    }
     if (!lgpdConsent && !isContinuation) {
       return reply.code(400).send({ error: 'É necessário aceitar a política de privacidade para enviar a inscrição.' })
     }
@@ -2325,7 +2364,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let lead = null as any
     let continuationLeadId: number | null = null
     if (typeof body.continueToken === 'string' && body.continueToken.length > 0) {
-      const ml = verifyMagicLink(body.continueToken)
+      // Atendimento aberto para um lead: a inscrição fica nele.
+      const at = atendente?.leadId && body.continueToken === String(req.headers['x-attrae-atendente'] || '') ? atendente : null
+      if (at?.leadId) {
+        lead = await prisma.lead.findUnique({ where: { id: at.leadId } })
+        continuationLeadId = lead ? at.leadId : null
+      }
+      const ml = !lead ? verifyMagicLink(body.continueToken) : null
       if (ml && ml.portalSlug === slug) {
         continuationLeadId = ml.leadId
         lead = await prisma.lead.findUnique({ where: { id: ml.leadId } })
@@ -2404,7 +2449,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         ? await prisma.user.findFirst({ where: { id: fichaDoOutroProcesso.assignedUserId, active: true, role: { not: 'VIEWER' } }, select: { id: true } })
         : null
       const herdado = doOutroProcesso ? { userId: doOutroProcesso.id } : await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
-      const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId } : equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
+      // Inscrição assistida: sem dono herdado, a ficha fica com quem atendeu —
+      // o rodízio não entrega a outra pessoa o candidato que já está sendo atendido.
+      const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId }
+        : atendente ? { teamId: equipeDoPortal!, userId: atendente.userId }
+        : equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
       const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
         data: {
@@ -2513,7 +2562,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       if (routedTeamId && !lead.assignedUserId) {
         const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
         const herdado = await donoDaMesmaPessoa({ whatsapp: whatsapp || lead.whatsapp, cpf, teamId: routedTeamId, excetoLeadId: lead.id }).catch(() => null)
-        const rota = herdado ? { teamId: routedTeamId, userId: herdado.userId } : await escolherComPlantao(routedTeamId, 'enrollment_portal')
+        const rota = herdado ? { teamId: routedTeamId, userId: herdado.userId }
+          : atendente ? { teamId: routedTeamId, userId: atendente.userId as number | null }
+          : await escolherComPlantao(routedTeamId, 'enrollment_portal')
         if (rota.userId) {
           upd.teamId = rota.teamId
           upd.assignedUserId = rota.userId
@@ -2562,8 +2613,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Registro de consentimento do titular (LGPD) — prova do aceite na inscrição.
     if (lead && lgpdConsent) {
       await logTitularConsent({
-        req, leadId: lead.id, visitorId: trackingVisitorId, action: 'enrollment_submit',
-        source: `portal:${slug}`, url: (req.headers.referer as string) || null,
+        req, leadId: lead.id, visitorId: trackingVisitorId, action: atendente ? 'enrollment_submit_assisted' : 'enrollment_submit',
+        source: atendente ? `portal:${slug}:atendente:${atendente.userId}` : `portal:${slug}`, url: (req.headers.referer as string) || null,
         categories: { enrollment: true },
       })
     }
@@ -2590,7 +2641,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Gera candidateCode único (ou mantém o da inscrição retomada)
     const candidateCode = retomada ? retomada.candidateCode : await generateCandidateCode(portal.id)
 
+    // Como a inscrição nasceu (services/inscricaoAssistida).
+    const origemDoEnvio = atendente ? 'assistida'
+      : continuationLeadId && typeof body.continueToken === 'string' && verifyFormContinue(body.continueToken) ? 'formulario'
+      : continuationLeadId ? 'link'
+      : 'portal'
     const dadosDoEnvio = {
+      ...(atendente ? { atendidoPorUserId: atendente.userId } : {}),
       processRegistrationId: processRegistration?.id || null,
       formData: fd,
       leadId: lead.id,
@@ -2616,7 +2673,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             ...dadosDoEnvio,
             // Quem vendeu: o responsável da ficha agora (congelado — Fase 1 da
             // integração com Negociações/Comissões). Retomada mantém o original.
-            vendedorUserId: lead.assignedUserId ?? null,
+            vendedorUserId: lead.assignedUserId ?? atendente?.userId ?? null,
+            origem: origemDoEnvio,
+            criadoPorUserId: atendente?.userId ?? null,
             portalId: portal.id,
             candidateCode,
             // 'pending'   = aguardando pagamento (só faz sentido se portal.requirePayment=true)
@@ -2663,10 +2722,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       leadId: lead.id,
       type: 'enrollment_submitted',
       category: 'lifecycle',
-      title: retomada ? `Inscrição retomada (novo envio da mesma pessoa): ${candidateCode}` : `Inscrição submetida: ${candidateCode}`,
+      title: (retomada ? `Inscrição retomada (novo envio da mesma pessoa): ${candidateCode}` : `Inscrição submetida: ${candidateCode}`)
+        + (atendente ? ` — feita por ${atendente.nome} (atendimento assistido)` : ''),
       channel: 'portal',
       source: 'enrollment_portal',
-      actorType: 'lead',
+      actorType: atendente ? 'operator' : 'lead',
+      ...(atendente ? { userId: atendente.userId, userName: atendente.nome } : {}),
       metadata: {
         portalId: portal.id,
         portalSlug: slug,
@@ -2675,6 +2736,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         offeringId,
         offeringNome: offering?.nome || null,
       },
+    })
+    await registrarEventoDaInscricao({
+      registrationId: enrollment.id, etapa: 'inscricao',
+      acao: retomada ? 'inscricao_retomada' : 'inscricao_criada',
+      ator: atendente ? 'atendente' : 'candidato',
+      userId: atendente?.userId ?? null, userName: atendente?.nome ?? null, req,
+      dados: { origem: origemDoEnvio, offeringId, offeringNome: offering?.nome || null },
     })
 
     // ── Fase B: cria cobrança se portal.requirePayment + provider configurado ──
@@ -4207,7 +4275,21 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }
     }
 
-    const payload = verifyMagicLink(token)
+    // Inscrição assistida: o atendente abriu o portal pelo painel. Sem lead, o
+    // formulário abre em branco; com lead, como um link da secretaria (dados da
+    // ficha e, se já houver inscrição, o ponto onde ela parou). O cabeçalho do
+    // atendimento é obrigatório — o token sozinho na URL não abre nada.
+    const doAtendimento = verifyAtendimento(token)
+    if (doAtendimento) {
+      const at = atendenteDe(req)
+      if (!at || at.portalSlug !== slug || doAtendimento.portalSlug !== slug) {
+        return reply.code(401).send({ error: 'A sessão de atendimento terminou. Abra a inscrição de novo pelo painel.', atendimentoExpirado: true })
+      }
+      if (!doAtendimento.leadId) {
+        return { ok: true, lead: null, prefill: {}, temSenha: false, registration: null, atendimento: { nome: at.nome } }
+      }
+    }
+    const payload = doAtendimento?.leadId ? { leadId: doAtendimento.leadId, portalSlug: slug } : verifyMagicLink(token)
     if (!payload || payload.portalSlug !== slug) {
       return reply.code(401).send({ error: 'Link expirado ou inválido. Solicite um novo link.' })
     }
@@ -4254,7 +4336,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
       // Mesmo motivo do /register: quem chega por link já está identificado, e o
       // topo precisa saber qual dos dois botões oferecer.
-      temSenha: await contaTemSenha(lead.id),
+      // No atendimento o topo não oferece "Entrar" na conta do candidato.
+      temSenha: doAtendimento ? false : await contaTemSenha(lead.id),
+      ...(doAtendimento ? { atendimento: { nome: atendenteDe(req)?.nome ?? doAtendimento.nome } } : {}),
       // Presente só quando já existe inscrição: a tela abre no estado dela.
       // O token de candidato é o mesmo que o envio devolve — é ele que autoriza
       // pagar e criar a senha de acesso.
@@ -4677,6 +4761,191 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // ══════════════════════════════════════════════
+  // INSCRIÇÃO ASSISTIDA (services/inscricaoAssistida.ts)
+  // O atendente faz a inscrição com o candidato pelo PRÓPRIO portal.
+  // ══════════════════════════════════════════════
+
+  /** Endereço público do portal (domínio próprio ou APP_URL/portal/slug). */
+  const enderecoDoPortal = (portal: { slug: string; customDomain: string | null }): string | null => {
+    if (portal.customDomain) return `https://${portal.customDomain}`
+    if (!process.env.APP_URL) return null
+    return `${process.env.APP_URL.replace(/\/$/, '')}/portal/${portal.slug}`
+  }
+
+  // POST /api/admin/inscricao-assistida  { portalId, leadId? }
+  // Abre o portal em modo atendimento. Quem pode: quem cria inscrição no Portal
+  // de Matrículas (mesma permissão do "Nova inscrição"), no portal que opera, e
+  // — com lead — só se enxerga o lead.
+  app.post('/api/admin/inscricao-assistida', { preHandler: guardTela('login') }, async (req, reply) => {
+    const u = (req as any).user as JwtPayload
+    const body = (req.body as any) || {}
+    const portalId = parseInt(body.portalId)
+    const leadId = body.leadId != null && body.leadId !== '' ? parseInt(body.leadId) : null
+    if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'Escolha o portal.' })
+    if (leadId != null && !Number.isFinite(leadId)) return reply.code(400).send({ error: 'Lead inválido.' })
+
+    const { avaliarTela } = await import('../lib/eduTelas.js')
+    const tela = await avaliarTela(u, 'POST', '/api/admin/enrollment-registrations')
+    const pode = tela ? tela.permitido : ['ADMIN', 'SUPERADMIN'].includes(String(u.role))
+    if (!pode) return reply.code(403).send({ error: tela?.mensagem || 'Seu perfil não pode criar inscrições no Portal de Matrículas.' })
+
+    const { podeOperarPortal } = await import('../lib/portalAccess.js')
+    if (!podeOperarPortal(await alcanceDaRequisicao(req), portalId)) return reply.code(403).send({ error: 'Você não opera este portal.' })
+
+    const portal = await prisma.enrollmentPortal.findUnique({
+      where: { id: portalId },
+      select: { id: true, slug: true, nome: true, active: true, formMode: true, customDomain: true, continuationPortal: { select: { id: true, nome: true } } },
+    })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+    if (!portal.active) return reply.code(400).send({ error: 'Este portal está desativado.' })
+    if (portal.formMode === 'interest') {
+      return reply.code(400).send({
+        error: portal.continuationPortal
+          ? `Este portal só captura interesse. Faça a inscrição pelo portal "${portal.continuationPortal.nome}".`
+          : 'Este portal só captura interesse — não tem inscrição completa.',
+      })
+    }
+
+    let lead: { id: number; nome: string | null } | null = null
+    if (leadId != null) {
+      const { canUserAccessLead } = await import('../lib/teamAccess.js')
+      if (!(await canUserAccessLead(u.userId, u.role as any, leadId))) return reply.code(403).send({ error: 'Você não tem acesso a este lead.' })
+      lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, nome: true } })
+      if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
+    }
+
+    // O atendimento abre DENTRO do painel (iframe): sempre no domínio do
+    // sistema, mesmo que o portal tenha domínio próprio — assim a sessão do
+    // atendente fica no mesmo site do painel.
+    if (!process.env.APP_URL) return reply.code(500).send({ error: 'APP_URL não configurada no .env — sem ela não há endereço para o portal.' })
+    const base = `${process.env.APP_URL.replace(/\/$/, '')}/portal/${portal.slug}`
+    const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
+    const nome = usuario?.name || u.name || 'Atendente'
+    const token = signAtendimento({ userId: u.userId, nome, portalSlug: portal.slug, leadId: lead?.id ?? null })
+
+    // Já existe inscrição deste lead no portal? O atendimento continua nela.
+    const existente = lead
+      ? await prisma.enrollmentRegistration.findFirst({
+          where: { leadId: lead.id, portalId: portal.id, status: { notIn: ['merged', 'cancelled'] } },
+          orderBy: { id: 'desc' }, select: { id: true, candidateCode: true, status: true },
+        })
+      : null
+    if (existente) {
+      await registrarEventoDaInscricao({ registrationId: existente.id, etapa: 'inscricao', acao: 'atendimento_aberto', ator: 'atendente', userId: u.userId, userName: nome, req })
+      await prisma.enrollmentRegistration.update({ where: { id: existente.id }, data: { atendidoPorUserId: u.userId } }).catch(() => {})
+    }
+    if (lead) {
+      logEvent({
+        leadId: lead.id, type: EVENT_TYPES.ANNOTATION_SAVED, category: 'operator',
+        title: `Atendimento assistido aberto no portal ${portal.nome}`,
+        description: existente ? `Continuação da inscrição ${existente.candidateCode}` : 'Nova inscrição feita com o candidato',
+        actorType: 'operator', userId: u.userId, userName: nome,
+      })
+    }
+    const sep = base.includes('?') ? '&' : '?'
+    return {
+      url: `${base}${sep}t=${encodeURIComponent(token)}&atendimento=1`,
+      expiraEm: new Date(Date.now() + 2 * 3600 * 1000),
+      portal: { id: portal.id, nome: portal.nome, slug: portal.slug },
+      inscricaoExistente: existente ? { candidateCode: existente.candidateCode, status: existente.status } : null,
+    }
+  })
+
+  // GET /api/admin/inscricao-assistida/leads?portalId=&q= — escolher o candidato
+  // (só os leads que a pessoa enxerga), com a inscrição que ele já tem no portal.
+  app.get('/api/admin/inscricao-assistida/leads', { preHandler: guardTela('login') }, async (req) => {
+    const u = (req as any).user as JwtPayload
+    const q = String((req.query as any).q || '').trim()
+    const portalId = parseInt((req.query as any).portalId) || null
+    if (q.length < 2) return { leads: [] }
+    const { buildLeadAccessWhere } = await import('../lib/teamAccess.js')
+    const acesso = await buildLeadAccessWhere(u.userId, u.role as any)
+    const digitos = q.replace(/\D/g, '')
+    const busca: any[] = [{ nome: { contains: q } }, { email: { contains: q } }]
+    if (digitos.length >= 4) busca.push({ whatsapp: { contains: digitos } })
+    const leads = await prisma.lead.findMany({
+      where: { AND: [acesso, { OR: busca }] },
+      orderBy: { lastActivityAt: 'desc' }, take: 15,
+      select: { id: true, nome: true, email: true, whatsapp: true },
+    })
+    const inscricoes = portalId && leads.length
+      ? await prisma.enrollmentRegistration.findMany({
+          where: { portalId, leadId: { in: leads.map((l) => l.id) }, status: { notIn: ['merged', 'cancelled'] } },
+          orderBy: { id: 'desc' }, select: { leadId: true, candidateCode: true },
+        })
+      : []
+    const doLead = new Map<number, string>()
+    for (const i of inscricoes) if (i.leadId && !doLead.has(i.leadId)) doLead.set(i.leadId, i.candidateCode)
+    return { leads: leads.map((l) => ({ ...l, inscricaoNoPortal: doLead.get(l.id) ?? null })) }
+  })
+
+  // POST /api/public/portals/:slug/atendimento/link  { candidateCode? }
+  // "Passar para o candidato": o link para ELE continuar do ponto onde parou
+  // (redação, contrato, cartão, senha — o que o atendente não faz). Só gera o
+  // link; quem decide como enviar é o atendente.
+  app.post('/api/public/portals/:slug/atendimento/link', async (req, reply) => {
+    const { slug } = req.params as any
+    const at = atendenteDe(req)
+    if (!at) return reply.code(401).send({ error: 'A sessão de atendimento terminou. Abra a inscrição de novo pelo painel.', atendimentoExpirado: true })
+    const body = (req.body as any) || {}
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { slug }, select: { id: true, slug: true, customDomain: true, magicLinkTtlDays: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+    const code = String(body.candidateCode || '').trim()
+    const reg = code
+      ? await prisma.enrollmentRegistration.findFirst({ where: { candidateCode: code, portalId: portal.id }, select: { id: true, leadId: true } })
+      : null
+    if (code && !reg) return reply.code(404).send({ error: 'Inscrição não encontrada neste portal.' })
+    const leadId = reg?.leadId ?? at.leadId
+    if (!leadId) return reply.code(400).send({ error: 'Envie a inscrição primeiro — o link leva o candidato para a inscrição dele.' })
+    const base = enderecoDoPortal(portal)
+    if (!base) return reply.code(500).send({ error: 'APP_URL não configurada no .env.' })
+    const dias = portal.magicLinkTtlDays || 7
+    const t = signMagicLink(leadId, portal.slug, dias)
+    if (reg) await registrarEventoDaInscricao({ registrationId: reg.id, etapa: 'acesso', acao: 'link_para_candidato', ator: 'atendente', userId: at.userId, userName: at.nome, req, dados: { validadeDias: dias } })
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, whatsapp: true, email: true } })
+    return { url: `${base}${base.includes('?') ? '&' : '?'}t=${encodeURIComponent(t)}`, validadeDias: dias, candidato: lead }
+  })
+
+  // POST /api/admin/enrollment-registrations/:id/pagamento-manual (multipart)
+  //   campos: valor (reais, "1234,56"), pagoEm (AAAA-MM-DD), forma, motivo; arquivo: comprovante
+  // Permissão própria: tela "Pagamento manual" (lib/eduTelas) — só admin herda.
+  app.post('/api/admin/enrollment-registrations/:id/pagamento-manual', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const u = (req as any).user as JwtPayload
+    const id = parseInt((req.params as any).id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Inscrição inválida' })
+    const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
+    const { pagamentoManualDaRequisicao } = await import('../services/pagamentoManual.js')
+    const r = await pagamentoManualDaRequisicao(req, id, { id: u.userId, nome: usuario?.name || u.name })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+
+  // GET /api/admin/enrollment-registrations/:id/historico — quem fez cada passo.
+  app.get('/api/admin/enrollment-registrations/:id/historico', { preHandler: guardTela('login') }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Inscrição inválida' })
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id }, select: { id: true, origem: true, criadoPorUserId: true, atendidoPorUserId: true, vendedorUserId: true },
+    })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    const eventos = await prisma.enrollmentRegistrationEvent.findMany({
+      where: { registrationId: id }, orderBy: { id: 'desc' }, take: 300,
+      select: { id: true, etapa: true, acao: true, ator: true, userId: true, userName: true, ip: true, dados: true, createdAt: true },
+    })
+    const ids = [reg.criadoPorUserId, reg.atendidoPorUserId, reg.vendedorUserId].filter((x): x is number => !!x)
+    const nomes = new Map((ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []).map((x) => [x.id, x.name]))
+    const pessoa = (uid: number | null) => (uid ? { id: uid, nome: nomes.get(uid) ?? `#${uid}` } : null)
+    return {
+      origem: reg.origem,
+      criadoPor: pessoa(reg.criadoPorUserId),
+      atendidoPor: pessoa(reg.atendidoPorUserId),
+      vendedor: pessoa(reg.vendedorUserId),
+      eventos: eventos.map((e) => ({ ...e, rotulo: ROTULO_ACAO[e.acao] ?? e.acao })),
+      pagamentoManual: ((await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { paymentPlan: true } }))?.paymentPlan as any)?.pagamentoManual ?? null,
+    }
+  })
+
+  // ══════════════════════════════════════════════
   // IA — Recomendação de curso (Fase E.4)
   // Público: aceita respostas de "quiz" de 3-5 perguntas e retorna ranking.
   // ══════════════════════════════════════════════
@@ -5091,7 +5360,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let euFizATransicao = false
     if (isPaidNow) {
       const r = await prisma.enrollmentRegistration.updateMany({
-        where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
         data: updates,
       })
       euFizATransicao = r.count === 1
@@ -5361,7 +5630,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let euFizATransicao = false
     if (isPaidNow) {
       const r = await prisma.enrollmentRegistration.updateMany({
-        where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
         data: updates,
       })
       euFizATransicao = r.count === 1

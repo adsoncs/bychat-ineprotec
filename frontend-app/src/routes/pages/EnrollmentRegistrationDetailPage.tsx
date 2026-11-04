@@ -1,4 +1,5 @@
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
+import { HistoricoDaInscricao, PagamentoManualModal, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
 import { useState } from 'preact/hooks'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
@@ -78,6 +79,13 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
   const edRevisao = useCan('edu_revisao_documentos', 'edit')
   const edAvaliacao = useCan('edu_avaliacoes', 'edit')
   const podeEditarPortal = edPortal && edRevisao && edAvaliacao
+  // Inscrição assistida: mesma permissão do "Nova inscrição".
+  const podeAtender = useCan('enrollment_portals', 'create')
+  // Permissão própria, ou quem já dá baixa no Financeiro do portal.
+  const pmTela = useCan('edu_pagamento_manual', 'edit')
+  const pmFinanceiro = useCan('edu_financeiro_portal', 'edit')
+  const podePagamentoManual = pmTela || pmFinanceiro
+  const [pagamentoManual, setPagamentoManual] = useState(false)
   // Mesma consulta do cabeçalho (cache compartilhado): ordena os cards das etapas.
   const etapasDaPagina = useQuery({
     queryKey: ['registration-etapas', regId],
@@ -104,6 +112,19 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <Button variant="ghost" size="sm" onClick={() => navigate(`/enrollment-portals/${portalId}`)}>
             <ChevronLeft size={14} /> Voltar
           </Button>
+          {review && podeAtender && review.lead?.id && !['cancelled', 'merged'].includes(String(review.registration.status)) && (
+            <Button variant="primary" size="sm"
+              title="Abre o portal desta inscrição aqui no painel, em atendimento: você faz as etapas que são suas e tudo fica registrado em seu nome"
+              onClick={() => navigate(rotaDoAtendimento(portalId, review.lead!.id))}>
+              Continuar inscrição
+            </Button>
+          )}
+          {review && podePagamentoManual && review.registration.paymentStatus !== 'paid' && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status)) && (
+            <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)}
+              title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha) — com comprovante">
+              Registrar pagamento manual
+            </Button>
+          )}
           {review && (
             <Button variant="secondary" size="sm" onClick={handleReceipt}>
               <Download size={12} /> Comprovante
@@ -165,6 +186,14 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
           {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
           <SeiInscricaoCard registrationId={review.registration.id} />
+          {pagamentoManual && (
+            <PagamentoManualModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode} onClose={() => setPagamentoManual(false)} />
+          )}
+          {/* Quem fez cada passo: candidato, atendente ou sistema (inscrição assistida). */}
+          <Card>
+            <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Histórico da inscrição</div>
+            <HistoricoDaInscricao registrationId={review.registration.id} />
+          </Card>
         </>
       )}
     </Page>

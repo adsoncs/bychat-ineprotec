@@ -13,7 +13,6 @@ import {
   useCancelRegistration,
   useResendRegistrationLink,
   useEnsureRegistrationLead,
-  useCreateEnrollmentRegistration,
   useUpdateEnrollmentRegistration,
   useDeleteEnrollmentRegistration,
   useUnmergeRegistration,
@@ -40,6 +39,8 @@ import { PortalEtapasTab } from './enrollmentPortal/PortalEtapasTab'
 import { PortalAnalyticsTab } from './enrollmentPortal/PortalAnalyticsTab'
 import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
 import { AvisoDuplicidade, DuplicidadesModal } from './enrollmentPortal/DuplicidadesPanel'
+import { NovaInscricaoModal, SeloDaOrigem, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
+import { usePodeNaTela } from '@/hooks/usePermissions'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
 import { PortalComercialTab } from '@/components/enrollmentPortal/PortalComercialTab'
@@ -88,13 +89,6 @@ const STATUS_COLORS: Record<RegistrationStatus, string> = {
   merged: 'text-fg-muted',
 }
 
-const PAYMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: 'pending',   label: 'Pendente' },
-  { value: 'paid',      label: 'Pago' },
-  { value: 'overdue',   label: 'Vencido' },
-  { value: 'refunded',  label: 'Reembolsado' },
-  { value: 'cancelled', label: 'Cancelado' },
-]
 
 export function EnrollmentPortalDetailPage({ params }: { params: { id: string } }) {
   const id = parseInt(params.id)
@@ -717,6 +711,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [cancelling, setCancelling] = useState<EnrollmentRegistration | null>(null)
   const [editing, setEditing] = useState<EnrollmentRegistration | null>(null)
   const [creating, setCreating] = useState(false)
+  const permPortal = usePodeNaTela('enrollment_portals')
   const [deleting, setDeleting] = useState<EnrollmentRegistration | null>(null)
 
   const activeFiltersCount = [situacao, etapa && etapaSituacao, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
@@ -910,6 +905,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                       if (r.lead?.id) navigate(`/conversations?leadId=${r.lead.id}`)
                     }}
                     onEnsureLead={() => handleEnsureLead(r)}
+                    onAtender={r.lead?.id && permPortal.criar ? () => navigate(rotaDoAtendimento(portal.id, r.lead!.id)) : undefined}
                     onEdit={() => setEditing(r)}
                     onDelete={() => setDeleting(r)}
                     onUnmerge={() => unmerge.mutate(r.id, {
@@ -950,11 +946,19 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
         />
       )}
 
-      {(creating || editing) && (
+      {creating && (
+        <NovaInscricaoModal
+          portalId={portal.id}
+          portalNome={portal.nome}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {editing && (
         <RegistrationFormModal
           portalId={portal.id}
           registration={editing}
-          onClose={() => { setCreating(false); setEditing(null) }}
+          onClose={() => setEditing(null)}
         />
       )}
 
@@ -995,7 +999,7 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
 }
 
 function RegistrationRow({
-  r, portal, colunas, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, onUnmerge, busy,
+  r, portal, colunas, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onAtender, onEdit, onDelete, onUnmerge, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -1005,6 +1009,7 @@ function RegistrationRow({
   onCancel: () => void
   onOpenLead: () => void
   onEnsureLead: () => void
+  onAtender?: (() => void) | undefined
   onEdit: () => void
   onDelete: () => void
   onUnmerge: () => void
@@ -1025,6 +1030,7 @@ function RegistrationRow({
     >
       <td class="py-2 px-2">
         <code class="text-xs text-fg">{r.candidateCode}</code>
+        <SeloDaOrigem origem={r.origem} nome={r.atendidoPorNome} />
         {!!r.duplicidade && (
           <div class="mt-0.5 text-2xs font-medium text-warning" title="A mesma pessoa tem outras inscrições neste portal">
             possível duplicidade ({r.duplicidade})
@@ -1066,6 +1072,7 @@ function RegistrationRow({
           onCancel={onCancel}
           onOpenLead={onOpenLead}
           onEnsureLead={onEnsureLead}
+          onAtender={onAtender}
           onEdit={onEdit}
           onDelete={onDelete}
           canCancel={canCancel}
@@ -1077,7 +1084,7 @@ function RegistrationRow({
 }
 
 function RowActionsMenu({
-  r, portal, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, canCancel, busy,
+  r, portal, onResend, onCancel, onOpenLead, onEnsureLead, onAtender, onEdit, onDelete, canCancel, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -1085,6 +1092,7 @@ function RowActionsMenu({
   onCancel: () => void
   onOpenLead: () => void
   onEnsureLead: () => void
+  onAtender?: (() => void) | undefined
   onEdit: () => void
   onDelete: () => void
   canCancel: boolean
@@ -1118,10 +1126,18 @@ function RowActionsMenu({
       </button>
       {open && (
         <div class="absolute right-0 top-full mt-1 w-56 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20">
+          {onAtender && r.status !== 'cancelled' && r.status !== 'merged' && (
+            <MenuButton
+              icon={<ExternalLink size={12} />}
+              label="Continuar com o candidato"
+              disabled={busy}
+              onClick={() => { setOpen(false); onAtender() }}
+            />
+          )}
           <Pode tela="enrollment_portals" acao="edit">
           <MenuButton
             icon={<Pencil size={12} />}
-            label="Editar inscrição"
+            label="Corrigir dados"
             onClick={() => { setOpen(false); onEdit() }}
           />
           </Pode>
@@ -1247,29 +1263,22 @@ function CancelRegistrationDialog({
   )
 }
 
-// Criar (registration=null) ou editar uma inscrição do portal.
+// Corrigir os DADOS de uma inscrição (nome, contato, CPF). Status muda pelas
+// etapas e pelas ações (Cancelar, Mesclar); pagamento fora do gateway é
+// "Registrar pagamento manual" na página da inscrição — com comprovante.
 function RegistrationFormModal({
   portalId, registration, onClose,
 }: {
   portalId: number
-  registration: EnrollmentRegistration | null
+  registration: EnrollmentRegistration
   onClose: () => void
 }) {
-  const isEdit = !!registration
-  const fd = (registration?.formData ?? {}) as Record<string, unknown>
+  const fd = (registration.formData ?? {}) as Record<string, unknown>
   const [nome, setNome] = useState(String(fd.nome ?? ''))
   const [email, setEmail] = useState(String(fd.email ?? ''))
   const [whatsapp, setWhatsapp] = useState(String(fd.whatsapp ?? ''))
   const [cpf, setCpf] = useState(String(fd.cpf ?? ''))
-  const [status, setStatus] = useState<RegistrationStatus>(registration?.status ?? 'submitted')
-  const [paymentStatus, setPaymentStatus] = useState(registration?.paymentStatus ?? '')
-  const [amount, setAmount] = useState(
-    registration?.paymentAmount != null ? String(Number(registration.paymentAmount)) : '',
-  )
-
-  const createReg = useCreateEnrollmentRegistration(portalId)
   const updateReg = useUpdateEnrollmentRegistration(portalId)
-  const loading = createReg.isPending || updateReg.isPending
 
   function handleSubmit() {
     if (!nome.trim() && !whatsapp.trim() && !email.trim()) {
@@ -1277,41 +1286,26 @@ function RegistrationFormModal({
       return
     }
     const input: RegistrationUpsertInput = {
-      status,
-      paymentStatus: paymentStatus || null,
-      paymentAmount: amount.trim() ? Number(amount) : null,
-      formData: {
-        nome: nome.trim(),
-        email: email.trim(),
-        whatsapp: whatsapp.trim(),
-        cpf: cpf.trim(),
-      },
+      formData: { nome: nome.trim(), email: email.trim(), whatsapp: whatsapp.trim(), cpf: cpf.trim() },
     }
-    if (isEdit && registration) {
-      updateReg.mutate({ id: registration.id, ...input }, {
-        onSuccess: () => { toast(`Inscrição ${registration.candidateCode} atualizada`, 'success'); onClose() },
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
-      })
-    } else {
-      createReg.mutate({ ...input, createLead: true }, {
-        onSuccess: (res) => { toast(`Inscrição ${res.registration.candidateCode} criada`, 'success'); onClose() },
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
-      })
-    }
+    updateReg.mutate({ id: registration.id, ...input }, {
+      onSuccess: () => { toast(`Dados da inscrição ${registration.candidateCode} corrigidos`, 'success'); onClose() },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
   }
 
   return (
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title={isEdit ? `Editar inscrição ${registration?.candidateCode}` : 'Nova inscrição'}
-      description={isEdit ? undefined : 'Cria a inscrição no portal e gera o código do candidato. Um Lead é criado/vinculado automaticamente.'}
+      title={`Corrigir dados — ${registration.candidateCode}`}
+      description="Só os dados do cadastro. O andamento segue pelas etapas; pagamento fora do gateway: “Registrar pagamento manual” na página da inscrição."
       size="md"
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={loading}>
-            {loading ? 'Salvando…' : (isEdit ? 'Salvar' : 'Criar inscrição')}
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={updateReg.isPending}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={updateReg.isPending}>
+            {updateReg.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
         </>
       }
@@ -1321,14 +1315,6 @@ function RegistrationFormModal({
         <Input label="WhatsApp" value={whatsapp} onInput={(e) => setWhatsapp((e.target as HTMLInputElement).value)} placeholder="5511999999999" />
         <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
         <Input label="CPF" value={cpf} onInput={(e) => setCpf((e.target as HTMLInputElement).value)} />
-        <Select label="Status" value={status} onChange={(e) => setStatus((e.target as HTMLSelectElement).value as RegistrationStatus)}>
-          {Object.entries(STATUS_LABELS).filter(([k]) => k !== 'merged').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </Select>
-        <Select label="Pagamento" value={paymentStatus} onChange={(e) => setPaymentStatus((e.target as HTMLSelectElement).value)}>
-          <option value="">Sem pagamento</option>
-          {PAYMENT_STATUS_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </Select>
-        <Input label="Valor (R$)" type="number" value={amount} onInput={(e) => setAmount((e.target as HTMLInputElement).value)} placeholder="0,00" />
       </div>
     </Modal>
   )

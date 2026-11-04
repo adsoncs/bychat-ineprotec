@@ -418,6 +418,12 @@ export interface EnrollmentRegistration {
   id: number
   portalId: number
   candidateCode: string
+  /** Como nasceu: portal | assistida | formulario | link | administrativa (null = antes de 03/11/2026). */
+  origem?: string | null
+  atendidoPorUserId?: number | null
+  criadoPorUserId?: number | null
+  /** Nome de quem atendeu/criou (só na lista). */
+  atendidoPorNome?: string | null
   status: RegistrationStatus
   paymentStatus: string | null
   paymentAmount: string | number | null
@@ -955,10 +961,9 @@ export function useEnsureRegistrationLead(portalId: number | null | undefined) {
 
 // ── CRUD de inscrição (admin) ──────────────────────────────────
 
+/** Edição pelo painel: só dados do cadastro. Status anda pelas etapas e
+ *  pagamento fora do gateway é "Registrar pagamento manual" (03/11/2026). */
 export interface RegistrationUpsertInput {
-  status?: RegistrationStatus
-  paymentStatus?: string | null
-  paymentAmount?: number | null
   formData?: Record<string, unknown>
 }
 

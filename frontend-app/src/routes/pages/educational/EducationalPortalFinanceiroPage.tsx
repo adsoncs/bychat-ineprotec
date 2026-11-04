@@ -20,10 +20,11 @@ import { agruparCobrancas } from '@/lib/cobrancas'
 import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { baixarCsv } from '@/lib/baixarCsv'
 import {
-  usePortalFinanceiro, useDetalheFinanceiro, useBaixaManual, useCancelarCobranca, useEstornar,
+  usePortalFinanceiro, useDetalheFinanceiro, useCancelarCobranca, useEstornar,
   useSincronizarPagamento, useReenviarLink, useMensagemCobranca, useReenviarCobrancaEmail, qsDe,
   type FiltrosFin, type LinhaFinanceiro, type SituacaoFin,
 } from '@/hooks/usePortalFinanceiro'
+import { PagamentoManualModal } from '@/routes/pages/enrollmentPortal/InscricaoAssistida'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEducational'
 import { Pode } from '@/components/auth/Pode'
@@ -444,41 +445,17 @@ function Resumo({ rotulo, valor, extra }: { rotulo: string; valor: string; extra
   )
 }
 
+// Mesmo modal e mesmo serviço da página da inscrição: comprovante obrigatório,
+// motivo e dia do pagamento (services/pagamentoManual, 03/11/2026).
 function BaixaManualModal({ linha, onClose }: { linha: LinhaFinanceiro; onClose: () => void }) {
-  const [valor, setValor] = useState(String(linha.valorCobrado ?? linha.valorTabela ?? ''))
-  const [forma, setForma] = useState('pix_direto')
-  const [pagoEm, setPagoEm] = useState(new Date().toISOString().slice(0, 16))
-  const [obs, setObs] = useState('')
-  const m = useBaixaManual()
   return (
-    <Modal
-      open onOpenChange={(o) => { if (!o) onClose() }}
-      title="Dar baixa manual"
-      description="Para pagamento recebido fora do gateway. Os efeitos são os mesmos da confirmação automática: inscrição paga, cupom consumido, aviso ao candidato. Cobranças abertas no gateway deixam de valer."
-      size="md"
-      footer={<div class="flex justify-end gap-2 w-full">
-        <Button variant="secondary" size="sm" onClick={onClose}>Voltar</Button>
-        <Button variant="primary" size="sm" disabled={m.isPending} onClick={() => m.mutate({ id: linha.id, valor: Number(valor.replace(',', '.')), forma, observacao: obs, pagoEm: new Date(pagoEm).toISOString() }, {
-          onSuccess: () => { toast('Baixa registrada', 'success'); onClose() },
-          onError: (e) => toast((e as Error).message, 'danger'),
-        })}>{m.isPending ? 'Registrando…' : 'Confirmar baixa'}</Button>
-      </div>}
-    >
-      <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-3">
-          <Input label="Valor recebido (R$) *" value={valor} onInput={(e) => setValor((e.target as HTMLInputElement).value)} inputMode="decimal" />
-          <Input label="Recebido em *" type="datetime-local" value={pagoEm} onInput={(e) => setPagoEm((e.target as HTMLInputElement).value)} />
-        </div>
-        <Select label="Forma" value={forma} onChange={(e) => setForma((e.target as HTMLSelectElement).value)}>
-          <option value="pix_direto">PIX direto na conta</option>
-          <option value="transferencia">Transferência / TED</option>
-          <option value="dinheiro">Dinheiro</option>
-          <option value="cartao_maquininha">Cartão na maquininha</option>
-          <option value="outro">Outro</option>
-        </Select>
-        <Textarea label="Observação" rows={3} value={obs} onInput={(e) => setObs((e.target as HTMLTextAreaElement).value)} placeholder="Ex.: comprovante enviado pelo WhatsApp em 25/09" />
-      </div>
-    </Modal>
+    <PagamentoManualModal
+      registrationId={linha.id}
+      candidateCode={linha.candidateCode}
+      endpoint={`/admin/educational/portal-financeiro/${linha.id}/baixa-manual`}
+      valorInicial={(linha.valorCobrado ?? linha.valorTabela ?? null) as number | null}
+      onClose={onClose}
+    />
   )
 }
 

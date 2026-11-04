@@ -113,7 +113,7 @@ function useAcao<T, R = unknown>(fn: (v: T) => Promise<R>) {
   return useMutation({ mutationFn: fn, onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-financeiro'] }) })
 }
 
-export const useBaixaManual = () => useAcao((v: { id: number; valor: number; forma: string; observacao?: string; pagoEm?: string }) => api.post(`${BASE}/${v.id}/baixa-manual`, v))
+// Baixa manual: PagamentoManualModal (multipart com comprovante) — routes/pages/enrollmentPortal/InscricaoAssistida.
 export const useCancelarCobranca = () => useAcao((id: number) => api.post<{ ok: boolean; canceladas: number; avisos: string[] }>(`${BASE}/${id}/cancelar-cobranca`))
 export const useEstornar = () => useAcao((v: { id: number; valor?: number; motivo?: string }) => api.post(`${BASE}/${v.id}/estornar`, v))
 export const useSincronizarPagamento = () => useAcao((id: number) => api.post<{ ok: boolean; transitionedToPaid: boolean }>(`/admin/enrollment-registrations/${id}/sync-payment`))

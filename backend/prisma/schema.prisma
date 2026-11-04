@@ -4975,7 +4975,14 @@ model EnrollmentRegistration {
 
   vendedorUserId Int?
 
-  
+  /// Como a inscrição nasceu: portal | assistida | formulario | link | administrativa
+  /// (NULL = anterior a 03/11/2026). Inscrição assistida = atendente pelo portal.
+  origem            String? @db.VarChar(30)
+  /// Quem da equipe abriu a inscrição (assistida ou administrativa).
+  criadoPorUserId   Int?
+  /// Atendente que conduziu a inscrição pelo portal (última sessão assistida).
+  atendidoPorUserId Int?
+  eventos           EnrollmentRegistrationEvent[]
 
   @@index([portalId])
   @@index([status])
@@ -4985,6 +4992,31 @@ model EnrollmentRegistration {
   @@index([createdAt])
   @@map("bychat_enrollment_registrations")
   @@index([vendedorUserId])
+  @@index([atendidoPorUserId])
+  @@index([origem])
+}
+
+/// Histórico da inscrição: cada passo, quem fez (candidato, atendente ou
+/// sistema), de onde e o que mudou. services/inscricaoAssistida.ts.
+model EnrollmentRegistrationEvent {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  /// inscricao | cadastro | documentos | pagamento | contrato | prova | analise | acesso
+  etapa          String   @db.VarChar(30)
+  acao           String   @db.VarChar(60)
+  /// candidato | atendente | sistema
+  ator           String   @db.VarChar(20)
+  userId         Int?
+  userName       String?  @db.VarChar(191)
+  ip             String?  @db.VarChar(45)
+  userAgent      String?  @db.VarChar(500)
+  dados          Json?
+  createdAt      DateTime @default(now())
+
+  @@index([registrationId])
+  @@index([userId])
+  @@map("bychat_enrollment_registration_events")
 }
 
 // Checkout transparente: 1 linha por método ativo na inscrição (PIX/Boleto/Cartão).

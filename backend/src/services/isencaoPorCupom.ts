@@ -40,7 +40,7 @@ export async function isentarPorCupom(input: {
   // Uma transição só para "pago" (mesma régua do paymentSync): dois cliques
   // simultâneos não consomem o cupom duas vezes nem duplicam os efeitos.
   const r = await prisma.enrollmentRegistration.updateMany({
-    where: { id: reg.id, paymentStatus: { not: 'paid' } },
+    where: { id: reg.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
     data: {
       paymentStatus: 'paid',
       paymentPaidAt: agora,

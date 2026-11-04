@@ -6,6 +6,11 @@ import { Senha } from './Senha'
 import { Documentos } from './Documentos'
 import { Contrato } from './Contrato'
 import './estilo.css'
+import { iniciarAtendimento, emAtendimento } from './atendimento'
+import { FaixaDoAtendimento } from './FaixaDoAtendimento'
+
+// Inscrição assistida: antes de qualquer pedido ao servidor (atendimento.ts).
+iniciarAtendimento()
 
 // Roteamento mínimo: o formulário público e as telas da área logada moram na
 // mesma aplicação, e um `switch` custa menos que um roteador no bundle.
@@ -33,3 +38,10 @@ const tela = caminho === '/portal' || caminho === '/portal/aluno'
     : <App />
 
 render(tela, document.getElementById('app')!)
+
+// Faixa do atendente: num nó próprio, antes da aplicação — as telas não mudam.
+if (emAtendimento()) {
+  const no = document.createElement('div')
+  document.body.insertBefore(no, document.body.firstChild)
+  render(<FaixaDoAtendimento />, no)
+}

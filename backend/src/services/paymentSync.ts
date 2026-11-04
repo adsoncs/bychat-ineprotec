@@ -219,7 +219,7 @@ export async function syncChargeFromProvider(
   let euFizATransicao = false
   if (isPaidNow) {
     const r = await prisma.enrollmentRegistration.updateMany({
-      where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+      where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
       data: updates,
     })
     euFizATransicao = r.count === 1

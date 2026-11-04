@@ -142,6 +142,10 @@ export const ipDaRequisicao = (req: FastifyRequest): string | null =>
 
 /** Conta do portal por trás da requisição (cookie de sessão), ou null. */
 export async function contaDaRequisicao(req: FastifyRequest): Promise<{ accountId: number; leadId: number } | null> {
+  // Inscrição assistida (services/inscricaoAssistida): o navegador é do
+  // ATENDENTE. Um cookie de candidato que tenha ficado nele não pode decidir de
+  // quem é a inscrição — vale só o token da inscrição em andamento.
+  if (req.headers['x-attrae-atendente']) return null
   const r = await validarSessao(cookieDaRequisicao(req))
   if (!r.ok) return null
   const c = await prisma.portalAccount.findUnique({ where: { id: r.accountId }, select: { id: true, leadId: true } })
