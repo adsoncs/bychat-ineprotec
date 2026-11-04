@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   consultarPagamento, iniciarPagamento, opcoesDePagamento, removerValorPersonalizado, salvarValorPersonalizado, simularPagamento,
-  type EscolhaDePlano, type MetodoPagamento, type NegociacaoNaTela, type OpcoesDePagamento,
+  type EditorDoPlanoNaTela, type EscolhaDePlano, type MetodoPagamento, type NegociacaoNaTela, type OpcoesDePagamento,
 } from './api'
 import {
   bandeira, errosDoCartao, mascaraCartao, mascaraValidade, type DadosDoCartao,
@@ -775,43 +775,98 @@ function FormularioDeCartao(props: {
 
 /**
  * Valor personalizado — só para a equipe, no atendimento pelo painel. O agente
- * troca a matrícula e/ou a mensalidade do plano em tela; o candidato vê só o
- * valor final (nada aqui aparece para ele). Sem teto: pode ficar acima ou abaixo
- * da tabela. Descontos à vista e de pontualidade continuam valendo sobre o novo.
+ * controla o plano inteiro desta inscrição: matrícula, mensalidade, quantas
+ * mensalidades, dia do vencimento, o que pode ser pago (só a entrada e/ou o
+ * curso completo), cada forma (ligada, desconto, até quantas vezes, juros, preço
+ * próprio), pontualidade e as datas de vencimento. O candidato vê só o valor
+ * final — nada aqui aparece para ele.
  */
+type Txt = string
+type FormaTxt = { ativo: boolean; descontoPct: Txt; valorBase: Txt }
+type ParcTxt = { ativo: boolean; parcelasMax: Txt; jurosMesPct: Txt; valorBase: Txt; multiFaixa: boolean }
+type OpcaoTxt = { ativo: boolean; pix: FormaTxt; boleto: FormaTxt; cartao: ParcTxt; boletoParcelado: ParcTxt }
+type EditorTxt = {
+  matricula: Txt; mensalidade: Txt; numParcelas: Txt; diaVencimento: Txt
+  opcoes: { entrada: OpcaoTxt; integral: OpcaoTxt }
+  pontualidade: { ativo: boolean; descontoPct: Txt; diaLimite: Txt; ateVencimento: boolean; terminaEm90: boolean }
+  vencimentoEntrada: Txt; primeiraSeguinte: Txt
+}
+
+const brl2 = (v: number | null | undefined) => (typeof v === 'number' ? v.toFixed(2).replace('.', ',') : '')
+const txt = (v: number | null | undefined) => (typeof v === 'number' ? String(v).replace('.', ',') : '')
+
+function paraTexto(e: EditorDoPlanoNaTela): EditorTxt {
+  const f = (x: EditorDoPlanoNaTela['opcoes']['entrada']['pix']): FormaTxt => ({ ativo: x.ativo, descontoPct: txt(x.descontoPct), valorBase: brl2(x.valorBase) })
+  const p = (x: EditorDoPlanoNaTela['opcoes']['entrada']['cartao']): ParcTxt => ({
+    ativo: x.ativo, parcelasMax: String(x.parcelasMax), valorBase: brl2(x.valorBase),
+    jurosMesPct: x.jurosMesPct === null ? '' : txt(x.jurosMesPct), multiFaixa: x.jurosMesPct === null,
+  })
+  const o = (x: EditorDoPlanoNaTela['opcoes']['entrada']): OpcaoTxt => ({ ativo: x.ativo, pix: f(x.pix), boleto: f(x.boleto), cartao: p(x.cartao), boletoParcelado: p(x.boletoParcelado) })
+  return {
+    matricula: brl2(e.matricula), mensalidade: brl2(e.mensalidade), numParcelas: String(e.numParcelas), diaVencimento: String(e.diaVencimento),
+    opcoes: { entrada: o(e.opcoes.entrada), integral: o(e.opcoes.integral) },
+    pontualidade: { ativo: e.pontualidade.ativo, descontoPct: txt(e.pontualidade.descontoPct), diaLimite: String(e.pontualidade.diaLimite), ateVencimento: e.pontualidade.ateVencimento, terminaEm90: e.pontualidade.terminaEm90 },
+    vencimentoEntrada: e.vencimentoEntrada ?? '', primeiraSeguinte: e.primeiraSeguinte ?? '',
+  }
+}
+
+function paraEnvio(e: EditorTxt) {
+  const parc = (x: ParcTxt) => ({ ativo: x.ativo, parcelasMax: x.parcelasMax, valorBase: x.valorBase || null, jurosMesPct: x.jurosMesPct.trim() === '' ? null : x.jurosMesPct })
+  const forma = (x: FormaTxt) => ({ ativo: x.ativo, descontoPct: x.descontoPct || '0', valorBase: x.valorBase || null })
+  const op = (x: OpcaoTxt) => ({ ativo: x.ativo, pix: forma(x.pix), boleto: forma(x.boleto), cartao: parc(x.cartao), boletoParcelado: parc(x.boletoParcelado) })
+  return {
+    matricula: e.matricula || '0', mensalidade: e.mensalidade || '0', numParcelas: e.numParcelas, diaVencimento: e.diaVencimento,
+    opcoes: { entrada: op(e.opcoes.entrada), integral: op(e.opcoes.integral) },
+    pontualidade: e.pontualidade,
+    vencimentoEntrada: e.vencimentoEntrada || null, primeiraSeguinte: e.primeiraSeguinte || null,
+  }
+}
+
+function Campo(props: { rotulo: string; valor: Txt; aoMudar: (v: Txt) => void; tabela?: string | undefined; tipo?: string; dica?: string; largura?: string }) {
+  return (
+    <label class="vp-campo" style={props.largura ? `max-width:${props.largura}` : undefined}>
+      <span>{props.rotulo}</span>
+      <input type={props.tipo ?? 'text'} inputMode={props.tipo ? undefined : 'decimal'} value={props.valor}
+        onInput={(ev) => props.aoMudar((ev.target as HTMLInputElement).value)} />
+      {(props.tabela || props.dica) && <small class="ajuda">{props.tabela ? `tabela: ${props.tabela}` : ''}{props.tabela && props.dica ? ' · ' : ''}{props.dica ?? ''}</small>}
+    </label>
+  )
+}
+
+function Marca(props: { rotulo: string; marcado: boolean; aoMudar: (v: boolean) => void }) {
+  return (
+    <label class="vp-marca">
+      <input type="checkbox" checked={props.marcado} onChange={(ev) => props.aoMudar((ev.target as HTMLInputElement).checked)} />
+      <span>{props.rotulo}</span>
+    </label>
+  )
+}
+
 function ValorPersonalizado(props: {
   codigo: string
   token: string
   negociacao: NegociacaoNaTela
   aoMudar: (avisos: string[]) => void
 }) {
-  const { plano, atual, pode } = props.negociacao
+  const { plano, atual, pode, tabela, editor: emVigor, resumo } = props.negociacao
   const [editando, setEditando] = useState(false)
-  const [matricula, setMatricula] = useState('')
-  const [mensalidade, setMensalidade] = useState('')
+  const [ed, setEd] = useState<EditorTxt | null>(null)
   const [motivo, setMotivo] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  if (!plano) return null
+  if (!plano || !emVigor || !tabela) return null
   const ativoAqui = atual && atual.planoId === plano.id ? atual : null
   const emOutroPlano = atual && atual.planoId !== plano.id
-  const pedeMensalidade = plano.temMensalidade || !plano.temMatricula
-  const fmt = (v: number) => v.toFixed(2).replace('.', ',')
 
-  function abrir() {
-    setMatricula(fmt(ativoAqui?.matricula ?? plano!.matricula))
-    setMensalidade(fmt(ativoAqui?.mensalidade ?? plano!.mensalidade))
-    setMotivo(ativoAqui?.motivo ?? '')
-    setErro(null); setEditando(true)
-  }
+  function abrir() { setEd(paraTexto(emVigor!)); setMotivo(ativoAqui?.motivo ?? ''); setErro(null); setEditando(true) }
+  function voltarCamposATabela() { setEd({ ...paraTexto(tabela!), vencimentoEntrada: ed?.vencimentoEntrada ?? '', primeiraSeguinte: ed?.primeiraSeguinte ?? '' }) }
+  const mudar = (f: (e: EditorTxt) => void) => setEd((e) => { if (!e) return e; const c: EditorTxt = JSON.parse(JSON.stringify(e)); f(c); return c })
+
   async function salvar() {
+    if (!ed) return
     setSalvando(true); setErro(null)
     try {
-      const r = await salvarValorPersonalizado(props.codigo, props.token, {
-        planoId: plano!.id, motivo,
-        ...(plano!.temMatricula ? { matricula } : {}),
-        ...(pedeMensalidade ? { mensalidade } : {}),
-      })
+      const r = await salvarValorPersonalizado(props.codigo, props.token, { planoId: plano!.id, motivo, editor: paraEnvio(ed) })
       setEditando(false); props.aoMudar(r.avisos ?? [])
     } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
   }
@@ -819,6 +874,52 @@ function ValorPersonalizado(props: {
     setSalvando(true); setErro(null)
     try { const r = await removerValorPersonalizado(props.codigo, props.token); setEditando(false); props.aoMudar(r.avisos ?? []) }
     catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
+  }
+
+  const T = tabela
+  const blocoOpcao = (chave: 'entrada' | 'integral', titulo: string) => {
+    const o = ed!.opcoes[chave]
+    const t = T.opcoes[chave]
+    return (
+      <fieldset class="vp-grupo">
+        <legend><Marca rotulo={titulo} marcado={o.ativo} aoMudar={(v) => mudar((e) => { e.opcoes[chave].ativo = v })} /></legend>
+        {o.ativo && (
+          <div class="vp-formas">
+            <div class="vp-forma">
+              <Marca rotulo="Pix à vista" marcado={o.pix.ativo} aoMudar={(v) => mudar((e) => { e.opcoes[chave].pix.ativo = v })} />
+              {o.pix.ativo && <div class="vp-linha">
+                <Campo rotulo="Desconto %" valor={o.pix.descontoPct} tabela={`${txt(t.pix.descontoPct)}%`} largura="120px" aoMudar={(v) => mudar((e) => { e.opcoes[chave].pix.descontoPct = v })} />
+                <Campo rotulo="Preço próprio (total R$)" valor={o.pix.valorBase} tabela={t.pix.valorBase ? brl2(t.pix.valorBase) : 'do plano'} dica="vazio = calcula pelo plano" aoMudar={(v) => mudar((e) => { e.opcoes[chave].pix.valorBase = v })} />
+              </div>}
+            </div>
+            <div class="vp-forma">
+              <Marca rotulo="Boleto à vista" marcado={o.boleto.ativo} aoMudar={(v) => mudar((e) => { e.opcoes[chave].boleto.ativo = v })} />
+              {o.boleto.ativo && <div class="vp-linha">
+                <Campo rotulo="Desconto %" valor={o.boleto.descontoPct} tabela={`${txt(t.boleto.descontoPct)}%`} largura="120px" aoMudar={(v) => mudar((e) => { e.opcoes[chave].boleto.descontoPct = v })} />
+                <Campo rotulo="Preço próprio (total R$)" valor={o.boleto.valorBase} tabela={t.boleto.valorBase ? brl2(t.boleto.valorBase) : 'do plano'} dica="vazio = calcula pelo plano" aoMudar={(v) => mudar((e) => { e.opcoes[chave].boleto.valorBase = v })} />
+              </div>}
+            </div>
+            {(['cartao', 'boletoParcelado'] as const).map((k) => {
+              const x = o[k]; const tx = t[k]
+              const nome = k === 'cartao' ? 'Cartão de crédito' : 'Boleto parcelado'
+              return (
+                <div class="vp-forma" key={k}>
+                  <Marca rotulo={nome} marcado={x.ativo} aoMudar={(v) => mudar((e) => { e.opcoes[chave][k].ativo = v })} />
+                  {x.ativo && <div class="vp-linha">
+                    <Campo rotulo="Até quantas vezes" valor={x.parcelasMax} tabela={`${tx.parcelasMax}x`} largura="130px" dica={k === 'cartao' ? 'máx. 12' : 'de 2 a 48'} aoMudar={(v) => mudar((e) => { e.opcoes[chave][k].parcelasMax = v })} />
+                    <Campo rotulo="Juros % ao mês" valor={x.jurosMesPct} largura="130px"
+                      tabela={tx.jurosMesPct === null ? 'por faixa' : `${txt(tx.jurosMesPct)}%`}
+                      dica={x.multiFaixa ? 'vazio = mantém as faixas' : '0 = sem juros'}
+                      aoMudar={(v) => mudar((e) => { e.opcoes[chave][k].jurosMesPct = v })} />
+                    <Campo rotulo="Preço próprio (total R$)" valor={x.valorBase} tabela={tx.valorBase ? brl2(tx.valorBase) : 'do plano'} dica="vazio = calcula pelo plano" aoMudar={(v) => mudar((e) => { e.opcoes[chave][k].valorBase = v })} />
+                  </div>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </fieldset>
+    )
   }
 
   return (
@@ -830,52 +931,72 @@ function ValorPersonalizado(props: {
       {emOutroPlano && !ativoAqui && (
         <p class="ajuda">Há um valor personalizado em outro plano desta inscrição. Ele vale só lá.</p>
       )}
-      {ativoAqui && !editando && (
+      {!editando && (
         <div class="vp-resumo">
-          {plano.temMatricula && <div>Matrícula: <b>{dinheiro(ativoAqui.matricula)}</b> <span class="ajuda">(tabela {dinheiro(ativoAqui.tabela.matricula)})</span></div>}
-          {pedeMensalidade && <div>Mensalidade: <b>{dinheiro(ativoAqui.mensalidade)}</b> <span class="ajuda">(tabela {dinheiro(ativoAqui.tabela.mensalidade)})</span></div>}
-          <div class="ajuda">Motivo: {ativoAqui.motivo}{ativoAqui.por ? ` · por ${ativoAqui.por}` : ''}{dia(ativoAqui.em) ? ` em ${dia(ativoAqui.em)}` : ''}</div>
-          <p class="ajuda" style="margin:6px 0 0">O candidato vê só o valor final. Os descontos do Pix/boleto à vista e de pontualidade valem sobre estes valores.</p>
+          <div class="ajuda">{ativoAqui ? 'Condições combinadas em vigor:' : 'Condições da tabela deste plano:'}</div>
+          <ul class="vp-lista">{resumo.map((l, i) => <li key={i} class={l.startsWith('  ·') ? 'sub' : ''}>{l.replace(/^ {2}· /, '')}</li>)}</ul>
+          {ativoAqui && <div class="ajuda">Motivo: {ativoAqui.motivo}{ativoAqui.por ? ` · por ${ativoAqui.por}` : ''}{dia(ativoAqui.em) ? ` em ${dia(ativoAqui.em)}` : ''}</div>}
+          <p class="ajuda" style="margin:6px 0 0">O candidato vê só o valor final.</p>
         </div>
-      )}
-      {!ativoAqui && !editando && (
-        <p class="ajuda" style="margin:4px 0 0">
-          Tabela deste plano: {plano.temMatricula ? `matrícula ${dinheiro(plano.matricula)}` : ''}{plano.temMatricula && pedeMensalidade ? ' + ' : ''}{pedeMensalidade ? `mensalidade ${dinheiro(plano.mensalidade)}` : ''}.
-        </p>
       )}
       {!pode && <p class="ajuda" style="margin:6px 0 0">Seu perfil não pode personalizar valores (permissão "Valor personalizado").</p>}
       {pode && !editando && (
         <div class="vp-acoes">
-          <button class="secundario" onClick={abrir} disabled={salvando}>{ativoAqui ? 'Alterar valor' : 'Personalizar valor'}</button>
-          {ativoAqui && <button class="link" onClick={voltarATabela} disabled={salvando}>{salvando ? 'Voltando…' : 'Voltar ao valor da tabela'}</button>}
+          <button class="secundario" onClick={abrir} disabled={salvando}>{ativoAqui ? 'Editar condições' : 'Personalizar condições'}</button>
+          {ativoAqui && <button class="link" onClick={voltarATabela} disabled={salvando}>{salvando ? 'Voltando…' : 'Voltar à tabela'}</button>}
         </div>
       )}
-      {pode && editando && (
+      {pode && editando && ed && (
         <div class="vp-form">
-          {plano.temMatricula && (
-            <label>Matrícula (R$)
-              <input inputMode="decimal" value={matricula} onInput={(e) => setMatricula((e.target as HTMLInputElement).value)} />
-              <span class="ajuda">tabela {dinheiro(plano.matricula)}</span>
-            </label>
-          )}
-          {pedeMensalidade && (
-            <label>{plano.temMatricula ? 'Mensalidade' : 'Parcela'} (R$)
-              <input inputMode="decimal" value={mensalidade} onInput={(e) => setMensalidade((e.target as HTMLInputElement).value)} />
-              <span class="ajuda">tabela {dinheiro(plano.mensalidade)} · {plano.totalParcelas - (plano.temMatricula ? 1 : 0)}x</span>
-            </label>
-          )}
-          <label>Motivo
-            <textarea rows={2} value={motivo} placeholder="Ex.: condição combinada com o gerente, convênio, retenção" onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
+          <fieldset class="vp-grupo">
+            <legend>Valores e parcelas</legend>
+            <div class="vp-linha">
+              <Campo rotulo="Matrícula (R$)" valor={ed.matricula} tabela={brl2(T.matricula)} dica="0 = sem matrícula separada" aoMudar={(v) => mudar((e) => { e.matricula = v })} />
+              <Campo rotulo="Mensalidade (R$)" valor={ed.mensalidade} tabela={brl2(T.mensalidade)} aoMudar={(v) => mudar((e) => { e.mensalidade = v })} />
+            </div>
+            <div class="vp-linha">
+              <Campo rotulo="Nº de mensalidades" valor={ed.numParcelas} tabela={String(T.numParcelas)} largura="150px" dica="além da matrícula" aoMudar={(v) => mudar((e) => { e.numParcelas = v })} />
+              <Campo rotulo="Dia do vencimento" valor={ed.diaVencimento} tabela={String(T.diaVencimento)} largura="150px" dica="1 a 28" aoMudar={(v) => mudar((e) => { e.diaVencimento = v })} />
+            </div>
+            <small class="ajuda">Curso completo = matrícula + mensalidade × nº de mensalidades (ou o preço próprio de cada forma).</small>
+          </fieldset>
+
+          {blocoOpcao('entrada', 'Permitir pagar só a matrícula / 1ª parcela agora')}
+          {blocoOpcao('integral', 'Permitir pagar o curso completo')}
+
+          <fieldset class="vp-grupo">
+            <legend><Marca rotulo="Desconto de pontualidade nas parcelas" marcado={ed.pontualidade.ativo} aoMudar={(v) => mudar((e) => { e.pontualidade.ativo = v })} /></legend>
+            {ed.pontualidade.ativo && (
+              <>
+                <div class="vp-linha">
+                  <Campo rotulo="Desconto %" valor={ed.pontualidade.descontoPct} tabela={`${txt(T.pontualidade.descontoPct)}%`} largura="130px" aoMudar={(v) => mudar((e) => { e.pontualidade.descontoPct = v })} />
+                  {!ed.pontualidade.ateVencimento && <Campo rotulo="Pagando até o dia" valor={ed.pontualidade.diaLimite} tabela={String(T.pontualidade.diaLimite)} largura="150px" aoMudar={(v) => mudar((e) => { e.pontualidade.diaLimite = v })} />}
+                </div>
+                <Marca rotulo="Vale até o próprio vencimento" marcado={ed.pontualidade.ateVencimento} aoMudar={(v) => mudar((e) => { e.pontualidade.ateVencimento = v })} />
+                <Marca rotulo="Arredondar a parcela com desconto para terminar em ,90" marcado={ed.pontualidade.terminaEm90} aoMudar={(v) => mudar((e) => { e.pontualidade.terminaEm90 = v })} />
+              </>
+            )}
+          </fieldset>
+
+          <fieldset class="vp-grupo">
+            <legend>Vencimentos</legend>
+            <div class="vp-linha">
+              <Campo rotulo="Cobrança de agora vence em" tipo="date" valor={ed.vencimentoEntrada} dica="vazio = prazo padrão do portal" aoMudar={(v) => mudar((e) => { e.vencimentoEntrada = v })} />
+              <Campo rotulo="1ª parcela seguinte em" tipo="date" valor={ed.primeiraSeguinte} dica="vazio = dia do vencimento, mês seguinte; as demais, mês a mês" aoMudar={(v) => mudar((e) => { e.primeiraSeguinte = v })} />
+            </div>
+          </fieldset>
+
+          <label class="vp-campo">
+            <span>Motivo</span>
+            <textarea rows={2} value={motivo} placeholder="Ex.: condição combinada com o gerente, convênio, retenção" onInput={(ev) => setMotivo((ev.target as HTMLTextAreaElement).value)} />
           </label>
           {erro && <span class="erro">{erro}</span>}
           <div class="vp-acoes">
-            <button class="principal" onClick={salvar} disabled={salvando || motivo.trim().length < 3}>{salvando ? 'Salvando…' : 'Salvar valor'}</button>
+            <button class="principal" onClick={salvar} disabled={salvando || motivo.trim().length < 3}>{salvando ? 'Salvando…' : 'Salvar condições'}</button>
+            <button class="link" onClick={voltarCamposATabela} disabled={salvando}>Preencher com a tabela</button>
             <button class="link" onClick={() => setEditando(false)} disabled={salvando}>Cancelar</button>
           </div>
-          {plano.precoPorForma && (
-            <p class="ajuda" style="margin:6px 0 0">Este plano tem preço próprio por forma de pagamento (ex.: boleto parcelado diferente do cartão). Com valor personalizado, todas as formas passam a usar o valor combinado — confira os valores abaixo depois de salvar.</p>
-          )}
-          <p class="ajuda" style="margin:6px 0 0">Se já houver um Pix ou boleto gerado com o valor anterior, ele é cancelado.</p>
+          <p class="ajuda" style="margin:6px 0 0">Ao salvar, os valores abaixo são recalculados. Um Pix ou boleto já gerado com as condições anteriores é cancelado.</p>
         </div>
       )}
       {erro && !editando && <span class="erro">{erro}</span>}

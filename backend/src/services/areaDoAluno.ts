@@ -16,7 +16,7 @@ import { prisma } from '../lib/prisma.js'
 import { signCandidateToken } from '../lib/candidateAuth.js'
 import { decryptToken } from './cloudApi.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, fetchAsaasBoletoLinha, fetchAsaasPixQr, type AsaasConfig } from './paymentAsaas.js'
-import { planoPorId, pontualidadeDaFatura } from './planoFinanceiro.js'
+import { aplicarCondicaoNegociada, lerCondicaoNegociada, planoPorId, pontualidadeDaFatura } from './planoFinanceiro.js'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 
 export type SituacaoDaFatura = 'paga' | 'aberta' | 'vencida' | 'cancelada' | 'estornada' | 'prevista'
@@ -244,8 +244,13 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   const n = Number(plano.parcelas) || 1
   if (plano.meio === 'boleto' && n > 1 && !plano.installmentId && situacao !== 'cancelada') {
     const valor = Number(plano.valorParcela) || 0
-    const dia = await diaDoVencimento(plano.planoFinanceiro?.planoId)
+    // Valor personalizado (congelado no pagamento): dia e 1ª data combinados.
+    const cn = lerCondicaoNegociada(plano.condicaoNegociada)
+    const dia = cn?.diaVencimento ?? await diaDoVencimento(plano.planoFinanceiro?.planoId)
     const base = r.paymentPaidAt ?? r.createdAt
+    const previsto = (i: number) => cn?.primeiraSeguinte
+      ? mesesDepois(cn.primeiraSeguinte, i - 2)
+      : dia ? vencimentoPrevisto(base, i - 1, dia) : null
     const geradas = (plano.parcelasPortal ?? {}) as Record<string, ParcelaGerada>
     // Só depois da 1ª paga: antes disso, a matrícula nem está confirmada.
     let fila = situacao === 'paga' && !!cfg
@@ -270,7 +275,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
       }
       faturas.push({
         chave: `prevista:${r.id}:${i}`, titulo: `Parcela ${i} de ${n}`, detalhe: null, valor,
-        vencimento: dia ? vencimentoPrevisto(base, i - 1, dia) : null, situacao: 'prevista', pagaEm: null,
+        vencimento: previsto(i), situacao: 'prevista', pagaEm: null,
         meio: 'Boleto', pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false,
         podeGerar: fila,
       })
@@ -296,6 +301,15 @@ async function diaDoVencimento(planoId: unknown): Promise<number | null> {
   if (!Number.isFinite(id) || id <= 0) return null
   const p = await prisma.acaPlanoPagamento.findUnique({ where: { id }, select: { diaVencimento: true } }).catch(() => null)
   return p?.diaVencimento ?? null
+}
+
+/** A data `iso` (YYYY-MM-DD) `meses` depois, no mesmo dia (ou no último do mês). */
+function mesesDepois(iso: string, meses: number): string {
+  const [a, m, d] = iso.split('-').map(Number)
+  const alvo = new Date(Date.UTC(a, m - 1 + meses, 1))
+  const ultimo = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate()
+  alvo.setUTCDate(Math.min(d, ultimo))
+  return alvo.toISOString().slice(0, 10)
 }
 
 /** Dia `dia` do mês, `meses` depois da data-base (no fuso de Brasília). */
@@ -410,7 +424,9 @@ export async function gerarParcela(leadId: number, codigo: string, chave: string
     const cfg = await configDoPortal(r.portalId)
     if (!cfg) return { ok: false as const, status: 503, erro: 'Pagamento indisponível no momento. Fale com a secretaria.' }
     const plano = (r.paymentPlan ?? {}) as any
-    const regras = (await planoPorId(plano.planoFinanceiro?.planoId).catch(() => null))?.regras ?? null
+    // Pontualidade combinada no valor personalizado (se houver), senão a do plano.
+    const pTab = await planoPorId(plano.planoFinanceiro?.planoId).catch(() => null)
+    const regras = pTab ? aplicarCondicaoNegociada(pTab, lerCondicaoNegociada(plano.condicaoNegociada)).regras : null
     // Vencimento do plano; se já passou (ou é hoje), amanhã — o Asaas não aceita data passada.
     const amanha = hojeBrDe(new Date(Date.now() + 86_400_000))
     const venc = f.vencimento && f.vencimento >= amanha ? f.vencimento : amanha

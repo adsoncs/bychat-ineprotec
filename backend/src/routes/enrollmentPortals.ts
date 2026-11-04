@@ -3377,7 +3377,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!apiKeyPlain) return reply.code(500).send({ error: 'Falha ao decifrar credenciais do provedor' })
 
     const deadlineHours = enrollment.portal.paymentDeadlineHours || 48
-    const dueDate = new Date(Date.now() + deadlineHours * 3600 * 1000)
+    // Valor personalizado: o vencimento combinado para a cobrança de agora
+    // (fim do dia em Brasília); sem ele, o prazo do portal.
+    const vencCombinado = enrollment.portal.paymentScope === 'curso'
+      ? (await (await import('../services/planoFinanceiro.js')).condicaoNegociadaDaInscricao(enrollment.id))?.vencimentoEntrada ?? null
+      : null
+    const dueDate = vencCombinado && new Date(`${vencCombinado}T23:59:00-03:00`).getTime() > Date.now() + 3600_000
+      ? new Date(`${vencCombinado}T23:59:00-03:00`)
+      : new Date(Date.now() + deadlineHours * 3600 * 1000)
     const description = `${cobranca?.rotulo ?? 'Taxa de inscrição'} — ${enrollment.portal.nome} (${enrollment.candidateCode})`
     const customer = {
       name: enrollment.lead?.nome || fd.nome || 'Candidato',

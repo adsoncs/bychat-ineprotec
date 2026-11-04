@@ -599,6 +599,24 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 .valor-personalizado .vp-form input:focus, .valor-personalizado .vp-form textarea:focus { outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
 .valor-personalizado .erro { display: block; margin-top: 6px; font-size: 13px; color: var(--erro); }
 
+.valor-personalizado .vp-lista { margin: 4px 0 6px; padding-left: 18px; display: grid; gap: 2px; }
+.valor-personalizado .vp-lista li.sub { list-style: circle; margin-left: 14px; color: var(--tinta-2); font-size: 13px; }
+.valor-personalizado .vp-grupo { border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); padding: 10px 12px; margin: 0; background: var(--papel); display: grid; gap: 8px; min-width: 0; }
+.valor-personalizado .vp-grupo legend { font-weight: 600; font-size: 13.5px; padding: 0 4px; }
+.valor-personalizado .vp-linha { display: flex; flex-wrap: wrap; gap: 10px; }
+.valor-personalizado .vp-linha > .vp-campo { flex: 1 1 140px; min-width: 0; }
+.valor-personalizado .vp-campo { display: grid; gap: 3px; font-size: 13px; font-weight: 600; }
+.valor-personalizado .vp-campo small { font-weight: 400; }
+.valor-personalizado .vp-campo input, .valor-personalizado .vp-campo textarea {
+  width: 100%; padding: 9px 11px; font: inherit; font-size: 16px; font-weight: 400;
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); background: var(--papel); color: var(--tinta);
+}
+.valor-personalizado .vp-marca { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.valor-personalizado .vp-marca input { width: 18px; height: 18px; accent-color: var(--marca); }
+.valor-personalizado .vp-formas { display: grid; gap: 10px; }
+.valor-personalizado .vp-forma { display: grid; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--linha); }
+.valor-personalizado .vp-forma:first-child { border-top: 0; padding-top: 0; }
+
 /* ── Cupom ───────────────────────────────────────────────────── */
 .cupom { margin: 4px 0 16px; }
 .cupom label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }

@@ -179,15 +179,36 @@ export async function planoPorId(id: number | null | undefined): Promise<PlanoDa
 
 export interface CondicaoNegociada {
   planoId: number
-  /** 0 quando o plano não tem matrícula separada. */
+  /** 0 = sem matrícula separada (a entrada é a 1ª mensalidade). */
   taxaMatriculaCentavos: number
   valorParcelaCentavos: number
+  /** Quantidade de mensalidades depois da matrícula (null = a do plano). */
+  numParcelas: number | null
+  /** Dia do mês das parcelas (null = o do plano). */
+  diaVencimento: number | null
+  /**
+   * Opções, formas, descontos, parcelas, juros, preço próprio e pontualidade
+   * combinados (mesma forma do JSON do plano). null = os da tabela, sem preço
+   * próprio por forma (formato de 04/11, só matrícula e mensalidade).
+   */
+  regras: Pick<RegrasDoPlano, 'entrada' | 'integral' | 'pontualidade'> | null
+  /** Vencimento da cobrança de agora (YYYY-MM-DD); null = prazo do portal. */
+  vencimentoEntrada: string | null
+  /** Vencimento da 1ª das parcelas seguintes (YYYY-MM-DD); as demais, mês a mês. */
+  primeiraSeguinte: string | null
   /** Os valores do plano no momento da troca (para o histórico e a equipe). */
-  tabela: { taxaMatriculaCentavos: number; valorParcelaCentavos: number }
+  tabela: { taxaMatriculaCentavos: number; valorParcelaCentavos: number; numParcelas?: number; diaVencimento?: number }
   motivo: string
   porUserId: number | null
   porNome: string | null
   em: string
+}
+
+/** "2026-12-10" válido? */
+export function dataIso(v: unknown): string | null {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  const d = new Date(`${v}T12:00:00-03:00`)
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? null : v
 }
 
 const centavosInteiros = (v: unknown) => {
@@ -202,11 +223,21 @@ export function lerCondicaoNegociada(raw: unknown): CondicaoNegociada | null {
   const taxa = centavosInteiros(r.taxaMatriculaCentavos)
   const parcela = centavosInteiros(r.valorParcelaCentavos)
   if (!Number.isInteger(planoId) || planoId <= 0 || taxa === null || parcela === null) return null
+  const nParc = centavosInteiros(r.numParcelas)
+  const dia = centavosInteiros(r.diaVencimento)
+  const regras = r.regras && typeof r.regras === 'object' ? lerRegrasDoPlano({ ...r.regras, destino: 'attrae' }) : null
   return {
     planoId, taxaMatriculaCentavos: taxa, valorParcelaCentavos: parcela,
+    numParcelas: nParc !== null && nParc <= 120 ? nParc : null,
+    diaVencimento: dia !== null && dia >= 1 && dia <= 28 ? dia : null,
+    regras: regras ? { entrada: regras.entrada, integral: regras.integral, pontualidade: regras.pontualidade } : null,
+    vencimentoEntrada: dataIso(r.vencimentoEntrada),
+    primeiraSeguinte: dataIso(r.primeiraSeguinte),
     tabela: {
       taxaMatriculaCentavos: centavosInteiros(r.tabela?.taxaMatriculaCentavos) ?? 0,
       valorParcelaCentavos: centavosInteiros(r.tabela?.valorParcelaCentavos) ?? 0,
+      ...(centavosInteiros(r.tabela?.numParcelas) !== null ? { numParcelas: centavosInteiros(r.tabela?.numParcelas)! } : {}),
+      ...(centavosInteiros(r.tabela?.diaVencimento) !== null ? { diaVencimento: centavosInteiros(r.tabela?.diaVencimento)! } : {}),
     },
     motivo: typeof r.motivo === 'string' ? r.motivo.slice(0, 500) : '',
     porUserId: Number.isInteger(Number(r.porUserId)) ? Number(r.porUserId) : null,
@@ -227,6 +258,18 @@ export async function condicaoNegociadaDaInscricao(registrationId: number | null
  */
 export function aplicarCondicaoNegociada(p: PlanoDaOferta, cn: CondicaoNegociada | null | undefined): PlanoDaOferta {
   if (!cn || cn.planoId !== p.id) return p
+  if (cn.regras) {
+    // Controle completo: valores, quantidade, dia e as regras combinadas. O
+    // destino das parcelas e os códigos do SEI continuam os da tabela.
+    return {
+      ...p,
+      taxaMatriculaCentavos: cn.taxaMatriculaCentavos,
+      valorParcelaCentavos: cn.valorParcelaCentavos,
+      numParcelas: cn.numParcelas ?? p.numParcelas,
+      diaVencimento: cn.diaVencimento ?? p.diaVencimento,
+      regras: { ...p.regras, entrada: cn.regras.entrada, integral: cn.regras.integral, pontualidade: cn.regras.pontualidade },
+    }
+  }
   const semBase = (f: FormasDePagamento): FormasDePagamento => ({
     pix: { ...f.pix, valorBase: null },
     boleto: { ...f.boleto, valorBase: null },
@@ -350,8 +393,15 @@ export interface ParcelaGerada {
 export function parcelasDoPlano(p: PlanoDaOferta, escolha: {
   opcao: OpcaoDePagamento; meio: string; parcelas: number; valorPagoCentavos: number; pagoEm: Date
   valorParcelaCentavos?: number; valorTotalCentavos?: number
+  /** Valor personalizado: vencimento da 1ª parcela depois da entrada (as demais, mês a mês). */
+  primeiraSeguinte?: string | null
 }): ParcelaGerada[] {
   const paga = { situacao: 'PAGA' as const, valorPagoCentavos: escolha.valorPagoCentavos, pagoEm: escolha.pagoEm }
+  const inicio = escolha.primeiraSeguinte ? new Date(`${escolha.primeiraSeguinte}T12:00:00-03:00`) : null
+  // k = 1 é a 1ª parcela depois da entrada. Sem data combinada, mês k no dia do plano.
+  const seguinte = (k: number) => inicio
+    ? new Date(inicio.getFullYear(), inicio.getMonth() + (k - 1), inicio.getDate())
+    : vencimentoDoPlano(k, p.diaVencimento)
   if (escolha.opcao === 'integral') {
     if (escolha.meio === 'boleto' && escolha.parcelas > 1 && escolha.valorParcelaCentavos && escolha.valorTotalCentavos) {
       const n = escolha.parcelas
@@ -359,7 +409,7 @@ export function parcelasDoPlano(p: PlanoDaOferta, escolha: {
       return Array.from({ length: n }, (_, i) => ({
         tipo: 'MENSALIDADE' as const,
         valorBrutoCentavos: i === 0 ? primeira : escolha.valorParcelaCentavos!,
-        dataVencimento: vencimentoDoPlano(i, p.diaVencimento),
+        dataVencimento: i === 0 ? vencimentoDoPlano(0, p.diaVencimento) : seguinte(i),
         ...(i === 0 ? paga : {}),
       }))
     }
@@ -371,7 +421,8 @@ export function parcelasDoPlano(p: PlanoDaOferta, escolha: {
     out.push({ tipo: 'MATRICULA', valorBrutoCentavos: p.taxaMatriculaCentavos, dataVencimento: vencimentoDoPlano(0, p.diaVencimento) })
   }
   for (let i = 1; i <= p.numParcelas; i++) {
-    out.push({ tipo: 'MENSALIDADE', valorBrutoCentavos: p.valorParcelaCentavos, dataVencimento: vencimentoDoPlano(p.taxaMatriculaCentavos > 0 ? i : i - 1, p.diaVencimento) })
+    const k = p.taxaMatriculaCentavos > 0 ? i : i - 1
+    out.push({ tipo: 'MENSALIDADE', valorBrutoCentavos: p.valorParcelaCentavos, dataVencimento: k === 0 ? vencimentoDoPlano(0, p.diaVencimento) : seguinte(k) })
   }
   if (out[0]) Object.assign(out[0], paga)
   return out

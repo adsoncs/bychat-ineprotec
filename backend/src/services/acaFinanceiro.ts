@@ -289,13 +289,15 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   // Bolsa não entra — o valor foi fechado no checkout.
   const pf0 = escolha?.planoFinanceiro ? await planoPorId(escolha.planoFinanceiro.planoId) : null
   // Valor personalizado pelo agente: as mensalidades do contrato saem do combinado.
-  const pf = pf0 ? aplicarCondicaoNegociada(pf0, await negociadaDaMatricula(mat.enrollmentRegistrationId)) : null
+  const negociada = pf0 ? await negociadaDaMatricula(mat.enrollmentRegistrationId) : null
+  const pf = pf0 ? aplicarCondicaoNegociada(pf0, negociada) : null
   if (escolha && escolha.planoFinanceiro && pf) {
     const geradas = parcelasDoPlano(pf, {
       opcao: escolha.planoFinanceiro.opcao, meio: escolha.meio, parcelas: escolha.parcelas,
       valorPagoCentavos: escolha.valorPagoCentavos, pagoEm: escolha.pagoEm,
       valorParcelaCentavos: escolha.planoFinanceiro.valorParcelaCentavos,
       valorTotalCentavos: escolha.planoFinanceiro.valorTotalCentavos,
+      primeiraSeguinte: negociada?.planoId === pf.id ? negociada.primeiraSeguinte : null,
     })
     const total = geradas.reduce((s, p) => s + p.valorBrutoCentavos, 0)
     const contrato = await prisma.acaContrato.create({ data: { matriculaId, planoPagamentoId: pf.id, valorTotalCentavos: total } })
@@ -513,7 +515,9 @@ async function regrasDoPlanoDaParcela(parcelaId: number): Promise<{ regras: Regr
   const regId = p?.contrato.matricula.enrollmentRegistrationId
   const reg = regId ? await prisma.enrollmentRegistration.findUnique({ where: { id: regId }, select: { paymentPlan: true } }) : null
   const escolha = lerEscolhaDoPlano(reg?.paymentPlan)
-  return { regras: plano.regras, destino: escolha?.planoId === plano.id ? escolha.destino : plano.regras.destino }
+  // Pontualidade combinada no valor personalizado, quando houver.
+  const regras = aplicarCondicaoNegociada(plano, lerCondicaoNegociada((reg?.paymentPlan as any)?.condicaoNegociada)).regras
+  return { regras, destino: escolha?.planoId === plano.id ? escolha.destino : plano.regras.destino }
 }
 
 async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: RegrasDoPlano | null = null): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {

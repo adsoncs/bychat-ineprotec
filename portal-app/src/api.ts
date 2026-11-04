@@ -665,17 +665,30 @@ export interface OpcoesDePagamento {
  * Com `cupom`, os valores já voltam com o desconto aplicado.
  */
 /** Valor personalizado (atendimento pelo painel). O candidato nunca recebe isto. */
+type FormaNaTela = { ativo: boolean; descontoPct: number; valorBase: number | null }
+type ParceladoNaTela = { ativo: boolean; parcelasMax: number; jurosMesPct: number | null; faixas: { ate: number; jurosMesPct: number }[]; valorBase: number | null }
+type OpcaoNaTela = { ativo: boolean; pix: FormaNaTela; boleto: FormaNaTela; cartao: ParceladoNaTela; boletoParcelado: ParceladoNaTela }
+export interface EditorDoPlanoNaTela {
+  matricula: number; mensalidade: number; numParcelas: number; diaVencimento: number
+  opcoes: { entrada: OpcaoNaTela; integral: OpcaoNaTela }
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean }
+  vencimentoEntrada: string | null; primeiraSeguinte: string | null
+}
 export interface NegociacaoNaTela {
   pode: boolean
   plano: { id: number; nome: string; temMatricula: boolean; temMensalidade: boolean; totalParcelas: number; matricula: number; mensalidade: number; precoPorForma?: boolean } | null
+  tabela: EditorDoPlanoNaTela | null
+  editor: EditorDoPlanoNaTela | null
+  resumo: string[]
   atual: {
     planoId: number; matricula: number; mensalidade: number
     tabela: { matricula: number; mensalidade: number }
+    completo?: boolean
     motivo: string; por: string | null; em: string
   } | null
 }
 
-export const salvarValorPersonalizado = (code: string, token: string, body: { planoId: number; matricula?: string; mensalidade?: string; motivo: string }) =>
+export const salvarValorPersonalizado = (code: string, token: string, body: { planoId: number; matricula?: string; mensalidade?: string; motivo: string; editor?: unknown }) =>
   pedir<{ ok: true; avisos: string[] }>(`/api/public/registrations/${encodeURIComponent(code)}/valor-personalizado`, {
     method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
