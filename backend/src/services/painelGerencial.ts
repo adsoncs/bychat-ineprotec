@@ -16,8 +16,18 @@ import { prisma } from '../lib/prisma.js'
 //   {
 //     "titulo": "Fechamento",                       (opcional)
 //     "empresas": { "<chave>": { "nome": "...", "funis": [4], "posVenda": [5, 6], "comissao": true } },
-//     "comissaoFaixas": [ { "nome": "Base", "min": 0, "boleto": 10, "cartao": 15, "pix": 20 } ]
+//     "comissaoFaixas": [ { "nome": "Base", "min": 0, "boleto": 10, "cartao": 15, "pix": 20 } ],
+//     "canais": [ { "nome": "Google Ads", "tags": ["Google Ads"], "originTypes": ["google_ads"], "clique": "gclid" } ],
+//     "cursos": [ { "nome": "Técnico em Agrimensura", "padroes": ["agrimensura"] } ],
+//     "cursosVazios": ["nao informado", "outros cursos"]
 //   }
+// `canais` (opcional): ORIGEM do lead por regra, em ordem de prioridade — a
+// primeira que casar vale (tag do lead, originType, source, prefixo de source,
+// trecho do utm_source ou id de clique). Sem `canais`, a origem é o `source`.
+// `cursos` (opcional): junta as grafias do curso (campo digitado à mão, título
+// da proposta, nome da oferta) num nome só. Os padrões são regex sobre o texto
+// sem acento e em minúsculas; a primeira regra que casar vale. "(consultoria)"
+// no fim do nome da oferta é preservado à parte (coluna própria no ranking).
 // Um tenant pode hospedar mais de uma operação no mesmo CRM: o painel separa as
 // empresas pelo FUNIL. `funis` = vendas (leads, etapas, pipeline); `posVenda` =
 // para onde o card vai depois da venda (com o Ganho marcado) — a matrícula NÃO
@@ -27,10 +37,15 @@ import { prisma } from '../lib/prisma.js'
 // vendedor no mês e pela forma de pagamento. Ordenar por `min` DESC.
 export interface EmpresaPainel { nome: string; funis: number[]; posVenda: number[]; comissao: boolean }
 interface FaixaComissao { nome: string; min: number; boleto: number; cartao: number; pix: number }
+interface CanalPainel { nome: string; tags: string[]; originTypes: string[]; sources: string[]; sourcePrefixos: string[]; utmContem: string[]; clique: string[] }
+interface CursoPainel { nome: string; padroes: RegExp[] }
 export interface ConfigPainel { titulo: string; empresas: Record<string, EmpresaPainel>; comissaoFaixas: FaixaComissao[] }
 
 let EMPRESAS: Record<string, EmpresaPainel> = {}
 let COMISSAO_FAIXAS: FaixaComissao[] = []
+let CANAIS: CanalPainel[] = []
+let CURSOS: CursoPainel[] = []
+let CURSOS_VAZIOS: RegExp[] = []
 
 /** Lê a configuração; `null` = painel não configurado neste tenant. */
 export async function carregarConfigPainel(): Promise<ConfigPainel | null> {
@@ -49,6 +64,19 @@ export async function carregarConfigPainel(): Promise<ConfigPainel | null> {
     .sort((x: FaixaComissao, y: FaixaComissao) => y.min - x.min)
   EMPRESAS = empresas
   COMISSAO_FAIXAS = faixas
+  const strs = (x: unknown) => (Array.isArray(x) ? x.map((y) => String(y ?? '').trim()).filter(Boolean) : [])
+  const rx = (x: unknown) => strs(x).flatMap((p) => { try { return [new RegExp(p)] } catch { return [] } })
+  CANAIS = (Array.isArray(v?.canais) ? v.canais : [])
+    .map((c: any) => ({
+      nome: String(c?.nome ?? '').trim(), tags: strs(c?.tags), originTypes: strs(c?.originTypes), sources: strs(c?.sources),
+      sourcePrefixos: strs(c?.sourcePrefixos), utmContem: strs(c?.utmContem),
+      clique: strs(Array.isArray(c?.clique) ? c.clique : c?.clique ? [c.clique] : []).filter((k) => ['gclid', 'fbclid', 'ctwaClid'].includes(k)),
+    }))
+    .filter((c: CanalPainel) => c.nome)
+  CURSOS = (Array.isArray(v?.cursos) ? v.cursos : [])
+    .map((c: any) => ({ nome: String(c?.nome ?? '').trim(), padroes: rx(c?.padroes) }))
+    .filter((c: CursoPainel) => c.nome && c.padroes.length)
+  CURSOS_VAZIOS = rx(v?.cursosVazios)
   return { titulo: String(v?.titulo ?? '').trim(), empresas, comissaoFaixas: faixas }
 }
 
@@ -120,6 +148,66 @@ function inList(keys: string[]): string {
   return safe.length ? safe.join(',') : `''`
 }
 
+/** Texto SQL entre aspas simples (valores vêm da configuração do tenant). */
+const sq = (x: string) => `'${String(x).replace(/\\/g, '\\\\').replace(/'/g, "''")}'`
+const ORIGEM_PADRAO = (a: string) => `COALESCE(NULLIF(${a}.source,''), ${a}.originType, '(sem origem)')`
+/** Origem do lead (alias `a`): a primeira regra de `canais` que casar; sem regras, o `source`. */
+function origemSql(a = 'l'): string {
+  if (!CANAIS.length) return ORIGEM_PADRAO(a)
+  const casos = CANAIS.map((c) => {
+    const conds: string[] = []
+    if (c.tags.length) conds.push(`EXISTS (SELECT 1 FROM bychat_lead_tags lt JOIN bychat_tags tg ON tg.id=lt.tagId WHERE lt.leadId=${a}.id AND tg.name IN (${c.tags.map(sq).join(',')}))`)
+    if (c.originTypes.length) conds.push(`${a}.originType IN (${c.originTypes.map(sq).join(',')})`)
+    if (c.sources.length) conds.push(`${a}.source IN (${c.sources.map(sq).join(',')})`)
+    for (const pfx of c.sourcePrefixos) conds.push(`${a}.source LIKE ${sq(pfx.replace(/[%_]/g, '\\$&') + '%')}`)
+    for (const u of c.utmContem) conds.push(`LOWER(${a}.utmSource) LIKE ${sq('%' + u.toLowerCase().replace(/[%_]/g, '\\$&') + '%')}`)
+    for (const k of c.clique) conds.push(`NULLIF(${a}.${k},'') IS NOT NULL`)
+    return conds.length ? `WHEN ${conds.join(' OR ')} THEN ${sq(c.nome)}` : ''
+  }).filter(Boolean)
+  return casos.length ? `(CASE ${casos.join(' ')} ELSE ${ORIGEM_PADRAO(a)} END)` : ORIGEM_PADRAO(a)
+}
+
+const semAcento = (s: string) => s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/[^a-z0-9+ ]/g, ' ').replace(/\s+/g, ' ').trim()
+/**
+ * Nome canônico do curso pelas regras de `cursos`. "(consultoria)" (sufixo do
+ * nome da oferta) volta à parte. Sem regra que case, devolve o texto limpo.
+ */
+function cursoCanonico(bruto: unknown): { curso: string; consultoria: boolean } {
+  let s = String(bruto ?? '').trim()
+  const consultoria = /\(consultoria\)\s*$/i.test(s)
+  if (consultoria) s = s.replace(/\s*\(consultoria\)\s*$/i, '').trim()
+  if (!s || s === '(sem curso)') return { curso: '(sem curso)', consultoria }
+  const b = ` ${semAcento(s)} `
+  if (CURSOS_VAZIOS.some((r) => r.test(b))) return { curso: '(sem curso)', consultoria }
+  const regra = CURSOS.find((c) => c.padroes.some((r) => r.test(b)))
+  return { curso: regra ? regra.nome : s, consultoria }
+}
+
+/**
+ * Tabela de usuários para os JOINs, incluindo quem teve a CONTA APAGADA: a venda
+ * continua sendo de quem vendeu (a negociação guarda o id), e o nome vem do
+ * histórico do lead. Sem isso, as vendas de um vendedor desligado viravam
+ * "(SEM RESPONSÁVEL)".
+ */
+let cacheUsuarios: { em: number; sql: string } | null = null
+/** Contas apagadas que já estavam paradas: id → última atividade (UTC, 'YYYY-MM-DD HH:mm:ss'). */
+let REMOVIDOS: Array<{ id: number; ate: string }> = []
+async function usuariosComRemovidos(): Promise<string> {
+  if (cacheUsuarios && Date.now() - cacheUsuarios.em < 10 * 60_000) return cacheUsuarios.sql
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: number; nome: string }>>(
+    `SELECT x.id, (SELECT e.userName FROM bychat_lead_events e WHERE e.userId=x.id AND e.userName IS NOT NULL ORDER BY e.id DESC LIMIT 1) AS nome,
+            (SELECT MAX(e.createdAt) FROM bychat_lead_events e WHERE e.userId=x.id) AS ate
+       FROM (SELECT DISTINCT responsavelUserId AS id FROM bychat_negotiations WHERE responsavelUserId IS NOT NULL) x
+       LEFT JOIN bychat_users uu ON uu.id=x.id WHERE uu.id IS NULL`,
+  ).catch(() => [] as any[])
+  REMOVIDOS = rows.filter((r: any) => r.ate).map((r: any) => ({ id: n(r.id), ate: fmt(new Date(r.ate)) }))
+  const extras = rows.filter((r) => r.nome).map((r) => `SELECT ${n(r.id)} AS id, NULL AS displayName, ${sq(r.nome + ' (conta removida)')} AS name`)
+  const sql = extras.length ? `(SELECT id, displayName, name FROM bychat_users UNION ALL ${extras.join(' UNION ALL ')})` : 'bychat_users'
+  cacheUsuarios = { em: Date.now(), sql }
+  return sql
+}
+
 export interface PeriodoIn { from: Date; to: Date; days: number }
 
 // ── Matrícula = NEGOCIAÇÃO ACEITA ─────────────────────────────────────────
@@ -155,8 +243,17 @@ const CURSO_OFERTA = `(SELECT CONCAT(o.nome, CASE WHEN pr.categoria LIKE '%Consu
  * vendas na etapa ganha + leads do pós-venda com o Ganho marcado.
  */
 function unidadesSql(FN: string, WON: string, POS = '0'): string {
-  return `(SELECT l.id AS leadId, l.nome, l.assignedUserId, l.createdAt, l.outcome, l.outcomeAt, l.originType,
-        COALESCE(NULLIF(l.source,''), l.originType, '(sem origem)') AS origem,
+  // Vendedor da matrícula = responsável pela NEGOCIAÇÃO (quem vendeu). O dono do
+  // lead muda quando a carteira é transferida (desligamento, rodízio) e levava a
+  // venda junto; sem negociação, vale o dono do lead.
+  // Exceção: proposta criada quando o responsável (conta já apagada) não
+  // trabalhava mais — herdou o dono antigo do lead; vale quem cuida dele / quem deu o Ganho.
+  const herdado = REMOVIDOS.length
+    ? `(${REMOVIDOS.map((r) => `(n.responsavelUserId=${r.id} AND n.createdAt>'${r.ate}')`).join(' OR ')})` : '0'
+  return `(SELECT l.id AS leadId, l.nome,
+        CASE WHEN n.responsavelUserId IS NOT NULL AND NOT ${herdado} THEN n.responsavelUserId
+             ELSE COALESCE(l.assignedUserId, l.outcomeBy) END AS assignedUserId, l.createdAt, l.outcome, l.outcomeAt, l.originType,
+        ${origemSql('l')} AS origem,
         REGEXP_REPLACE(COALESCE(l.whatsapp, l.phoneKey, ''), '[^0-9]', '') AS ph,
         COALESCE(k.qtd, 0) AS negs, n.id AS negId,
         CASE WHEN k.qtd > 1 THEN n.valorFinal ELSE l.saleValue END AS valor,
@@ -200,6 +297,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   const lostKeys = stages.filter((s) => tipoEtapa(s.key) === 'lost').map((s) => s.key)
   const WON = inList(wonKeys)
   const LOST = inList(lostKeys)
+  const USUARIOS = await usuariosComRemovidos()
   const U = unidadesSql(FN, WON, POS)
   const NO_PERIODO = 'u.dt >= ? AND u.dt < ?'
 
@@ -262,10 +360,22 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
       `SELECT u.curso, COUNT(*) AS matriculas, ROUND(SUM(u.valor)) AS faturamento FROM ${U}
         WHERE ${NO_PERIODO} GROUP BY u.curso`, F, T),
   ])
-  const cursos = juntar('curso', cursoL, cursoM).map((r) => ({
-    curso: r.curso, leads: n(r.leads), matriculas: n(r.matriculas), faturamento: n(r.faturamento),
-    ticket_medio: n(r.matriculas) > 0 ? Math.round(n(r.faturamento) / n(r.matriculas)) : 0,
-  })).sort((a, b) => b.matriculas - a.matriculas || b.leads - a.leads).slice(0, 30)
+  // Grafias diferentes do mesmo curso viram uma linha só (regras `cursos`).
+  const porCurso = new Map<string, { curso: string; leads: number; matriculas: number; consultoria: number; faturamento: number }>()
+  const linhaCurso = (nome: string) => {
+    let r = porCurso.get(nome)
+    if (!r) porCurso.set(nome, (r = { curso: nome, leads: 0, matriculas: 0, consultoria: 0, faturamento: 0 }))
+    return r
+  }
+  for (const r of cursoL) linhaCurso(cursoCanonico(r.curso).curso).leads += n(r.leads)
+  for (const r of cursoM) {
+    const c = cursoCanonico(r.curso), x = linhaCurso(c.curso)
+    x.matriculas += n(r.matriculas); x.faturamento += n(r.faturamento)
+    if (c.consultoria) x.consultoria += n(r.matriculas)
+  }
+  const cursos = [...porCurso.values()].map((r) => ({
+    ...r, ticket_medio: r.matriculas > 0 ? Math.round(r.faturamento / r.matriculas) : 0,
+  })).sort((a, b) => b.matriculas - a.matriculas || b.leads - a.leads).slice(0, 40)
 
   // ── Vendedores (responsável do lead) ──
   const VEND = `COALESCE(NULLIF(uu.displayName,''), uu.name, '(SEM RESPONSÁVEL)')`
@@ -273,11 +383,11 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
     prisma.$queryRawUnsafe<Array<any>>(
       `SELECT ${VEND} AS vendedor, COUNT(*) AS leads_atribuidos,
               SUM(l.status NOT IN (${WON}) AND l.status NOT IN (${LOST}) AND l.lastActivityAt < NOW() - INTERVAL 7 DAY) AS parados_7d
-         FROM bychat_leads l LEFT JOIN bychat_users uu ON uu.id=l.assignedUserId
+         FROM bychat_leads l LEFT JOIN ${USUARIOS} uu ON uu.id=l.assignedUserId
         WHERE l.funnelId IN (${FN}) AND l.createdAt>=? AND l.createdAt<? GROUP BY vendedor`, F, T),
     prisma.$queryRawUnsafe<Array<any>>(
       `SELECT ${VEND} AS vendedor, COUNT(*) AS matriculas, ROUND(SUM(u.valor)) AS faturamento
-         FROM ${U} LEFT JOIN bychat_users uu ON uu.id=u.assignedUserId
+         FROM ${U} LEFT JOIN ${USUARIOS} uu ON uu.id=u.assignedUserId
         WHERE ${NO_PERIODO} GROUP BY vendedor`, F, T),
   ])
   const vendedores = juntar('vendedor', vendL, vendM).map((r) => ({
@@ -289,7 +399,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   // ── Origem: usa source/originType; normaliza vazio ──
   const [origL, origM] = await Promise.all([
     prisma.$queryRawUnsafe<Array<any>>(
-      `SELECT COALESCE(NULLIF(l.source,''), l.originType, '(sem origem)') AS origem, COUNT(*) AS leads FROM bychat_leads l
+      `SELECT ${origemSql('l')} AS origem, COUNT(*) AS leads FROM bychat_leads l
         WHERE l.funnelId IN (${FN}) AND l.createdAt>=? AND l.createdAt<? GROUP BY origem`, F, T),
     prisma.$queryRawUnsafe<Array<any>>(
       `SELECT u.origem, COUNT(*) AS matriculas FROM ${U} WHERE ${NO_PERIODO} GROUP BY u.origem`, F, T),
@@ -392,7 +502,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   const listaMat = await prisma.$queryRawUnsafe<Array<any>>(
     `SELECT u.leadId, u.negId, u.negs, u.nome, u.curso, ${VEND} AS vendedor, u.valor, u.forma,
             u.data_ganho, DATE_FORMAT(u.dt,'%d/%m/%Y') AS data_pgto, u.pelo_ganho
-       FROM ${U} LEFT JOIN bychat_users uu ON uu.id=u.assignedUserId
+       FROM ${U} LEFT JOIN ${USUARIOS} uu ON uu.id=u.assignedUserId
       WHERE ${NO_PERIODO} ORDER BY u.dt ASC, u.valor DESC LIMIT 500`,
     F, T,
   )
@@ -426,7 +536,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   const ganhoForaRows = await prisma.$queryRawUnsafe<Array<any>>(
     `SELECT l.id, l.nome, ${VEND} AS vendedor, (l.status IN (${WON}) OR l.funnelId IN (${POS})) AS na_etapa,
             DATE_FORMAT(${PAG},'%d/%m/%Y') AS data_pgto
-       FROM bychat_leads l LEFT JOIN bychat_users uu ON uu.id=l.assignedUserId
+       FROM bychat_leads l LEFT JOIN ${USUARIOS} uu ON uu.id=l.assignedUserId
       WHERE l.funnelId IN (${ALL}) AND l.outcome='won' AND l.outcomeAt>=? AND l.outcomeAt<?
         AND l.id NOT IN (SELECT u.leadId FROM ${U} WHERE ${NO_PERIODO})
       ORDER BY vendedor, l.nome`,
@@ -435,7 +545,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
   // matrículas fechadas no período cujo clique em Ganho caiu em outro mês (ou não houve)
   const pagoForaRows = await prisma.$queryRawUnsafe<Array<any>>(
     `SELECT u.leadId AS id, MAX(u.nome) AS nome, MAX(${VEND}) AS vendedor, MAX(u.data_ganho) AS data_ganho, COUNT(*) AS q
-       FROM ${U} LEFT JOIN bychat_users uu ON uu.id=u.assignedUserId
+       FROM ${U} LEFT JOIN ${USUARIOS} uu ON uu.id=u.assignedUserId
       WHERE ${NO_PERIODO} AND NOT (COALESCE(u.outcome,'')='won' AND COALESCE(u.outcomeAt,'1970-01-01')>=? AND COALESCE(u.outcomeAt,'1970-01-01')<?)
       GROUP BY u.leadId ORDER BY vendedor, nome`,
     F, T, F, T,
@@ -474,7 +584,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
       sem_registro: n(pendRow[0]?.sem_registro), total: n(pendRow[0]?.tot), multi: n(pendRow[0]?.multi),
     },
     lista: listaMat.map((r) => ({
-      lead_id: n(r.leadId), nome: r.nome, curso: r.curso, vendedor: r.vendedor, valor: n(r.valor), forma: r.forma,
+      lead_id: n(r.leadId), nome: r.nome, curso: ((c) => c.curso + (c.consultoria ? ' (consultoria)' : ''))(cursoCanonico(r.curso)), vendedor: r.vendedor, valor: n(r.valor), forma: r.forma,
       data_ganho: r.data_ganho, data_pgto: r.data_pgto, pgto_pelo_ganho: n(r.pelo_ganho) > 0, multi: n(r.negs) > 1,
     })),
     conferencia,
@@ -496,7 +606,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
               SUM(UPPER(u.forma) LIKE 'PIX%') AS pix,
               SUM(u.forma IS NULL OR (UPPER(u.forma) NOT LIKE 'BOLETO%' AND UPPER(u.forma) NOT LIKE '%CART%' AND UPPER(u.forma) NOT LIKE 'PIX%')) AS outros,
               COUNT(*) AS total
-         FROM ${U} LEFT JOIN bychat_users uu ON uu.id=u.assignedUserId
+         FROM ${U} LEFT JOIN ${USUARIOS} uu ON uu.id=u.assignedUserId
         WHERE ${NO_PERIODO}
         GROUP BY vendedor HAVING total > 0 ORDER BY total DESC`,
       F, T,

@@ -312,7 +312,7 @@
         '<div class="card"><div class="section-h" style="margin-top:0">Leads por origem</div>'+tbl(
           [{t:'Origem'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'%',num:1}],d.origens,
           function(r){return '<tr><td>'+r.origem+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+pct(r.pct)+'</td></tr>'})+
-          '<div class="k-sub" style="margin-top:8px">⚠ origem por canal (<code>source</code>); detalhamento por mídia/UTM entra na próxima fase.</div></div>'+
+          '<div class="k-sub" style="margin-top:8px">Origem pelo canal de entrada: tags de origem do lead, id de clique (Google/Meta) e formulário. Sem sinal de origem = WhatsApp direto.</div></div>'+
         '<div class="card"><div class="section-h" style="margin-top:0">Regiões que mais vendem (por DDD)</div>'+tbl(
           [{t:'DDD'},{t:'Estado'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'Fatur.',num:1}],d.regioes,
           function(r){return '<tr><td><b>'+r.ddd+'</b></td><td>'+r.estado+(r.uf&&r.uf!=="?"?' <span class="pill">'+r.uf+'</span>':'')+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td></tr>'})+
@@ -321,8 +321,9 @@
     },
     com_fin:function(d){
       return '<div class="section-h" style="margin-top:0">Ranking de cursos (matrículas · faturamento · ticket)</div><div class="card">'+tbl(
-        [{t:'Curso'},{t:'Leads',num:1},{t:'Matrículas',num:1},{t:'Faturamento',num:1},{t:'Ticket',num:1}],d.cursos,
-        function(r){return '<tr><td>'+r.curso+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td><td class="num">'+brl(r.ticket_medio)+'</td></tr>'})+'</div>';
+        [{t:'Curso'},{t:'Leads',num:1},{t:'Matrículas',num:1},{t:'Consultoria',num:1},{t:'Faturamento',num:1},{t:'Ticket',num:1}],d.cursos,
+        function(r){return '<tr><td>'+r.curso+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+(r.consultoria?num(r.consultoria):'—')+'</td><td class="num">'+brl(r.faturamento)+'</td><td class="num">'+brl(r.ticket_medio)+'</td></tr>'})+
+        '<div class="k-sub" style="margin-top:8px">Grafias diferentes do mesmo curso somadas numa linha. <b>Consultoria</b> = quantas das matrículas foram pela frente de consultoria (escola parceira).</div></div>';
     },
     com_pipe:function(d){ var p=d.pipeline||{por_etapa:[]};
       return '<div class="grid kpis">'+kpi('Em aberto (agora)',num(p.abertos))+kpi('Parados 7d+',num(p.parados_7d))+'</div>'+
