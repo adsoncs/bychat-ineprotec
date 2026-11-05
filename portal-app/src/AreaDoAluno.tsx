@@ -30,7 +30,7 @@ export interface Area {
   token: string
   financeiro: { faturas: Fatura[]; aviso: string | null; proxima: Fatura | null; emAberto: number; vencidas: number; pagas: number }
   contratos: Contrato[]
-  ava: { disponivel: boolean; url: string | null }
+  ava: { disponivel: boolean; url: string | null; usuario?: string | null; curso?: string | null; suspenso?: boolean }
 }
 type JornadaDoPortal = Awaited<ReturnType<typeof carregarJornadaDoPortal>>
 
@@ -155,7 +155,7 @@ export function AreaDoAluno(props: {
               valor={area.contratos.some((c) => c.situacao === 'assinado') ? 'Assinado' : area.contratos.length ? 'Aguardando' : '—'}
               legenda={(() => { const c = area.contratos.find((x) => x.situacao === 'assinado'); return c ? `em ${dia(c.assinadoEm)}` : area.contratos.length ? 'Falta a sua assinatura' : 'Ainda não emitido' })()}
               acao="Ver contrato" aoClicar={() => ir('contratos')} />
-            <CartaoResumo icone="ava" titulo="AVA" tom="neutro" valor={area.ava.disponivel ? 'Disponível' : 'Em breve'}
+            <CartaoResumo icone="ava" titulo="AVA" tom="neutro" valor={area.ava.disponivel ? 'Disponível' : area.ava.suspenso ? 'Suspenso' : 'Em breve'}
               legenda={area.ava.disponivel ? 'Suas aulas e materiais' : 'Acesso às aulas por aqui'} acao="Saiba mais" aoClicar={() => ir('ava')} />
           </div>
 
@@ -229,9 +229,12 @@ export function AreaDoAluno(props: {
             <h2 class="ada-titulo">Ambiente Virtual de Aprendizagem</h2>
             {area.ava.disponivel && area.ava.url ? (
               <>
-                <p class="ada-sub">Suas aulas, materiais e atividades.</p>
-                <a class="ada-botao" href={area.ava.url} target="_blank" rel="noopener">Acessar o AVA</a>
+                <p class="ada-sub">{area.ava.curso ? <>Curso: <b>{area.ava.curso}</b></> : 'Suas aulas, materiais e atividades.'}</p>
+                <a class="ada-botao" href={area.ava.url} target="_blank" rel="noopener">Acessar meu curso</a>
+                {area.ava.usuario && <p class="ada-sub">Seu usuário no AVA: <b>{area.ava.usuario}</b></p>}
               </>
+            ) : area.ava.suspenso ? (
+              <p class="ada-sub">O acesso ao curso está suspenso no momento. Fale com a secretaria para reativar.</p>
             ) : (
               <p class="ada-sub">Em breve você vai acessar suas aulas por aqui, com seu progresso, notas e materiais do curso — sem precisar de outra senha.</p>
             )}

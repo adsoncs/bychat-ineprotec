@@ -18,6 +18,7 @@ import { EvolutionApiSettings } from '../settings/EvolutionApiSettings'
 import { KommoIntegration } from './KommoIntegration'
 import { CrmEducacionalIntegration } from './CrmEducacionalIntegration'
 import { SeiIntegration } from './SeiIntegration'
+import { MoodleIntegration } from './MoodleIntegration'
 import { ClinicaExpertsIntegration } from './ClinicaExpertsIntegration'
 
 export function IntegrationCrmEducacionalPage() {
@@ -40,6 +41,14 @@ export function IntegrationSeiPage() {
   return (
     <Page title="SEI (ERP acadêmico)" description="Envia ao SEI a matrícula concluída no portal: aluno, plano de pagamento, documentos aprovados e contrato assinado.">
       <SeiIntegration />
+    </Page>
+  )
+}
+
+export function IntegrationMoodlePage() {
+  return (
+    <Page title="Moodle (AVA)" description="Libera o curso no Moodle quando a inscrição está paga e com o contrato aceito. Suspender é sempre uma ação do agente.">
+      <MoodleIntegration />
     </Page>
   )
 }

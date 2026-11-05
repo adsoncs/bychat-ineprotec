@@ -228,6 +228,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings', atalho: true },
         { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings', atalho: true },
         { id: 'integ-sei', label: 'SEI (ERP acadêmico)', href: '/app/integrations/sei', icon: 'GraduationCap', permission: 'settings', atalho: true },
+        { id: 'integ-moodle', label: 'Moodle (AVA)', href: '/app/integrations/moodle', icon: 'BookOpen', permission: 'settings', atalho: true },
       ],
       initiallyCollapsed: true,
     },

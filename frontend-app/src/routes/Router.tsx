@@ -445,6 +445,9 @@ const migratedPages: Record<string, ComponentType> = {
   'integ-sei': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationSeiPage })),
   ),
+  'integ-moodle': lazy(() =>
+    import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationMoodlePage })),
+  ),
   'integ-email': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationEmailPage })),
   ),

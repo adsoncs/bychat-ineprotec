@@ -10765,3 +10765,38 @@ model ClinicaExpertsMapping {
   @@index([entityType, localId])
   @@map("bychat_clinica_experts_mappings")
 }
+
+/// Acesso do aluno no Moodle (services/moodleAcessos.ts). Uma linha por
+/// inscrição do portal: libera quando a inscrição está PAGA e com o CONTRATO
+/// aceito/assinado. Suspender é sempre manual (agente), nunca automático.
+model MoodleAcesso {
+  id                   Int       @id @default(autoincrement())
+  registrationId       Int       @unique
+  leadId               Int?
+  /// PENDENTE | LIBERADO | ERRO | SUSPENSO | SEM_CURSO
+  status               String    @default("PENDENTE") @db.VarChar(20)
+  /// automatico | manual
+  origem               String    @default("automatico") @db.VarChar(20)
+  moodleUserId         Int?
+  username             String?   @db.VarChar(100)
+  moodleCourseId       Int?
+  cursoNome            String?   @db.VarChar(255)
+  /// curso escolhido pelo agente (vence o de-para)
+  cursoEscolhido       Boolean   @default(false)
+  usuarioCriado        Boolean   @default(false)
+  /// cursos em que já esteve (troca de curso): [{ courseId, nome, ate }]
+  cursosAnteriores     Json?     @db.Json
+  tentativas           Int       @default(0)
+  proximaTentativaEm   DateTime?
+  ultimoErro           String?   @db.Text
+  liberadoEm           DateTime?
+  liberadoPorId        Int?
+  suspensoEm           DateTime?
+  suspensoPorId        Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([status, proximaTentativaEm])
+  @@index([leadId])
+  @@map("bychat_moodle_acessos")
+}

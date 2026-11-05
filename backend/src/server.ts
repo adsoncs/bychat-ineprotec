@@ -42,6 +42,8 @@ import { kommoWebhookRoutes } from './routes/kommoWebhook.js'
 import { painelGerencialRoutes } from './routes/painelGerencial.js'
 import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
 import { seiIntegrationRoutes } from './routes/seiIntegration.js'
+import { moodleIntegrationRoutes } from './routes/moodleIntegration.js'
+import { iniciarAgendadorMoodle } from './services/moodleAcessos.js'
 import { teamsRoutes } from './routes/teams.js'
 import { agentsRoutes } from './routes/agents.js'
 import { channelGovernanceRoutes } from './routes/channelGovernance.js'
@@ -939,6 +941,9 @@ await app.register(kommoWebhookRoutes)
 await app.register(painelGerencialRoutes)
 await app.register(crmEduIntegrationRoutes)
 await app.register(seiIntegrationRoutes)
+await app.register(moodleIntegrationRoutes)
+// Moodle: varredura de 2 em 2 min (só age com a integração ligada).
+iniciarAgendadorMoodle()
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
 await app.register(helpdeskPortalRoutes)

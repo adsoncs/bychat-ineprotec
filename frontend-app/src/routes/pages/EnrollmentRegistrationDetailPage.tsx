@@ -40,6 +40,7 @@ import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
 import { SeiInscricaoCard } from './integrations/SeiIntegration'
+import { MoodleInscricaoCard } from './integrations/MoodleIntegration'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { useCan } from '@/hooks/usePermissions'
 import { SeloIntegridade } from '@/components/educational/IntegridadePainel'
@@ -195,6 +196,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
           {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
           <SeiInscricaoCard registrationId={review.registration.id} />
+          <MoodleInscricaoCard registrationId={review.registration.id} />
           {contratoPapel && (
             <ContratoPresencialModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode}
               nomeCandidato={review.lead?.nome} onClose={() => setContratoPapel(false)} />

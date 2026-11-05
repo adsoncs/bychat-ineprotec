@@ -13,6 +13,7 @@
 // já usa (/api/candidate/me e /registrations/:code/resumo), com o token da
 // inscrição que esta resposta devolve.
 import { prisma } from '../lib/prisma.js'
+import { avaDaInscricao } from './moodleAcessos.js'
 import { signCandidateToken } from '../lib/candidateAuth.js'
 import { decryptToken } from './cloudApi.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, fetchAsaasBoletoLinha, fetchAsaasPixQr, type AsaasConfig } from './paymentAsaas.js'
@@ -378,8 +379,8 @@ export async function montarArea(leadId: number, codigo?: string | null) {
       pagas: fin.faturas.filter((f) => f.situacao === 'paga').length,
     },
     contratos,
-    // AVA: integração futura. Enquanto não houver, o portal mostra "em breve".
-    ava: { disponivel: false as const, url: null as string | null },
+    // AVA: acesso liberado no Moodle (services/moodleAcessos). Sem integração, o portal mostra "em breve".
+    ava: await avaDaInscricao(r.id).catch(() => ({ disponivel: false, url: null, usuario: null, curso: null, suspenso: false })),
   }
 }
 
