@@ -13,6 +13,7 @@ import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPr
 import { eventBus } from '../lib/eventBus.js'
 import { queues } from '../lib/queues.js'
 import { registrarUsoIA } from '../lib/consumo.js'
+import { cortarTexto, textoValido } from '../lib/cortarTexto.js'
 
 const MAX_MESSAGES = 30
 const MAX_BODY_PER_MSG = 600
@@ -106,7 +107,7 @@ function buildUserPrompt(lead: any, messages: Array<{ fromMe: boolean; body: str
   const lines = messages.map(m => {
     const who = m.fromMe ? 'ATENDENTE' : 'LEAD'
     const ts = m.timestamp.toISOString().slice(0, 16).replace('T', ' ')
-    const body = (m.body || '').slice(0, MAX_BODY_PER_MSG)
+    const body = cortarTexto(m.body, MAX_BODY_PER_MSG)
     return `[${ts}] ${who}: ${body}`
   }).join('\n')
   const temporal = [
@@ -181,7 +182,7 @@ function validateDecision(parsed: any, validKeys: string[]): AiStageDecision | n
     verdict,
     stageKey: verdict === 'stage' ? stageKey : null,
     confidence,
-    reasoning: String(parsed.reasoning || '').slice(0, 600),
+    reasoning: cortarTexto(String(parsed.reasoning || ''), 600),
   }
 }
 
@@ -253,8 +254,8 @@ export async function runAiJourneyForLead(leadId: number, opts?: { force?: boole
   const stages = lead.funnel.stages
   const validKeys = stages.map(s => s.key)
 
-  const systemPrompt = buildSystemPrompt(lead.funnel.name, stages, lead.funnel.aiStagePrompt ?? null, lead.status ?? null)
-  const userPrompt = buildUserPrompt(lead, chronological)
+  const systemPrompt = textoValido(buildSystemPrompt(lead.funnel.name, stages, lead.funnel.aiStagePrompt ?? null, lead.status ?? null))
+  const userPrompt = textoValido(buildUserPrompt(lead, chronological))
 
   const primary = await getPrimaryProvider()
   const anthropicKey = await getAnthropicKey()
@@ -276,10 +277,13 @@ export async function runAiJourneyForLead(leadId: number, opts?: { force?: boole
     return callOpenAi(openaiKey, await getOpenAiModel(), systemPrompt, userPrompt)
   }
 
+  // Falhando os dois, o erro diz os DOIS: antes só aparecia o da reserva
+  // ("OpenAI 400"), e parecia que a OpenAI era o provedor em uso.
+  const juntar = (a: any, b: any) => new Error(`${a?.message ?? a} | reserva: ${b?.message ?? b}`)
   if (primary === 'openai') {
-    try { aiResp = await tryOpenAi() } catch (e: any) { lastErr = e; try { aiResp = await tryAnthropic() } catch (e2: any) { lastErr = e2 } }
+    try { aiResp = await tryOpenAi() } catch (e: any) { lastErr = e; try { aiResp = await tryAnthropic() } catch (e2: any) { lastErr = juntar(e, e2) } }
   } else {
-    try { aiResp = await tryAnthropic() } catch (e: any) { lastErr = e; try { aiResp = await tryOpenAi() } catch (e2: any) { lastErr = e2 } }
+    try { aiResp = await tryAnthropic() } catch (e: any) { lastErr = e; try { aiResp = await tryOpenAi() } catch (e2: any) { lastErr = juntar(e, e2) } }
   }
   if (!aiResp) throw lastErr ?? new Error('Sem provedor de IA disponível')
 
