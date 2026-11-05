@@ -57,6 +57,8 @@ export interface EnrollmentPortal {
   funnelId: number | null
   stageKey: string | null
   docsCompleteStageKey: string | null
+  /** "Meu Portal": área do aluno ligada neste portal. */
+  areaDoAluno?: boolean
   finalApprovalStageKey: string | null
 
   // SEO + domínio
@@ -190,6 +192,7 @@ export interface EnrollmentPortalInput {
   funnelId?: number | null | undefined
   stageKey?: string | null | undefined
   docsCompleteStageKey?: string | null | undefined
+  areaDoAluno?: boolean | undefined
   finalApprovalStageKey?: string | null | undefined
   active?: boolean | undefined
   metaTitle?: string | null | undefined

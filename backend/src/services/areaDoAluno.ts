@@ -4,8 +4,8 @@
 // ineprotec). Depois da inscrição enviada, a pessoa não tinha onde ver as
 // faturas, os documentos e o contrato juntos: o portal só mostrava as etapas.
 //
-// Liga por instituição (Setting `portal_area_aluno` = true). Desligada, o
-// portal segue exatamente como era.
+// Liga por portal (EnrollmentPortal.areaDoAluno, aba Configuração do portal no
+// painel). Desligada, o portal segue exatamente como era.
 //
 // Este serviço monta o que o servidor sabe da inscrição: as faturas (a cobrança
 // do portal e, quando o gateway parcelou, cada parcela lida direto do Asaas) e
@@ -69,9 +69,10 @@ const meioLegivel = (m: string | null | undefined) => {
 }
 const hojeBr = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
 
+/** Algum portal com a área ligada? Nenhum = nem consulta a conta (portal segue como era). */
 export async function areaAtiva(): Promise<boolean> {
-  const s = await prisma.setting.findUnique({ where: { key: 'portal_area_aluno' }, select: { value: true } }).catch(() => null)
-  return s?.value === true || s?.value === 'true'
+  const n = await prisma.enrollmentPortal.count({ where: { areaDoAluno: true } }).catch(() => 0)
+  return n > 0
 }
 
 // ─── Asaas: parcelas do parcelamento ─────────────────────────────────────────
@@ -147,7 +148,7 @@ const SELECT_REG = {
   lead: { select: { nome: true, email: true, whatsapp: true } },
   paymentId: true, paymentStatus: true, paymentAmount: true, paymentMethod: true, paymentPaidAt: true,
   paymentExpiresAt: true, paymentUrl: true, paymentPlan: true,
-  portal: { select: { nome: true, slug: true, paymentScope: true } },
+  portal: { select: { nome: true, slug: true, paymentScope: true, areaDoAluno: true } },
   processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } } } },
   paymentMethods: {
     orderBy: { createdAt: 'desc' as const }, take: 5,
@@ -355,6 +356,8 @@ export async function montarArea(leadId: number, codigo?: string | null) {
   const regs = await inscricoesDaConta(leadId)
   if (!regs.length) return { ativa: true as const, modo: 'sem-inscricao' as const }
   const r = (codigo && regs.find((x) => x.candidateCode === codigo)) || regs.find((x) => x.status !== 'cancelled') || regs[0]
+  // A chave é do portal da inscrição (aba Configuração → Meu Portal).
+  if (!r.portal?.areaDoAluno) return { ativa: false as const }
   if (EM_INSCRICAO.includes(r.status)) return { ativa: true as const, modo: 'inscricao' as const }
   const [fin, contratos] = await Promise.all([faturasDaInscricao(r), contratosDaInscricao(r)])
   const proxima = fin.faturas
@@ -384,7 +387,7 @@ export async function montarArea(leadId: number, codigo?: string | null) {
 export async function codigosDaFatura(leadId: number, codigo: string, chave: string) {
   const regs = await inscricoesDaConta(leadId)
   const r = regs.find((x) => x.candidateCode === codigo)
-  if (!r) return null
+  if (!r || !r.portal?.areaDoAluno) return null
   const { faturas } = await faturasDaInscricao(r)
   const f = faturas.find((x) => x.chave === chave)
   if (!f || !f.buscarCodigos || !chave.startsWith('asaas:')) return null
@@ -410,7 +413,7 @@ export async function gerarParcela(leadId: number, codigo: string, chave: string
   Promise<{ ok: true; pix: string | null; linha: string | null } | { ok: false; status: number; erro: string }> {
   const regs = await inscricoesDaConta(leadId)
   const r0 = regs.find((x) => x.candidateCode === codigo)
-  if (!r0) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
+  if (!r0 || !r0.portal?.areaDoAluno) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
   // Cliques repetidos (ou duas abas): enfileira — cada pedido espera o anterior
   // e, quando chega a vez, encontra a parcela já gerada.
   const anterior = gerando.get(r0.id) ?? Promise.resolve()

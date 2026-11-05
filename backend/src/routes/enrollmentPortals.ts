@@ -870,6 +870,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (body.funnelId !== undefined) data.funnelId = body.funnelId ? parseInt(body.funnelId) : null
     if (body.stageKey !== undefined) data.stageKey = body.stageKey || null
     if (body.docsCompleteStageKey !== undefined) data.docsCompleteStageKey = body.docsCompleteStageKey || null
+    if (body.areaDoAluno !== undefined) data.areaDoAluno = body.areaDoAluno === true
     if (body.finalApprovalStageKey !== undefined) data.finalApprovalStageKey = body.finalApprovalStageKey || null
     if (body.paymentConnectionId !== undefined) data.paymentConnectionId = body.paymentConnectionId ? parseInt(body.paymentConnectionId) : null
     if (body.codePrefix !== undefined) data.codePrefix = body.codePrefix || 'MAT'

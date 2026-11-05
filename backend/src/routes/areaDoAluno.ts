@@ -1,5 +1,6 @@
 // routes/areaDoAluno.ts — "Meu Portal" (services/areaDoAluno). Só com a conta
-// logada no portal (cookie); desligada por instituição, responde { ativa:false }
+// logada no portal (cookie); desligada no portal da inscrição (aba Configuração
+// do portal), responde { ativa:false }
 // e o portal segue como era.
 import { FastifyInstance } from 'fastify'
 import { contaDaRequisicao } from '../lib/portalSession.js'

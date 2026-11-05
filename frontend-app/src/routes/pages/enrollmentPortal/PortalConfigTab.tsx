@@ -31,6 +31,9 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
   // Pagamento — conexões cadastradas em /app/payments
 
+  // Meu Portal (área do aluno)
+  const [areaDoAluno, setAreaDoAluno] = useState<boolean>(portal.areaDoAluno === true)
+
   // Captcha
   const [captchaType, setCaptchaType] = useState<CaptchaType>(portal.captchaType)
   const [captchaSiteKey, setCaptchaSiteKey] = useState(portal.captchaSiteKey ?? '')
@@ -119,6 +122,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
   function handleSave() {
     const payload: EnrollmentPortalInput = {
+      areaDoAluno,
       captchaType,
       captchaSiteKey: captchaSiteKey.trim() || null,
       // Só envia secret se mudou — evita sobrescrever com vazio.
@@ -184,6 +188,23 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
           <Button size="sm" variant="primary" onClick={handleSave} disabled={!dirty || update.isPending}>
             <Save size={12} /> {update.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <SectionTitle>Meu Portal (área do aluno)</SectionTitle>
+        <div class="space-y-2">
+          <Checkbox
+            checked={areaDoAluno}
+            onChange={(e) => mark(setAreaDoAluno)((e.target as HTMLInputElement).checked)}
+            label="Ligar a área do aluno neste portal"
+            hint="Quem já é aluno (inscrição efetivada ou aprovada) passa a entrar numa área com Início, Financeiro (faturas pagas e em aberto), Documentos e Contratos. Quem ainda está se inscrevendo continua vendo a tela de candidato. Desligada, o portal fica como sempre foi."
+          />
+          {areaDoAluno && portal.paymentProvider && portal.paymentProvider !== 'asaas' && (
+            <div class="text-2xs text-warning">
+              Com este meio de pagamento o aluno vê as faturas, mas ainda não consegue gerar a próxima parcela pelo portal nem ver as parcelas do cartão (só com Asaas).
+            </div>
+          )}
         </div>
       </Card>
 

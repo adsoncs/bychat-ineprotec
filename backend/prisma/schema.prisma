@@ -4252,6 +4252,11 @@ model EnrollmentPortal {
   // 'transparent' = checkout PIX/boleto/cartão renderiza dentro do portal de inscrição
   paymentMode          String  @default("link") @db.VarChar(20)
 
+  // "Meu Portal" (área do aluno): ligada, quem já é aluno (inscrição efetivada
+  // ou aprovada) entra numa área com faturas, documentos e contratos. Liga e
+  // desliga na aba Configuração do portal. Ver services/areaDoAluno.ts.
+  areaDoAluno          Boolean @default(false)
+
   // Domínio próprio + SEO
   customDomain    String? @db.VarChar(191)
   sslStatus       String? @db.VarChar(20)
