@@ -290,15 +290,31 @@ async function maybeComplete(campaignId: number): Promise<void> {
 }
 
 // Atualiza recipient quando o webhook de status chega (ligado por wamid).
-export async function applyStatusToBroadcast(wamid: string, status: string): Promise<void> {
+// A Meta aceita o envio e só depois avisa que falhou: sem tratar `failed` aqui, a
+// falha ficava como "enviada" no painel. Os filtros de status impedem regressão
+// quando os webhooks chegam fora de ordem (read → delivered, failed → delivered).
+export async function applyStatusToBroadcast(
+  wamid: string,
+  status: string,
+  failure?: { code?: unknown; title?: unknown; message?: unknown } | null,
+): Promise<void> {
   if (!wamid) return
-  const map: Record<string, any> = {
-    delivered: { status: 'delivered', deliveredAt: new Date() },
-    read: { status: 'read', readAt: new Date() },
+  try {
+    if (status === 'delivered') {
+      await prisma.broadcastRecipient.updateMany({ where: { wamid, status: { in: ['queued', 'sent'] } }, data: { status: 'delivered', deliveredAt: new Date() } })
+    } else if (status === 'read') {
+      await prisma.broadcastRecipient.updateMany({ where: { wamid, status: { in: ['queued', 'sent', 'delivered'] } }, data: { status: 'read', readAt: new Date() } })
+    } else if (status === 'failed') {
+      const rec = await prisma.broadcastRecipient.findFirst({ where: { wamid }, select: { id: true, campaignId: true } })
+      if (!rec) return
+      const error = `${failure?.code ?? ''} ${failure?.title || failure?.message || ''}`.trim().substring(0, 500) || 'Falha informada pela Meta'
+      const { count } = await prisma.broadcastRecipient.updateMany({ where: { id: rec.id, status: { not: 'failed' } }, data: { status: 'failed', failedAt: new Date(), error } })
+      // Só mexe nos contadores se esta chamada fez a transição (webhook pode repetir).
+      if (count > 0) await prisma.broadcastCampaign.update({ where: { id: rec.campaignId }, data: { sentCount: { decrement: 1 }, failedCount: { increment: 1 } } })
+    }
+  } catch (e: any) {
+    console.error(`[broadcast] status ${status} de ${wamid} não aplicado:`, e?.message ?? e)
   }
-  const data = map[status]
-  if (!data) return
-  await prisma.broadcastRecipient.updateMany({ where: { wamid }, data }).catch(() => {})
 }
 
 // ─── Scheduler de campanhas agendadas ───────────────────

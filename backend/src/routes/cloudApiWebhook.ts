@@ -815,7 +815,7 @@ async function processStatusUpdate(status: any, app: FastifyInstance) {
   try {
     const pricing = status.pricing || {}
     // Atualiza destinatário de broadcast (se a msg for de uma campanha).
-    import('../services/broadcast.js').then(m => m.applyStatusToBroadcast(msgId, statusValue)).catch(() => {})
+    import('../services/broadcast.js').then(m => m.applyStatusToBroadcast(msgId, statusValue, error)).catch(() => {})
     const { applyStatusToLog } = await import('../services/cloudApiBilling.js')
     await applyStatusToLog(msgId, {
       status: statusValue || undefined,
