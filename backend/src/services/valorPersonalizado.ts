@@ -16,7 +16,7 @@ import type { FastifyRequest } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { atendenteDe, registrarEventoDaInscricao } from './inscricaoAssistida.js'
 import {
-  aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, condicoesDaOpcao, dataIso, descreverOpcao, formasDaOpcao,
+  aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, condicoesDaOpcao, dataIso, descreverOpcao, formasDaOpcao, lerValorCombinado,
   lerRegrasDoPlano, opcoesDoPlano, planoPorId, planosDaOferta, resumoDoPlano, totalDeParcelas,
   type CondicaoNegociada, type PlanoDaOferta, type RegrasDoPlano,
 } from './planoFinanceiro.js'
@@ -254,6 +254,41 @@ async function cancelarAbertas(registrationId: number): Promise<string[]> {
   return [`A cobrança aberta com o valor anterior foi cancelada (${abertas}). Gere a nova cobrança.`, ...avisos]
 }
 
+/** Sem plano (taxa, ou curso sem plano): o que a tela do agente edita. Nunca vai ao candidato. */
+export async function valorAvulsoParaAtendimento(req: FastifyRequest, registrationId: number, cob: { valor: number; valorDaTabela?: number; fonte: string }, portalCobra: boolean) {
+  const quem = await podeValorPersonalizado(req)
+  if (!quem) return null
+  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { condicaoNegociada: true } })
+  const c = lerValorCombinado(r?.condicaoNegociada)
+  return {
+    pode: quem.pode, portalCobra, valor: cob.valor,
+    tabela: cob.fonte === 'negociado' ? (cob.valorDaTabela ?? 0) : cob.valor,
+    combinado: c ? { motivo: c.motivo, por: c.porNome, em: c.em } : null,
+  }
+}
+
+async function salvarValorAvulso(req: FastifyRequest, registrationId: number, body: any, quem: { userId: number; nome: string }): Promise<Resultado> {
+  const { cobrancaDoPortal } = await import('./portalCobranca.js')
+  const cob = await cobrancaDoPortal(registrationId)
+  if (!cob) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
+  if (cob.fonte === 'plano_erp') return { ok: false, status: 400, erro: 'Este curso tem plano de pagamento: edite as condições do plano.' }
+  const centavos = lerReais(body.valorAvulso)
+  if (centavos === null || centavos <= 0) return { ok: false, status: 400, erro: 'Informe um valor maior que zero. Para isentar, use um cupom de 100%.' }
+  const motivo = String(body?.motivo ?? '').trim()
+  if (motivo.length < 3) return { ok: false, status: 400, erro: 'Informe o motivo do valor personalizado.' }
+  const tabela = cob.fonte === 'negociado' ? (cob.valorDaTabela ?? 0) : cob.valor
+  await prisma.enrollmentRegistration.update({
+    where: { id: registrationId },
+    data: { condicaoNegociada: { valorAvulso: { valorCentavos: centavos, tabelaCentavos: Math.round(tabela * 100), motivo: motivo.slice(0, 500), porUserId: quem.userId, porNome: quem.nome, em: new Date().toISOString() } } as any },
+  })
+  const avisos = await cancelarAbertas(registrationId)
+  await registrarEventoDaInscricao({
+    registrationId, etapa: 'pagamento', acao: 'valor_personalizado', ator: 'atendente', userId: quem.userId, userName: quem.nome, req,
+    dados: { valor: reais(centavos), tabela, motivo: motivo.slice(0, 500) },
+  })
+  return { ok: true, condicao: null, avisos }
+}
+
 export async function salvarValorPersonalizado(req: FastifyRequest, registrationId: number, body: any): Promise<Resultado> {
   const quem = await podeValorPersonalizado(req)
   if (!quem) return { ok: false, status: 403, erro: 'Valor personalizado só existe no atendimento pelo painel.' }
@@ -262,6 +297,7 @@ export async function salvarValorPersonalizado(req: FastifyRequest, registration
   const x = await inscricaoParaMudar(registrationId)
   if ('erro' in x) return x.erro!
   const { reg } = x
+  if (body?.valorAvulso !== undefined) return salvarValorAvulso(req, reg.id, body, quem)
 
   const planoId = Number(body?.planoId)
   const planos: PlanoDaOferta[] = await planosDaOferta(reg.processRegistration?.offeringId)

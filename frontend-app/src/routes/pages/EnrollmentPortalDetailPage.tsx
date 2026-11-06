@@ -39,7 +39,8 @@ import { PortalEtapasTab } from './enrollmentPortal/PortalEtapasTab'
 import { PortalAnalyticsTab } from './enrollmentPortal/PortalAnalyticsTab'
 import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
 import { AvisoDuplicidade, DuplicidadesModal } from './enrollmentPortal/DuplicidadesPanel'
-import { NovaInscricaoModal, SeloDaOrigem, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
+import { SeloDaOrigem } from './enrollmentPortal/InscricaoAssistida'
+import { NovaMatriculaModal } from './enrollmentPortal/matricula/NovaMatricula'
 import { usePodeNaTela } from '@/hooks/usePermissions'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
@@ -823,7 +824,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               Atendidas por mim
             </label>
             <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)} class="self-end">
-              <Plus size={12} /> Nova inscrição
+              <Plus size={12} /> Nova matrícula
             </Button></Pode>
             <Button size="sm" variant="secondary" onClick={handleExport} class="self-end">
               <Download size={12} /> Exportar CSV
@@ -922,7 +923,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                       if (r.lead?.id) navigate(`/conversations?leadId=${r.lead.id}`)
                     }}
                     onEnsureLead={() => handleEnsureLead(r)}
-                    onAtender={r.lead?.id && permPortal.criar ? () => navigate(rotaDoAtendimento(portal.id, r.lead!.id)) : undefined}
+                    onAtender={r.lead?.id && permPortal.criar ? () => navigate(`/enrollment-portals/${portal.id}/registrations/${r.id}`) : undefined}
                     onEdit={() => setEditing(r)}
                     onDelete={() => setDeleting(r)}
                     onUnmerge={() => unmerge.mutate(r.id, {
@@ -964,7 +965,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
       )}
 
       {creating && (
-        <NovaInscricaoModal
+        <NovaMatriculaModal
           portalId={portal.id}
           portalNome={portal.nome}
           onClose={() => setCreating(false)}
@@ -1146,7 +1147,7 @@ function RowActionsMenu({
           {onAtender && r.status !== 'cancelled' && r.status !== 'merged' && (
             <MenuButton
               icon={<ExternalLink size={12} />}
-              label="Continuar com o candidato"
+              label="Abrir matrícula"
               disabled={busy}
               onClick={() => { setOpen(false); onAtender() }}
             />

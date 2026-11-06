@@ -620,6 +620,8 @@ export interface DocumentSlot {
   helpText: string | null
   documentType?: { id: number; code: string; name: string; category: string; aiAnalysisTemplate: string | null }
   latestDoc: EnrollmentDocument | null
+  /** A equipe dispensou este documento (matrícula interna). */
+  dispensa?: { motivo: string; por: string; em: string } | null
 }
 
 export type EssayStatus = 'not-required' | 'pending' | 'submitted' | 'reviewing' | 'approved' | 'rejected'

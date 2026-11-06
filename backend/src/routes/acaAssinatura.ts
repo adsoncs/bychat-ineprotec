@@ -262,6 +262,12 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
     return {
       modelo: modelo ? { id: modelo.id, nome: modelo.nome } : null,
       eletronica: await assinaturaEletronicaAtiva(modelo),
+      // Clicksign sem widget manda o convite sozinho ao iniciar: a tela avisa antes.
+      conviteAutomatico: await (async () => {
+        const { provedorAtivo } = await import('../services/assinaturaProvedor.js')
+        if ((await provedorAtivo()) !== 'CLICKSIGN') return false
+        return !(await (await import('../services/clicksign.js')).getConfig()).widget
+      })(),
       assinatura: await estadoDaAssinaturaDaInscricao(regId),
       aceite: aceite?.em ? { em: aceite.em, nome: aceite.nome ?? null, via: aceite.via ?? 'TERMO', ip: aceite.ip || null } : null,
     }

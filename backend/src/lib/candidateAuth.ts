@@ -149,13 +149,16 @@ export interface AtendimentoPayload {
   nome: string
   portalSlug: string
   leadId: number | null
+  /** Matrícula interna: a equipe trabalha fora da ordem das etapas. */
+  interno?: boolean
   exp: number
   kind: 'atendimento'
 }
 
-export function signAtendimento(p: { userId: number; nome: string; portalSlug: string; leadId?: number | null }, ttlHours: number = 2): string {
+export function signAtendimento(p: { userId: number; nome: string; portalSlug: string; leadId?: number | null; interno?: boolean }, ttlHours: number = 2): string {
   const payload: AtendimentoPayload = {
     userId: p.userId, nome: p.nome, portalSlug: p.portalSlug, leadId: p.leadId ?? null,
+    ...(p.interno ? { interno: true } : {}),
     exp: Date.now() + ttlHours * 60 * 60 * 1000,
     kind: 'atendimento',
   }

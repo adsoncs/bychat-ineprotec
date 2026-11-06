@@ -105,6 +105,9 @@ export const EDU_TELAS: TelaDef[] = [
   // e a mensalidade do plano escolhido (sem teto; o candidato vê só o final).
   { id: 'edu_valor_personalizado', legado: 'admin', name: 'Valor personalizado', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
     rotas: [] },
+  // Matrícula interna: dispensar documento ou etapa da inscrição. Só admin herda.
+  { id: 'edu_dispensa_etapas', legado: 'admin', name: 'Dispensar etapas e documentos', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: ['/api/admin/matricula-interna/:id/dispensa'] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
   // Painel comercial do Educacional: vendas (propostas ganhas das inscrições),

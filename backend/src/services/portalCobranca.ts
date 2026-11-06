@@ -17,7 +17,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import type { TabelaDePrecos } from './tabelaDePrecos.js'
-import { aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, opcoesDoPlano, planosDaOferta, valorDaOpcao } from './planoFinanceiro.js'
+import { aplicarCondicaoNegociada, condicaoNegociadaDaInscricao, lerValorCombinado, opcoesDoPlano, planosDaOferta, valorDaOpcao } from './planoFinanceiro.js'
 
 export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
@@ -29,7 +29,9 @@ export interface CobrancaDoPortal {
    *  tabela de preços usa resumoCurso. */
   rotulo: string
   /** De onde veio o valor — ajuda a secretaria a achar onde corrigir. */
-  fonte: 'processo' | 'plano_erp' | 'oferta' | 'tabela' | 'nenhuma'
+  fonte: 'processo' | 'plano_erp' | 'oferta' | 'tabela' | 'nenhuma' | 'negociado'
+  /** Valor da tabela quando a equipe combinou outro (só sem plano; em reais). */
+  valorDaTabela?: number
   contexto: ContextoDaInscricao
   /**
    * Tabela de preços da oferta, quando há: cada meio cobra o curso inteiro pela
@@ -53,7 +55,7 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      portalId: true, formData: true,
+      portalId: true, formData: true, condicaoNegociada: true,
       lead: { select: { email: true } },
       portal: { select: { paymentScope: true, brandLabels: true } },
       processRegistration: {
@@ -95,9 +97,12 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   const MENSALIDADE = texto('resumoMensalidade', '1ª mensalidade')
   const CURSO = texto('resumoCurso', 'Curso')
 
+  const combinado = lerValorCombinado(reg.condicaoNegociada)
   if (reg.portal?.paymentScope !== 'curso') {
     const taxa = Number(reg.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
-    return { escopo: 'taxa', valor: taxa > 0 ? taxa : 0, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
+    const base = taxa > 0 ? taxa : 0
+    if (combinado) return { escopo: 'taxa', valor: combinado.valorCentavos / 100, valorDaTabela: base, rotulo: 'Taxa de inscrição', fonte: 'negociado', contexto }
+    return { escopo: 'taxa', valor: base, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
   }
 
   // Plano de pagamento (services/planoFinanceiro). O valor aqui é o da 1ª
@@ -118,6 +123,8 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   // O plano de pagamento é a única fonte do preço do curso: sem plano ativo,
   // não há o que cobrar (a tabela de preços e os valores avulsos da oferta
   // deixaram de valer). O checkout avisa e o painel mostra "falta plano".
+  // Exceção: a equipe combinou o valor desta inscrição na matrícula interna.
+  if (combinado) return { escopo: 'curso', valor: combinado.valorCentavos / 100, valorDaTabela: 0, rotulo: MATRICULA, fonte: 'negociado', contexto }
   return { escopo: 'curso', valor: 0, rotulo: MATRICULA, fonte: 'nenhuma', contexto }
 }
 

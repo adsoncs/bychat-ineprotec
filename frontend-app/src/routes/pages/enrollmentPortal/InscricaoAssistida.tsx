@@ -1,12 +1,7 @@
-// Inscrição/matrícula INTERNA feita pelo agente (backend: services/inscricaoAssistida.ts).
-//
-// "Nova inscrição" abre, DENTRO do painel, o próprio portal do candidato em
-// modo atendimento: o agente faz as etapas que são dele (curso, forma de
-// ingresso, polo, cadastro, documentos, Pix/boleto) e o sistema gera tudo
-// igual ao portal (lead, inscrição, conta, cobrança, jornada). As etapas do
-// candidato (redação, contrato, cartão, senha) vão por link — "Passar para o
-// candidato". Não existe mais cadastro com status/pagamento escolhidos à mão:
-// pagamento fora do gateway é "Registrar pagamento manual", com comprovante.
+// Matrícula pelo painel: entradas (ficha do lead e conversa), pagamento manual,
+// contrato no papel, histórico e relatório. A matrícula em si é a página da
+// inscrição, em abas (./matricula, 05/11/2026). A tela do portal dentro do painel
+// (AtendimentoPortalPage) ficou sem entrada: sai quando a nova for aprovada.
 
 import { useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
@@ -18,11 +13,11 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
-import { ChevronLeft, ExternalLink, UserPlus, GraduationCap } from '@/components/ui/icon-set'
+import { ChevronLeft, ExternalLink, GraduationCap } from '@/components/ui/icon-set'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCan } from '@/hooks/usePermissions'
+import { NovaMatriculaModal, type LeadInicial } from './matricula/NovaMatricula'
 
-interface LeadDaBusca { id: number; nome: string | null; email: string | null; whatsapp: string | null; inscricaoNoPortal: string | null }
 interface RespostaAtendimento {
   url: string
   expiraEm: string
@@ -69,116 +64,41 @@ export function MatricularPeloPainel({ leadId, de, variante = 'botao', aoAbrir }
 function EscolherPortalModal({ leadId, de, onClose }: { leadId: number; de: string; onClose: () => void }) {
   const [, navigate] = useLocation()
   const portais = useEnrollmentPortals()
+  const [novoEm, setNovoEm] = useState<{ id: number; nome: string } | null>(null)
   const lista = (portais.data?.portals ?? []).filter((p) => p.active && p.formMode !== 'interest')
   const inscricoes = useQuery({
     queryKey: ['inscricoes-do-lead-por-portal', leadId],
-    queryFn: () => api.get<{ porPortal: Record<string, string> }>(`/admin/inscricao-assistida/lead/${leadId}`),
+    queryFn: () => api.get<{ porPortal: Record<string, string>; idPorPortal: Record<string, number>; lead: LeadInicial | null }>(`/admin/inscricao-assistida/lead/${leadId}`),
     staleTime: 10_000,
   })
   const ja = inscricoes.data?.porPortal ?? {}
+  const ids = inscricoes.data?.idPorPortal ?? {}
+  if (novoEm && inscricoes.data?.lead) {
+    return <NovaMatriculaModal portalId={novoEm.id} portalNome={novoEm.nome} lead={inscricoes.data.lead} de={de} onClose={onClose} />
+  }
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Matricular pelo painel"
-      description="Escolha o portal. A matrícula abre aqui no painel, nas mesmas etapas do portal do candidato, e fica registrada em seu nome."
+      description="Escolha o portal. Se já houver inscrição, ela abre direto; senão, você cria a matrícula aqui."
       size="md" footer={<Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>}>
       {portais.isLoading ? <div class="text-xs text-fg-muted">Carregando portais…</div> : lista.length === 0 ? (
         <div class="text-xs text-fg-muted">Nenhum portal com inscrição completa disponível para você.</div>
       ) : (
         <div class="grid gap-1.5 max-h-80 overflow-auto">
           {lista.map((p) => (
-            <button key={p.id} type="button" class="w-full text-left rounded-md border border-border px-3 py-2 hover:bg-surface-3"
-              onClick={() => { onClose(); navigate(rotaDoAtendimento(p.id, leadId, de)) }}>
+            <button key={p.id} type="button" class="w-full text-left rounded-md border border-border px-3 py-2 hover:bg-surface-3" disabled={inscricoes.isLoading}
+              onClick={() => {
+                const reg = ids[String(p.id)]
+                if (reg) { onClose(); navigate(`/enrollment-portals/${p.id}/registrations/${reg}?de=${encodeURIComponent(de)}`) }
+                else setNovoEm({ id: p.id, nome: p.nome })
+              }}>
               <div class="text-sm text-fg">{p.nome}</div>
               {ja[String(p.id)]
-                ? <div class="text-2xs text-info">Já tem a inscrição {ja[String(p.id)]} — continuar de onde parou</div>
-                : <div class="text-2xs text-fg-muted">Nova inscrição</div>}
+                ? <div class="text-2xs text-info">Já tem a inscrição {ja[String(p.id)]}: abrir</div>
+                : <div class="text-2xs text-fg-muted">Nova matrícula</div>}
             </button>
           ))}
         </div>
       )}
-    </Modal>
-  )
-}
-
-export function NovaInscricaoModal({ portalId, portalNome, onClose }: {
-  portalId: number
-  portalNome: string
-  onClose: () => void
-}) {
-  const [, navigate] = useLocation()
-  const [busca, setBusca] = useState('')
-  const [escolhido, setEscolhido] = useState<LeadDaBusca | null>(null)
-  const termo = busca.trim()
-  const leads = useQuery({
-    queryKey: ['inscricao-assistida-leads', portalId, termo],
-    queryFn: () => api.get<{ leads: LeadDaBusca[] }>(`/admin/inscricao-assistida/leads?portalId=${portalId}&q=${encodeURIComponent(termo)}`),
-    enabled: termo.length >= 2 && !escolhido,
-    staleTime: 5_000,
-  })
-
-  return (
-    <Modal
-      open
-      onOpenChange={(o) => { if (!o) onClose() }}
-      title="Nova inscrição"
-      description={`${portalNome}: a inscrição/matrícula é feita aqui no painel, nas mesmas etapas do portal do candidato, e fica registrada em seu nome.`}
-      size="md"
-      footer={
-        <>
-          <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={() => { onClose(); navigate(rotaDoAtendimento(portalId, escolhido?.id)) }}>
-            <UserPlus size={12} /> {escolhido ? 'Iniciar para este lead' : 'Iniciar sem lead'}
-          </Button>
-        </>
-      }
-    >
-      <div class="grid gap-3">
-        <p class="text-xs text-fg-muted">
-          Escolha o lead para a inscrição ficar na ficha dele (e continuar a que ele já tiver neste portal). Sem lead, o cadastro começa em branco e cria a ficha.
-        </p>
-        {escolhido ? (
-          <div class="flex items-center gap-2 rounded-md bg-surface-3 px-3 py-2">
-            <div class="min-w-0 flex-1">
-              <div class="text-sm text-fg truncate">{escolhido.nome || 'Sem nome'}</div>
-              <div class="text-xs text-fg-muted truncate">{[escolhido.whatsapp, escolhido.email].filter(Boolean).join(' · ')}</div>
-              {escolhido.inscricaoNoPortal && (
-                <div class="text-2xs text-info mt-0.5">Já tem a inscrição {escolhido.inscricaoNoPortal} neste portal — o atendimento continua nela.</div>
-              )}
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => setEscolhido(null)}>Trocar</Button>
-          </div>
-        ) : (
-          <div class="grid gap-1.5">
-            <Input
-              label="Buscar lead"
-              value={busca}
-              onInput={(e) => setBusca((e.target as HTMLInputElement).value)}
-              placeholder="Nome, e-mail ou WhatsApp"
-            />
-            {termo.length >= 2 && (
-              <div class="max-h-56 overflow-auto rounded-md border border-border divide-y divide-border">
-                {leads.isLoading && <div class="px-3 py-2 text-xs text-fg-muted">Buscando…</div>}
-                {!leads.isLoading && (leads.data?.leads ?? []).length === 0 && (
-                  <div class="px-3 py-2 text-xs text-fg-muted">Nenhum lead encontrado entre os que você atende.</div>
-                )}
-                {(leads.data?.leads ?? []).map((l) => (
-                  <button key={l.id} type="button" class="w-full text-left px-3 py-2 hover:bg-surface-3" onClick={() => setEscolhido(l)}>
-                    <div class="text-sm text-fg truncate">{l.nome || 'Sem nome'} <span class="text-fg-subtle text-xs">#{l.id}</span></div>
-                    <div class="text-xs text-fg-muted truncate">
-                      {[l.whatsapp, l.email].filter(Boolean).join(' · ')}
-                      {l.inscricaoNoPortal && <span class="text-info"> · inscrição {l.inscricaoNoPortal}</span>}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <ul class="text-2xs text-fg-subtle list-disc pl-4 grid gap-0.5">
-          <li><strong>Você faz:</strong> curso, forma de ingresso, polo, cadastro, documentos e cobrança por Pix/boleto.</li>
-          <li><strong>O candidato faz</strong> (pelo portal dele, com o link de “Passar para o candidato”): redação, assinatura do contrato, cartão de crédito e senha.</li>
-          <li>Pagamento recebido fora do gateway: “Registrar pagamento manual” na página da inscrição.</li>
-        </ul>
-      </div>
     </Modal>
   )
 }
@@ -467,6 +387,8 @@ export function HistoricoDaInscricao({ registrationId }: { registrationId: numbe
                 {Array.isArray(e.dados?.campos) ? <span class="text-fg-muted"> ({(e.dados!.campos as string[]).join(', ')})</span> : null}
                 {e.dados?.cupom ? <span class="text-fg-muted"> · cupom {String(e.dados.cupom)}</span> : null}
                 {e.dados?.assinadoPor ? <span class="text-fg-muted"> (assinado por {String(e.dados.assinadoPor)})</span> : null}
+                {typeof e.dados?.valor === 'number' ? <span class="text-fg-muted"> · {e.dados.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span> : null}
+                {e.dados?.motivo ? <span class="text-fg-muted"> · {String(e.dados.motivo)}</span> : null}
                 <span class="text-fg-muted"> · {e.ator === 'atendente' ? (e.userName || 'Atendente') : e.ator === 'candidato' ? 'Candidato' : 'Sistema'}</span>
               </div>
               <time class="text-fg-subtle tabular-nums whitespace-nowrap">{quando(e.createdAt)}</time>

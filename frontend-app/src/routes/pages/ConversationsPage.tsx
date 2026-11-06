@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { pegarRascunhoPedido } from '@/lib/rascunhoDaConversa'
 import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
@@ -2134,7 +2135,11 @@ function ChatPanel({
     leadAnteriorRef.current = leadId
     // Edição pendente não atravessa conversa.
     setEditando(null)
-    const salvo = rascunhosRef.current.get(leadId) ?? ''
+    // Texto pedido por outra tela (ex.: link do contrato). Fica só na caixa: quem
+    // envia é o agente. Vem pela sessão para o link não passar pela URL.
+    const pedido = pegarRascunhoPedido(leadId)
+    const guardado = rascunhosRef.current.get(leadId) ?? ''
+    const salvo = pedido ? [guardado, pedido].filter(Boolean).join('\n\n') : guardado
     setDraft(salvo)
     // A altura acompanha o texto que acabou de entrar. Sem isto a caixa
     // manteria a altura da conversa anterior até a próxima tecla.

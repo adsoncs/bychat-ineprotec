@@ -22,9 +22,29 @@ export function condicaoAtende(bruto: unknown, formData: unknown): boolean {
   return c.valores.includes(v)
 }
 
-/** Requisitos que valem para esta inscrição (tira os condicionais que não batem). */
-export function requisitosQueValem<T>(lista: T[], formData: unknown): T[] {
+/**
+ * Dispensas da matrícula interna (05/11/2026). Ficam no próprio formData da
+ * inscrição, em `_dispensas`, porque é ele que todo mundo que calcula "o que esta
+ * inscrição exige" já recebe: tela do aluno, jornada, revisão, funil, SEI e
+ * gateway de avaliação passam a enxergar a dispensa sem caminho paralelo.
+ * Quem grava e valida: routes/matriculaInterna.ts.
+ */
+export interface Dispensa { motivo: string; por: string; porId: number; em: string }
+export interface Dispensas { documentos: Record<string, Dispensa>; etapas: Record<string, Dispensa> }
+export function dispensasDe(formData: unknown): Dispensas {
+  const d = (formData as any)?._dispensas
+  return { documentos: (d?.documentos && typeof d.documentos === 'object') ? d.documentos : {}, etapas: (d?.etapas && typeof d.etapas === 'object') ? d.etapas : {} }
+}
+
+/** Requisitos pela condição, MANTENDO os dispensados (tela interna, que mostra o selo). */
+export function requisitosDaCondicao<T>(lista: T[], formData: unknown): T[] {
   return (lista ?? []).filter((r: any) => condicaoAtende(r?.condicao, formData))
+}
+
+/** Requisitos que valem para esta inscrição (tira os condicionais que não batem e os dispensados). */
+export function requisitosQueValem<T>(lista: T[], formData: unknown): T[] {
+  const { documentos } = dispensasDe(formData)
+  return requisitosDaCondicao(lista, formData).filter((r: any) => !documentos[r?.documentType?.code])
 }
 
 /** Frase curta para quem não tem a inscrição em mãos (chatbot, telas de config). */

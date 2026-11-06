@@ -44,12 +44,12 @@ async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
  * por fora da jornada) ou dados da etapa do contrato ainda faltando (ex.:
  * responsável financeiro) — eles entram no contrato, então vêm antes.
  */
-async function impedimentoParaAssinar(registrationId: number, onde: 'inscricao' | 'painel'): Promise<string | null> {
+export async function impedimentoParaAssinar(registrationId: number, onde: 'inscricao' | 'painel', ignorarTrava = false): Promise<string | null> {
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portal: { select: { jornadaEtapas: true } } } })
   const cfg = lerJornada(reg?.portal?.jornadaEtapas)
   const ligada = [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'contrato' && e.ativo)
   if (!ligada) return 'Este portal não pede contrato nesta etapa.'
-  const trava = await bloqueioDaEtapa(registrationId, 'contrato', onde)
+  const trava = ignorarTrava ? null : await bloqueioDaEtapa(registrationId, 'contrato', onde)
   if (trava) return trava
   const dc = await dadosDaEtapa(registrationId, 'contrato')
   if (dc && dc.faltando > 0) return 'Preencha os dados pedidos antes de assinar o contrato.'
@@ -239,7 +239,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     const d = await dadosDaEtapa(s.enrollmentId, etapa)
     if (!d) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     // Dados de uma etapa travada esperam a vez dela, como a ação da etapa.
-    if (CHAVES.includes(etapa as ChaveEtapa)) {
+    if (CHAVES.includes(etapa as ChaveEtapa) && !(req as any).atendente?.interno) {
       const trava = await bloqueioDaEtapa(s.enrollmentId, etapa as ChaveEtapa, ondeDoToken(s))
       if (trava) return reply.code(409).send({ error: trava, travada: true })
     }

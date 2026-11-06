@@ -401,7 +401,7 @@ export interface CampoPreenchido {
 
 /** Chaves do formData que são controle, não resposta do candidato. */
 const CHAVES_TECNICAS = new Set([
-  'campusId', 'offeringId', 'entryModeId', 'ofertaId', 'formaIngressoId', 'planoId', 'portalId',
+  'campusId', 'offeringId', 'entryModeId', 'ofertaId', 'formaIngressoId', 'planoId', 'portalId', '_dispensas',
   'senha', 'password', 'senhaConfirmacao', 'lgpdConsent', 'recaptchaToken', 'captcha',
   'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
   'fbclid', 'gclid', 'referrer',

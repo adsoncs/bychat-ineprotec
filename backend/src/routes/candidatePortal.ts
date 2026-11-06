@@ -299,7 +299,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         paymentPaidAt: enrollment.paymentPaidAt,
         paymentExpiresAt: enrollment.paymentExpiresAt,
         createdAt: enrollment.createdAt,
-        formData: enrollment.formData,
+        formData: (({ _dispensas, ...resto }: any) => resto)(enrollment.formData ?? {}),
       },
       lead: enrollment.lead,
       portal: portalSanitized,
@@ -372,7 +372,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // o stream. Antes desta correção, `type` voltava `undefined` e o doc era
     // salvo como `typeCode='other'` (bug observado com RG).
     const typeCode = String(file.fields?.type?.value || file.fields?.typeCode?.value || 'other').substring(0, 30)
-    {
+    if (!(req as any).atendente?.interno) {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDoDocumento(s.enrollmentId, typeCode, s.onde)
       if (trava) {
         await fs.unlink(filePath).catch(() => {})

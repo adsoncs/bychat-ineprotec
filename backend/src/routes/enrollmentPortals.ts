@@ -368,7 +368,7 @@ async function montarCobrancaDoCheckout(input: {
     return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos, equipe: input.equipe ?? null })
   }
   // O plano é a única fonte do preço do curso: sem plano, não se cobra.
-  if (cob?.escopo === 'curso') return { erro: SEM_PLANO }
+  if (cob?.escopo === 'curso' && cob.fonte !== 'negociado') return { erro: SEM_PLANO }
   // Com tabela de preços na oferta, cada meio tem preço e parcelas próprios
   // (services/tabelaDePrecos); sem ela, vale o valor único e a regra do portal.
   const tabela = cob?.tabela ?? null
@@ -1822,6 +1822,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
     if (body.formData !== undefined && typeof body.formData === 'object' && body.formData) {
       // Merge sobre o formData existente (preserva campos não enviados pelo form do admin).
+      delete body.formData._dispensas
       data.formData = { ...((reg.formData as object) ?? {}), ...body.formData }
     }
 
@@ -2185,7 +2186,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // no ar, e o catálogo que o atendimento por IA consulta também, mas inscrição
     // nova não entra, nem pelo site nem pelo chat.
     const pausa = (portal.formConfig as any)?.inscricoesPausadas
-    if (pausa?.ativo) return reply.code(403).send({ error: pausa.mensagem || 'As inscrições online estão pausadas no momento.', inscricoesPausadas: true })
+    if (pausa?.ativo && !atendente?.interno) return reply.code(403).send({ error: pausa.mensagem || 'As inscrições online estão pausadas no momento.', inscricoesPausadas: true })
 
     // Portais 'interest' não aceitam submissão completa por aqui — eles têm
     // sua própria rota /interest. Defesa em profundidade: se alguém tentar
@@ -2211,6 +2212,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     // Campos mínimos do formData
     const fd = body.formData || {}
+    // Dispensa só se grava pela matrícula interna, com permissão e motivo.
+    delete fd._dispensas
     // A senha é do candidato: numa inscrição assistida ela não vem do atendente.
     if (atendente) { delete fd.senha; delete fd.password; delete fd.senha_confirmacao }
     const nome = String(fd.nome || '').trim()
@@ -2292,7 +2295,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       {
         const { foraDoPeriodo } = await import('../services/portalModos.js')
         const fora = foraDoPeriodo(offering)
-        if (fora) return reply.code(400).send({ error: fora, foraDoPeriodo: true })
+        if (fora && !atendente?.interno) return reply.code(400).send({ error: fora, foraDoPeriodo: true })
       }
       selectionProcessId = offering.selectionProcessId
       entryModeCode = offering.selectionProcess?.entryMode?.code || null
@@ -2360,7 +2363,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const empty = val == null || val === '' || (Array.isArray(val) && val.length === 0)
       if (empty) missingFields.push(ex.label || ex.name)
     }
-    if (missingFields.length > 0) {
+    // Matrícula interna: o agente completa o cadastro depois, na aba Cadastro
+    // (a etapa segue pendente até lá).
+    if (missingFields.length > 0 && !atendente?.interno) {
       return reply.code(400).send({
         error: `Campos obrigatórios não preenchidos: ${missingFields.slice(0, 5).join(', ')}${missingFields.length > 5 ? ` e mais ${missingFields.length - 5}` : ''}`,
         missingFields,
@@ -2673,6 +2678,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Retomada: a cobrança que estava aberta pode ser de outro curso ou outro
     // preço — cancela no gateway; a pessoa gera a nova no checkout.
     if (retomada) {
+      // Novo envio da mesma pessoa não desfaz o que a equipe dispensou.
+      const anterior = await prisma.enrollmentRegistration.findUnique({ where: { id: retomada.id }, select: { formData: true } })
+      const dispensasAntes = (anterior?.formData as any)?._dispensas
+      if (dispensasAntes) fd._dispensas = dispensasAntes
       const avisos = await cancelarCobrancasAbertas(retomada.id, 'Substituída por novo envio da mesma pessoa').catch(() => [] as string[])
       if (avisos.length) req.log.warn(`[enrollment] retomada ${candidateCode}: ${avisos.join(' | ')}`)
     }
@@ -3031,7 +3040,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         portal: {
           select: {
             id: true,
-            paymentScope: true, paymentMethodsConfig: true, requirePayment: true,
+            paymentScope: true, paymentMethodsConfig: true, requirePayment: true, paymentMode: true,
             paymentConnection: { select: { id: true, provider: true, active: true, environment: true, publicKey: true } },
           },
         },
@@ -3119,14 +3128,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const negociacao = await negociacaoParaAtendimento(req, enrollment.id, peloPlano.plano.id)
       return reply.send(negociacao ? { ...tela, negociacao } : tela)
     }
-    if (cob?.escopo === 'curso') {
+    // Sem plano, o valor se edita inteiro (só o agente recebe este bloco).
+    const { valorAvulsoParaAtendimento } = await import('../services/valorPersonalizado.js')
+    const valorAvulso = cob ? await valorAvulsoParaAtendimento(req, enrollment.id, cob, !!enrollment.portal?.requirePayment && enrollment.portal?.paymentMode === 'transparent') : null
+    if (cob?.escopo === 'curso' && cob.fonte !== 'negociado') {
       return reply.send({
+        ...(valorAvulso ? { valorAvulso } : {}),
         escopo: 'curso', rotulo: cob.rotulo, valor: 0, semPlano: true, aviso: SEM_PLANO,
         meios: { pix: { ativo: false }, boleto: { ativo: false }, cartao: { ativo: false } },
       })
     }
 
     return reply.send({
+      ...(valorAvulso ? { valorAvulso } : {}),
       escopo: cob?.escopo ?? (enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa'),
       rotulo: cob?.rotulo ?? 'Taxa de inscrição',
       valor,
@@ -3233,7 +3247,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const sess = requirePaymentSession(req, code)
     if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
     const equipeCupom = await equipeDoCupom(req)
-    {
+    const agenteInterno = !!atendenteDe(req)?.interno
+    if (!agenteInterno) {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(sess.enrollmentId, 'pagamento', ondeDoToken(sess))
       if (trava) return reply.code(409).send({ error: trava, travada: true })
     }
@@ -3270,7 +3285,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     // Portal com inscrições pausadas também não gera cobrança nova.
-    if ((enrollment.portal?.formConfig as any)?.inscricoesPausadas?.ativo) {
+    if ((enrollment.portal?.formConfig as any)?.inscricoesPausadas?.ativo && !agenteInterno) {
       return reply.code(403).send({ error: 'Os pagamentos online estão pausados no momento. Fale com a nossa equipe.', inscricoesPausadas: true })
     }
     if (!enrollment.portal?.requirePayment) {
@@ -4937,11 +4952,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!(await canUserAccessLead(u.userId, u.role as any, leadId))) return reply.code(403).send({ error: 'Você não tem acesso a este lead.' })
     const regs = await prisma.enrollmentRegistration.findMany({
       where: { leadId, status: { notIn: ['merged', 'cancelled'] } }, orderBy: { id: 'desc' },
-      select: { portalId: true, candidateCode: true },
+      select: { id: true, portalId: true, candidateCode: true },
     })
     const porPortal: Record<string, string> = {}
-    for (const r of regs) if (!porPortal[String(r.portalId)]) porPortal[String(r.portalId)] = r.candidateCode
-    return { porPortal }
+    const idPorPortal: Record<string, number> = {}
+    for (const r of regs) if (!porPortal[String(r.portalId)]) { porPortal[String(r.portalId)] = r.candidateCode; idPorPortal[String(r.portalId)] = r.id }
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, nome: true, email: true, whatsapp: true, formData: true } })
+    const cpf = String((lead?.formData as any)?.cpf ?? '')
+    return { porPortal, idPorPortal, lead: lead ? { id: lead.id, nome: lead.nome, email: lead.email, whatsapp: lead.whatsapp, cpf } : null }
   })
 
   // GET /api/admin/enrollment-portals/:id/atendimento-relatorio?dias=30

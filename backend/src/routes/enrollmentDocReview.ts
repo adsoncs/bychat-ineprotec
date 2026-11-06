@@ -11,7 +11,7 @@ import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
-import { requisitosQueValem } from '../services/docCondicional.js'
+import { dispensasDe, requisitosDaCondicao, requisitosQueValem } from '../services/docCondicional.js'
 // Formulário inteiro da inscrição (rótulos do portal) para a tela mostrar tudo.
 import { camposDoFormulario, agruparCampos } from '../services/dadosCadastro.js'
 
@@ -456,16 +456,25 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       if (code && !latestByCode[code]) latestByCode[code] = d
     }
 
-    const slots = requirements.map((r: any) => ({
+    // A tela interna mostra também os dispensados, com o selo (o cálculo de
+    // "completo" abaixo usa `requirements`, que já vem sem eles).
+    const docsDispensados = dispensasDe((reg as any).formData).documentos
+    const todosOsRequisitos: any[] = sp
+      ? requisitosDaCondicao(sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
+          ? sp.documentRequirements
+          : (sp.entryMode?.documentRequirements || []), (reg as any).formData)
+      : []
+    const slots = todosOsRequisitos.map((r: any) => ({
       ordem: r.ordem,
       required: r.required,
       helpText: r.helpText,
       documentType: r.documentType,
       latestDoc: r.documentType?.code ? (latestByCode[r.documentType.code] || null) : null,
+      dispensa: (r.documentType?.code && docsDispensados[r.documentType.code]) || null,
     }))
 
     // Extras = docs cujo code não bate com nenhum requirement
-    const requiredCodes = new Set(requirements.map((r: any) => r.documentType?.code).filter(Boolean))
+    const requiredCodes = new Set(todosOsRequisitos.map((r: any) => r.documentType?.code).filter(Boolean))
     const extras = reg.documents.filter(d => {
       const code = d.type?.code || d.typeCode
       return !code || !requiredCodes.has(code)

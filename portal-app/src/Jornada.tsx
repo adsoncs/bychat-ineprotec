@@ -44,18 +44,18 @@ export function Jornada(props: {
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(props.etapas ?? null)
   const [slug, setSlug] = useState<string | null>(props.portalSlug ?? null)
   const [falha, setFalha] = useState<string | null>(null)
-  // Painel: o link "#etapa-contrato" (início do portal, passos do aluno) abre
+  // O link "#etapa-contrato" (início do portal, passos do aluno, ou o link que a
+  // equipe manda pela matrícula interna) abre
   // a etapa direto, em vez de deixar a pessoa procurando onde clicar.
   const daAncora = () => (/^#etapa-(\w+)/.exec(location.hash)?.[1] ?? null)
-  const [aberta, setAberta] = useState<string | null>(props.contexto === 'painel' ? daAncora() : null)
+  const [aberta, setAberta] = useState<string | null>(daAncora())
   useEffect(() => {
-    if (props.contexto !== 'painel') return
     const aoMudar = () => { const c = daAncora(); if (c) setAberta(c) }
     window.addEventListener('hashchange', aoMudar)
     return () => window.removeEventListener('hashchange', aoMudar)
   }, [])
   useEffect(() => {
-    if (aberta && props.contexto === 'painel') document.getElementById(`etapa-${aberta}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (aberta) document.getElementById(`etapa-${aberta}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [aberta, !!etapas])
 
   async function recarregar() {
@@ -81,6 +81,9 @@ export function Jornada(props: {
   const daVez = props.contexto === 'inscricao'
     ? etapas.find((e) => !resolvida(e) && !e.bloqueada) ?? null
     : null
+  // Na inscrição, o link pode apontar para etapa travada ou já concluída: aí vale a da vez.
+  const alvoDoLink = etapas.find((e) => e.chave === aberta)
+  const abertaValida = props.contexto === 'inscricao' && (!alvoDoLink || alvoDoLink.bloqueada || alvoDoLink.situacao === 'feito') ? null : aberta
   const tudoFeito = tudoPronto
   // "Concluída" é só o que terminou; em análise ainda não conta.
   const concluidas = etapas.filter((e) => e.situacao === 'feito').length
@@ -115,7 +118,7 @@ export function Jornada(props: {
           // Inscrição: a da vez abre sozinha até a pessoa escolher outra (ou fechar).
           // Travada: não abre — o servidor recusaria a ação de qualquer jeito.
           const travada = !!e.bloqueada
-          const expandida = !travada && (props.contexto === 'inscricao' && aberta === null ? daVez?.chave === e.chave : aberta === e.chave)
+          const expandida = !travada && (props.contexto === 'inscricao' && abertaValida === null ? daVez?.chave === e.chave : abertaValida === e.chave)
           return (
             <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${travada ? 'travada' : e.situacao} ${!travada && temRecusa(e) ? 'alerta' : ''} ${expandida ? 'aberta' : ''}`}>
               <div class="etapa-cabeca">

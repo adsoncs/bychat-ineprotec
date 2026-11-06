@@ -31,6 +31,8 @@ export interface Atendente {
   nome: string
   portalSlug: string
   leadId: number | null
+  /** Matrícula interna: sem a ordem das etapas, prazo do edital ou pausa do portal. */
+  interno: boolean
 }
 
 export type AtorDoEvento = 'candidato' | 'atendente' | 'sistema'
@@ -182,7 +184,7 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
         soOCandidato: true,
       })
     }
-    ;(req as any).atendente = { userId: tok.userId, nome: u.nome || tok.nome, portalSlug: tok.portalSlug, leadId: tok.leadId } satisfies Atendente
+    ;(req as any).atendente = { userId: tok.userId, nome: u.nome || tok.nome, portalSlug: tok.portalSlug, leadId: tok.leadId, interno: !!tok.interno } satisfies Atendente
   })
 
   app.addHook('onResponse', async (req, reply) => {
@@ -193,6 +195,8 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
     const at = atendenteDe(req)
     const registrationId = await inscricaoDaRequisicao(req).catch(() => null)
     if (!registrationId) return
+    // Matrícula interna: agir pelas abas conta como conduzir a inscrição.
+    if (at?.interno) await prisma.enrollmentRegistration.update({ where: { id: registrationId }, data: { atendidoPorUserId: at.userId } }).catch(() => {})
     const dados: Record<string, unknown> = {}
     if (r.acao === 'cobranca_gerada') {
       dados.meio = (req.body as any)?.method ?? null
@@ -229,4 +233,11 @@ export const ROTULO_ACAO: Record<string, string> = {
   contrato_presencial: 'Contrato assinado no papel registrado',
   valor_personalizado: 'Valor personalizado definido',
   valor_personalizado_removido: 'Valor personalizado removido (voltou à tabela)',
+  link_contrato: 'Link do contrato gerado para o aluno',
+  assinatura_iniciada: 'Assinatura eletrônica iniciada pela equipe',
+  etapa_dispensada: 'Etapa dispensada',
+  etapa_dispensa_removida: 'Dispensa da etapa removida',
+  documento_dispensado: 'Documento dispensado',
+  documento_dispensa_removida: 'Dispensa do documento removida',
+  curso_alterado: 'Curso, forma de ingresso ou polo alterado',
 }

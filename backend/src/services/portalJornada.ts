@@ -15,7 +15,7 @@
 import { prisma } from '../lib/prisma.js'
 import { getTermoTemplate } from './acaContrato.js'
 import { normalizarDados, dadosEfetivos, camposDaEtapa, valoresAtuais, type EtapaDados } from './dadosCadastro.js'
-import { requisitosQueValem } from './docCondicional.js'
+import { dispensasDe, requisitosQueValem } from './docCondicional.js'
 
 export type ChaveEtapa = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
 export const CHAVES: ChaveEtapa[] = ['cadastro', 'analise', 'pagamento', 'documentos', 'contrato', 'prova']
@@ -227,6 +227,8 @@ export async function matriculaDaInscricao(registrationId: number): Promise<Matr
 export type SituacaoEtapa = 'feito' | 'pendente' | 'aguardando'
 
 export interface EtapaDaInscricao {
+  /** A equipe dispensou esta etapa na matrícula interna. */
+  dispensada?: boolean
   chave: ChaveEtapa
   titulo: string
   situacao: SituacaoEtapa
@@ -418,7 +420,8 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       // levou a remover histórico/ementa da 2ª graduação em 14/10 no dado).
       // Opcional é COLETADO na etapa Documentos; não é conferido na análise.
       const exigeDe = new Map(exigidos.map((x) => [x.documentType.code, x.required]))
-      const codigos = exigidos.length ? e.documentos.filter((c) => exigeDe.get(c) === true) : e.documentos
+      const dispensadosAqui = dispensasDe(reg.formData).documentos
+      const codigos = (exigidos.length ? e.documentos.filter((c) => exigeDe.get(c) === true) : e.documentos).filter((c) => !dispensadosAqui[c])
       if (!codigos.length) continue
       const tipos = await prisma.documentType.findMany({ where: { code: { in: codigos } }, select: { code: true, name: true } })
       const nomeDe = new Map(tipos.map((t) => [t.code, t.name]))
@@ -524,6 +527,16 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       et.dadosFaltando = falta
       if (et.situacao !== 'feito') { et.situacao = 'pendente'; et.detalhe = `Faltam ${falta} dado(s) · ${et.detalhe}` }
     } else if (falta === 0) et.dadosFaltando = 0
+  }
+  // Matrícula interna: a equipe dispensou a etapa. Conta como concluída para o
+  // aluno, para as travas e para o funil. O aceite do contrato NÃO é simulado:
+  // quem exige assinatura de verdade (SEI, Moodle) lê contratoAceite.
+  const dispensadas = dispensasDe(reg.formData).etapas
+  for (const et of etapas) {
+    if (!dispensadas[et.chave] || et.situacao === 'feito') continue
+    et.situacao = 'feito'
+    et.detalhe = 'Dispensada pela equipe'
+    et.dispensada = true
   }
   aplicarTravas(etapas, lista, entryModeId)
   return { portal: reg.portal ? { id: reg.portal.id, slug: reg.portal.slug, nome: reg.portal.nome } : null, etapas }

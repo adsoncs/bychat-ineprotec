@@ -1,10 +1,15 @@
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
-import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal, rotaDoAtendimento } from './enrollmentPortal/InscricaoAssistida'
-import { useState } from 'preact/hooks'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal } from './enrollmentPortal/InscricaoAssistida'
+import { AbaFinanceiro } from './enrollmentPortal/matricula/AbaFinanceiro'
+import { AbaCadastro } from './enrollmentPortal/matricula/AbaCadastro'
+import { PedirAssinatura } from './enrollmentPortal/matricula/PedirAssinatura'
+import { BotaoDispensa, SeloDispensa, invalidarInscricao } from './enrollmentPortal/matricula/Dispensa'
+import { chamarComoAgente } from './enrollmentPortal/matricula/sessao'
+import { useRef, useState } from 'preact/hooks'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
-  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye, Lock, GraduationCap,
+  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye, Lock, GraduationCap, LayoutDashboard, IdCard, Wallet, History as IconeHistorico, Paperclip, Trash2,
 } from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
@@ -96,6 +101,28 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
     enabled: Number.isFinite(regId),
     staleTime: 15_000,
   })
+  // A aba fica na URL: recarregar ou mandar o endereço abre no mesmo lugar.
+  const [aba, setAbaInterna] = useState<AbaMatricula>(() => {
+    const v = new URLSearchParams(window.location.search).get('aba')
+    return (ABAS_VALIDAS as string[]).includes(v ?? '') ? v as AbaMatricula : 'resumo'
+  })
+  const setAba = (a: AbaMatricula) => {
+    setAbaInterna(a)
+    const q = new URLSearchParams(window.location.search)
+    q.set('aba', a)
+    window.history.replaceState(null, '', `${window.location.pathname}?${q}`)
+  }
+  const todasAsEtapas = unirEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel)
+  const etapaAnalise = todasAsEtapas.find((e) => e.chave === 'analise')
+  const etapaContrato = todasAsEtapas.find((e) => e.chave === 'contrato')
+  const temAvaliacao = !!review?.essay?.required || todasAsEtapas.some((e) => e.chave === 'prova')
+  const aberta = !!review && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status))
+  const dispensasDaTela = ((review?.registration.formData as any)?._dispensas ?? {}) as { etapas?: Record<string, { motivo: string; por: string; em: string }> }
+  const verComoAluno = useMutation({
+    mutationFn: () => api.post<{ url: string }>('/admin/inscricao-assistida', { portalId, leadId: review?.lead?.id ?? null }),
+    onSuccess: (r) => window.open(r.url, '_blank', 'noopener'),
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
 
   function handleReceipt() {
     downloadFile(
@@ -112,27 +139,16 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
       description={review?.lead?.nome ?? 'Detalhe da inscrição'}
       actions={
         <>
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/enrollment-portals/${portalId}`)}>
+          <Button variant="ghost" size="sm" onClick={() => {
+            const de = new URLSearchParams(window.location.search).get('de')
+            navigate(de && de.startsWith('/') && !de.startsWith('//') ? de : `/enrollment-portals/${portalId}`)
+          }}>
             <ChevronLeft size={14} /> Voltar
           </Button>
-          {review && podeAtender && review.lead?.id && !['cancelled', 'merged'].includes(String(review.registration.status)) && (
-            <Button variant="primary" size="sm"
-              title="Abre o portal desta inscrição aqui no painel, em atendimento: você faz as etapas que são suas e tudo fica registrado em seu nome"
-              onClick={() => navigate(rotaDoAtendimento(portalId, review.lead!.id))}>
-              Continuar inscrição
-            </Button>
-          )}
-          {review && podePagamentoManual && review.registration.paymentStatus !== 'paid' && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status)) && (
-            <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)}
-              title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha) — com comprovante">
-              Registrar pagamento manual
-            </Button>
-          )}
-          {review && podeContratoPapel && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status))
-            && [...(etapasDaPagina.data?.inscricao ?? []), ...(etapasDaPagina.data?.painel ?? [])].some((e) => e.chave === 'contrato' && e.situacao !== 'feito') && (
-            <Button variant="secondary" size="sm" onClick={() => setContratoPapel(true)}
-              title="O candidato assinou a via impressa: anexe a via digitalizada">
-              Contrato assinado no papel
+          {review && podeAtender && review.lead?.id && aberta && (
+            <Button variant="secondary" size="sm" disabled={verComoAluno.isPending} onClick={() => verComoAluno.mutate()}
+              title="Abre em outra aba o portal como o aluno vê esta inscrição">
+              <Eye size={12} /> Ver como o aluno vê
             </Button>
           )}
           {review && (
@@ -162,41 +178,87 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               Você vê esta inscrição, mas as ações que exigem "Editar" (no Portal, na Revisão de documentos ou em Avaliações) ficam desativadas para o seu perfil.
             </div>
           )}
-          <StatusBanner review={review} />
-          {/* Padrão da tela: o acesso do candidato sempre primeiro; depois quem
-              é e o que se inscreveu; depois as etapas NA ORDEM do portal (aba
-              Etapas › tela de inscrição) — a mesma do cabeçalho e do candidato. */}
-          <SomenteLeitura aviso={false} tela="enrollment_portals"><CandidatePortalCard review={review} /></SomenteLeitura>
-          <CandidateCard review={review} />
-          <ComercialInscricaoCard registrationId={review.registration.id} />
-          <DadosCadastroCard review={review} />
-          <RegistrationCard review={review} />
-          {ordemDasEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel).map((chave) => {
-            const id = review.registration.id
-            if (chave === 'analise') {
-              const et = [...(etapasDaPagina.data?.inscricao ?? []), ...(etapasDaPagina.data?.painel ?? [])].find((e) => e.chave === 'analise')
-              return et?.analise ? <SomenteLeitura aviso={false} key={chave} tela="edu_revisao_documentos"><AnaliseAcademicaCard registrationId={id} etapa={et} /></SomenteLeitura> : null
-            }
-            if (chave === 'pagamento') return <SomenteLeitura aviso={false} key={chave} tela="enrollment_portals"><PaymentMethodsBlock registrationId={id} /></SomenteLeitura>
-            if (chave === 'contrato') return <SomenteLeitura aviso={false} key={chave} tela="enrollment_portals"><ContratoDaInscricaoCard registrationId={id} /></SomenteLeitura>
-            if (chave === 'prova') return <SomenteLeitura aviso={false} key={chave} tela="edu_avaliacoes"><RedacaoCard review={review} /></SomenteLeitura>
-            if (chave === 'documentos') {
-              return (
-                <SomenteLeitura aviso={false} key={chave} tela="edu_revisao_documentos">
-                  <SlotsCard review={review} />
-                  {review.extras.length > 0 && <ExtrasCard extras={review.extras} registrationId={id} />}
-                  {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
-                  <BulkActionsCard registrationId={id} />
-                </SomenteLeitura>
-              )
-            }
-            return null
-          })}
-          {/* Notas do ENEM: não é etapa da jornada; o bloco some sozinho sem nota importada. */}
-          <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
-          {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
-          <SeiInscricaoCard registrationId={review.registration.id} />
-          <MoodleInscricaoCard registrationId={review.registration.id} />
+          <StatusBanner review={review} aoAbrirEtapa={(chave) => setAba(abaDaEtapa(chave))} />
+          <AbasDaMatricula aba={aba} aoMudar={setAba} etapas={todasAsEtapas} temAvaliacao={temAvaliacao} />
+
+          {aba === 'resumo' && (
+            <div class="grid gap-3">
+              <EtapasCard registrationId={review.registration.id} etapas={todasAsEtapas} dispensas={dispensasDaTela.etapas} aoAbrir={(chave) => setAba(abaDaEtapa(chave))} podeOperar={podeAtender && aberta} />
+              <div class="grid gap-3 lg:grid-cols-2">
+                <CandidateCard review={review} />
+                <RegistrationCard review={review} />
+              </div>
+              <SomenteLeitura aviso={false} tela="enrollment_portals"><CandidatePortalCard review={review} /></SomenteLeitura>
+              <ComercialInscricaoCard registrationId={review.registration.id} />
+              {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
+              <SeiInscricaoCard registrationId={review.registration.id} />
+              <MoodleInscricaoCard registrationId={review.registration.id} />
+            </div>
+          )}
+
+          {aba === 'cadastro' && (podeAtender && aberta
+            ? <AbaCadastro review={review} podeEditar />
+            : <div class="grid gap-3"><CandidateCard review={review} /><DadosCadastroCard review={review} /><RegistrationCard review={review} /></div>)}
+
+          {aba === 'financeiro' && (podeAtender ? (
+            <AbaFinanceiro registrationId={review.registration.id} pago={review.registration.paymentStatus === 'paid'} fechada={!aberta}
+              acoes={podePagamentoManual && review.registration.paymentStatus !== 'paid' && aberta
+                ? <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)} title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha), com comprovante">Registrar pagamento manual</Button>
+                : undefined}>
+              <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} /></SomenteLeitura>
+            </AbaFinanceiro>
+          ) : <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} /></SomenteLeitura>)}
+
+          {aba === 'documentos' && (
+            <div class="grid gap-3">
+              {etapaAnalise?.analise && <SomenteLeitura aviso={false} tela="edu_revisao_documentos"><AnaliseAcademicaCard registrationId={review.registration.id} etapa={etapaAnalise} /></SomenteLeitura>}
+              <SomenteLeitura aviso={false} tela="edu_revisao_documentos">
+                <SlotsCard review={review} podeOperar={podeAtender && aberta} />
+                {(review.extras.length > 0 || (podeAtender && aberta)) && <ExtrasCard extras={review.extras} registrationId={review.registration.id} podeOperar={podeAtender && aberta} />}
+                {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
+                <BulkActionsCard registrationId={review.registration.id} />
+              </SomenteLeitura>
+            </div>
+          )}
+
+          {aba === 'contrato' && (
+            <div class="grid gap-3">
+              {aberta && etapaContrato && etapaContrato.situacao !== 'feito' && podeAtender && (
+                <PedirAssinatura registrationId={review.registration.id} whatsapp={review.lead?.whatsapp} />
+              )}
+              {aberta && etapaContrato && podeAtender && (etapaContrato.situacao !== 'feito' || etapaContrato.dispensada) && (
+                <Card>
+                  <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="text-xs text-fg-muted max-w-2xl">
+                      Se o aluno assinou a via impressa, anexe aqui.
+                      {dispensasDaTela.etapas?.contrato && <div class="mt-1"><SeloDispensa dispensa={dispensasDaTela.etapas.contrato} /></div>}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      {podeContratoPapel && <Button variant="secondary" size="sm" onClick={() => setContratoPapel(true)}>Contrato assinado no papel</Button>}
+                      <BotaoDispensa registrationId={review.registration.id} tipo="etapa" chave="contrato" nome="Contrato" dispensa={dispensasDaTela.etapas?.contrato} aviso={AVISO_DISPENSA.contrato} />
+                    </div>
+                  </div>
+                </Card>
+              )}
+              <SomenteLeitura aviso={false} tela="enrollment_portals"><ContratoDaInscricaoCard registrationId={review.registration.id} /></SomenteLeitura>
+            </div>
+          )}
+
+          {aba === 'avaliacao' && (
+            <div class="grid gap-3">
+              <SomenteLeitura aviso={false} tela="edu_avaliacoes"><RedacaoCard review={review} /></SomenteLeitura>
+              {/* Notas do ENEM: não é etapa da jornada; o bloco some sozinho sem nota importada. */}
+              <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
+            </div>
+          )}
+
+          {aba === 'historico' && (
+            <Card>
+              <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Histórico da inscrição</div>
+              <HistoricoDaInscricao registrationId={review.registration.id} />
+            </Card>
+          )}
+
           {contratoPapel && (
             <ContratoPresencialModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode}
               nomeCandidato={review.lead?.nome} onClose={() => setContratoPapel(false)} />
@@ -204,15 +266,144 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           {pagamentoManual && (
             <PagamentoManualModal registrationId={review.registration.id} candidateCode={review.registration.candidateCode} onClose={() => setPagamentoManual(false)} />
           )}
-          {/* Quem fez cada passo: candidato, atendente ou sistema (inscrição assistida). */}
-          <Card>
-            <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Histórico da inscrição</div>
-            <HistoricoDaInscricao registrationId={review.registration.id} />
-          </Card>
         </>
       )}
     </Page>
   )
+}
+
+// ── Abas da matrícula interna ───────────────────────────────────────────────
+
+type AbaMatricula = 'resumo' | 'cadastro' | 'financeiro' | 'documentos' | 'contrato' | 'avaliacao' | 'historico'
+const ABAS_VALIDAS: AbaMatricula[] = ['resumo', 'cadastro', 'financeiro', 'documentos', 'contrato', 'avaliacao', 'historico']
+const abaDaEtapa = (chave: string): AbaMatricula =>
+  chave === 'cadastro' ? 'cadastro' : chave === 'pagamento' ? 'financeiro' : chave === 'contrato' ? 'contrato' : chave === 'prova' ? 'avaliacao' : 'documentos'
+
+/** Etapas da inscrição e do portal logado, sem repetir (vale a da inscrição). */
+function unirEtapas(a: EtapaAdmin[] | undefined, b: EtapaAdmin[] | undefined): EtapaAdmin[] {
+  const out = [...(a ?? [])]
+  for (const e of b ?? []) if (!out.some((x) => x.chave === e.chave)) out.push(e)
+  return out
+}
+
+function AbasDaMatricula({ aba, aoMudar, etapas, temAvaliacao }: { aba: AbaMatricula; aoMudar: (a: AbaMatricula) => void; etapas: EtapaAdmin[]; temAvaliacao: boolean }) {
+  const lista: Array<{ id: AbaMatricula; rotulo: string; icone: preact.ComponentChildren }> = [
+    { id: 'resumo', rotulo: 'Resumo', icone: <LayoutDashboard size={14} /> },
+    { id: 'cadastro', rotulo: 'Cadastro', icone: <IdCard size={14} /> },
+    { id: 'financeiro', rotulo: 'Financeiro', icone: <Wallet size={14} /> },
+    { id: 'documentos', rotulo: 'Documentos', icone: <FileCheck2 size={14} /> },
+    { id: 'contrato', rotulo: 'Contrato', icone: <FileText size={14} /> },
+    ...(temAvaliacao ? [{ id: 'avaliacao' as AbaMatricula, rotulo: 'Avaliação', icone: <Award size={14} /> }] : []),
+    { id: 'historico', rotulo: 'Histórico', icone: <IconeHistorico size={14} /> },
+  ]
+  // Bolinha: pendente em âmbar, aguardando a equipe em azul, concluída em verde.
+  const situacao = (id: AbaMatricula) => {
+    const daAba = etapas.filter((e) => abaDaEtapa(e.chave) === id && id !== 'resumo')
+    if (!daAba.length) return null
+    if (daAba.some((e) => e.situacao === 'pendente')) return 'bg-warning'
+    if (daAba.some((e) => e.situacao === 'aguardando')) return 'bg-info'
+    return 'bg-success'
+  }
+  return (
+    <div class="border-b border-border flex gap-1 overflow-x-auto" role="tablist">
+      {lista.map((t) => {
+        const cor = situacao(t.id)
+        return (
+          <button key={t.id} type="button" role="tab" aria-selected={aba === t.id}
+            class={`inline-flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-[1px] ${aba === t.id ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:text-fg'}`}
+            onClick={() => aoMudar(t.id)}>
+            {t.icone} {t.rotulo}
+            {cor && <span class={`inline-block size-1.5 rounded-full ${cor}`} />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** O que falta nesta inscrição, numa tabela só, com o caminho para resolver. */
+const ETAPAS_QUE_DISPENSAM = ['cadastro', 'analise', 'documentos', 'contrato', 'prova']
+const AVISO_DISPENSA: Record<string, string> = {
+  contrato: 'O aceite não é simulado: a etapa conclui para o aluno e para o funil, mas SEI e Moodle continuam esperando o contrato assinado.',
+}
+function EtapasCard({ registrationId, etapas, dispensas, aoAbrir, podeOperar }: {
+  registrationId: number
+  etapas: EtapaAdmin[]
+  dispensas: Record<string, { motivo: string; por: string; em: string }> | undefined
+  aoAbrir: (chave: string) => void
+  podeOperar: boolean
+}) {
+  if (!etapas.length) return null
+  return (
+    <Card>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Etapas</div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[36rem]">
+          <thead><tr class="text-left text-xs text-fg-subtle border-b border-border">
+            <th class="py-1.5 pr-3 font-medium">Etapa</th><th class="py-1.5 px-2 font-medium">Situação</th><th class="py-1.5 px-2 font-medium">Detalhe</th><th class="py-1.5" />
+          </tr></thead>
+          <tbody>
+            {etapas.map((e) => {
+              const sit = SITUACAO_ETAPA[e.situacao] ?? SITUACAO_ETAPA.pendente!
+              const d = dispensas?.[e.chave]
+              return (
+                <tr key={e.chave} class="border-b border-border last:border-0 align-top">
+                  <td class="py-2 pr-3 text-fg whitespace-nowrap">{e.titulo}</td>
+                  <td class="py-2 px-2 whitespace-nowrap"><Badge tone={sit.tone}>{e.dispensada ? 'dispensada' : sit.rotulo}</Badge></td>
+                  <td class="py-2 px-2 text-xs text-fg-muted">
+                    {e.detalhe}
+                    {e.bloqueada && <div class="text-2xs text-fg-subtle">Para o aluno: {e.bloqueada.motivo}</div>}
+                    {d && <SeloDispensa dispensa={d} />}
+                  </td>
+                  <td class="py-1.5 text-right whitespace-nowrap">
+                    <Button size="sm" variant="ghost" onClick={() => aoAbrir(e.chave)}>Abrir</Button>
+                    {podeOperar && ETAPAS_QUE_DISPENSAM.includes(e.chave) && (d || e.situacao !== 'feito') && (
+                      <BotaoDispensa registrationId={registrationId} tipo="etapa" chave={e.chave} nome={e.titulo} dispensa={d} aviso={AVISO_DISPENSA[e.chave]} />
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  )
+}
+
+/** Anexa um arquivo pela mesma rota do aluno: entra igual e aparece na tela dele. */
+function AnexarDocumento({ registrationId, typeCode, rotulo, class: classe }: { registrationId: number; typeCode: string; rotulo: string; class?: string }) {
+  const qc = useQueryClient()
+  const input = useRef<HTMLInputElement>(null)
+  const enviar = useMutation({
+    mutationFn: (arquivo: File) => {
+      const fd = new FormData()
+      fd.append('type', typeCode); fd.append('label', rotulo)
+      fd.append('file', arquivo)
+      return chamarComoAgente(registrationId, () => '/candidate/documents', { method: 'POST', form: fd })
+    },
+    onSuccess: () => { toast('Documento anexado', 'success'); invalidarInscricao(qc, registrationId) },
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
+  return (
+    <span class={classe}>
+      <input ref={input} type="file" class="hidden" accept=".pdf,image/*"
+        onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) enviar.mutate(f); (e.target as HTMLInputElement).value = '' }} />
+      <Button size="sm" variant="secondary" disabled={enviar.isPending} onClick={() => input.current?.click()}>
+        <Paperclip size={12} /> {enviar.isPending ? 'Enviando…' : 'Anexar'}
+      </Button>
+    </span>
+  )
+}
+
+function RemoverDocumento({ registrationId, docId }: { registrationId: number; docId: number }) {
+  const qc = useQueryClient()
+  const remover = useMutation({
+    mutationFn: () => chamarComoAgente(registrationId, () => `/candidate/documents/${docId}`, { method: 'DELETE' }),
+    onSuccess: () => { toast('Documento removido', 'success'); invalidarInscricao(qc, registrationId) },
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
+  return <Button size="sm" variant="ghost" disabled={remover.isPending} onClick={() => remover.mutate()}><Trash2 size={12} /> Remover</Button>
 }
 
 function EnemBlock({ registrationId }: { registrationId: number }) {
@@ -608,22 +799,6 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
 }
 
 /**
- * Blocos de etapa: SÓ as etapas que o portal desta inscrição tem ligadas (aba
- * Etapas), na ordem configurada lá — muda de portal para portal. A lista vem do
- * servidor (/enrollment-registrations/:id/etapas) já filtrada pelo que se aplica
- * à inscrição (sem cobrança não há pagamento; sem redação online não há prova).
- * Antes, as etapas fora da jornada também entravam no fim, e a ordem da tela
- * deixava de ser a do portal.
- */
-const BLOCOS_DE_ETAPA = ['analise', 'pagamento', 'documentos', 'contrato', 'prova']
-function ordemDasEtapas(etapas: Array<{ chave: string }> | undefined, painel?: Array<{ chave: string }>): string[] {
-  const out = (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
-  // Análise só no portal logado: o quadro do parecer entra na frente mesmo assim.
-  if (!out.includes('analise') && (painel ?? []).some((e) => e.chave === 'analise')) out.unshift('analise')
-  return out
-}
-
-/**
  * Análise acadêmica (ex.: transferência): os documentos analisados, o parecer
  * (período de ingresso, aproveitamento) e a resposta do candidato. Emitir o
  * parecer avisa o candidato; deferido aprova os documentos da análise.
@@ -805,6 +980,8 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
 }
 
 export interface EtapaAdmin {
+  /** A equipe dispensou esta etapa (matrícula interna). */
+  dispensada?: boolean
   chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean
   /** Segura as seguintes até ser concluída (Portal › Etapas). */
   trava?: boolean
@@ -827,7 +1004,7 @@ const SITUACAO_ETAPA: Record<string, { tone: 'success' | 'info' | 'warning'; ico
   pendente: { tone: 'warning', icon: <AlertCircle size={11} />, rotulo: 'pendente' },
 }
 
-function StatusBanner({ review }: { review: RegistrationReview }) {
+function StatusBanner({ review, aoAbrirEtapa }: { review: RegistrationReview; aoAbrirEtapa?: (chave: string) => void }) {
   // Etapas configuradas no portal (aba Etapas), na ordem da tela de inscrição —
   // o mesmo que o candidato vê. Os badges fixos (documentos, pagamento)
   // ignoravam a configuração: o contrato nem aparecia.
@@ -875,10 +1052,10 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
         </Badge>
         {etapas.length > 0 && etapas.map((e, i) => {
           const sit: { tone: 'success' | 'info' | 'warning' | 'neutral'; icon: any; rotulo: string } = e.bloqueada
-            ? { tone: 'neutral', icon: <Lock size={11} />, rotulo: 'travada' }
+            ? { tone: 'neutral', icon: <Lock size={11} />, rotulo: 'travada para o aluno' }
             : SITUACAO_ETAPA[e.situacao] ?? SITUACAO_ETAPA.pendente
           return (
-            <span key={e.chave} title={e.bloqueada ? e.bloqueada.motivo : `${e.detalhe}${e.trava ? ' · trava as etapas seguintes até ser concluída' : ''}`}>
+            <button type="button" key={e.chave} class="cursor-pointer" onClick={() => aoAbrirEtapa?.(e.chave)} title={e.bloqueada ? e.bloqueada.motivo : `${e.detalhe}${e.trava ? ' · trava as etapas seguintes até ser concluída' : ''}`}>
               <Badge tone={sit.tone}>
                 <span class="inline-flex items-center gap-1">
                   {sit.icon} <span class="font-mono opacity-70">{i + 1}.</span> {e.titulo}: {sit.rotulo}
@@ -886,7 +1063,7 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
                   {e.chave === 'pagamento' && payAmount != null && <span class="font-mono">· {payAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>}
                 </span>
               </Badge>
-            </span>
+            </button>
           )
         })}
         {etapas.length === 0 && !etapasQ.isLoading && (
@@ -1057,7 +1234,7 @@ function AutoAdvanceCard({ review }: { review: RegistrationReview }) {
   )
 }
 
-function SlotsCard({ review }: { review: RegistrationReview }) {
+function SlotsCard({ review, podeOperar }: { review: RegistrationReview; podeOperar?: boolean }) {
   if (review.slots.length === 0) {
     return (
       <Card>
@@ -1076,14 +1253,14 @@ function SlotsCard({ review }: { review: RegistrationReview }) {
       </div>
       <ul class="space-y-2">
         {review.slots.map((s, idx) => (
-          <SlotRow key={idx} slot={s} registrationId={review.registration.id} />
+          <SlotRow key={idx} slot={s} registrationId={review.registration.id} podeOperar={!!podeOperar} />
         ))}
       </ul>
     </Card>
   )
 }
 
-function SlotRow({ slot, registrationId }: { slot: DocumentSlot; registrationId: number }) {
+function SlotRow({ slot, registrationId, podeOperar }: { slot: DocumentSlot; registrationId: number; podeOperar: boolean }) {
   const dt = slot.documentType
   const doc = slot.latestDoc
   const reqLabel = slot.required ? 'Obrigatório' : 'Opcional'
@@ -1106,12 +1283,20 @@ function SlotRow({ slot, registrationId }: { slot: DocumentSlot; registrationId:
             <div class="text-xs text-fg-muted mt-0.5">{slot.helpText}</div>
           )}
         </div>
-        <DocStatusBadge doc={doc} />
+        {slot.dispensa ? <Badge tone="neutral">Dispensado</Badge> : <DocStatusBadge doc={doc} />}
       </div>
+      {slot.dispensa && <div class="ml-11 mt-1"><SeloDispensa dispensa={slot.dispensa} /></div>}
       {doc && <DocBody doc={doc} registrationId={registrationId} />}
-      {!doc && (
+      {!doc && !slot.dispensa && (
         <div class="ml-11 mt-2 text-2xs text-fg-muted">
-          Candidato ainda não enviou este documento.
+          Ainda não enviado. A equipe pode anexar aqui, e o aluno, pela tela dele.
+        </div>
+      )}
+      {podeOperar && dt?.code && (
+        <div class="ml-11 mt-2 flex flex-wrap items-center gap-1.5">
+          {!slot.dispensa && (!doc || doc.status !== 'approved') && <AnexarDocumento registrationId={registrationId} typeCode={dt.code} rotulo={dt.name} />}
+          {doc && doc.status !== 'approved' && <RemoverDocumento registrationId={registrationId} docId={doc.id} />}
+          {(!doc || doc.status !== 'approved') && <BotaoDispensa registrationId={registrationId} tipo="documento" chave={dt.code} nome={dt.name} dispensa={slot.dispensa} />}
         </div>
       )}
     </li>
@@ -1119,15 +1304,16 @@ function SlotRow({ slot, registrationId }: { slot: DocumentSlot; registrationId:
 }
 
 function ExtrasCard({
-  extras, registrationId,
-}: { extras: EnrollmentDocument[]; registrationId: number }) {
+  extras, registrationId, podeOperar,
+}: { extras: EnrollmentDocument[]; registrationId: number; podeOperar?: boolean }) {
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">
-        Documentos extras ({extras.length})
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <div class="text-xs uppercase tracking-wider text-fg-muted">Outros documentos ({extras.length})</div>
+        {podeOperar && <AnexarDocumento registrationId={registrationId} typeCode="other" rotulo="Outro documento" />}
       </div>
       <div class="text-2xs text-fg-muted mb-2">
-        Documentos enviados pelo candidato que não correspondem a nenhum requisito esperado.
+        Documentos que não correspondem a nenhum requisito esperado.
       </div>
       <ul class="space-y-2">
         {extras.map((d) => (

@@ -246,6 +246,24 @@ export function lerCondicaoNegociada(raw: unknown): CondicaoNegociada | null {
   }
 }
 
+/**
+ * Valor combinado SEM plano de pagamento: taxa de inscrição, ou curso sem plano
+ * com regras. Fica na mesma coluna, em `valorAvulso` (sem planoId, a leitura de
+ * plano acima ignora). Sem teto: para cima ou para baixo da tabela.
+ */
+export interface ValorCombinado { valorCentavos: number; tabelaCentavos: number; motivo: string; porNome: string | null; em: string }
+export function lerValorCombinado(raw: unknown): ValorCombinado | null {
+  const v = (raw as any)?.valorAvulso
+  const c = centavosInteiros(v?.valorCentavos)
+  if (!v || c === null || c <= 0) return null
+  return {
+    valorCentavos: c, tabelaCentavos: centavosInteiros(v.tabelaCentavos) ?? 0,
+    motivo: typeof v.motivo === 'string' ? v.motivo.slice(0, 500) : '',
+    porNome: typeof v.porNome === 'string' ? v.porNome.slice(0, 191) : null,
+    em: typeof v.em === 'string' ? v.em : '',
+  }
+}
+
 export async function condicaoNegociadaDaInscricao(registrationId: number | null | undefined): Promise<CondicaoNegociada | null> {
   if (!registrationId) return null
   const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { condicaoNegociada: true } }).catch(() => null)
