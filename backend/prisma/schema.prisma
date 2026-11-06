@@ -2761,8 +2761,12 @@ model TrackableLinkClick {
   utmContent  String?       @db.VarChar(191)
   utmTerm     String?       @db.VarChar(191)
   queryParams Json?         @db.Json // query string completa bruta
+  /// Código na mensagem pré-preenchida: liga este clique ao lead (originDetection).
+  codigo      String?       @unique @db.VarChar(12)
+  leadId      Int?
   createdAt   DateTime      @default(now())
 
+  @@index([leadId])
   @@index([linkId, createdAt])
   @@index([ip])
   @@index([createdAt])

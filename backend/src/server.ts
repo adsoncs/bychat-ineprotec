@@ -195,6 +195,7 @@ import { startCadenceScheduler } from './services/cadenceScheduler.js'
 import { startPriorityScoreScheduler } from './services/priorityScoreService.js'
 import { startEvolutionMonitor } from './services/evolutionMonitor.js'
 import { startCapiRetryScheduler } from './services/metaCapi.js'
+import { startCompletarAnuncios } from './services/originDetection.js'
 import { startEnrollmentExpireJob } from './services/enrollmentExpireJob.js'
 import { startStatusSummaryAdvanceJob } from './services/statusSummaryAdvanceJob.js'
 import { startEnrichmentRerunJob } from './services/enrichmentRerunJob.js'
@@ -1528,6 +1529,7 @@ import('./services/profilePictureSync.js')
   startMeetingAutoDispatch()     // auto-disparo do bot p/ usuários com licença ativa
   startMeetingCalendarWatch()    // vigia a agenda Google própria do agente (além do CRM)
   startCapiRetryScheduler()
+  startCompletarAnuncios()
   startEscalationScheduler()
   startTransferExpireScheduler()
   startShiftHandoverScheduler()

@@ -31,6 +31,8 @@ interface CapiEventData {
   customData?: Record<string, any>
   /** event_id externo p/ dedup com o Pixel do browser (mesmo id ⇒ Meta deduplica). */
   eventId?: string
+  /** Reenvio: usa a MESMA linha e a data original do evento, em vez de criar outro. */
+  reenvio?: { id: number; eventTime: Date }
 }
 
 // ── Configuração ─────────────────────────────────
@@ -94,7 +96,7 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
   }
 
   const eventId = data.eventId || generateEventId()
-  const eventTime = Math.floor(Date.now() / 1000)
+  const eventTime = Math.floor((data.reenvio?.eventTime ?? new Date()).getTime() / 1000)
 
   // User data (hashed para CAPI). Quanto mais campos, maior o "match quality"
   // que a Meta atribui ao evento — impacta direto na atribuição e otimização.
@@ -162,7 +164,7 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
   }
 
   // Salvar registro antes de enviar
-  const convRecord = await prisma.conversionEvent.create({
+  const convRecord = data.reenvio ? { id: data.reenvio.id } : await prisma.conversionEvent.create({
     data: {
       leadId: data.leadId,
       platform: 'meta_capi',
@@ -357,9 +359,17 @@ export async function onLeadStageChanged(leadId: number, newStage: string, event
 
 // ── Retry de eventos falhados ────────────────────
 
+// A Meta recusa evento com mais de 7 dias, e reenviar como se fosse de agora
+// inventaria uma conversão: até 6 dias, com a data e o event_id originais.
+//
+// Até 05/11/2026 o reenvio criava uma linha nova e nunca tocava na antiga: as 10
+// falhas mais antigas voltavam a cada 10 minutos, para sempre. Na beyond isso
+// mandou cerca de 64 mil Purchase falsos de um único lead para o pixel.
+const JANELA_REENVIO_MS = 6 * 24 * 60 * 60 * 1000
+
 export async function retryFailedEvents(): Promise<number> {
   const failed = await prisma.conversionEvent.findMany({
-    where: { status: 'failed', retries: { lt: 3 }, platform: 'meta_capi' },
+    where: { status: 'failed', retries: { lt: 3 }, platform: 'meta_capi', createdAt: { gte: new Date(Date.now() - JANELA_REENVIO_MS) } },
     take: 10,
     orderBy: { createdAt: 'asc' },
   })
@@ -371,7 +381,11 @@ export async function retryFailedEvents(): Promise<number> {
       eventName: evt.eventName,
       value: evt.value ? Number(evt.value) : undefined,
       funnelStage: evt.funnelStage || undefined,
+      eventId: evt.eventId || undefined,
+      reenvio: { id: evt.id, eventTime: evt.eventTime },
     })
+    // Sem CAPI configurado o envio volta sem tocar na linha: conta a tentativa aqui.
+    if (!result.eventId) await prisma.conversionEvent.update({ where: { id: evt.id }, data: { retries: { increment: 1 } } })
     if (result.success) retried++
     await new Promise(r => setTimeout(r, 1000))
   }

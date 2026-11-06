@@ -15,7 +15,7 @@ import { authMiddleware, adminOnly, verifyToken } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
-import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
+import { detectOrigin, stripTrackingRef, registrarOrigemDaConversa } from '../services/originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/teamRouting.js'
 import { instanceAcceptsGroups, resolveGroupLead, groupSenderName, sincronizarGrupoPorJid } from '../services/whatsappGroups.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -1728,6 +1728,11 @@ export async function whatsappRoutes(app: FastifyInstance) {
       try {
         originData = await detectOrigin(phone, msgText, body.data, 'evolution')
       } catch (e) { app.log.warn(`Origin detection error: ${e}`) }
+      // Atendimento humano e chatbot: a origem do anúncio ou do link fica no lead.
+      if (originData) {
+        const origemDaMsg = originData
+        void registrarOrigemDaConversa(origemDaMsg, () => acharLeadDaInstancia(phone, inboundInstance, waLidToPersist))
+      }
 
       // Strip tracking reference from message before processing
       const cleanMsg = stripTrackingRef(msgText)

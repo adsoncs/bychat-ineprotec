@@ -39,12 +39,18 @@ function extractClickIds(query: any): {
   }
 }
 
-function buildWhatsappUrl(link: { whatsappPhone: string; prefilledMessage: string | null; slug: string }): string {
+/** Sem o caractere que se confunde (0/O, 1/I): a pessoa pode ler o código para alguém. */
+function gerarCodigoDoClique(): string {
+  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from(crypto.randomBytes(5), (b) => letras[b % letras.length]).join('')
+}
+
+function buildWhatsappUrl(link: { whatsappPhone: string; prefilledMessage: string | null; slug: string }, codigo?: string): string {
   const phone = link.whatsappPhone.replace(/\D/g, '')
-  // Mensagem vai LIMPA — exatamente o que foi digitado no box. Sem marcador
-  // #ref: (antes anexado para atribuição por mensagem). A atribuição do clique
-  // segue via recordClick (sessionId/ctwaClid); o lead não é mais marcado no texto.
-  const message = link.prefilledMessage || ''
+  // O código é o único jeito de ligar o clique ao lead: o WhatsApp não carrega mais
+  // nada. Sem ele (robô, que nem conta como clique), a mensagem vai como digitada.
+  const texto = link.prefilledMessage || ''
+  const message = codigo ? `${texto || 'Olá!'} (cód. ${codigo})` : texto
   if (!message) return `https://wa.me/${phone}`
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
 }
@@ -122,7 +128,9 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
 
     const qqr = req.query as any
     const sessionIdR = qqr?.sid ? String(qqr.sid).slice(0, 64) : undefined
-    const waUrl = buildWhatsappUrl(link)
+    const uaR = req.headers['user-agent'] || ''
+    const codigoR = isBotUA(uaR) ? undefined : gerarCodigoDoClique()
+    const waUrl = buildWhatsappUrl(link, codigoR)
 
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip
     const ua = req.headers['user-agent'] || ''
@@ -131,7 +139,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
     if (!isBotUA(ua)) {
       const { deviceType, browser, os } = parseUA(ua)
       const ids = extractClickIds(req.query)
-      recordClick({ linkId: link.id, ip, userAgent: ua, referer, deviceType, browser, os, ...ids, sessionId: sessionIdR }).catch(() => {})
+      recordClick({ linkId: link.id, ip, userAgent: ua, referer, deviceType, browser, os, ...ids, sessionId: sessionIdR, codigo: codigoR }).catch(() => {})
     }
 
     return reply.redirect(waUrl, 302)
@@ -157,7 +165,9 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
 
     const qq = req.query as any
     const sessionId = qq?.sid ? String(qq.sid).slice(0, 64) : undefined
-    const waUrl = buildWhatsappUrl(link)
+    const uaL = req.headers['user-agent'] || ''
+    const codigoL = isBotUA(uaL) ? undefined : gerarCodigoDoClique()
+    const waUrl = buildWhatsappUrl(link, codigoL)
 
     // Registrar o clique imediatamente (não esperamos o delay)
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip
@@ -166,7 +176,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
     if (!isBotUA(ua)) {
       const { deviceType, browser, os } = parseUA(ua)
       const ids = extractClickIds(req.query)
-      recordClick({ linkId: link.id, ip, userAgent: ua, referer, deviceType, browser, os, ...ids, sessionId, capiEventId, eventSourceUrl }).catch(() => {})
+      recordClick({ linkId: link.id, ip, userAgent: ua, referer, deviceType, browser, os, ...ids, sessionId, codigo: codigoL, capiEventId, eventSourceUrl }).catch(() => {})
     }
 
     const delay = Math.max(500, Math.min(link.redirectDelayMs ?? 3000, 10000))
@@ -570,6 +580,8 @@ interface ClickData {
   utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string
   queryParams?: any
   sessionId?: string
+  /** Vai na mensagem pré-preenchida; liga este clique ao lead (services/originDetection). */
+  codigo?: string | undefined
   capiEventId?: string      // id pre-gerado quando /l/ é servido (para dedup com pixel browser)
   eventSourceUrl?: string
 }
@@ -588,6 +600,7 @@ async function recordClick(d: ClickData) {
           utmContent: d.utmContent, utmTerm: d.utmTerm,
           queryParams: d.queryParams,
           sessionId: d.sessionId,
+          codigo: d.codigo ?? null,
           capiEventId: d.capiEventId,
         }
       })

@@ -11,7 +11,7 @@ import { validateWebhookSignature, markAsRead, downloadMedia, decryptToken, norm
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
-import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
+import { detectOrigin, stripTrackingRef, saveLeadOrigin, registrarOrigemDaConversa } from '../services/originDetection.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
@@ -521,6 +521,11 @@ async function processIncomingMessage(
   try {
     originData = await detectOrigin(phone, msgText, msg, 'cloud_api')
   } catch (e) { app.log.warn(`Origin detection error: ${e}`) }
+  // Quem já é contato e clicou no anúncio de novo, e os caminhos de chatbot.
+  if (originData) {
+    const origemDaMsg = originData
+    void registrarOrigemDaConversa(origemDaMsg, async () => (await resolveLeadForContact({ phone }, { cloudApiConnectionId: conn.id })).lead)
+  }
 
   // conn.chatbotId define o modo, espelhando a instância Evolution
   // (COM chatbot → bot de IA; SEM chatbot → atendimento humano).
