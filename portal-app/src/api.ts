@@ -671,7 +671,7 @@ type OpcaoNaTela = { ativo: boolean; pix: FormaNaTela; boleto: FormaNaTela; cart
 export interface EditorDoPlanoNaTela {
   matricula: number; mensalidade: number; numParcelas: number; diaVencimento: number
   opcoes: { entrada: OpcaoNaTela; integral: OpcaoNaTela }
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean }
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean; naPrimeira: boolean | null }
   vencimentoEntrada: string | null; primeiraSeguinte: string | null
 }
 export interface NegociacaoNaTela {

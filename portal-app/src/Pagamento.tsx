@@ -788,7 +788,7 @@ type OpcaoTxt = { ativo: boolean; pix: FormaTxt; boleto: FormaTxt; cartao: ParcT
 type EditorTxt = {
   matricula: Txt; mensalidade: Txt; numParcelas: Txt; diaVencimento: Txt
   opcoes: { entrada: OpcaoTxt; integral: OpcaoTxt }
-  pontualidade: { ativo: boolean; descontoPct: Txt; diaLimite: Txt; ateVencimento: boolean; terminaEm90: boolean }
+  pontualidade: { ativo: boolean; descontoPct: Txt; diaLimite: Txt; ateVencimento: boolean; terminaEm90: boolean; naPrimeira: boolean | null }
   vencimentoEntrada: Txt; primeiraSeguinte: Txt
 }
 
@@ -805,7 +805,7 @@ function paraTexto(e: EditorDoPlanoNaTela): EditorTxt {
   return {
     matricula: brl2(e.matricula), mensalidade: brl2(e.mensalidade), numParcelas: String(e.numParcelas), diaVencimento: String(e.diaVencimento),
     opcoes: { entrada: o(e.opcoes.entrada), integral: o(e.opcoes.integral) },
-    pontualidade: { ativo: e.pontualidade.ativo, descontoPct: txt(e.pontualidade.descontoPct), diaLimite: String(e.pontualidade.diaLimite), ateVencimento: e.pontualidade.ateVencimento, terminaEm90: e.pontualidade.terminaEm90 },
+    pontualidade: { ativo: e.pontualidade.ativo, descontoPct: txt(e.pontualidade.descontoPct), diaLimite: String(e.pontualidade.diaLimite), ateVencimento: e.pontualidade.ateVencimento, terminaEm90: e.pontualidade.terminaEm90, naPrimeira: e.pontualidade.naPrimeira ?? null },
     vencimentoEntrada: e.vencimentoEntrada ?? '', primeiraSeguinte: e.primeiraSeguinte ?? '',
   }
 }
@@ -974,6 +974,7 @@ function ValorPersonalizado(props: {
                 </div>
                 <Marca rotulo="Vale até o próprio vencimento" marcado={ed.pontualidade.ateVencimento} aoMudar={(v) => mudar((e) => { e.pontualidade.ateVencimento = v })} />
                 <Marca rotulo="Arredondar a parcela com desconto para terminar em ,90" marcado={ed.pontualidade.terminaEm90} aoMudar={(v) => mudar((e) => { e.pontualidade.terminaEm90 = v })} />
+                <Marca rotulo="Aplicar também na 1ª parcela do boleto parcelado" marcado={ed.pontualidade.naPrimeira ?? ed.opcoes.integral.ativo} aoMudar={(v) => mudar((e) => { e.pontualidade.naPrimeira = v })} />
               </>
             )}
           </fieldset>

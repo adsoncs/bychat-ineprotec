@@ -81,7 +81,7 @@ function resumoDe(p: PlanoDaOferta, cn: CondicaoNegociada | null): string[] {
     for (const c of condicoesDaOpcao(p, o)) out.push(`  · ${c}`)
   }
   const pt = p.regras.pontualidade
-  if (pt.ativo && pt.descontoPct > 0) out.push(`Pontualidade: ${pt.descontoPct}% pagando até ${pt.ateVencimento ? 'o vencimento' : `o dia ${pt.diaLimite}`}${pt.terminaEm90 ? ' (termina em ,90)' : ''}`)
+  if (pt.ativo && pt.descontoPct > 0) out.push(`Pontualidade: ${pt.descontoPct}% pagando até ${pt.ateVencimento ? 'o vencimento' : `o dia ${pt.diaLimite}`}${pt.terminaEm90 ? ' (termina em ,90)' : ''}${pt.naPrimeira === true ? ', inclusive na 1ª parcela' : pt.naPrimeira === false ? ', exceto na 1ª parcela' : ''}`)
   if (cn?.vencimentoEntrada) out.push(`Cobrança de agora vence em ${cn.vencimentoEntrada.split('-').reverse().join('/')}`)
   if (cn?.primeiraSeguinte) out.push(`1ª parcela seguinte em ${cn.primeiraSeguinte.split('-').reverse().join('/')} (as demais, mês a mês)`)
   return out
@@ -216,7 +216,7 @@ function lerEditor(e: any, plano: PlanoDaOferta): Lido {
 
   const regras = lerRegrasDoPlano({
     destino: plano.regras.destino, entrada, integral,
-    pontualidade: { ativo: !!pt.ativo, descontoPct: ptPct, diaLimite: ptDia, ateVencimento: !!pt.ateVencimento, terminaEm90: !!pt.terminaEm90 },
+    pontualidade: { ativo: !!pt.ativo, descontoPct: ptPct, diaLimite: ptDia, ateVencimento: !!pt.ateVencimento, terminaEm90: !!pt.terminaEm90, naPrimeira: typeof pt.naPrimeira === 'boolean' ? pt.naPrimeira : null },
   })!
   return {
     valores: {

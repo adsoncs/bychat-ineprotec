@@ -31,7 +31,7 @@ interface Regras {
   destinoBoletoIntegral: 'sei' | 'attrae'
   entrada: { ativo: boolean } & Formas
   integral: { ativo: boolean } & Formas
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento?: boolean; terminaEm90?: boolean }
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento?: boolean; terminaEm90?: boolean; naPrimeira?: boolean | null }
   codigoSei: string
   codigoSeiIntegral: string
 }
@@ -281,6 +281,7 @@ function EditorDoPlano({ plano: p, muda }: { plano: Plano; muda: (p: Plano) => v
               <div class="flex flex-col gap-1">
                 <Marca checked={!!r.pontualidade.ateVencimento} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, ateVencimento: v } })}>Vale até o próprio vencimento (dia {p.diaVencimento})</Marca>
                 <Marca checked={!!r.pontualidade.terminaEm90} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, terminaEm90: v } })}>Arredondar a parcela com desconto para terminar em ,90</Marca>
+                <Marca checked={r.pontualidade.naPrimeira ?? !!r.integral?.ativo} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, naPrimeira: v } })}>Aplicar também na 1ª parcela do boleto parcelado</Marca>
               </div>
             )}
             {r.pontualidade.ativo && <div class="text-2xs text-fg-muted">A fatura de cada mês sai com {r.pontualidade.descontoPct || 0}% de desconto{r.pontualidade.terminaEm90 ? ' (parcela arredondada para terminar em ,90)' : ''} para pagamento até {r.pontualidade.ateVencimento ? 'o vencimento' : `o dia ${r.pontualidade.diaLimite}`}. Depois disso, vale o valor cheio da parcela (com os demais descontos, como bolsa, que já estão nela). No curso completo no boleto, a 1ª parcela, paga na inscrição, já sai com o desconto.</div>}

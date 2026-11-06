@@ -56,7 +56,11 @@ export interface RegrasDoPlano {
    * desconto é arredondada para terminar em ,90 (tabela da ineprotec:
    * R$ 274,90 − 20% = R$ 219,90), e o desconto vai ao gateway em reais.
    */
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean }
+  /**
+   * naPrimeira: se a 1ª parcela do boleto parcelado já sai com o desconto.
+   * null = regra antiga: sim no curso completo, não em "só a 1ª parcela".
+   */
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean; naPrimeira: boolean | null }
   /** Código da condição de pagamento no SEI (entrada + parcelas / pagamento integral). */
   codigoSei: string
   codigoSeiIntegral: string
@@ -132,6 +136,7 @@ export function lerRegrasDoPlano(bruto: unknown): RegrasDoPlano | null {
       diaLimite: Math.round(num(r.pontualidade?.diaLimite, 5, 1, 28)),
       ateVencimento: !!r.pontualidade?.ateVencimento,
       terminaEm90: !!r.pontualidade?.terminaEm90,
+      naPrimeira: typeof r.pontualidade?.naPrimeira === 'boolean' ? r.pontualidade.naPrimeira : null,
     },
     codigoSei: texto(r.codigoSei),
     codigoSeiIntegral: texto(r.codigoSeiIntegral),
@@ -420,17 +425,17 @@ export function parcelasDoPlano(p: PlanoDaOferta, escolha: {
   const seguinte = (k: number) => inicio
     ? new Date(inicio.getFullYear(), inicio.getMonth() + (k - 1), inicio.getDate())
     : vencimentoDoPlano(k, p.diaVencimento)
+  if (boletoEhOCurso(p, escolha.opcao, escolha.meio, escolha.parcelas) && escolha.valorParcelaCentavos && escolha.valorTotalCentavos) {
+    const n = escolha.parcelas
+    const primeira = escolha.valorTotalCentavos - escolha.valorParcelaCentavos * (n - 1)
+    return Array.from({ length: n }, (_, i) => ({
+      tipo: 'MENSALIDADE' as const,
+      valorBrutoCentavos: i === 0 ? primeira : escolha.valorParcelaCentavos!,
+      dataVencimento: i === 0 ? vencimentoDoPlano(0, p.diaVencimento) : seguinte(i),
+      ...(i === 0 ? paga : {}),
+    }))
+  }
   if (escolha.opcao === 'integral') {
-    if (escolha.meio === 'boleto' && escolha.parcelas > 1 && escolha.valorParcelaCentavos && escolha.valorTotalCentavos) {
-      const n = escolha.parcelas
-      const primeira = escolha.valorTotalCentavos - escolha.valorParcelaCentavos * (n - 1)
-      return Array.from({ length: n }, (_, i) => ({
-        tipo: 'MENSALIDADE' as const,
-        valorBrutoCentavos: i === 0 ? primeira : escolha.valorParcelaCentavos!,
-        dataVencimento: i === 0 ? vencimentoDoPlano(0, p.diaVencimento) : seguinte(i),
-        ...(i === 0 ? paga : {}),
-      }))
-    }
     const total = escolha.valorTotalCentavos || escolha.valorPagoCentavos
     return [{ tipo: 'MENSALIDADE', valorBrutoCentavos: total, dataVencimento: vencimentoDoPlano(0, p.diaVencimento), ...paga, valorPagoCentavos: escolha.valorPagoCentavos }]
   }
@@ -457,6 +462,11 @@ export function valorEmDia(valor: number, pt: RegrasDoPlano['pontualidade'] | nu
   const comDesc = valor * (1 - pt.descontoPct / 100)
   const v = pt.terminaEm90 ? Math.round(comDesc - 0.9) + 0.9 : comDesc
   return Math.min(valor, Math.max(0, Math.round(v * 100) / 100))
+}
+
+/** A 1ª parcela do boleto parcelado desta opção já sai com o desconto? */
+export function descontoNaPrimeira(pt: RegrasDoPlano['pontualidade'] | null | undefined, opcao: OpcaoDePagamento): boolean {
+  return pt?.naPrimeira ?? opcao === 'integral'
 }
 
 /**
@@ -512,6 +522,28 @@ export function lerEscolhaDoPlano(paymentPlan: unknown): EscolhaDoPlano | null {
 // ─── Escolha na tela de pagamento ──────────────────────────────────────────
 
 /**
+ * "Só a 1ª parcela" com boleto parcelado a preço próprio: esse boleto é o curso
+ * inteiro. Contrato e parcelas seguem o que foi cobrado, não a mensalidade do plano.
+ */
+export function boletoEhOCurso(p: PlanoDaOferta, o: OpcaoDePagamento, meio: unknown, parcelas: number): boolean {
+  return meio === 'boleto' && parcelas > 1 && (o === 'integral' || p.regras.entrada.boletoParcelado.valorBase != null)
+}
+
+/** A entrada só pode ser paga no boleto parcelado a preço próprio: o maior parcelamento. */
+export function boletoUnicoDaEntrada(p: PlanoDaOferta): PlanoDeBoleto | null {
+  const f = p.regras.entrada
+  if (!f.boletoParcelado.ativo || f.boletoParcelado.valorBase == null || f.pix.ativo || f.boleto.ativo || f.cartao.ativo) return null
+  return opcoesDoBoletoParcelado(f.boletoParcelado.valorBase, f.boletoParcelado, p.diaVencimento).at(-1) ?? null
+}
+
+/** O que a pessoa paga agora nesta opção, para mostrar na tela. */
+export function valorAgoraDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): number {
+  const b = o === 'entrada' ? boletoUnicoDaEntrada(p) : null
+  if (!b) return valorDaOpcao(p, o)
+  return descontoNaPrimeira(p.regras.pontualidade, o) ? valorEmDia(b.valorEntrada, p.regras.pontualidade) : b.valorEntrada
+}
+
+/**
  * Plano e opção escolhidos na tela (ou os primeiros liberados). null = a
  * oferta não tem plano com regras de portal, e vale o checkout de antes.
  */
@@ -537,6 +569,13 @@ export function descreverOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): { rotulo:
   if (o === 'integral') {
     const menor = menorPrecoDaOpcao(p, 'integral')
     return { rotulo: 'Curso completo', detalhe: `a partir de ${brl(menor)} — pagamento integral, sem parcelas depois` }
+  }
+  const b = boletoUnicoDaEntrada(p)
+  if (b) {
+    return {
+      rotulo: rotuloDaEntrada(p),
+      detalhe: `${brl(valorAgoraDaOpcao(p, o))} agora e mais ${b.parcelas - 1}x de ${brl(b.valorParcela)} no boleto (vencimento todo dia ${p.diaVencimento})`,
+    }
   }
   const resto = totalDeParcelas(p) - 1
   return {
@@ -593,7 +632,7 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'boleto', credit_card: 'cartão de crédito' }
   const opcao: OpcaoDePagamento = escolha?.opcao ?? opcoesDoPlano(plano)[0] ?? 'entrada'
 
-  if (opcao === 'integral' && pp) {
+  if (pp && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
     const total = Math.round(Number(pp.valorTotal ?? pp.valorCobrado ?? 0) * 100)
     const n = Math.max(1, Number(pp.parcelas) || 1)
     const parcela = Math.round(Number(pp.valorParcela ?? 0) * 100) || total
@@ -601,8 +640,17 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
     return {
       plano, opcao, numParcelas: n, valorParcelaCentavos: parcela, valorTotalCentavos: total,
       descricao: n > 1
-        ? `Pagamento integral em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})${pp.meio === 'boleto' ? fraseDaPontualidade(plano, parcela / 100) : ''}`
+        ? `Pagamento ${opcao === 'integral' ? 'integral ' : ''}em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})${pp.meio === 'boleto' ? fraseDaPontualidade(plano, parcela / 100, opcao) : ''}`
         : `Pagamento integral à vista no ${meio}: ${brl(total)}`,
+    }
+  }
+  // Ainda sem pagamento, e o único jeito de pagar é o boleto a preço próprio.
+  const boletoUnico = opcao === 'entrada' ? boletoUnicoDaEntrada(plano) : null
+  if (boletoUnico) {
+    return {
+      plano, opcao, numParcelas: boletoUnico.parcelas,
+      valorParcelaCentavos: Math.round(boletoUnico.valorParcela * 100), valorTotalCentavos: Math.round(boletoUnico.valorTotal * 100),
+      descricao: `Pagamento em ${boletoUnico.parcelas}x de ${brlR(boletoUnico.valorParcela)} no boleto (total ${brlR(boletoUnico.valorTotal)})${fraseDaPontualidade(plano, boletoUnico.valorParcela, opcao)}`,
     }
   }
   const n = totalDeParcelas(plano)
@@ -624,11 +672,14 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
 const brlR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 /** "; pagando até o vencimento, cada parcela sai por R$ 219,90" — vazio sem pontualidade. */
-export function fraseDaPontualidade(p: PlanoDaOferta, parcela: number): string {
+export function fraseDaPontualidade(p: PlanoDaOferta, parcela: number, opcao: OpcaoDePagamento = 'integral'): string {
   const pt = p.regras.pontualidade
   const emDia = valorEmDia(parcela, pt)
   if (emDia >= parcela) return ''
-  return `; pagando até ${pt.ateVencimento ? 'o vencimento' : `o dia ${pt.diaLimite}`}, cada parcela sai por ${brlR(emDia)}`
+  const ate = pt.ateVencimento ? 'o vencimento' : `o dia ${pt.diaLimite}`
+  return !descontoNaPrimeira(pt, opcao)
+    ? `; a partir da 2ª parcela, pagando até ${ate}, cada uma sai por ${brlR(emDia)}`
+    : `; pagando até ${ate}, cada parcela sai por ${brlR(emDia)}`
 }
 
 /** As condições de uma opção, uma frase por forma ligada. */

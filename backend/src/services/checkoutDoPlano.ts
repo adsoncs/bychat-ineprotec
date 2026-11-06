@@ -11,7 +11,7 @@ import type { CobrancaDoPortal } from './portalCobranca.js'
 import {
   condicaoNegociadaDaInscricao,
   baseDaForma, descreverOpcao, menorPrecoDaOpcao, escolhaParaGravar, formasDaOpcao, opcoesDoBoletoParcelado, opcoesDoCartao,
-  opcoesDoPlano, planoEscolhido, resumoDoPlano, valorDaOpcao, valorEmDia,
+  descontoNaPrimeira, opcoesDoPlano, planoEscolhido, resumoDoPlano, valorAgoraDaOpcao, valorDaOpcao, valorEmDia,
   type FormasDePagamento, type OpcaoDePagamento, type PlanoDaOferta,
 } from './planoFinanceiro.js'
 
@@ -27,12 +27,12 @@ export async function escolhaDoCheckoutPeloPlano(cob: CobrancaDoPortal | null, p
 const rotuloDaOpcao = (p: PlanoDaOferta, o: OpcaoDePagamento) => descreverOpcao(p, o).rotulo
 
 /**
- * Curso completo no boleto parcelado: a 1ª parcela, paga na inscrição, já sai
- * com o desconto de pontualidade (é paga em dia); as demais ganham o desconto
- * na fatura de cada mês.
+ * Boleto parcelado: a 1ª parcela, paga na inscrição, sai com o desconto de
+ * pontualidade quando o plano manda (descontoNaPrimeira); as demais ganham o
+ * desconto na fatura de cada mês.
  */
 const entradaEmDia = (p: PlanoDaOferta, o: OpcaoDePagamento, b: PlanoDeBoleto) =>
-  o === 'integral' && b.parcelas > 1 ? valorEmDia(b.valorEntrada, p.regras.pontualidade) : b.valorEntrada
+  b.parcelas > 1 && descontoNaPrimeira(p.regras.pontualidade, o) ? valorEmDia(b.valorEntrada, p.regras.pontualidade) : b.valorEntrada
 
 /** O cupom, revalidado sobre o valor da opção (curso inteiro ≠ matrícula). */
 async function cupomDaOpcao(input: { codigo: string; valor: number; portalId: number; cpf: string | undefined; cob: CobrancaDoPortal; metodo?: Meio; equipe?: { pode: boolean } | null | undefined }) {
@@ -83,7 +83,7 @@ export async function opcoesDaTelaPeloPlano(input: {
   const cartao = input.cartaoDisponivel ? opcoesDoCartao(semDescontoCartao.valor, formas.cartao).filter((o) => o.parcelas <= teto) : []
   // Topo da tela: o menor preço da opção (com preço por forma, o total do
   // plano pode não ser o que a pessoa paga em nenhuma delas).
-  const referencia = opcao === 'integral' ? menorPrecoDaOpcao(plano, opcao) : base
+  const referencia = opcao === 'integral' ? menorPrecoDaOpcao(plano, opcao) : valorAgoraDaOpcao(plano, opcao)
   const valor = cupomOk && !cupomOk.metodos ? cupomOk.valorComCupom : referencia
 
   return {
@@ -95,7 +95,7 @@ export async function opcoesDaTelaPeloPlano(input: {
       id: p.id,
       nome: p.nome,
       resumo: resumoDoPlano(p),
-      opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, valor: o === 'integral' ? menorPrecoDaOpcao(p, o) : valorDaOpcao(p, o), ...descreverOpcao(p, o) })),
+      opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, valor: o === 'integral' ? menorPrecoDaOpcao(p, o) : valorAgoraDaOpcao(p, o), ...descreverOpcao(p, o) })),
     })),
     escolha: { planoId: plano.id, opcao },
     cupom: cupom
@@ -118,7 +118,7 @@ export async function opcoesDaTelaPeloPlano(input: {
             parcelasMax: Math.max(...boletos.map((b) => b.parcelas)),
             descontoPct: boletoAVista.descontoAVista > 0 ? formas.boleto.descontoPct : 0,
             opcoes: boletos.map((p) => {
-              const emDia = p.parcelas > 1 && opcao === 'integral' ? valorEmDia(p.valorParcela, plano.regras.pontualidade) : p.valorParcela
+              const emDia = p.parcelas > 1 && (opcao === 'integral' || plano.regras.pontualidade.naPrimeira !== null) ? valorEmDia(p.valorParcela, plano.regras.pontualidade) : p.valorParcela
               return {
                 parcelas: p.parcelas, valorEntrada: entradaEmDia(plano, opcao, p), valorParcela: p.valorParcela, valorTotal: p.valorTotal,
                 acrescimo: p.acrescimo, semAcrescimo: p.semAcrescimo, descricao: p.descricao,

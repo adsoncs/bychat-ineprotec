@@ -19,7 +19,7 @@ type OpcaoNum = { ativo: boolean; pix: FormaNum; boleto: FormaNum; cartao: ParcN
 interface EditorNum {
   matricula: number; mensalidade: number; numParcelas: number; diaVencimento: number
   opcoes: Record<OpcaoChave, OpcaoNum>
-  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean }
+  pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number; ateVencimento: boolean; terminaEm90: boolean; naPrimeira: boolean | null }
   vencimentoEntrada: string | null; primeiraSeguinte: string | null
 }
 interface Negociacao {
@@ -60,7 +60,7 @@ type OpcaoTxt = { ativo: boolean; pix: FormaTxt; boleto: FormaTxt; cartao: ParcT
 interface EditorTxt {
   matricula: Txt; mensalidade: Txt; numParcelas: Txt; diaVencimento: Txt
   opcoes: Record<OpcaoChave, OpcaoTxt>
-  pontualidade: { ativo: boolean; descontoPct: Txt; diaLimite: Txt; ateVencimento: boolean; terminaEm90: boolean }
+  pontualidade: { ativo: boolean; descontoPct: Txt; diaLimite: Txt; ateVencimento: boolean; terminaEm90: boolean; naPrimeira: boolean | null }
   vencimentoEntrada: Txt; primeiraSeguinte: Txt
 }
 function paraTexto(e: EditorNum): EditorTxt {
@@ -168,6 +168,7 @@ function EditorDeCondicoes({ registrationId, neg, aoFechar }: { registrationId: 
             {!ed.pontualidade.ateVencimento && <div class="w-28"><Input label="Até o dia" value={ed.pontualidade.diaLimite} onInput={(e) => { const v = (e.target as HTMLInputElement).value; mudar((x) => { x.pontualidade.diaLimite = v }) }} /></div>}
             <label class="flex items-center gap-2 h-9"><input type="checkbox" checked={ed.pontualidade.ateVencimento} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; mudar((x) => { x.pontualidade.ateVencimento = v }) }} /> Vale até o vencimento</label>
             <label class="flex items-center gap-2 h-9"><input type="checkbox" checked={ed.pontualidade.terminaEm90} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; mudar((x) => { x.pontualidade.terminaEm90 = v }) }} /> Terminar em ,90</label>
+            <label class="flex items-center gap-2 h-9"><input type="checkbox" checked={ed.pontualidade.naPrimeira ?? ed.opcoes.integral.ativo} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; mudar((x) => { x.pontualidade.naPrimeira = v }) }} /> Aplicar também na 1ª parcela do boleto parcelado</label>
           </div>
         )}
       </div>
