@@ -270,6 +270,73 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     ;(await import('../services/funilDaJornada.js')).sincronizarFunil(reg.id)
     return { ok: true }
   }
+  // Alterar forma de pagamento: permissão própria (lib/eduTelas).
+  const troca = () => import('../services/trocaPagamento.js')
+  app.get('/api/admin/matricula-interna/:id/troca', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    reply.header('cache-control', 'no-store')
+    return (await troca()).estadoDaTroca(reg.id)
+  })
+  app.post('/api/admin/matricula-interna/:id/troca', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const u = usuario(req)
+    const r = await (await troca()).criarTroca(reg.id, req.body, { userId: u.userId, nome: await nomeDe(u) })
+    return r.ok ? r : reply.code(r.status).send({ error: r.erro })
+  })
+  app.post('/api/admin/matricula-interna/:id/troca/:trocaId/cancelar', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const u = usuario(req)
+    const t = await prisma.enrollmentTroca.findFirst({ where: { id: Number((req.params as any).trocaId), registrationId: reg.id } })
+    if (!t) return reply.code(404).send({ error: 'Troca não encontrada.' })
+    const r = await (await troca()).encerrarTrocaPendente(t.id, 'CANCELADA', String((req.body as any)?.motivo ?? 'Cancelada pelo agente'), { userId: u.userId, nome: await nomeDe(u) })
+    return r.ok ? r : reply.code(r.status).send({ error: r.erro })
+  })
+
+  // Pagamento combinado: permissão "Valor personalizado" (lib/eduTelas).
+  const combinado = () => import('../services/pagamentoCombinado.js')
+  const operador = async (req: FastifyRequest) => { const u = usuario(req); return { userId: u.userId, nome: await nomeDe(u) } }
+  const responder = (reply: any, r: any) => (r.ok ? r : reply.code(r.status).send({ error: r.erro }))
+  app.get('/api/admin/matricula-interna/:id/combinado', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const c = await combinado()
+    const conn = await prisma.enrollmentPortal.findUnique({ where: { id: reg.portalId }, select: { paymentConnection: { select: { provider: true, active: true } } } })
+    reply.header('cache-control', 'no-store')
+    const lead = reg.leadId ? await prisma.lead.findUnique({ where: { id: reg.leadId }, select: { id: true, nome: true, whatsapp: true } }) : null
+    return { combinado: await c.resumoDoCombinado(reg.id), aceita: c.conexaoAceitaCombinado(conn?.paymentConnection ?? null), simulado: conn?.paymentConnection?.provider === 'simulado', lead }
+  })
+  app.post('/api/admin/matricula-interna/:id/combinado', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    return responder(reply, await (await combinado()).criarCombinado(reg.id, req.body, await operador(req)))
+  })
+  app.delete('/api/admin/matricula-interna/:id/combinado', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    return responder(reply, await (await combinado()).desfazerCombinado(reg.id, await operador(req)))
+  })
+  app.post('/api/admin/matricula-interna/:id/combinado/:tituloId/gerar', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const t = await prisma.enrollmentTitulo.findFirst({ where: { id: Number((req.params as any).tituloId), registrationId: reg.id } })
+    if (!t) return reply.code(404).send({ error: 'Pagamento não encontrado.' })
+    const r = await (await combinado()).gerarCobrancaDoTitulo(t.id)
+    return r.ok ? { ok: true } : reply.code(502).send({ error: r.erro })
+  })
+  // Só com a conexão simulada: é o "pagar" do ambiente de teste.
+  app.post('/api/admin/matricula-interna/:id/combinado/:tituloId/simular', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const t = await prisma.enrollmentTitulo.findFirst({ where: { id: Number((req.params as any).tituloId), registrationId: reg.id, provider: 'simulado' } })
+    if (!t) return reply.code(404).send({ error: 'Só cobrança simulada pode ser paga por aqui.' })
+    const op = await operador(req)
+    await (await combinado()).registrarPagamentoDoTitulo(t.id, { fonte: 'simulado', ator: 'atendente', userId: op.userId, userName: op.nome })
+    return { ok: true }
+  })
+
   app.post('/api/admin/matricula-interna/:id/dispensa', { preHandler: guardTela('login') }, (req, reply) => dispensar(req, reply, false))
   app.delete('/api/admin/matricula-interna/:id/dispensa', { preHandler: guardTela('login') }, (req, reply) => dispensar(req, reply, true))
 

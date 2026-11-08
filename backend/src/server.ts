@@ -44,6 +44,7 @@ import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
 import { seiIntegrationRoutes } from './routes/seiIntegration.js'
 import { moodleIntegrationRoutes } from './routes/moodleIntegration.js'
 import { iniciarAgendadorMoodle } from './services/moodleAcessos.js'
+import { startSincronizarRecebiveis } from './services/pagamentoCombinado.js'
 import { teamsRoutes } from './routes/teams.js'
 import { agentsRoutes } from './routes/agents.js'
 import { channelGovernanceRoutes } from './routes/channelGovernance.js'
@@ -66,6 +67,7 @@ import { couponsRoutes } from './routes/coupons.js'
 import { portalFinanceiroRoutes } from './routes/portalFinanceiro.js'
 import { portalJornadaRoutes } from './routes/portalJornada.js'
 import { matriculaInternaRoutes } from './routes/matriculaInterna.js'
+import { inadimplenciaRoutes } from './routes/inadimplencia.js'
 import { areaDoAlunoRoutes } from './routes/areaDoAluno.js'
 import { leadHistoryRoutes } from './routes/leadHistory.js'
 import { activitiesRoutes, startActivityScheduler } from './routes/activities.js'
@@ -858,6 +860,7 @@ await app.register(couponsRoutes)
 await app.register(portalFinanceiroRoutes)
 await app.register(portalJornadaRoutes)
 await app.register(matriculaInternaRoutes)
+await app.register(inadimplenciaRoutes)
 await app.register(areaDoAlunoRoutes)
 await app.register(leadHistoryRoutes)
 await app.register(activitiesRoutes)
@@ -1531,6 +1534,7 @@ import('./services/profilePictureSync.js')
   startSlaScheduler()
   startAutomationScheduler()
   startHelpdeskRoutingScheduler()
+  startSincronizarRecebiveis()
   // Importador CRM Educacional — só age em tenant com crmedu.enabled=true
   import('./services/crmEduSync.js')
     .then(m => m.startCrmEduScheduler())

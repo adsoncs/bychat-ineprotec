@@ -279,6 +279,26 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   // O que a pessoa escolheu no checkout, quando veio do portal. Sem isso, o
   // plano padrão da oferta é aplicado a quem já pagou de outro jeito — e o
   // aluno recebe cobrança de mensalidade que ele já quitou no cartão.
+  // Pagamento combinado: cada título vira uma parcela, ligada à mesma cobrança,
+  // para o aviso do gateway dar baixa nas duas e nada ser cobrado em dobro.
+  const { parcelasDoCombinado } = await import('./pagamentoCombinado.js')
+  const doCombinado = await parcelasDoCombinado(mat.enrollmentRegistrationId)
+  if (doCombinado) {
+    const total = doCombinado.reduce((s, t) => s + t.valorCentavos, 0)
+    const contrato = await prisma.acaContrato.create({ data: { matriculaId, valorTotalCentavos: total } })
+    for (const [i, t] of doCombinado.entries()) {
+      const paga = t.status === 'paga'
+      await prisma.acaParcela.create({ data: {
+        contratoId: contrato.id, nroParcela: i + 1, tipo: 'MENSALIDADE', valorBrutoCentavos: t.valorCentavos,
+        dataVencimento: new Date(`${t.vencimento}T12:00:00-03:00`), situacao: paga ? 'PAGA' : 'ABERTA',
+        ...(paga ? { valorPagoCentavos: t.valorPagoCentavos, pagoEm: t.paidAt ?? new Date() } : {}),
+        ...(t.externalId ? { asaasChargeId: t.externalId, gatewayProvider: t.provider } : {}),
+      } })
+    }
+    await posContrato(mat, contrato.id)
+    return { contratoId: contrato.id, criadas: doCombinado.length }
+  }
+
   const escolha = await escolhaDoCheckout(mat.enrollmentRegistrationId)
   const offeringId = mat.turma.courseOfferingId
   if (!offeringId) throw new Error('Turma sem oferta vinculada — defina a oferta para gerar o financeiro.')

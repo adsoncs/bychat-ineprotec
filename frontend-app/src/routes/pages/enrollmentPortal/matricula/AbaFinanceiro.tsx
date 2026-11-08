@@ -11,6 +11,8 @@ import { toast } from '@/lib/toast'
 import { Copy, Pencil } from '@/components/ui/icon-set'
 import { chamarComoAgente, rotaInscricao, sessaoInterna } from './sessao'
 import { invalidarInscricao } from './Dispensa'
+import { PagamentoCombinado } from './PagamentoCombinado'
+import { AlterarFormaPagamento } from './AlterarFormaPagamento'
 
 type OpcaoChave = 'entrada' | 'integral'
 type FormaNum = { ativo: boolean; descontoPct: number; valorBase: number | null }
@@ -157,6 +159,9 @@ function EditorDeCondicoes({ registrationId, neg, aoFechar }: { registrationId: 
         <Input label="1ª parcela seguinte em" type="date" hint="Vazio = próximo vencimento" value={ed.primeiraSeguinte} onInput={(e) => { const v = (e.target as HTMLInputElement).value; mudar((x) => { x.primeiraSeguinte = v }) }} />
       </div>
       {linhaOpcao('entrada', 'Pode pagar só a matrícula / 1ª parcela agora')}
+      {ed.opcoes.entrada.ativo && (['pix', 'boleto', 'cartao'] as const).some((k) => ed.opcoes.entrada[k].ativo && !!ed.opcoes.entrada[k].valorBase) && (
+        <div class="text-xs text-warning" role="status">Preço próprio em Pix, boleto à vista ou cartão vale aqui só como entrada: o contrato e as parcelas seguintes continuam pelo plano. Para vender o curso inteiro por esse valor, use "curso completo".</div>
+      )}
       {linhaOpcao('integral', 'Pode pagar o curso completo')}
       <div class="rounded-md border border-border px-3 py-2 grid gap-2">
         <label class="flex items-center gap-2 text-xs font-medium text-fg">
@@ -285,6 +290,8 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
   if (q.isLoading) return <Card><div class="text-sm text-fg-muted">Carregando financeiro…</div></Card>
   if (q.error) return <Card><div class="text-sm text-danger">{(q.error as Error).message}</div>{children}</Card>
   if (!o) return null
+  // Pagamento combinado montado: as cobranças são dele, sem o checkout de uma cobrança só.
+  if ((o as any).combinado) return <div class="grid gap-3"><PagamentoCombinado registrationId={registrationId} pago={pago} fechada={fechada} /><AlterarFormaPagamento registrationId={registrationId} fechada={fechada} />{children}</div>
 
   const planoAtual = o.planos?.find((p) => p.id === o.escolha?.planoId) ?? null
   const neg = o.negociacao ?? null
@@ -342,6 +349,9 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
         )}
         {neg && editando && <EditorDeCondicoes registrationId={registrationId} neg={neg} aoFechar={() => setEditando(false)} />}
       </Card>
+
+      <PagamentoCombinado registrationId={registrationId} pago={pago} fechada={fechada} />
+      <AlterarFormaPagamento registrationId={registrationId} fechada={fechada} />
 
       {!o.semPlano && (o.valorAvulso?.portalCobra ?? true) && (
         <Card>

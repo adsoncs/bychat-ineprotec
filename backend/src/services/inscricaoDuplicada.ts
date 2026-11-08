@@ -212,7 +212,8 @@ export async function cancelarCobrancasAbertas(registrationId: number, motivo: s
   })
   const conn = reg?.portal?.paymentConnection ?? null
   const abertas = await prisma.enrollmentPaymentMethod.findMany({ where: { registrationId, status: 'pending' } })
-  const avisos: string[] = []
+  const { cancelarTitulosAbertos } = await import('./pagamentoCombinado.js')
+  const avisos: string[] = await cancelarTitulosAbertos(registrationId, motivo)
   if (abertas.length === 0) return avisos
 
   let chave: string | null = null

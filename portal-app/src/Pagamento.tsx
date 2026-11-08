@@ -280,6 +280,33 @@ export function Pagamento(props: {
         </div>
       )
     }
+    if (opcoes.combinado) {
+      const c = opcoes.combinado
+      const copiar = (t: string) => { void navigator.clipboard?.writeText(t).catch(() => {}) }
+      const dia = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '')
+      return (
+        <div class="cartao">
+          <h2>Seus pagamentos</h2>
+          <p class="sub">Total combinado: <b>{dinheiro(c.total)}</b>. Sua matrícula é confirmada no 1º pagamento recebido.</p>
+          <div style="display:grid;gap:12px">
+            {c.pagamentos.map((p) => (
+              <div key={p.id} class="aviso info">
+                <b>{p.titulo}: {dinheiro(p.valor)}</b>
+                <div>{p.detalhe ?? p.meio}{p.situacao === 'paga' ? ' · pago' : p.vencimento ? ` · ${p.situacao === 'vencida' ? 'venceu' : 'vence'} em ${dia(p.vencimento)}` : ''}</div>
+                {p.situacao !== 'paga' && (
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+                    {p.pagar && <a class="secundario" href={p.pagar} target="_blank" rel="noopener">Pagar</a>}
+                    {p.boletoPdf && <a class="secundario" href={p.boletoPdf} target="_blank" rel="noopener">Abrir boleto</a>}
+                    {p.linha && <button type="button" class="secundario" onClick={() => copiar(p.linha!)}>Copiar linha digitável</button>}
+                    {p.pix && <button type="button" class="secundario" onClick={() => copiar(p.pix!)}>Copiar Pix</button>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
     const m = opcoes.meios
     const mostraPix = m.pix.ativo
     const mostraBoleto = m.boleto.ativo
@@ -962,6 +989,9 @@ function ValorPersonalizado(props: {
           </fieldset>
 
           {blocoOpcao('entrada', 'Permitir pagar só a matrícula / 1ª parcela agora')}
+          {ed.opcoes.entrada.ativo && (['pix', 'boleto', 'cartao'] as const).some((k) => ed.opcoes.entrada[k].ativo && !!ed.opcoes.entrada[k].valorBase) && (
+            <div class="aviso info" role="status">Preço próprio em Pix, boleto à vista ou cartão vale aqui só como entrada: o contrato e as parcelas seguintes continuam pelo plano. Para vender o curso inteiro por esse valor, use "curso completo".</div>
+          )}
           {blocoOpcao('integral', 'Permitir pagar o curso completo')}
 
           <fieldset class="vp-grupo">

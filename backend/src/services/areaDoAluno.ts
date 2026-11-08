@@ -193,6 +193,10 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   let aviso: string | null = null
   const cfg = r.portalId ? await configDoPortal(r.portalId) : null
 
+  // Pagamento combinado: as faturas são os títulos, e os do acordo vêm junto.
+  const { faturasDosTitulos } = await import('./pagamentoCombinado.js')
+  if (plano.combinado) return { faturas: (await faturasDosTitulos(r.id)) as Fatura[], aviso: null }
+
   // 1) Parcelado no gateway: cada parcela é uma cobrança do Asaas.
   if (plano.installmentId && cfg) {
     try {
@@ -258,6 +262,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
     let fila = situacao === 'paga' && !!cfg
     for (let i = 2; i <= n; i++) {
       const g = geradas[String(i)]
+      if ((g as any)?.situacao === 'renegociada') continue
       if (g && cfg) {
         let removida = false
         const p = await asaasGet(cfg, `/payments/${encodeURIComponent(g.id)}`).catch((e: any) => { removida = e?.status === 404; return null })
@@ -293,6 +298,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
           : 'As próximas parcelas podem ser geradas aqui depois que a 1ª for paga.')
     }
   }
+  faturas.push(...((await faturasDosTitulos(r.id, 'acordo')) as Fatura[]))
   return { faturas, aviso }
 }
 
@@ -306,7 +312,7 @@ async function diaDoVencimento(planoId: unknown): Promise<number | null> {
 }
 
 /** A data `iso` (YYYY-MM-DD) `meses` depois, no mesmo dia (ou no último do mês). */
-function mesesDepois(iso: string, meses: number): string {
+export function mesesDepois(iso: string, meses: number): string {
   const [a, m, d] = iso.split('-').map(Number)
   const alvo = new Date(Date.UTC(a, m - 1 + meses, 1))
   const ultimo = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate()
@@ -315,7 +321,7 @@ function mesesDepois(iso: string, meses: number): string {
 }
 
 /** Dia `dia` do mês, `meses` depois da data-base (no fuso de Brasília). */
-function vencimentoPrevisto(base: Date, meses: number, dia: number): string {
+export function vencimentoPrevisto(base: Date, meses: number, dia: number): string {
   const [a, m] = hojeBrDe(base).split('-').map(Number)
   const alvo = new Date(Date.UTC(a, m - 1 + meses, 1))
   const ultimo = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate()

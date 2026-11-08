@@ -629,7 +629,13 @@ export interface PlanoNaTela {
   opcoes: Array<{ chave: 'entrada' | 'integral'; valor: number; rotulo: string; detalhe: string }>
 }
 
+export interface PagamentoDoCombinado {
+  id: number; titulo: string; detalhe: string | null; valor: number; vencimento: string | null; situacao: string; meio: string | null
+  pagar: string | null; boletoPdf: string | null; pix: string | null; linha: string | null
+}
 export interface OpcoesDePagamento {
+  /** O agente combinou mais de um pagamento: a tela só mostra as cobranças. */
+  combinado?: { total: number; pago: number; pagamentos: PagamentoDoCombinado[] }
   /** Presentes quando a oferta tem planos de pagamento: a pessoa escolhe plano e opção. */
   planos?: PlanoNaTela[]
   escolha?: EscolhaDePlano

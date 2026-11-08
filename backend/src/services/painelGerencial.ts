@@ -250,23 +250,26 @@ function unidadesSql(FN: string, WON: string, POS = '0'): string {
   // trabalhava mais — herdou o dono antigo do lead; vale quem cuida dele / quem deu o Ganho.
   const herdado = REMOVIDOS.length
     ? `(${REMOVIDOS.map((r) => `(n.responsavelUserId=${r.id} AND n.createdAt>'${r.ate}')`).join(' OR ')})` : '0'
+  // Venda do portal (proposta ganha pela inscrição paga): valor, data da fatura e
+  // forma vêm da proposta, e ela conta mesmo com o card ainda em pré-matriculado.
+  const PORTAL = `(n.registrationId IS NOT NULL AND n.resultado='won')`
   return `(SELECT l.id AS leadId, l.nome,
         CASE WHEN n.responsavelUserId IS NOT NULL AND NOT ${herdado} THEN n.responsavelUserId
              ELSE COALESCE(l.assignedUserId, l.outcomeBy) END AS assignedUserId, l.createdAt, l.outcome, l.outcomeAt, l.originType,
         ${origemSql('l')} AS origem,
         REGEXP_REPLACE(COALESCE(l.whatsapp, l.phoneKey, ''), '[^0-9]', '') AS ph,
         COALESCE(k.qtd, 0) AS negs, n.id AS negId,
-        CASE WHEN k.qtd > 1 THEN n.valorFinal ELSE l.saleValue END AS valor,
-        CASE WHEN k.qtd > 1 THEN COALESCE(DATE(DATE_SUB(n.fechadaEm, INTERVAL 3 HOUR)), ${PAG}) ELSE ${PAG} END AS dt,
+        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN n.valorFinal ELSE l.saleValue END AS valor,
+        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(DATE(DATE_SUB(n.fechadaEm, INTERVAL 3 HOUR)), ${PAG}) ELSE ${PAG} END AS dt,
         (${PAG_LANCADA} IS NULL) AS pelo_ganho,
-        CASE WHEN k.qtd > 1 THEN COALESCE(${FORMA_NEG}, ${FORMA_LEAD}) ELSE COALESCE(${FORMA_LEAD}, ${FORMA_NEG}) END AS forma,
-        CASE WHEN k.qtd > 1 THEN COALESCE(${CURSO_OFERTA}, ${CURSO_NEG}, '(sem curso)') ELSE COALESCE(${CURSO_OFERTA}, ${J('curso_de_interesse_1')}, ${CURSO_NEG}, '(sem curso)') END AS curso,
+        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(${FORMA_NEG}, ${FORMA_LEAD}) ELSE COALESCE(${FORMA_LEAD}, ${FORMA_NEG}) END AS forma,
+        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(${CURSO_OFERTA}, ${CURSO_NEG}, '(sem curso)') ELSE COALESCE(${CURSO_OFERTA}, ${J('curso_de_interesse_1')}, ${CURSO_NEG}, '(sem curso)') END AS curso,
         ${J('registro_atendimento')} AS registro,
         DATE_FORMAT(DATE_SUB(l.outcomeAt, INTERVAL 3 HOUR),'%d/%m/%Y') AS data_ganho
       FROM bychat_leads l
       LEFT JOIN (SELECT leadId, COUNT(*) AS qtd FROM bychat_negotiations WHERE status='aceita' GROUP BY leadId) k ON k.leadId=l.id
       LEFT JOIN bychat_negotiations n ON n.leadId=l.id AND n.status='aceita'
-     WHERE (l.funnelId IN (${FN}) AND l.status IN (${WON})) OR (l.funnelId IN (${POS}) AND l.outcome='won')) u`
+     WHERE (l.funnelId IN (${FN}) AND l.status IN (${WON})) OR (l.funnelId IN (${POS}) AND l.outcome='won') OR (l.funnelId IN (${FN}) AND ${PORTAL})) u`
 }
 
 /** Junta duas listas pela chave (leads do período × matrículas do período). */

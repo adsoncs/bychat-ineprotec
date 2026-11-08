@@ -104,10 +104,16 @@ export const EDU_TELAS: TelaDef[] = [
   // Valor personalizado: no atendimento pelo painel, o agente troca a matrícula
   // e a mensalidade do plano escolhido (sem teto; o candidato vê só o final).
   { id: 'edu_valor_personalizado', legado: 'admin', name: 'Valor personalizado', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
-    rotas: [] },
+    rotas: ['/api/admin/matricula-interna/:id/combinado'] },
   // Matrícula interna: dispensar documento ou etapa da inscrição. Só admin herda.
   { id: 'edu_dispensa_etapas', legado: 'admin', name: 'Dispensar etapas e documentos', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
     rotas: ['/api/admin/matricula-interna/:id/dispensa'] },
+  // Mudar a forma do que ainda não foi pago, depois das cobranças geradas.
+  { id: 'edu_alterar_pagamento', legado: 'admin', name: 'Alterar forma de pagamento', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: ['/api/admin/matricula-interna/:id/troca'] },
+  // Quem está em atraso, acordos e contatos de cobrança.
+  { id: 'edu_inadimplencia', legado: 'admin', name: 'Inadimplência e acordos', parent: 'enrollment_portals', menuId: 'edu-inadimplencia', actions: ['view', 'edit'],
+    rotas: ['/api/admin/inadimplencia'] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
   // Painel comercial do Educacional: vendas (propostas ganhas das inscrições),

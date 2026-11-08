@@ -4936,6 +4936,9 @@ model EnrollmentRegistration {
   presencialExams  PresencialExam[]
   essaySubmissions EssaySubmission[]
   paymentMethods   EnrollmentPaymentMethod[]
+  titulos          EnrollmentTitulo[]
+  acordos          EnrollmentAcordo[]
+  trocas           EnrollmentTroca[]
 
   leadId Int?
   lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -10799,4 +10802,117 @@ model MoodleAcesso {
   @@index([status, proximaTentativaEm])
   @@index([leadId])
   @@map("bychat_moodle_acessos")
+}
+
+// Pagamento combinado e acordos do portal: o que a inscrição tem a receber, um
+// título por cobrança. O boleto parcelado antigo segue em paymentPlan.parcelasPortal.
+model EnrollmentTitulo {
+  id                Int                    @id @default(autoincrement())
+  registrationId    Int
+  registration      EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  origem            String                 @default("combinado") @db.VarChar(12) // combinado | acordo
+  acordoId          Int?
+  ordem             Int
+  meio              String                 @db.VarChar(20) // pix | boleto | credit_card
+  parcelasCartao    Int                    @default(1)
+  parcelaDoGrupo    Int?
+  totalDoGrupo      Int?
+  trocaId           Int?
+  /// Como foi pago de fato: boleto pago com o Pix do próprio boleto = pix.
+  pagoComo          String?                @db.VarChar(20)
+  /// Pagamento que chegou em título já substituído, ou cancelamento que falhou.
+  conferirEm        DateTime?
+  conferidoEm       DateTime?
+  conferidoNota     String?                @db.Text
+  valorCentavos     Int
+  valorPagoCentavos Int                    @default(0)
+  vencimento        String                 @db.VarChar(10)
+  status            String                 @default("prevista") @db.VarChar(14) // prevista | aberta | paga | cancelada | estornada | renegociada
+  provider          String?                @db.VarChar(20)
+  externalId        String?                @db.VarChar(191)
+  installmentId     String?                @db.VarChar(191)
+  invoiceUrl        String?                @db.Text
+  boletoPdfUrl      String?                @db.Text
+  boletoLinha       String?                @db.VarChar(60)
+  pixCopiaCola      String?                @db.Text
+  descontoPct       Decimal?               @db.Decimal(5, 2)
+  baixaManual       String?                @db.Text
+  lastError         String?                @db.Text
+  paidAt            DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([registrationId])
+  @@index([status, vencimento])
+  @@index([externalId])
+  @@index([acordoId])
+  @@index([trocaId])
+  @@index([conferirEm])
+  @@map("bychat_enrollment_titulos")
+}
+
+model EnrollmentAcordo {
+  id                    Int                    @id @default(autoincrement())
+  registrationId        Int
+  registration          EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  leadId                Int?
+  valorOriginalCentavos Int
+  encargosCentavos      Int                    @default(0)
+  descontoCentavos      Int                    @default(0)
+  valorTotalCentavos    Int
+  entradaCentavos       Int                    @default(0)
+  numParcelas           Int
+  status                String                 @default("ATIVO") @db.VarChar(12) // ATIVO | QUITADO | CANCELADO
+  itens                 Json
+  observacao            String?                @db.Text
+  criadoPorUserId       Int?
+  criadoPorNome         String?                @db.VarChar(191)
+  canceladoEm           DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@index([registrationId])
+  @@index([leadId])
+  @@index([status])
+  @@map("bychat_enrollment_acordos")
+}
+
+// Troca da forma de pagamento do que ainda não foi pago (services/trocaPagamento).
+model EnrollmentTroca {
+  id                Int                    @id @default(autoincrement())
+  registrationId    Int
+  registration      EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  leadId            Int?
+  status            String                 @default("PENDENTE") @db.VarChar(12) // PENDENTE | CONCLUIDA | CANCELADA | EXPIRADA
+  saldoCentavos     Int
+  novoTotalCentavos Int
+  motivo            String                 @db.Text
+  antes             Json
+  depois            Json
+  expiraEm          String?                @db.VarChar(10)
+  criadoPorUserId   Int?
+  criadoPorNome     String?                @db.VarChar(191)
+  encerradaEm       DateTime?
+  notaEncerramento  String?                @db.Text
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([registrationId])
+  @@index([status, expiraEm])
+  @@map("bychat_enrollment_trocas")
+}
+
+model CobrancaContato {
+  id           Int      @id @default(autoincrement())
+  leadId       Int
+  canal        String   @db.VarChar(20)
+  resultado    String   @db.VarChar(30)
+  promessaPara String?  @db.VarChar(10)
+  nota         String?  @db.Text
+  userId       Int?
+  userNome     String?  @db.VarChar(191)
+  createdAt    DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@map("bychat_cobranca_contatos")
 }

@@ -286,6 +286,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-evaluations', label: 'Avaliações', href: '/app/educational/evaluations', icon: 'Award', permission: 'edu_avaliacoes' },
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
         { id: 'edu-portal-financeiro', label: 'Financeiro do portal', href: '/app/educational/portal-financeiro', icon: 'Wallet', permission: 'edu_financeiro_portal' },
+        { id: 'edu-inadimplencia', label: 'Inadimplência e acordos', href: '/app/educational/inadimplencia', icon: 'Handshake', permission: 'edu_inadimplencia' },
         { id: 'edu-comercial', label: 'Comercial', href: '/app/educational/comercial', icon: 'TrendingUp', permission: 'edu_comercial' },
         { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'edu_cupons' },
         { id: 'edu-contratos', label: 'Contratos', href: '/app/educational/contratos', icon: 'FileSignature', permission: 'edu_contratos' },
@@ -422,7 +423,7 @@ export const buscaExtra: SidebarItem[] = [
  * esconde. No ERP ficam só as telas que recortam por aluno/matrícula.
  */
 const ERP_RECORTAVEL = new Set(['/app/aca/alunos', '/app/aca/matriculas', '/app/aca/ged', '/app/aca/assinatura'])
-const SOMENTE_TODOS_PORTAIS = new Set(['educational', 'edu-portal-financeiro', 'edu-comercial', 'edu-cupons', 'aca-funil-matriculas', 'integ-sei', 'edu-acesso-portais'])
+const SOMENTE_TODOS_PORTAIS = new Set(['educational', 'edu-portal-financeiro', 'edu-inadimplencia', 'edu-comercial', 'edu-cupons', 'aca-funil-matriculas', 'integ-sei', 'edu-acesso-portais'])
 export function somenteQuemVeTodosOsPortais(item: Pick<SidebarItem, 'id' | 'href'>): boolean {
   if (SOMENTE_TODOS_PORTAIS.has(item.id)) return true
   const base = item.href.split('?')[0]!

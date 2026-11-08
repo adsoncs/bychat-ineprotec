@@ -621,12 +621,24 @@ export interface CondicaoDoContrato {
  * null = a oferta não tem plano com regras de portal.
  */
 export async function condicaoDoContrato(offeringId: number, paymentPlan: unknown, registrationId?: number | null): Promise<CondicaoDoContrato | null> {
-  const pp = (paymentPlan ?? null) as Record<string, any> | null
+  let pp = (paymentPlan ?? null) as Record<string, any> | null
+  // Pagamento combinado vale antes do pagamento também: quem assina precisa ver a condição.
+  if (!pp?.combinado && registrationId) {
+    const atual = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPlan: true } }).catch(() => null)
+    if ((atual?.paymentPlan as any)?.combinado) pp = atual!.paymentPlan as Record<string, any>
+  }
   const escolha = lerEscolhaDoPlano(pp)
   // Valor personalizado: o gravado no pagamento; antes dele, o da inscrição.
   const negociada = lerCondicaoNegociada(pp?.condicaoNegociada) ?? await condicaoNegociadaDaInscricao(registrationId)
   const doPlano = escolha ? await planoPorId(escolha.planoId) : (await planosDaOferta(offeringId))[0] ?? null
   const plano = doPlano ? aplicarCondicaoNegociada(doPlano, negociada) : null
+  if (pp?.combinado) {
+    // A combinação vale mesmo em curso sem plano: valor e formas são dela.
+    const total = Math.round(Number(pp.valorTotal ?? 0) * 100)
+    const n = Math.max(1, Number(pp.parcelas) || 1)
+    const base: PlanoDaOferta = plano ?? { id: 0, nome: 'Pagamento combinado', taxaMatriculaCentavos: 0, numParcelas: n, valorParcelaCentavos: Math.round(total / n), diaVencimento: 10, regras: lerRegrasDoPlano({})! }
+    return { plano: base, opcao: escolha?.opcao ?? 'integral', numParcelas: n, valorParcelaCentavos: Math.round(total / n), valorTotalCentavos: total, descricao: String(pp.combinado.descricao ?? '') }
+  }
   if (!plano) return null
   const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'boleto', credit_card: 'cartão de crédito' }

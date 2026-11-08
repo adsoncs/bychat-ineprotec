@@ -69,7 +69,7 @@ async function situacao(registrationId: number) {
     where: { id: registrationId },
     select: {
       id: true, candidateCode: true, portalId: true, leadId: true, status: true, mergedIntoId: true,
-      paymentStatus: true, paymentAmount: true, paymentPaidAt: true, paymentPlan: true, vendedorUserId: true,
+      paymentStatus: true, paymentAmount: true, paymentPaidAt: true, paymentPlan: true, vendedorUserId: true, condicaoNegociada: true,
       portal: { select: { funnelId: true, nome: true } },
       lead: { select: { assignedUserId: true, funnelId: true } },
       processRegistration: { select: { offeringId: true, offering: { select: { courseId: true, nome: true, course: { select: { nome: true } } } } } },
@@ -80,10 +80,60 @@ async function situacao(registrationId: number) {
   const pago = reg.paymentStatus === 'paid'
   const estornado = reg.paymentStatus === 'refunded'
   const cancelada = ABERTA_INSC.includes(reg.status) || !!reg.mergedIntoId
-  // Valor = o que foi pago; antes de pagar, o que está sendo cobrado agora.
-  const plano: any = reg.paymentPlan || {}
-  const valor = Number(reg.paymentAmount ?? plano.valorCobrado ?? 0) || 0
-  return { reg, curso, pago, estornado, cancelada, valor }
+  const valor = await valorDaVenda(reg)
+  const fechamento = pago ? await fechamentoDaVenda(reg.id) : null
+  return { reg, curso, pago, estornado, cancelada, valor, fechamento }
+}
+
+const FORMA: Record<string, 'boleto' | 'cartao' | 'pix'> = { boleto: 'boleto', pix: 'pix', credit_card: 'cartao', cartao: 'cartao', debit_card: 'cartao' }
+
+/**
+ * Data e forma da venda (07/11/2026, decisões do usuário): o dia em que a FATURA
+ * paga foi criada, e não o dia do pagamento; a forma é COMO foi pago (boleto pago
+ * pelo Pix do próprio boleto conta como Pix). É ela que define a taxa da comissão
+ * no Painel Gerencial.
+ */
+export async function fechamentoDaVenda(registrationId: number): Promise<{ data: Date; forma: 'boleto' | 'cartao' | 'pix' | null } | null> {
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPaidAt: true, paymentPlan: true, paymentMethod: true } })
+  if (!reg) return null
+  const pp: any = reg.paymentPlan || {}
+  const titulo = await prisma.enrollmentTitulo.findFirst({ where: { registrationId, status: 'paga' }, orderBy: [{ paidAt: 'asc' }, { ordem: 'asc' }], select: { createdAt: true, meio: true, pagoComo: true } })
+  if (titulo) return { data: titulo.createdAt, forma: FORMA[String(titulo.pagoComo)] ?? FORMA[titulo.meio] ?? null }
+  // O aviso do Asaas grava em paymentMethod o meio usado no pagamento (PIX num boleto).
+  const pagoComo = FORMA[String(reg.paymentMethod ?? '').toLowerCase()]
+  const cobranca = await prisma.enrollmentPaymentMethod.findFirst({ where: { registrationId, status: 'paid' }, orderBy: [{ paidAt: 'asc' }, { id: 'asc' }], select: { createdAt: true, method: true } })
+  if (cobranca) return { data: cobranca.createdAt, forma: pagoComo ?? FORMA[cobranca.method] ?? FORMA[String(pp.meio)] ?? null }
+  return reg.paymentPaidAt ? { data: reg.paymentPaidAt, forma: pagoComo ?? FORMA[String(pp.meio)] ?? null } : null
+}
+
+/**
+ * Valor da proposta = a VENDA inteira (07/11/2026, decisão do usuário): a venda
+ * parcelada (cartão, boleto parcelado, combinado) conta pelo total, e quem ainda
+ * não pagou já entra com o valor do curso.
+ *   - pagamento combinado: o total combinado;
+ *   - curso completo (à vista, cartão ou boleto parcelado): o total da opção paga;
+ *   - "só a 1ª parcela" ou ainda sem pagamento: o curso pelo plano, com o valor combinado;
+ *   - sem plano: o valor combinado à mão, senão o que foi cobrado.
+ */
+async function valorDaVenda(reg: { paymentAmount: unknown; paymentPlan: unknown; condicaoNegociada: unknown; processRegistration: { offeringId: number | null } | null }): Promise<number> {
+  const pp: any = reg.paymentPlan || {}
+  const total = Number(pp.valorTotal) || 0
+  if (pp.combinado && total > 0) return total
+  if (pp.planoFinanceiro?.opcao === 'integral' && total > 0) return total
+  const curso = await valorDoCurso(reg)
+  if (curso > 0) return curso
+  return Number(reg.paymentAmount ?? pp.valorCobrado ?? 0) || 0
+}
+
+async function valorDoCurso(reg: { paymentPlan: unknown; condicaoNegociada: unknown; processRegistration: { offeringId: number | null } | null }): Promise<number> {
+  const pf = await import('./planoFinanceiro.js')
+  const avulso = pf.lerValorCombinado(reg.condicaoNegociada)
+  const planos = await pf.planosDaOferta(reg.processRegistration?.offeringId).catch(() => [])
+  if (!planos.length) return avulso ? avulso.valorCentavos / 100 : 0
+  const pp: any = reg.paymentPlan || {}
+  const escolhido = planos.find((p) => p.id === Number(pp.planoFinanceiro?.planoId)) ?? planos[0]!
+  const cn = pf.lerCondicaoNegociada(pp.condicaoNegociada) ?? pf.lerCondicaoNegociada(reg.condicaoNegociada)
+  return Math.round(pf.valorIntegral(pf.aplicarCondicaoNegociada(escolhido, cn)) * 100) / 100
 }
 
 async function jornadaConcluida(registrationId: number): Promise<boolean> {
@@ -102,7 +152,7 @@ export async function decidir(registrationId: number, marco: MarcoDaVenda): Prom
   if (!sit) return { acao: { tipo: 'nada', motivo: 'inscrição sem ficha' }, sit: null, propostaId: null, adotavel: null }
   const { reg, pago, estornado, cancelada, valor } = sit
   const vendedorUserId = reg.vendedorUserId ?? reg.lead?.assignedUserId ?? null
-  const propria = await prisma.negotiation.findFirst({ where: { registrationId: reg.id }, orderBy: { id: 'asc' }, select: { id: true, resultado: true, valorUnico: true } })
+  const propria = await prisma.negotiation.findFirst({ where: { registrationId: reg.id }, orderBy: { id: 'asc' }, select: { id: true, resultado: true, valorUnico: true, fechadaEm: true, pagamentoForma: true } })
 
   // Proposta manual aberta do mesmo curso, do mesmo lead, ainda sem inscrição: adotar.
   let adotavel: number | null = null
@@ -133,6 +183,12 @@ export async function decidir(registrationId: number, marco: MarcoDaVenda): Prom
   }
   if (resultado === 'won') {
     if (!venda) return { acao: { tipo: 'reabrir', motivo: 'o marco da venda deixou de valer', negotiationId: alvoId, valor, vendedorUserId }, sit, propostaId: alvoId, adotavel }
+    // Ganha continua ganha; o valor acompanha a venda (troca de forma, valor combinado).
+    if (Number(propria.valorUnico ?? 0) !== valor) return { acao: { tipo: 'atualizar', motivo: 'valor da venda mudou', negotiationId: alvoId, valor, vendedorUserId }, sit, propostaId: alvoId, adotavel }
+    const f = marco === 'pagamento' ? sit.fechamento : null
+    if (f && (propria.fechadaEm?.getTime() !== f.data.getTime() || (f.forma && propria.pagamentoForma !== f.forma))) {
+      return { acao: { tipo: 'atualizar', motivo: 'data ou forma da fatura', negotiationId: alvoId, valor, vendedorUserId }, sit, propostaId: alvoId, adotavel }
+    }
     return { acao: { tipo: 'nada', motivo: 'proposta já ganha' }, sit, propostaId: alvoId, adotavel }
   }
   if (resultado === 'lost') return { acao: { tipo: 'reabrir', motivo: 'inscrição voltou a valer', negotiationId: alvoId, valor, vendedorUserId }, sit, propostaId: alvoId, adotavel }
@@ -166,8 +222,10 @@ async function aplicar(registrationId: number): Promise<AcaoProposta | null> {
   const { onNegotiationChanged } = await import('./commissions.js')
   const { logEvent } = await import('./leadHistory.js')
   const agora = new Date()
-  const quandoGanhou = cfg.marco === 'pagamento' ? (r.paymentPaidAt ?? agora) : agora
+  const fech = cfg.marco === 'pagamento' ? sit.fechamento : null
+  const quandoGanhou = cfg.marco === 'pagamento' ? (fech?.data ?? r.paymentPaidAt ?? agora) : agora
   const ganha = acao.ganha === true || acao.tipo === 'ganhar'
+  const forma = fech?.forma ? { pagamentoForma: fech.forma } : {}
   const valores = { valorTabela: valor, valorFinal: valor, valorUnico: valor, valorRecorrente: 0 }
   let id = acao.negotiationId ?? null
 
@@ -180,8 +238,8 @@ async function aplicar(registrationId: number): Promise<AcaoProposta | null> {
         status: ganha ? 'aceita' : 'enviada', ...valores,
         responsavelUserId: acao.vendedorUserId, funnelId: r.portal?.funnelId ?? r.lead?.funnelId ?? null,
         registrationId: r.id, offeringId: r.processRegistration?.offeringId ?? null, origem: 'portal',
-        observacoes: 'Gerada pela inscrição do portal (valor = o que foi pago).',
-        ...(ganha ? { resultado: 'won', fechadaEm: quandoGanhou } : {}),
+        observacoes: 'Gerada pela inscrição do portal (valor = a venda inteira; antes do pagamento, o valor do curso).',
+        ...(ganha ? { resultado: 'won', fechadaEm: quandoGanhou, ...forma } : {}),
         items: { create: [{ productId: produto?.id ?? null, nome: curso.slice(0, 191), quantidade: 1, precoUnit: valor, subtotal: valor, cobranca: 'unico' }] },
       } as any,
     })
@@ -189,12 +247,13 @@ async function aplicar(registrationId: number): Promise<AcaoProposta | null> {
   } else if (acao.tipo === 'adotar') {
     await prisma.negotiation.update({ where: { id: id! }, data: {
       registrationId: r.id, offeringId: r.processRegistration?.offeringId ?? null,
-      ...(ganha ? { status: 'aceita', resultado: 'won', fechadaEm: quandoGanhou, ...valores } : {}),
+      ...(ganha ? { status: 'aceita', resultado: 'won', fechadaEm: quandoGanhou, ...forma, ...valores } : {}),
     } as any })
   } else if (acao.tipo === 'atualizar') {
-    await prisma.negotiation.update({ where: { id: id! }, data: valores as any })
+    const atual = await prisma.negotiation.findUnique({ where: { id: id! }, select: { resultado: true } })
+    await prisma.negotiation.update({ where: { id: id! }, data: { ...valores, ...(atual?.resultado === 'won' && fech ? { fechadaEm: fech.data, ...forma } : {}) } as any })
   } else if (acao.tipo === 'ganhar') {
-    await prisma.negotiation.update({ where: { id: id! }, data: { status: 'aceita', resultado: 'won', fechadaEm: quandoGanhou, ...valores } as any })
+    await prisma.negotiation.update({ where: { id: id! }, data: { status: 'aceita', resultado: 'won', fechadaEm: quandoGanhou, ...forma, ...valores } as any })
   } else if (acao.tipo === 'perder') {
     await prisma.negotiation.update({ where: { id: id! }, data: { status: 'recusada', resultado: 'lost', fechadaEm: agora } as any })
   } else if (acao.tipo === 'reabrir') {

@@ -152,6 +152,52 @@ export async function createAsaasPayment(config: AsaasConfig, input: AsaasPaymen
  * Cancela (remove) uma cobrança em aberto no Asaas. Cobrança que já não existe
  * lá conta como cancelada — o objetivo é ela não poder mais ser paga.
  */
+/** Avisos do Asaas ao aluno que ainda saem na criação ou alteração da cobrança. */
+export function avisosDeCriacaoLigados(lista: any[]): string[] {
+  return lista
+    .filter((n) => ['PAYMENT_CREATED', 'PAYMENT_UPDATED'].includes(n?.event)
+      && (n.emailEnabledForCustomer || n.smsEnabledForCustomer || n.whatsappEnabledForCustomer || n.phoneCallEnabledForCustomer))
+    .map((n) => String(n.id))
+}
+
+/**
+ * Pagamento combinado e acordo geram várias cobranças de uma vez: sem isto, o
+ * aluno recebe um e-mail e um SMS por cobrança, logo de início. Desliga só os
+ * canais do aluno nesses dois eventos; lembretes e aviso de atraso continuam.
+ * A configuração é do cliente no Asaas, então vale também para outras cobranças dele.
+ */
+export async function silenciarAvisosDeCriacaoAsaas(config: AsaasConfig, customerId: string): Promise<number> {
+  const d = await asaasFetch(config, `/customers/${encodeURIComponent(customerId)}/notifications`)
+  const ids = avisosDeCriacaoLigados(Array.isArray(d?.data) ? d.data : [])
+  for (const id of ids) {
+    await asaasFetch(config, `/notifications/${encodeURIComponent(id)}`, 'PUT', {
+      emailEnabledForCustomer: false, smsEnabledForCustomer: false, whatsappEnabledForCustomer: false, phoneCallEnabledForCustomer: false,
+    })
+  }
+  return ids.length
+}
+
+/** Cada parcela de um parcelamento é uma cobrança própria. */
+export async function listarParcelasAsaas(config: AsaasConfig, installmentId: string): Promise<any[]> {
+  const d = await asaasFetch(config, `/payments?installment=${encodeURIComponent(installmentId)}&limit=100`)
+  return Array.isArray(d?.data) ? d.data : []
+}
+
+/** Excluir só uma parcela deixa as outras pagáveis: o parcelamento sai inteiro. */
+export async function cancelarParcelamentoAsaas(config: AsaasConfig, installmentId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await asaasFetch(config, `/installments/${encodeURIComponent(installmentId)}`, 'DELETE')
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, message: String(e?.message || 'falha ao cancelar o parcelamento') }
+  }
+}
+
+/** A situação atual da cobrança no Asaas. */
+export async function consultarCobrancaAsaas(config: AsaasConfig, paymentId: string): Promise<any> {
+  return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
+}
+
 export async function cancelarCobrancaAsaas(config: AsaasConfig, paymentId: string): Promise<{ ok: boolean; message?: string }> {
   try {
     await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'DELETE')

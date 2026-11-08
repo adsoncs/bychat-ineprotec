@@ -3048,6 +3048,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
 
+    // Pagamento combinado: o agente já definiu as cobranças, a tela só as mostra.
+    const combo = await (await import('../services/pagamentoCombinado.js')).resumoDoCombinado(enrollment.id)
+    if (combo) {
+      return {
+        escopo: 'curso', rotulo: 'Pagamento combinado', valor: combo.total, valorTabela: combo.total, cupom: null,
+        planos: [], escolha: null, combinado: combo,
+        meios: { pix: { ativo: false }, boleto: { ativo: false }, cartao: { ativo: false } },
+      }
+    }
+
     // Taxa de inscrição, ou matrícula/1ª mensalidade quando o portal cobra o curso.
     const cob = await cobrancaDoPortal(enrollment.id)
     const valorTabela = cob?.valor ?? 0
@@ -3257,6 +3267,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const method = body.method as 'pix' | 'boleto' | 'credit_card'
     if (!['pix', 'boleto', 'credit_card'].includes(method)) {
       return reply.code(400).send({ error: 'Método inválido' })
+    }
+    if (await (await import('../services/pagamentoCombinado.js')).resumoDoCombinado(sess.enrollmentId)) {
+      return reply.code(409).send({ error: 'Esta inscrição tem um pagamento combinado: use as cobranças já geradas.' })
     }
 
     const enrollment = await prisma.enrollmentRegistration.findUnique({
@@ -5445,9 +5458,22 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       return { ok: true, ignored: true }
     }
 
+    const ref = String(payment.externalReference || '')
+    // Pagamento combinado/acordo e parcela gerada no Meu Portal têm referência
+    // própria: não podem mexer na situação da inscrição como cobrança principal.
+    const refTitulo = ref.match(/^titulo-(\d+)$/)
+    const refParcela = ref.match(/^portal-parcela:(\d+):(\d+)$/)
+    if (refTitulo || refParcela) {
+      const c = await import('../services/pagamentoCombinado.js')
+      const registrationId = refTitulo
+        ? await c.aplicarAvisoDoAsaas(Number(refTitulo[1]), event, payment)
+        : (await c.aplicarAvisoDaParcelaDoPortal(Number(refParcela![1]), Number(refParcela![2]), event, payment)) ? Number(refParcela![1]) : null
+      if (hitId) await updateWebhookHit(hitId, registrationId ? { status: 'processed', registrationId } : { status: 'notFound' })
+      return { ok: true, event }
+    }
+
     // Identifica enrollment pelo externalReference (formato "enrollment-<id>")
     let enrollmentId: number | null = null
-    const ref = String(payment.externalReference || '')
     const m = ref.match(/^enrollment-(\d+)$/)
     if (m) enrollmentId = parseInt(m[1])
 

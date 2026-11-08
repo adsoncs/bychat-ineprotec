@@ -404,6 +404,9 @@ const migratedPages: Record<string, ComponentType> = {
   'enrollment-portals': lazy(() =>
     import('./pages/EnrollmentPortalsPage').then((m) => ({ default: m.EnrollmentPortalsPage })),
   ),
+  'edu-inadimplencia': lazy(() =>
+    import('./pages/educational/InadimplenciaPage').then((m) => ({ default: m.InadimplenciaPage })),
+  ),
   'edu-portal-financeiro': lazy(() =>
     import('./pages/educational/EducationalPortalFinanceiroPage').then((m) => ({ default: m.EducationalPortalFinanceiroPage })),
   ),
