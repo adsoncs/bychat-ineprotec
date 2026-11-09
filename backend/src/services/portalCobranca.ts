@@ -115,7 +115,7 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   if (plano1 && opcao1) {
     return {
       escopo: 'curso', valor: valorDaOpcao(plano1, opcao1),
-      rotulo: opcao1 === 'integral' ? CURSO : plano1.taxaMatriculaCentavos > 0 ? MATRICULA : texto('resumoMensalidade', '1ª parcela'),
+      rotulo: opcao1 === 'integral' ? CURSO : plano1.taxaMatriculaCentavos > 0 && !plano1.entradaComoParcela ? MATRICULA : texto('resumoMensalidade', '1ª parcela'),
       fonte: 'plano_erp', contexto,
     }
   }

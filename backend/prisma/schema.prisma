@@ -10878,6 +10878,33 @@ model EnrollmentAcordo {
 }
 
 // Troca da forma de pagamento do que ainda não foi pago (services/trocaPagamento).
+/// Transferência de curso (09/11/2026): o aluno pagou e quer outro curso. A inscrição
+/// antiga é encerrada e uma nova nasce no curso escolhido, com o que foi pago virando
+/// crédito, os documentos iguais levados e o contrato novo para assinar.
+model EnrollmentTransferencia {
+  id                 Int      @id @default(autoincrement())
+  deRegistrationId   Int
+  paraRegistrationId Int
+  leadId             Int?
+  recebidoCentavos   Int
+  creditoCentavos    Int
+  /// Crédito usado na entrada (matrícula ou 1ª parcela) do curso novo.
+  entradaCentavos    Int      @default(0)
+  parcelasQuitadas   Int      @default(0)
+  /// Crédito que não coube no curso novo (devolução fica com a equipe).
+  sobraCentavos      Int      @default(0)
+  motivo             String   @db.Text
+  detalhes           Json
+  criadoPorUserId    Int?
+  criadoPorNome      String?  @db.VarChar(191)
+  createdAt          DateTime @default(now())
+
+  @@index([deRegistrationId])
+  @@index([paraRegistrationId])
+  @@index([leadId])
+  @@map("bychat_enrollment_transferencias")
+}
+
 model EnrollmentTroca {
   id                Int                    @id @default(autoincrement())
   registrationId    Int

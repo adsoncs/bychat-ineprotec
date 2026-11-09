@@ -208,7 +208,8 @@ export function Pagamento(props: {
     }
     // Confere aqui antes de mandar: cada recusa por número errado conta como
     // transação negada na conta da instituição.
-    const problemas = errosDoCartao(cartao)
+    // Asaas (sem tokenização no navegador) exige o endereço do titular.
+    const problemas = errosDoCartao(cartao, false, !opcoes?.meios.cartao.tokenizacao)
     if (Object.keys(problemas).length) {
       setErrosCartao(problemas)
       return
@@ -516,6 +517,7 @@ export function Pagamento(props: {
           </p>
         ) : (
           <FormularioDeCartao
+            pedeEndereco={!opcoes?.meios.cartao.tokenizacao}
             valores={cartao}
             erros={errosCartao}
             aoMudar={(campo, valor) => {
@@ -713,6 +715,7 @@ export function Pagamento(props: {
  * pessoa não errar o número, e errar aqui custa uma transação recusada.
  */
 function FormularioDeCartao(props: {
+  pedeEndereco?: boolean
   valores: Partial<DadosDoCartao>
   erros: Record<string, string>
   aoMudar: (campo: keyof DadosDoCartao, valor: string) => void
@@ -792,6 +795,37 @@ function FormularioDeCartao(props: {
           {props.erros.ccv && <span class="erro">{props.erros.ccv}</span>}
         </div>
       </div>
+
+      {props.pedeEndereco && (
+        <div class="cartao-linha">
+          <div class={`campo ${props.erros.postalCode ? 'ruim' : ''}`}>
+            <label for="cc-cep">CEP do titular</label>
+            <input
+              id="cc-cep"
+              name="postal-code"
+              inputMode="numeric"
+              autocomplete="billing postal-code"
+              placeholder="00000-000"
+              maxLength={9}
+              value={(() => { const d = (props.valores.postalCode ?? '').replace(/\D/g, ''); return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5, 8)}` : d })()}
+              onInput={(e) => props.aoMudar('postalCode', (e.target as HTMLInputElement).value.replace(/\D/g, '').slice(0, 8))}
+            />
+            {props.erros.postalCode && <span class="erro">{props.erros.postalCode}</span>}
+          </div>
+          <div class={`campo ${props.erros.addressNumber ? 'ruim' : ''}`}>
+            <label for="cc-numero-end">Número do endereço</label>
+            <input
+              id="cc-numero-end"
+              name="address-number"
+              placeholder="Ex.: 120 ou S/N"
+              maxLength={10}
+              value={props.valores.addressNumber ?? ''}
+              onInput={(e) => props.aoMudar('addressNumber', (e.target as HTMLInputElement).value)}
+            />
+            {props.erros.addressNumber && <span class="erro">{props.erros.addressNumber}</span>}
+          </div>
+        </div>
+      )}
 
       <p class="ajuda" style="margin-top:4px">
         Os dados do cartão são usados só para esta cobrança e não ficam guardados.

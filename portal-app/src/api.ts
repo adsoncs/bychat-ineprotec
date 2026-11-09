@@ -471,7 +471,7 @@ export const iniciarPagamento = (
   parcelas = 1,
   // Vai no corpo desta requisição e em nenhum outro lugar: não é guardado no
   // rascunho, não volta na resposta e não aparece em log.
-  cartao?: { holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string },
+  cartao?: { holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string; postalCode?: string; addressNumber?: string },
   cupom?: string,
   // Token de uso único gerado no navegador (iugu.js). Com ele, os dados do
   // cartão não vão nesta requisição.
@@ -486,7 +486,10 @@ export const iniciarPagamento = (
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         method: metodo, parcelas,
-        ...(cartao && !cardToken ? { card: cartao } : {}),
+        ...(cartao && !cardToken ? {
+          card: { holderName: cartao.holderName, number: cartao.number, expiryMonth: cartao.expiryMonth, expiryYear: cartao.expiryYear, ccv: cartao.ccv },
+          ...(cartao.postalCode ? { holder: { postalCode: cartao.postalCode, addressNumber: cartao.addressNumber || 'S/N' } } : {}),
+        } : {}),
         ...(cardToken ? { cardToken } : {}),
         ...(cupom ? { cupom } : {}),
         ...(plano ? { planoId: plano.planoId, opcao: plano.opcao } : {}),

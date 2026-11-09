@@ -17,7 +17,7 @@ import { toast } from '@/lib/toast'
 import { useIsModuleActive } from '@/hooks/usePermissions'
 import { PainelComercial } from '@/components/comercial/PainelComercial'
 
-type Marco = 'pagamento' | 'jornada'
+type Marco = 'pagamento' | 'jornada' | 'assinatura'
 interface Config { modo: 'desligado' | 'ativo'; marco: Marco }
 interface Estado { config: Config; propostas: { total: number; abertas: number; ganhas: number; perdidas: number; valorGanho: number; geradasPeloPortal: number } }
 interface Simulacao {
@@ -73,6 +73,7 @@ export function PortalComercialTab({ portal }: { portal: { id: number; nome: str
             <span class="text-fg-muted">A venda conta quando</span>
             <Select value={marco} onChange={(e) => setMarco((e.currentTarget as HTMLSelectElement).value as Marco)} class="max-w-sm">
               <option value="pagamento">o pagamento é confirmado</option>
+              <option value="assinatura">o pagamento é confirmado e o contrato é aceito ou assinado</option>
               <option value="jornada">todas as etapas do portal são concluídas</option>
             </Select>
           </div>
@@ -104,7 +105,7 @@ export function PortalComercialTab({ portal }: { portal: { id: number; nome: str
       {sim && (
         <Card>
           <div class="space-y-2">
-            <div class="text-sm font-semibold">Simulação ({sim.marco === 'jornada' ? 'venda = jornada concluída' : 'venda = pagamento confirmado'})</div>
+            <div class="text-sm font-semibold">Simulação ({sim.marco === 'jornada' ? 'venda = jornada concluída' : sim.marco === 'assinatura' ? 'venda = pagamento + contrato' : 'venda = pagamento confirmado'})</div>
             <div class="flex flex-wrap gap-2 text-xs">
               {Object.entries(sim.resumo).map(([k, v]) => <Badge key={k} tone={k === 'nada' ? 'neutral' : 'info'}>{ACAO[k] ?? k}: {v}</Badge>)}
               <Badge tone="success">Vendas: {sim.vendas.quantidade} · {brl(sim.vendas.valor)}</Badge>

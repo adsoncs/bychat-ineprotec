@@ -5,6 +5,7 @@ import { AbaCadastro } from './enrollmentPortal/matricula/AbaCadastro'
 import { PedirAssinatura } from './enrollmentPortal/matricula/PedirAssinatura'
 import { BotaoDispensa, SeloDispensa, invalidarInscricao } from './enrollmentPortal/matricula/Dispensa'
 import { chamarComoAgente } from './enrollmentPortal/matricula/sessao'
+import { AvisoDeTransferencia, BotaoTransferirCurso } from './enrollmentPortal/matricula/TransferirCurso'
 import { useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
@@ -151,6 +152,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               <Eye size={12} /> Ver como o aluno vê
             </Button>
           )}
+          {review && <BotaoTransferirCurso registrationId={review.registration.id} portalIdAtual={portalId} aberta={aberta} />}
           {review && (
             <Button variant="secondary" size="sm" onClick={handleReceipt}>
               <Download size={12} /> Comprovante
@@ -178,6 +180,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               Você vê esta inscrição, mas as ações que exigem "Editar" (no Portal, na Revisão de documentos ou em Avaliações) ficam desativadas para o seu perfil.
             </div>
           )}
+          <AvisoDeTransferencia registrationId={review.registration.id} />
           <StatusBanner review={review} aoAbrirEtapa={(chave) => setAba(abaDaEtapa(chave))} />
           <AbasDaMatricula aba={aba} aoMudar={setAba} etapas={todasAsEtapas} temAvaliacao={temAvaliacao} />
 
@@ -692,7 +695,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
   const slug = review.portal?.slug
   const code = review.registration.candidateCode
   const [resending, setResending] = useState(false)
-  const [linkGerado, setLinkGerado] = useState<{ url: string; ttlDays: number } | null>(null)
+  const [linkGerado, setLinkGerado] = useState<{ url: string; ttlHoras: number } | null>(null)
   const resend = useResendMagicLink(slug ?? '')
   const gerar = useResendRegistrationLink()
 
@@ -724,7 +727,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
    */
   function handleGerar() {
     gerar.mutate({ id: review.registration.id, enviar: false }, {
-      onSuccess: (r) => setLinkGerado({ url: r.url, ttlDays: r.ttlDays }),
+      onSuccess: (r) => setLinkGerado({ url: r.url, ttlHoras: r.ttlHoras ?? 48 }),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -778,7 +781,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
           <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
             <div class="text-xs font-medium text-fg">Link de acesso direto</div>
             <div class="text-2xs text-fg-muted">
-              Vale por {linkGerado.ttlDays} dia(s) · entra direto, sem o candidato precisar fazer login
+              Vale por {linkGerado.ttlHoras} horas e uma única vez · abre o portal do aluno já logado
             </div>
           </div>
           <div class="flex gap-2 items-start">
@@ -790,7 +793,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
             </Button>
           </div>
           <div class="text-2xs text-warning mt-2">
-            Quem tiver este link entra na inscrição — mande só para o candidato.
+            Quem abrir este link entra no portal do aluno — mande só para ele e não abra para testar, ou o link deixa de valer.
           </div>
         </div>
       )}

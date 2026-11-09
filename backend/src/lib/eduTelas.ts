@@ -111,6 +111,9 @@ export const EDU_TELAS: TelaDef[] = [
   // Mudar a forma do que ainda não foi pago, depois das cobranças geradas.
   { id: 'edu_alterar_pagamento', legado: 'admin', name: 'Alterar forma de pagamento', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
     rotas: ['/api/admin/matricula-interna/:id/troca'] },
+  // Transferir a inscrição (já paga ou não) para outro curso, com crédito do que foi pago.
+  { id: 'edu_transferir_curso', legado: 'admin', name: 'Transferir de curso', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'edit'],
+    rotas: ['/api/admin/matricula-interna/:id/transferencia'] },
   // Quem está em atraso, acordos e contatos de cobrança.
   { id: 'edu_inadimplencia', legado: 'admin', name: 'Inadimplência e acordos', parent: 'enrollment_portals', menuId: 'edu-inadimplencia', actions: ['view', 'edit'],
     rotas: ['/api/admin/inadimplencia'] },

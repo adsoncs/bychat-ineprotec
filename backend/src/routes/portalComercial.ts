@@ -47,7 +47,8 @@ export async function portalComercialRoutes(app: FastifyInstance) {
 
   app.post('/api/admin/enrollment-portals/:id/comercial/simular', { preHandler: guardTela('admin') }, async (req, reply) => {
     const p = await portalDe(req, reply); if (!p) return
-    const marco = (req.body as any)?.marco === 'jornada' ? 'jornada' : (req.body as any)?.marco === 'pagamento' ? 'pagamento' : undefined
+    const pedido = (req.body as any)?.marco
+    const marco = pedido === 'jornada' || pedido === 'pagamento' || pedido === 'assinatura' ? pedido : undefined
     const { simularPortal } = await import('../services/propostaDaInscricao.js')
     return simularPortal(p.id, marco)
   })

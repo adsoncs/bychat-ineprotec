@@ -1918,6 +1918,26 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!reg.lead) return reply.code(400).send({ error: 'Inscrição sem lead vinculado' })
     if (!reg.portal) return reply.code(400).send({ error: 'Portal da inscrição não encontrado' })
 
+    // Com `enviar: false` a equipe só quer o link, para entregar onde a conversa já
+    // está. Ele abre o portal logado do aluno, não o formulário da inscrição.
+    if ((req.body as any)?.enviar === false) {
+      const { garantirConta, criarLinkDeAcesso, LINK_TTL_HORAS } = await import('../services/portalAccount.js')
+      const conta = await garantirConta(reg.lead.id)
+      const link = await criarLinkDeAcesso(conta.id, 'acesso_direto')
+      // Link de acesso é credencial: quem gerou e quando fica na timeline do lead.
+      logEvent({
+        leadId: reg.lead.id,
+        type: 'magic_link_gerado',
+        category: 'lifecycle',
+        title: `Link de acesso gerado para envio manual — ${reg.candidateCode}`,
+        channel: 'portal',
+        actorType: 'operator',
+        metadata: { registrationId: reg.id, portal: reg.portal.slug, enviado: false },
+      })
+      reply.header('cache-control', 'no-store')
+      return { ok: true, sent: false, url: link.url, ttlHoras: LINK_TTL_HORAS }
+    }
+
     // Para portais 'interest', reenvia magic link p/ portal de continuação.
     // Para portais 'full', reenvia link direto da inscrição (candidato resume).
     const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3005}`
@@ -1950,51 +1970,38 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       continuationPortalNome = reg.portal.nome
     }
 
-    // Duas coisas diferentes moram nesta rota: GERAR o link e ENTREGAR o link.
-    //
-    // Nem toda entrega passa pelo disparo automático — a secretaria muitas vezes
-    // já está falando com a pessoa no Conversas, ou vai mandar por outro canal.
-    // Com `enviar: false` a rota devolve a URL e não dispara nada, e quem
-    // conduz a conversa decide como entregar. O padrão continua enviando, para
-    // não mudar o comportamento de quem já usa o botão.
-    const enviar = (req.body as any)?.enviar !== false
-
-    if (enviar) {
-      eventBus.emitDomain({
-        type: 'enrollment.interest_submitted',
-        leadId: reg.lead.id,
-        payload: {
-          nome: reg.lead.nome,
-          email: reg.lead.email,
-          whatsapp: reg.lead.whatsapp,
-          portalNome: reg.portal.nome,
-          courseName,
-          continueUrl,
-          continuationPortalNome,
-          ttlDays: reg.portal.magicLinkTtlDays || 30,
-          resend: true,
-        },
-        timestamp: new Date(),
-      })
-    }
+    eventBus.emitDomain({
+      type: 'enrollment.interest_submitted',
+      leadId: reg.lead.id,
+      payload: {
+        nome: reg.lead.nome,
+        email: reg.lead.email,
+        whatsapp: reg.lead.whatsapp,
+        portalNome: reg.portal.nome,
+        courseName,
+        continueUrl,
+        continuationPortalNome,
+        ttlDays: reg.portal.magicLinkTtlDays || 30,
+        resend: true,
+      },
+      timestamp: new Date(),
+    })
 
     // Quem gerou e quando fica registrado na timeline do lead: link de acesso é
     // credencial, e credencial que ninguém sabe quem tirou vira problema.
     logEvent({
       leadId: reg.lead.id,
-      type: enviar ? 'magic_link_enviado' : 'magic_link_gerado',
+      type: 'magic_link_enviado',
       category: 'lifecycle',
-      title: enviar
-        ? `Link de acesso reenviado ao candidato — ${reg.candidateCode}`
-        : `Link de acesso gerado para envio manual — ${reg.candidateCode}`,
+      title: `Link de acesso reenviado ao candidato — ${reg.candidateCode}`,
       channel: 'portal',
       actorType: 'operator',
-      metadata: { registrationId: reg.id, portal: reg.portal.slug, enviado: enviar },
+      metadata: { registrationId: reg.id, portal: reg.portal.slug, enviado: true },
     })
 
     return {
       ok: true,
-      sent: enviar,
+      sent: true,
       url: continueUrl,
       ttlDays: reg.portal.magicLinkTtlDays || 30,
     }
@@ -3400,6 +3407,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     const fd = (enrollment.formData as any) || {}
+    // Sem CEP o Asaas recusa o cartão, e a recusa conta como transação negada.
+    // Para aqui e pede o CEP na tela, sem gastar tentativa.
+    if (dadosDoCartao && titularDoCartao(enrollment, fd, body.holder).postalCode.length !== 8) {
+      return reply.code(400).send({ error: 'Informe o CEP do titular do cartão.', campo: 'postalCode' })
+    }
     const apiKeyPlain = (() => {
       try { return decryptToken(conn.apiKey) } catch { return null }
     })()

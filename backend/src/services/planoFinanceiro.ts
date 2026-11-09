@@ -76,6 +76,8 @@ export interface PlanoDaOferta {
   valorParcelaCentavos: number
   diaVencimento: number
   regras: RegrasDoPlano
+  /** A "matrícula" é na verdade a 1ª parcela com valor próprio (crédito de transferência em curso sem matrícula). */
+  entradaComoParcela?: boolean
 }
 
 const num = (v: unknown, padrao: number, min: number, max: number): number => {
@@ -201,6 +203,8 @@ export interface CondicaoNegociada {
   vencimentoEntrada: string | null
   /** Vencimento da 1ª das parcelas seguintes (YYYY-MM-DD); as demais, mês a mês. */
   primeiraSeguinte: string | null
+  /** Curso sem matrícula: o valor em taxaMatricula é a 1ª parcela (só o rótulo muda). */
+  entradaComoParcela?: boolean
   /** Os valores do plano no momento da troca (para o histórico e a equipe). */
   tabela: { taxaMatriculaCentavos: number; valorParcelaCentavos: number; numParcelas?: number; diaVencimento?: number }
   motivo: string
@@ -238,6 +242,7 @@ export function lerCondicaoNegociada(raw: unknown): CondicaoNegociada | null {
     regras: regras ? { entrada: regras.entrada, integral: regras.integral, pontualidade: regras.pontualidade } : null,
     vencimentoEntrada: dataIso(r.vencimentoEntrada),
     primeiraSeguinte: dataIso(r.primeiraSeguinte),
+    ...(r.entradaComoParcela === true ? { entradaComoParcela: true } : {}),
     tabela: {
       taxaMatriculaCentavos: centavosInteiros(r.tabela?.taxaMatriculaCentavos) ?? 0,
       valorParcelaCentavos: centavosInteiros(r.tabela?.valorParcelaCentavos) ?? 0,
@@ -291,6 +296,7 @@ export function aplicarCondicaoNegociada(p: PlanoDaOferta, cn: CondicaoNegociada
       numParcelas: cn.numParcelas ?? p.numParcelas,
       diaVencimento: cn.diaVencimento ?? p.diaVencimento,
       regras: { ...p.regras, entrada: cn.regras.entrada, integral: cn.regras.integral, pontualidade: cn.regras.pontualidade },
+      ...(cn.entradaComoParcela ? { entradaComoParcela: true } : {}),
     }
   }
   const semBase = (f: FormasDePagamento): FormasDePagamento => ({
@@ -322,7 +328,7 @@ export const valorDaEntrada = (p: PlanoDaOferta) =>
 /** Valor do curso inteiro pelo plano, em reais. */
 export const valorIntegral = (p: PlanoDaOferta) =>
   (p.taxaMatriculaCentavos + p.valorParcelaCentavos * p.numParcelas) / 100
-export const rotuloDaEntrada = (p: PlanoDaOferta) => (p.taxaMatriculaCentavos > 0 ? 'Matrícula' : '1ª parcela')
+export const rotuloDaEntrada = (p: PlanoDaOferta) => (p.taxaMatriculaCentavos > 0 && !p.entradaComoParcela ? 'Matrícula' : '1ª parcela')
 
 /** Opções liberadas no plano, na ordem em que aparecem. */
 export function opcoesDoPlano(p: PlanoDaOferta): OpcaoDePagamento[] {
@@ -383,7 +389,7 @@ export function resumoDoPlano(p: PlanoDaOferta): string {
   const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const n = totalDeParcelas(p)
   if (p.taxaMatriculaCentavos > 0 && p.taxaMatriculaCentavos !== p.valorParcelaCentavos) {
-    return `Matrícula de ${brl(p.taxaMatriculaCentavos)} + ${p.numParcelas}x de ${brl(p.valorParcelaCentavos)}`
+    return `${p.entradaComoParcela ? '1ª parcela' : 'Matrícula'} de ${brl(p.taxaMatriculaCentavos)} + ${p.numParcelas}x de ${brl(p.valorParcelaCentavos)}`
   }
   return `${n} parcela${n > 1 ? 's' : ''} de ${brl(p.valorParcelaCentavos)}`
 }
@@ -642,6 +648,9 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   if (!plano) return null
   const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'boleto', credit_card: 'cartão de crédito' }
+  // Transferência de curso: o contrato diz de onde veio o crédito.
+  const tr = registrationId ? ((await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { formData: true } }).catch(() => null))?.formData as any)?._transferencia : null
+  const nota = Number(tr?.creditoCentavos) > 0 ? `; crédito de ${brl(Number(tr.creditoCentavos))} da inscrição ${tr.deCodigo} aplicado` : ''
   const opcao: OpcaoDePagamento = escolha?.opcao ?? opcoesDoPlano(plano)[0] ?? 'entrada'
 
   if (pp && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
@@ -651,9 +660,9 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
     const meio = MEIO[String(pp.meio)] ?? String(pp.meio ?? '')
     return {
       plano, opcao, numParcelas: n, valorParcelaCentavos: parcela, valorTotalCentavos: total,
-      descricao: n > 1
+      descricao: (n > 1
         ? `Pagamento ${opcao === 'integral' ? 'integral ' : ''}em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})${pp.meio === 'boleto' ? fraseDaPontualidade(plano, parcela / 100, opcao) : ''}`
-        : `Pagamento integral à vista no ${meio}: ${brl(total)}`,
+        : `Pagamento integral à vista no ${meio}: ${brl(total)}`) + nota,
     }
   }
   // Ainda sem pagamento, e o único jeito de pagar é o boleto a preço próprio.
@@ -667,15 +676,15 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   }
   const n = totalDeParcelas(plano)
   const iguais = plano.taxaMatriculaCentavos === 0 || plano.taxaMatriculaCentavos === plano.valorParcelaCentavos
-  const entrada = plano.taxaMatriculaCentavos > 0 ? 'matrícula' : '1ª parcela'
+  const entrada = plano.taxaMatriculaCentavos > 0 && !plano.entradaComoParcela ? 'matrícula' : '1ª parcela'
   const descricao = n === 1
     ? `Parcela única de ${brl(plano.taxaMatriculaCentavos || plano.valorParcelaCentavos)} (a ${entrada}, paga na inscrição)`
     : iguais
     ? `${n} parcelas de ${brl(plano.valorParcelaCentavos)} (a ${entrada} paga na inscrição e as demais todo dia ${plano.diaVencimento})`
-    : `Matrícula de ${brl(plano.taxaMatriculaCentavos)} + ${plano.numParcelas}x de ${brl(plano.valorParcelaCentavos)}, todo dia ${plano.diaVencimento}`
+    : `${plano.entradaComoParcela ? '1ª parcela' : 'Matrícula'} de ${brl(plano.taxaMatriculaCentavos)} + ${plano.numParcelas}x de ${brl(plano.valorParcelaCentavos)}, todo dia ${plano.diaVencimento}`
   return {
     plano, opcao, numParcelas: n, valorParcelaCentavos: plano.valorParcelaCentavos,
-    valorTotalCentavos: Math.round(valorIntegral(plano) * 100), descricao,
+    valorTotalCentavos: Math.round(valorIntegral(plano) * 100), descricao: descricao + nota,
   }
 }
 

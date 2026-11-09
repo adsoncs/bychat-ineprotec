@@ -131,7 +131,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
 
     const conta = await prisma.portalAccount.findUnique({ where: { id: r.accountId }, select: { senhaHash: true } })
     // Sem senha ainda, ou veio de "esqueci a senha": a próxima tela é criar uma.
-    if (!conta?.senhaHash || r.finalidade === 'recuperacao') {
+    if (r.finalidade !== 'acesso_direto' && (!conta?.senhaHash || r.finalidade === 'recuperacao')) {
       return reply.code(303).header('location', '/portal/senha').send()
     }
     return reply.code(303).header('location', destino || '/portal').send()

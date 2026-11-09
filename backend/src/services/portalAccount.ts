@@ -214,7 +214,8 @@ export async function login(
  */
 export async function criarLinkDeAcesso(
   accountId: number,
-  finalidade: 'primeiro_acesso' | 'recuperacao' = 'primeiro_acesso',
+  // acesso_direto: gerado pela equipe, abre o portal logado sem pedir para criar senha.
+  finalidade: 'primeiro_acesso' | 'recuperacao' | 'acesso_direto' = 'primeiro_acesso',
   canal?: 'whatsapp' | 'email',
 ): Promise<{ raw: string; url: string; expiresAt: Date }> {
   const raw = crypto.randomBytes(32).toString('base64url')

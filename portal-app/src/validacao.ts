@@ -197,13 +197,16 @@ export interface DadosDoCartao {
   expiryMonth: string
   expiryYear: string
   ccv: string
+  /** Endereço do titular: o Asaas recusa o cartão sem CEP. Não vai para a iugu. */
+  postalCode?: string
+  addressNumber?: string
 }
 
 /**
  * Diz o que falta no cartão, campo a campo. Devolve `{}` quando está tudo certo.
  * `parcial` vale enquanto a pessoa digita: não acusa o que ainda não terminou.
  */
-export function errosDoCartao(c: Partial<DadosDoCartao>, parcial = false): Record<string, string> {
+export function errosDoCartao(c: Partial<DadosDoCartao>, parcial = false, pedeEndereco = false): Record<string, string> {
   const e: Record<string, string> = {}
   const numero = (c.number ?? '').replace(/\D/g, '')
 
@@ -243,6 +246,16 @@ export function errosDoCartao(c: Partial<DadosDoCartao>, parcial = false): Recor
     if (!parcial) e.ccv = 'Informe o código de segurança.'
   } else if (ccv.length < esperado) {
     if (!parcial) e.ccv = `O código tem ${esperado} dígitos.`
+  }
+
+  if (pedeEndereco) {
+    const cep = (c.postalCode ?? '').replace(/\D/g, '')
+    if (!cep) {
+      if (!parcial) e.postalCode = 'Informe o CEP do titular do cartão.'
+    } else if (cep.length !== 8) {
+      if (!parcial) e.postalCode = 'O CEP tem 8 dígitos.'
+    }
+    if (!(c.addressNumber ?? '').trim() && !parcial) e.addressNumber = 'Informe o número (ou S/N).'
   }
 
   return e

@@ -938,14 +938,14 @@ export function useCancelRegistration(portalId: number | null | undefined) {
 /**
  * Gera o link de acesso da inscrição.
  *
- * `enviar: false` devolve a URL sem disparar mensagem nenhuma — para quem vai
- * entregar o link por outro caminho (o Conversas, por exemplo). Sem o campo, o
- * comportamento é o de sempre: envia ao candidato.
+ * `enviar: false` devolve, sem disparar mensagem nenhuma, um link que abre o portal
+ * logado do aluno (uso único) — para entregar por outro caminho, como o Conversas.
+ * Sem o campo, envia ao candidato o link da inscrição.
  */
 export function useResendRegistrationLink() {
   return useMutation({
     mutationFn: ({ id, enviar = true }: { id: number; enviar?: boolean }) =>
-      api.post<{ ok: true; sent: boolean; url: string; ttlDays: number }>(
+      api.post<{ ok: true; sent: boolean; url: string; ttlDays?: number; ttlHoras?: number }>(
         `/admin/enrollment-registrations/${id}/resend-link`,
         { enviar },
       ),

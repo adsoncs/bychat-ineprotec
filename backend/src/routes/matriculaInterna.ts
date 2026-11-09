@@ -70,7 +70,7 @@ async function inscricaoDa(req: FastifyRequest, reply: any) {
   return reg
 }
 
-async function ofertasDoPortal(portalId: number) {
+export async function ofertasDoPortal(portalId: number) {
   const portal = await prisma.enrollmentPortal.findUnique({
     where: { id: portalId },
     select: { id: true, nome: true, slug: true, active: true, formMode: true, unitId: true, selectionProcessIds: true, allowedCampusIds: true, formConfig: true },
@@ -388,6 +388,38 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
 
   // Trocar curso, forma de ingresso ou polo. Antes do pagamento: as parcelas e o
   // contrato nascem do curso. O preço muda, então cobrança aberta e condição combinada caem.
+  // ── Transferência de curso (pago ou não): crédito, documentos e contrato novo ──
+  const transf = () => import('../services/transferenciaCurso.js')
+  app.get('/api/admin/matricula-interna/:id/transferencia', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    return { historico: await (await transf()).transferenciasDa(reg.id) }
+  })
+  app.post('/api/admin/matricula-interna/:id/transferencia/previa', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const b = (req.body as any) || {}
+    const alvo = { portalId: Number(b.portalId), offeringId: Number(b.offeringId), campusId: b.campusId ? Number(b.campusId) : null, planoId: b.planoId ? Number(b.planoId) : null }
+    if (!Number.isFinite(alvo.portalId) || !Number.isFinite(alvo.offeringId)) return reply.code(400).send({ error: 'Escolha o portal e o curso.' })
+    const barrado = await barrar(req, alvo.portalId, reg.leadId)
+    if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })
+    const r = await (await transf()).previaDaTransferencia(reg.id, alvo)
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    reply.header('cache-control', 'no-store')
+    return r
+  })
+  app.post('/api/admin/matricula-interna/:id/transferencia', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const u = usuario(req)
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const b = (req.body as any) || {}
+    const barrado = await barrar(req, Number(b.portalId), reg.leadId)
+    if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })
+    const r = await (await transf()).transferirCurso(reg.id, b, { userId: u.userId, nome: await nomeDe(u) })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return r
+  })
+
   app.put('/api/admin/matricula-interna/:id/curso', { preHandler: guardTela('login') }, async (req, reply) => {
     const u = usuario(req)
     const reg = await inscricaoDa(req, reply)
