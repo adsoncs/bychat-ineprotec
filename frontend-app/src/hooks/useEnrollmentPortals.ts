@@ -671,6 +671,7 @@ export interface RegistrationReview {
     }
     offering?: {
       nome: string
+      complemento?: string | null
       turno: string | null
       course?: { nome: string }
       campuses?: { campus: { nome: string; cidade: string | null } }[]
@@ -807,7 +808,7 @@ export interface RegistrationFull {
       funnel?: { id: number; name: string; stages: { key: string; name: string; color: string | null }[] } | null
     }
     lead?: { id: number; nome: string | null; email: string | null; whatsapp: string | null; status: string | null } | null
-    processRegistration?: { offering?: { nome: string | null; course?: { nome: string } | null } } | null
+    processRegistration?: { offering?: { nome: string | null; complemento?: string | null; course?: { nome: string } | null } } | null
   }
 }
 

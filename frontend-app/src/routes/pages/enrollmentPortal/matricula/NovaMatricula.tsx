@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 
-export interface OfertaDoCatalogo { id: number; nome: string; turno: string | null; curso: string | null; ingresso: string | null; polos: Array<{ id: number; nome: string }> }
-export const rotuloDaOferta = (o: OfertaDoCatalogo) => [o.curso ?? o.nome, o.ingresso, o.turno].filter(Boolean).join(' · ')
+export interface OfertaDoCatalogo { id: number; nome: string; complemento?: string | null; turno: string | null; curso: string | null; ingresso: string | null; polos: Array<{ id: number; nome: string }> }
+// A oferta tem nome próprio quando o curso tem variações (ex.: Tradicional × Certificação por Competência).
+export const rotuloDaOferta = (o: OfertaDoCatalogo) =>
+  [o.curso && o.nome !== o.curso ? o.nome : (o.curso ?? o.nome), o.complemento, o.ingresso, o.turno].filter(Boolean).join(' · ')
 export const useCatalogo = (portalId: number | null) => useQuery({
   queryKey: ['mi-catalogo', portalId],
   queryFn: () => api.get<{ ofertas: OfertaDoCatalogo[] }>(`/admin/matricula-interna/catalogo?portalId=${portalId}`),

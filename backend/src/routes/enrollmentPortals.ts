@@ -1318,7 +1318,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         ...(idsDaPagina ? {} : { take: limit, skip: offset }),
         include: {
           lead: { select: { id: true, nome: true, email: true, whatsapp: true, status: true, funnelId: true } },
-          processRegistration: { select: { id: true, status: true, offering: { select: { nome: true } } } },
+          processRegistration: { select: { id: true, status: true, offering: { select: { nome: true, complemento: true, course: { select: { nome: true } } } } } },
           _count: { select: { documents: true } },
         },
       }),
@@ -2091,7 +2091,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         ...(Array.isArray(portal.allowedCampusIds) && (portal.allowedCampusIds as any[]).length > 0 ? { campuses: { some: { campusId: { in: (portal.allowedCampusIds as any[]).map(Number) } } } } : {}),
       },
       select: {
-        id: true, nome: true, turno: true,
+        id: true, nome: true, complemento: true, turno: true,
         valorMensalidade: true, valorMatricula: true, tabelaPrecos: true, slug: true,
         vagasMinimas: true, vagasMaximas: true,
         inicioCurso: true, terminoCurso: true,
@@ -5142,7 +5142,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         ...(Array.isArray(portal.allowedCampusIds) && (portal.allowedCampusIds as any[]).length > 0 ? { campuses: { some: { campusId: { in: (portal.allowedCampusIds as any[]).map(Number) } } } } : {}),
       },
       select: {
-        id: true, nome: true, turno: true, valorMensalidade: true,
+        id: true, nome: true, complemento: true, turno: true, valorMensalidade: true,
         course: { select: { id: true, nome: true, descricao: true } },
         level: { select: { nome: true } },
         modality: { select: { nome: true } },

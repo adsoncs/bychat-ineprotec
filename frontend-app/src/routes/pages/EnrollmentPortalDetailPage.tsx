@@ -51,6 +51,7 @@ import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { Pode } from '@/components/auth/Pode'
+import { partesDaOferta } from '@/lib/variacaoDaOferta'
 
 type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics' | 'comercial'
 
@@ -1037,6 +1038,7 @@ function RegistrationRow({
   const nome = r.lead?.nome ?? (fd.nome as string | undefined) ?? '—'
   const contact = r.lead?.email ?? r.lead?.whatsapp ?? (fd.email as string | undefined) ?? ''
   const offering = r.processRegistration?.offering?.nome ?? '—'
+  const partes = partesDaOferta(r.processRegistration?.offering)
   const statusKey = (r.status) ?? 'draft'
   const amount = r.paymentAmount != null ? Number(r.paymentAmount) : null
   const canCancel = r.status !== 'cancelled' && r.status !== 'enrolled'
@@ -1073,7 +1075,10 @@ function RegistrationRow({
           {contact && <div class="text-xs text-fg-muted truncate">{contact}</div>}
         </div>
       </td>
-      <td class="py-2 px-2 text-xs text-fg-muted truncate max-w-48" title={offering}>{offering}</td>
+      <td class="py-2 px-2 text-xs text-fg-muted max-w-48" title={offering}>
+        <div class="truncate">{partes.variacao ? partes.base : offering}</div>
+        {partes.variacao && <span class="mt-0.5 inline-block rounded px-1.5 py-px text-2xs font-medium bg-accent/10 text-accent whitespace-nowrap">{partes.variacao}</span>}
+      </td>
       {colunas.map((c) => (
         <td key={c.chave} class="py-2 px-2 text-xs whitespace-nowrap">
           <CelulaDaEtapa chave={c.chave} etapa={r.etapas?.find((e) => e.chave === c.chave)} valor={c.chave === 'pagamento' ? amount : null} />

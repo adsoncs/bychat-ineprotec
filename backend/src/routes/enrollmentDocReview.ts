@@ -412,7 +412,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
             },
             offering: {
               select: {
-                nome: true, turno: true,
+                nome: true, complemento: true, turno: true,
                 course: { select: { nome: true } },
                 campuses: { select: { campus: { select: { nome: true, cidade: true } } } },
               },

@@ -85,7 +85,7 @@ export async function ofertasDoPortal(portalId: number) {
     where: { active: true, selectionProcessId: { in: processIds }, ...(fixa ? { id: fixa } : {}) },
     orderBy: [{ nome: 'asc' }],
     select: {
-      id: true, nome: true, turno: true, selectionProcessId: true,
+      id: true, nome: true, complemento: true, turno: true, selectionProcessId: true,
       course: { select: { nome: true } },
       selectionProcess: { select: { nome: true, entryMode: { select: { name: true } } } },
       campuses: { select: { campus: { select: { id: true, nome: true } } } },
@@ -94,7 +94,7 @@ export async function ofertasDoPortal(portalId: number) {
   return {
     portal,
     ofertas: ofertas.map((o) => ({
-      id: o.id, nome: o.nome, turno: o.turno, curso: o.course?.nome ?? null,
+      id: o.id, nome: o.nome, complemento: o.complemento, turno: o.turno, curso: o.course?.nome ?? null,
       processoId: o.selectionProcessId, ingresso: o.selectionProcess?.entryMode?.name ?? o.selectionProcess?.nome ?? null,
       polos: o.campuses.map((c) => c.campus).filter((c) => !permitidos || permitidos.has(c.id)),
     })),

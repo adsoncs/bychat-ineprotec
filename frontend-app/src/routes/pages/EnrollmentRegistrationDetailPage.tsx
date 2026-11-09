@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
+import { variacaoDaOferta } from '@/lib/variacaoDaOferta'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/apiClient'
@@ -1053,6 +1054,10 @@ function StatusBanner({ review, aoAbrirEtapa }: { review: RegistrationReview; ao
             <FileCheck2 size={11} /> {inscLabel}
           </span>
         </Badge>
+        {/* Mesmo curso com versões (ex.: Tradicional × Certificação por Competência): a versão fica à vista. */}
+        {variacaoDaOferta(review.processRegistration?.offering) && (
+          <Badge tone="info"><span title="Versão do curso (oferta)">{variacaoDaOferta(review.processRegistration?.offering)}</span></Badge>
+        )}
         {etapas.length > 0 && etapas.map((e, i) => {
           const sit: { tone: 'success' | 'info' | 'warning' | 'neutral'; icon: any; rotulo: string } = e.bloqueada
             ? { tone: 'neutral', icon: <Lock size={11} />, rotulo: 'travada para o aluno' }
@@ -1205,6 +1210,7 @@ function RegistrationCard({ review }: { review: RegistrationReview }) {
           value={sp?.entryMode ? `${sp.entryMode.icon ?? ''} ${sp.entryMode.name}`.trim() : '—'}
         />
         <Field label="Curso" value={offering?.course?.nome ?? '—'} />
+        {variacaoDaOferta(offering) && <Field label="Versão" value={<strong>{variacaoDaOferta(offering)}</strong>} />}
         <Field label="Oferta" value={offering?.nome ?? '—'} />
         <Field label="Turno" value={offering?.turno ?? '—'} />
         <Field
