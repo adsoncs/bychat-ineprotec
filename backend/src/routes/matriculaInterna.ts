@@ -118,9 +118,19 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     const u = usuario(req)
     const b0 = (req.body as any) || {}
     const portalId = parseInt(b0.portalId)
-    const leadId = b0.leadId != null && b0.leadId !== '' ? parseInt(b0.leadId) : null
+    let leadId = b0.leadId != null && b0.leadId !== '' ? parseInt(b0.leadId) : null
     if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'Escolha o portal.' })
     if (leadId != null && !Number.isFinite(leadId)) return reply.code(400).send({ error: 'Lead inválido.' })
+    // Sem ficha escolhida: quem o agente digitou já tem ficha? A matrícula vai
+    // para ela (antes nascia uma segunda, marcada como duplicada). "É outra
+    // pessoa" (fichaSeparada) mantém a ficha nova.
+    const fichaSeparada = b0.fichaSeparada === true
+    let fichaUsada: { id: number; nome: string | null; por: string } | null = null
+    if (leadId == null && !fichaSeparada) {
+      const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
+      const f = await fichaParaMatricula({ nome: b0.nome, whatsapp: b0.whatsapp, email: b0.email, cpf: b0.cpf }, { userId: u.userId, role: String(u.role) })
+      if (f.tipo === 'ficha') { leadId = f.lead.id; fichaUsada = { id: f.lead.id, nome: f.lead.nome, por: f.por } }
+    }
     const barrado = await barrar(req, portalId, leadId)
     if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })
 
@@ -133,7 +143,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       const ja = await prisma.enrollmentRegistration.findFirst({
         where: { leadId, portalId, status: { notIn: ['merged', 'cancelled'] } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
       })
-      if (ja) return { ok: true, existente: true, id: ja.id, candidateCode: ja.candidateCode }
+      if (ja) return { ok: true, existente: true, id: ja.id, candidateCode: ja.candidateCode, fichaUsada }
     }
 
     const nome = await nomeDe(u)
@@ -147,6 +157,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       headers: { 'content-type': 'application/json', [CABECALHO_ATENDENTE]: token, 'user-agent': String(req.headers['user-agent'] || '') },
       payload: {
         ...(leadId != null ? { continueToken: token } : {}),
+        ...(fichaSeparada ? { fichaSeparada: true } : {}),
         formData: {
           nome: String(b0.nome || '').trim(), email: String(b0.email || '').trim(), whatsapp: String(b0.whatsapp || '').trim(), cpf: String(b0.cpf || '').trim(),
           offeringId, ...(b0.campusId ? { campusId: Number(b0.campusId) } : {}), lgpdConsent: b0.lgpdConsent === true,
@@ -157,7 +168,28 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     if (r.statusCode >= 400) return reply.code(r.statusCode).send({ error: d?.error || 'Não foi possível criar a matrícula.' })
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { candidateCode: d.candidateCode }, select: { id: true, candidateCode: true } })
     if (!reg) return reply.code(500).send({ error: 'A inscrição foi enviada, mas não foi encontrada. Procure na lista do portal.' })
-    return reply.code(201).send({ ok: true, existente: false, id: reg.id, candidateCode: reg.candidateCode })
+    if (fichaUsada) {
+      logEvent({
+        leadId: fichaUsada.id, type: EVENT_TYPES.ANNOTATION_SAVED, category: 'operator',
+        title: `Matrícula ${reg.candidateCode} feita nesta ficha`,
+        description: `A equipe digitou os dados sem abrir pela ficha; ${fichaUsada.por === 'whatsapp' ? 'mesmo WhatsApp' : fichaUsada.por === 'cpf' ? 'mesmo CPF' : 'mesmo e-mail'}, então a matrícula ficou aqui em vez de criar outra ficha.`,
+        actorType: 'operator', userId: u.userId, userName: nome,
+      })
+    }
+    return reply.code(201).send({ ok: true, existente: false, id: reg.id, candidateCode: reg.candidateCode, fichaUsada })
+  })
+
+  // Antes de salvar a nova matrícula: em qual ficha ela vai cair (sem escrever nada).
+  app.get('/api/admin/matricula-interna/ficha', { preHandler: guardTela('login') }, async (req, reply) => {
+    const u = usuario(req)
+    const q = (req.query as any) || {}
+    const portalId = parseInt(q.portalId)
+    if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'Escolha o portal.' })
+    const b = await barrar(req, portalId, null)
+    if (b) return reply.code(b.status).send({ error: b.erro })
+    const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
+    reply.header('cache-control', 'no-store')
+    return fichaParaMatricula({ nome: q.nome, whatsapp: q.whatsapp, email: q.email, cpf: q.cpf }, { userId: u.userId, role: String(u.role) })
   })
 
   // Sessão da tela: os tokens que as abas usam nas rotas públicas. Curta, só em memória.

@@ -2473,6 +2473,31 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const retomada = decisao.retomar
     if (retomada?.leadId && !lead) lead = await prisma.lead.findUnique({ where: { id: retomada.leadId } })
 
+    // Inscrição feita pela EQUIPE sem a ficha escolhida (portal em modo
+    // atendimento, ou Nova matrícula do painel): a pessoa que o agente digitou já
+    // tem ficha? A inscrição vai para ela, com as travas de outra pessoa (CPF ou
+    // nome diferente) — antes nascia uma segunda ficha, marcada como duplicada.
+    // "É outra pessoa" (fichaSeparada) mantém a ficha nova.
+    if (!lead && atendente && body.fichaSeparada !== true) {
+      const agente = await prisma.user.findUnique({ where: { id: atendente.userId }, select: { role: true } }).catch(() => null)
+      if (agente) {
+        const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
+        const f = await fichaParaMatricula({ nome, whatsapp, email, cpf }, { userId: atendente.userId, role: String(agente.role) }).catch(() => null)
+        if (f?.tipo === 'ficha') {
+          lead = await prisma.lead.findUnique({ where: { id: f.lead.id } })
+          if (lead) {
+            continuationLeadId = lead.id
+            logEvent({
+              leadId: lead.id, type: EVENT_TYPES.ANNOTATION_SAVED, category: 'operator',
+              title: 'Inscrição feita pela equipe nesta ficha',
+              description: `${atendente.nome} digitou os dados no portal sem abrir pela ficha; ${f.por === 'whatsapp' ? 'mesmo WhatsApp' : f.por === 'cpf' ? 'mesmo CPF' : 'mesmo e-mail'}, então a inscrição ficou aqui em vez de criar outra ficha.`,
+              actorType: 'operator', userId: atendente.userId, userName: atendente.nome,
+            })
+          }
+        }
+      }
+    }
+
     // Segundo PROCESSO da mesma pessoa (curso + forma de ingresso que a ficha
     // ainda não tem em aberto — ex.: segunda Pós, ou Bacharel por ENEM depois do
     // de Redação): ficha nova, ligada à primeira como mesma pessoa e com o mesmo

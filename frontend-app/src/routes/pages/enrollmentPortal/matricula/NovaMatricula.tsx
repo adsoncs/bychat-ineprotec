@@ -1,6 +1,6 @@
 // Nova matrícula pelo painel: um formulário só, sem as etapas do portal. O que falta
 // no cadastro se completa depois, nas abas da inscrição.
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
@@ -22,6 +22,13 @@ export const useCatalogo = (portalId: number | null) => useQuery({
 
 export interface LeadInicial { id: number; nome: string | null; email: string | null; whatsapp: string | null; cpf?: string | null }
 interface LeadDaBusca { id: number; nome: string | null; email: string | null; whatsapp: string | null; inscricaoNoPortal: string | null }
+/** Em qual ficha a matrícula vai cair quando ninguém escolheu (GET /matricula-interna/ficha). */
+type FichaDaMatricula =
+  | { tipo: 'ficha'; lead: { id: number; nome: string | null; whatsapp: string | null }; por: 'whatsapp' | 'cpf' | 'email' }
+  | { tipo: 'outra_pessoa'; lead: { id: number; nome: string | null }; motivo: string }
+  | { tipo: 'varias'; leads: Array<{ id: number; nome: string | null }> }
+  | { tipo: 'nenhuma' }
+const POR: Record<'whatsapp' | 'cpf' | 'email', string> = { whatsapp: 'mesmo WhatsApp', cpf: 'mesmo CPF', email: 'mesmo e-mail' }
 
 export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de, onClose }: {
   portalId: number
@@ -43,6 +50,21 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   const [offeringId, setOfferingId] = useState('')
   const [campusId, setCampusId] = useState('')
   const [lgpd, setLgpd] = useState(false)
+  const [fichaSeparada, setFichaSeparada] = useState(false)
+  // Dados digitados sem ficha escolhida: confere (com uma pausa) se a pessoa já tem ficha.
+  const [conferir, setConferir] = useState({ nome: '', whatsapp: '', email: '', cpf: '' })
+  useEffect(() => {
+    const t = window.setTimeout(() => setConferir({ nome: nome.trim(), whatsapp: whatsapp.trim(), email: email.trim(), cpf: cpf.trim() }), 500)
+    return () => window.clearTimeout(t)
+  }, [nome, whatsapp, email, cpf])
+  const temDado = conferir.whatsapp.replace(/\D/g, '').length >= 10 || conferir.cpf.replace(/\D/g, '').length === 11 || conferir.email.includes('@')
+  const ficha = useQuery({
+    queryKey: ['mi-ficha', portalId, conferir],
+    queryFn: () => api.get<FichaDaMatricula>(`/admin/matricula-interna/ficha?portalId=${portalId}&${new URLSearchParams(conferir).toString()}`),
+    enabled: !lead && temDado,
+    staleTime: 10_000,
+  })
+  const fichaAchada = !lead && temDado ? ficha.data : undefined
   const termo = busca.trim()
   const leads = useQuery({
     queryKey: ['mi-leads', portalId, termo],
@@ -55,6 +77,7 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   const criar = useMutation({
     mutationFn: () => api.post<{ id: number; existente: boolean; candidateCode: string }>('/admin/matricula-interna', {
       portalId, leadId: lead?.id ?? null, nome, whatsapp, email, cpf, offeringId: Number(offeringId), campusId: campusId ? Number(campusId) : null, lgpdConsent: lgpd,
+      ...(!lead && fichaSeparada ? { fichaSeparada: true } : {}),
     }),
     onSuccess: (r) => {
       toast(r.existente ? `Já existe a inscrição ${r.candidateCode}: abrindo` : `Inscrição ${r.candidateCode} criada`, 'success')
@@ -104,6 +127,33 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
           <Input label="WhatsApp" value={whatsapp} onInput={(e) => setWhatsapp((e.target as HTMLInputElement).value)} />
           <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
         </div>
+        {fichaAchada?.tipo === 'ficha' && (
+          <div class="rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg grid gap-1.5">
+            {fichaSeparada
+              ? <span>Vai ser criada uma <strong>ficha nova</strong>, separada de <strong>{fichaAchada.lead.nome || 'Sem nome'}</strong> #{fichaAchada.lead.id}.</span>
+              : <span>Esta pessoa já tem ficha: <strong>{fichaAchada.lead.nome || 'Sem nome'}</strong> <span class="text-fg-subtle">#{fichaAchada.lead.id}</span> ({POR[fichaAchada.por]}). A matrícula vai para ela, sem criar outra ficha.</span>}
+            <label class="flex items-center gap-2">
+              <input type="checkbox" checked={fichaSeparada} onChange={(e) => setFichaSeparada((e.target as HTMLInputElement).checked)} />
+              <span>É outra pessoa (ex.: familiar no mesmo número): criar ficha separada</span>
+            </label>
+          </div>
+        )}
+        {fichaAchada?.tipo === 'varias' && (
+          <div class="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-fg grid gap-1.5">
+            <span>Há {fichaAchada.leads.length} fichas com esses dados. Escolha em qual fazer a matrícula:</span>
+            <div class="flex flex-wrap gap-1.5">
+              {fichaAchada.leads.map((l) => (
+                <Button key={l.id} size="sm" variant="secondary" onClick={() => setLead({ id: l.id, nome: l.nome, email: email || null, whatsapp: whatsapp || null })}>{l.nome || 'Sem nome'} #{l.id}</Button>
+              ))}
+            </div>
+            <span class="text-fg-muted">Sem escolher, cria uma ficha nova.</span>
+          </div>
+        )}
+        {fichaAchada?.tipo === 'outra_pessoa' && (
+          <div class="rounded-md bg-surface-3 px-3 py-2 text-xs text-fg-muted">
+            Existe a ficha de {fichaAchada.lead.nome || 'Sem nome'} #{fichaAchada.lead.id} com esses dados, mas com {fichaAchada.motivo}: vai ser criada uma ficha separada.
+          </div>
+        )}
         <div class="grid sm:grid-cols-2 gap-3">
           <Select label="Curso e forma de ingresso" value={offeringId} onChange={(e) => { setOfferingId((e.target as HTMLSelectElement).value); setCampusId('') }}>
             <option value="">{cat.isLoading ? 'Carregando…' : 'Escolha…'}</option>
