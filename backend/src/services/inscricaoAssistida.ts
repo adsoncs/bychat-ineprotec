@@ -189,6 +189,8 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
 
   app.addHook('onResponse', async (req, reply) => {
     if (reply.statusCode >= 400) return
+    // A rota avisou que nada mudou (ex.: contrato já aceito): não é uma ação nova.
+    if ((req as any).semRegistroDaEtapa) return
     const rota = rotaDe(req)
     const r = REGISTRA.find((x) => x.metodo === req.method && x.rota === rota)
     if (!r) return

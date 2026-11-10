@@ -41,7 +41,10 @@ export function ContratoWordInscricao(props: {
   const [ocupado, setOcupado] = useState(false)
   const [nome, setNome] = useState('')
   const [li, setLi] = useState(false)
-  const assinado = dados.assinado || assinatura?.status === 'ASSINADO'
+  // Aceite feito nesta tela: vale na hora, sem esperar a página recarregar os dados
+  // (antes o botão continuava ali e a pessoa clicava de novo — ineprotec, 10/11).
+  const [aceitoEm, setAceitoEm] = useState<string | null>(null)
+  const assinado = dados.assinado || assinatura?.status === 'ASSINADO' || !!aceitoEm
   const provedor = assinatura?.provedor ?? word.provedor ?? 'AUTENTIQUE'
   const clicksign = provedor === 'CLICKSIGN'
   const widgetRef = useRef<any>(null)
@@ -126,8 +129,13 @@ export function ContratoWordInscricao(props: {
 
   async function aceitarAqui() {
     setErro(null); setOcupado(true)
-    try { await assinarContratoDaInscricao(props.codigo, props.token, nome.trim()); props.aoAssinar() }
-    catch (e: any) { setErro(e.message) } finally { setOcupado(false) }
+    try {
+      await assinarContratoDaInscricao(props.codigo, props.token, nome.trim())
+      setAceitoEm(new Date().toISOString())
+      const a = await situacaoDaAssinaturaDoContrato(props.codigo, props.token).catch(() => null)
+      if (a) setAssinatura(a)
+      props.aoAssinar()
+    } catch (e: any) { setErro(e.message) } finally { setOcupado(false) }
   }
 
   async function copiar(link: string) {
@@ -152,7 +160,7 @@ export function ContratoWordInscricao(props: {
       {assinado ? (
         <div class="assinado" style="margin-top:16px">
           <strong>{termo ? 'Termo de aceite assinado' : 'Contrato assinado'}</strong>
-          <span class="sub">{dados.assinadoEm || assinatura?.assinadoEm ? `Em ${new Date((dados.assinadoEm || assinatura?.assinadoEm)!).toLocaleDateString('pt-BR')}` : ''}</span>
+          <span class="sub">{dados.assinadoEm || assinatura?.assinadoEm || aceitoEm ? `Em ${new Date((dados.assinadoEm || assinatura?.assinadoEm || aceitoEm)!).toLocaleDateString('pt-BR')}` : ''}</span>
         </div>
       ) : word.menorSemResponsavel ? (
         <div class="aviso info" style="margin-top:16px">Como você é menor de idade, o contrato é assinado junto com o responsável financeiro. Preencha os dados do responsável acima para continuar.</div>

@@ -330,6 +330,11 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       if (word.eletronica) return reply.code(400).send({ error: 'Este contrato é assinado eletronicamente — use o botão "Assinar".' })
       const nome = String((req.body as any)?.nome || '').trim()
       if (nome.length < 5 || !nome.includes(' ')) return reply.code(400).send({ error: 'Escreva seu nome completo para assinar.' })
+      // Já aceito: responde sem gravar de novo (o histórico registrava cada clique).
+      if ((await envelopeDaInscricao(s.enrollmentId))?.status === 'ASSINADO') {
+        ;(req as any).semRegistroDaEtapa = true
+        return { ok: true, jaAssinado: true }
+      }
       const r = await aceitarContratoNoPortal(s.enrollmentId, nome, ipDe(req))
       if (!r.ok) return reply.code(400).send({ error: r.erro })
       return { ok: true, jaAssinado: false }
@@ -339,6 +344,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       userAgent: (req.headers['user-agent'] as string) || null,
     })
     if (!r.ok) return reply.code(400).send({ error: r.erro })
+    if (r.jaAssinado) (req as any).semRegistroDaEtapa = true
     if (!r.jaAssinado && reg?.leadId) {
       const { logEvent } = await import('../services/leadHistory.js')
       logEvent({
