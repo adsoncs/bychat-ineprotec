@@ -218,6 +218,40 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {},
   })
 }
 
+/** Variáveis da matrícula (inscrição mais recente do lead, não cancelada), só
+ *  calculadas quando o texto usa alguma: {{matricula_codigo}},
+ *  {{matricula_curso}}, {{matricula_polo}}, {{matricula_valor_pago}},
+ *  {{matricula_forma_pagamento}}, {{matricula_portal}}. */
+export async function variaveisDaMatricula(leadId: number, texto: string): Promise<Record<string, string>> {
+  if (!/\{\{\s*matricula_/.test(texto)) return {}
+  const reg = await prisma.enrollmentRegistration.findFirst({
+    where: { leadId, status: { notIn: ['cancelled', 'expired'] } },
+    orderBy: { id: 'desc' },
+    select: {
+      id: true, candidateCode: true, formData: true, paymentMethod: true,
+      portal: { select: { nome: true } },
+      processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } } } },
+    },
+  }).catch(() => null)
+  if (!reg) return {}
+  const fd = (reg.formData ?? {}) as Record<string, any>
+  const pagos = await prisma.enrollmentPaymentMethod.findMany({
+    where: { registrationId: reg.id, status: 'paid' }, select: { amount: true },
+  }).catch(() => [] as Array<{ amount: unknown }>)
+  const total = pagos.reduce((s, p) => s + Number(p.amount || 0), 0)
+  const off = reg.processRegistration?.offering
+  const FORMA: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão de crédito', card: 'Cartão de crédito', manual: 'Pagamento manual', combinado: 'Pagamento combinado' }
+  const forma = String(reg.paymentMethod || '').toLowerCase()
+  return {
+    matricula_codigo: reg.candidateCode,
+    matricula_curso: off?.course?.nome || off?.nome || '',
+    matricula_polo: String(fd.campusNome || ''),
+    matricula_portal: reg.portal?.nome || '',
+    matricula_valor_pago: total > 0 ? total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '',
+    matricula_forma_pagamento: FORMA[forma] || String(reg.paymentMethod || ''),
+  }
+}
+
 /** Variáveis calculadas por consulta ao banco para as mensagens dos fluxos:
  *  {{agente}} e, com o Setting `leads.variaveis_perfil`, as variáveis de perfil
  *  do formulário de anúncio ({{perfil}} etc. — ver lib/perfilLead.ts). */
@@ -519,23 +553,34 @@ export async function dispatchAction(
         // bodyHtml tem prioridade pra email; cai no body texto se vazio.
         body = tpl.bodyHtml || tpl.body || body
       }
-      const extrasEmail = await extrasDoLead(lead)
+      // Destinatário fixo (`config.to`) = aviso INTERNO à equipe, não ao lead:
+      // não passa pela governança do lead (opt-out/silêncio dele não segura o
+      // aviso da equipe) e não leva o rodapé/cabeçalho de descadastro DO LEAD —
+      // senão um clique em "cancelar inscrição" no Gmail da equipe descadastra
+      // o aluno.
+      const interno = !!String(config.to ?? '').trim()
+      const extrasEmail = { ...(await extrasDoLead(lead)), ...(await variaveisDaMatricula(leadId, `${subject}\n${body}`)) }
       subject = resolveVariables(subject, lead, triggerData, extrasEmail)
       body = resolveVariables(body, lead, triggerData, extrasEmail)
-      const gov = await enforceGovernance(leadId, 'email', stepExec.id)
-      if (!gov.allow) return
-      // A7: rodapé com link da central de preferências (LGPD).
-      body = await appendPreferencesLink(body, leadId, looksLikeHtml(body) ? 'html' : 'text')
+      let delayEmail = 0
+      if (!interno) {
+        const gov = await enforceGovernance(leadId, 'email', stepExec.id)
+        if (!gov.allow) return
+        delayEmail = gov.delayMs
+        // A7: rodapé com link da central de preferências (LGPD).
+        body = await appendPreferencesLink(body, leadId, looksLikeHtml(body) ? 'html' : 'text')
+      }
       const job = await queues.email.add('send', {
         leadId,
         subject,
         body,
         to: config.to,
+        interno,
         stepExecutionId: stepExec.id,
       }, {
         attempts: 3,
         backoff: { type: 'exponential', delay: 10000 },
-        delay: gov.delayMs,
+        delay: delayEmail,
       })
       await prisma.workflowStepExecution.update({
         where: { id: stepExec.id },

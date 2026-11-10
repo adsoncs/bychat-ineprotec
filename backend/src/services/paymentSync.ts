@@ -203,6 +203,9 @@ export async function syncChargeFromProvider(
     updates.paymentPaidAt = norm.paidAt || new Date()
     updates.status = 'paid'
   }
+  // A cobrança paga passa a ser a da inscrição: outra aberta (o aluno gerou um
+  // segundo boleto) deixa de ser "a atual" e não mexe mais no pagamento.
+  if (isPaidNow && !wasPaid && conn.provider === 'asaas') updates.paymentId = norm.externalId
   if (norm.amount) updates.paymentAmount = norm.amount
 
   // Quem faz a transição para "pago" precisa ser um só.
@@ -230,7 +233,10 @@ export async function syncChargeFromProvider(
         await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
       }
     }
-  } else if (ehAtual) {
+  } else if (ehAtual && !(wasPaid && ['pending', 'overdue', 'canceled', 'expired'].includes(String(norm.status)))) {
+    // Inscrição já paga não volta a "pendente" por causa de outra cobrança dela
+    // (segundo boleto gerado e não pago, ou vencido): ineprotec, 10/11, duas
+    // inscrições pagas ficaram pendentes e sem acesso ao Moodle.
     // A atual foi cancelada: a inscrição fica sem cobrança vigente.
     await prisma.enrollmentRegistration.update({
       where: { id: enrollment.id },

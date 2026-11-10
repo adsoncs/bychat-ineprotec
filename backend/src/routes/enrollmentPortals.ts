@@ -3344,6 +3344,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!['pix', 'boleto', 'credit_card'].includes(method)) {
       return reply.code(400).send({ error: 'Método inválido' })
     }
+    // Clique duplo / segunda aba: Pix ou boleto gerado há menos de 2 minutos, ainda
+    // aberto, volta o mesmo — antes nascia uma segunda cobrança igual (ineprotec,
+    // 10/11: dois boletos de R$ 173,90 com 22 s de diferença).
+    if (method !== 'credit_card') {
+      const recente = await prisma.enrollmentPaymentMethod.findFirst({
+        where: { registrationId: sess.enrollmentId, method, status: 'pending', externalId: { not: null }, createdAt: { gt: new Date(Date.now() - 2 * 60_000) } },
+        orderBy: { id: 'desc' },
+      })
+      if (recente) return reply.send({ ok: true, method: serializePaymentMethod(recente), reaproveitada: true })
+    }
     if (await (await import('../services/pagamentoCombinado.js')).resumoDoCombinado(sess.enrollmentId)) {
       return reply.code(409).send({ error: 'Esta inscrição tem um pagamento combinado: use as cobranças já geradas.' })
     }
@@ -5590,6 +5600,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       updates.paymentPaidAt = payment.paymentDate ? new Date(payment.paymentDate) : new Date()
       updates.status = 'paid'
     }
+    // A cobrança paga passa a ser a da inscrição (o aluno pode ter gerado outra).
+    if (isPaidNow && !wasPaid) updates.paymentId = payment.id
     if (newPaymentStatus === 'overdue' && enrollment.status === 'pending') {
       updates.status = 'expired'
     }
@@ -5612,7 +5624,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
         }
       }
-    } else if (ehAtual) {
+    } else if (ehAtual && !(wasPaid && ['pending', 'overdue', 'canceled', 'expired'].includes(String(newPaymentStatus)))) {
+      // Já paga: outra cobrança dela (pendente, vencida ou apagada) não desfaz o pagamento.
       await prisma.enrollmentRegistration.update({
         where: { id: enrollment.id },
         data: apagada ? { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null } : updates,

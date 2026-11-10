@@ -85,6 +85,7 @@
         <input type="date" id="fromD" title="De" />
         <input type="date" id="toD" title="Até" />
         <button class="primary" id="applyBtn">Aplicar</button>
+        <button id="syncBtn" title="Confere os pagamentos no Asaas, corrige as matrículas e recarrega os números">⟳ Sincronizar agora</button>
         <button class="ghost" id="themeBtn" title="Tema">◐</button>
       </div>
     </div>
@@ -140,8 +141,8 @@
     }
     sel.appendChild(opt);
     // default: mês corrente (o que está acontecendo agora, atualiza ao vivo)
-    sel.value=ym(now); applyMonth(ym(now));
-    sel.onchange=function(){ if(sel.value==='custom'){ return; } applyMonth(sel.value); load(); };
+    sel.value=ym(now); applyMonth(ym(now)); state.mes=ym(now); state.mesAtual=true;
+    sel.onchange=function(){ if(sel.value==='custom'){ state.mesAtual=false; return; } state.mes=sel.value; state.mesAtual=(sel.value===ym(new Date())); applyMonth(sel.value); load(); };
   }
   function applyMonth(v){
     var p=v.split('-'); var y=+p[0], m=+p[1];
@@ -169,6 +170,8 @@
   var POLL_MS=20000, FULL_MS=300000;
   function checkVersion(force){
     if(!TOKEN || document.hidden) return;
+    // Aba aberta na virada do mês: quem estava no mês corrente passa para o novo.
+    if(state.mesAtual && state.mes && state.mes!==ym(new Date())){ fillMonths(); load(true); return; }
     fetch('/api/painel/versao?token='+encodeURIComponent(TOKEN)+'&empresa='+state.empresa,{cache:'no-store'})
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(j){
@@ -225,6 +228,21 @@
       '<path d="'+path('matriculas')+'" fill="none" stroke="var(--green)" stroke-width="2"/>'+
       '</svg><div class="muted" style="font-size:12px;margin-top:4px"><span style="color:var(--brand)">●</span> Leads &nbsp; <span style="color:var(--green)">●</span> Matrículas</div>';
   }
+  function leadLink(x){ return '<a href="/leads/'+x.id+'" target="_blank" rel="noopener">'+String(x.nome||('Lead '+x.id)).replace(/</g,'&lt;')+'</a>'; }
+  // Avisos para o time: o que precisa de ajuste para o número fechar.
+  function avisos(a){
+    if(!a) return '';
+    var bloco=function(titulo,ajuda,arr){
+      if(!arr||!arr.length) return '';
+      return '<tr><td><b>'+titulo+'</b> <span class="pill">'+num(arr.length)+'</span><div class="k-sub">'+ajuda+'</div><ul style="margin:6px 0 0 18px;padding:0">'+
+        arr.map(function(x){ return '<li>'+leadLink(x)+' <span class="muted">('+(x.codigo||'')+' · '+(x.vendedor||'sem responsável')+')</span></li>'; }).join('')+'</ul></td></tr>';
+    };
+    var corpo=bloco('Pagas e assinadas sem Ganho','Pagamento e contrato concluídos, mas o lead não está como Ganho. Use "Sincronizar agora"; se continuar, confira o card.',a.pagas_sem_ganho)+
+      bloco('Ganho sem pagamento','Marcados como Ganho no período sem nenhuma cobrança paga. Reabra ou confira o pagamento.',a.ganho_sem_pagamento)+
+      bloco('Ganho sem contrato assinado','Pagou, mas o contrato/termo ainda não foi assinado (ou foi reaberto).',a.ganho_sem_assinatura);
+    if(!corpo) return '<div class="section-h">Avisos para o time</div><div class="card"><div class="k-sub">✓ Nenhuma matrícula com pendência de pagamento, assinatura ou Ganho.</div></div>';
+    return '<div class="section-h">Avisos para o time</div><div class="card"><table><tbody>'+corpo+'</tbody></table></div>';
+  }
   // Conferência com a Visão Geral do Attrae (que conta leads pelo clique em Ganho).
   function conferencia(c,total){
     if(!c) return '';
@@ -252,7 +270,7 @@
     if(state.err==='token'){ v.innerHTML='<div class="empty">🔒 Link sem token de acesso.<br>Use o link completo: <code>/painel?token=…</code></div>'; setSub(''); return; }
     if(state.err){ v.innerHTML='<div class="empty">Não foi possível carregar ('+state.err+'). Tente novamente.</div>'; return; }
     if(state.loading || !state.data){ v.innerHTML='<div class="empty loading">Carregando dados…</div>'; return; }
-    var d=state.data; setSub(periodLabel(d)+(state.at?' · <span title="Atualiza sozinho a cada movimentação do sistema">● atualizado às '+state.at.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</span>':''));
+    var d=state.data; setSub(periodLabel(d)+(state.at?' · <span title="Atualiza sozinho a cada movimentação do sistema">● atualizado às '+state.at.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</span>':'')+(state.syncMsg?' · '+state.syncMsg:''));
     var fn = PAGES[state.page] || pageSoon;
     var arg = (state.page.indexOf('mkt_')===0) ? state.mkt : d;
     v.innerHTML = fn(arg);
@@ -347,6 +365,7 @@
         '<div class="card"><div class="section-h" style="margin-top:0">Por forma de pagamento</div>'+tbl([{t:'Forma'},{t:'Qtd',num:1},{t:'Valor',num:1}],m.por_forma,function(r){return '<tr><td>'+(r.forma||'—')+'</td><td class="num">'+num(r.qtd)+'</td><td class="num">'+brl(r.valor)+'</td></tr>'})+'</div>'+
         '<div class="card"><div class="section-h" style="margin-top:0">Auditoria de pendências</div><div class="k-sub">'+num(pe.total)+' matrículas fechadas no mês · '+num(pe.sem_data)+' sem data de pgto lançada (contam pela data do ganho) · '+num(pe.sem_forma)+' sem forma · '+num(pe.sem_registro)+' sem registro de atendimento.</div></div>'+
       '</div>'+
+      avisos(m.avisos)+
       conferencia(m.conferencia, m.efetivadas_evento)+
       '<div class="section-h">Relatório nominal — matrículas fechadas no mês</div><div class="card" style="overflow:auto;max-height:520px">'+tbl(
         [{t:'Nome'},{t:'Curso'},{t:'Vendedor'},{t:'Valor',num:1},{t:'Forma'},{t:'Ganho'},{t:'Pgto'}],m.lista,
@@ -370,11 +389,12 @@
       return '<div class="grid kpis">'+
         kpi('Investimento (Meta)',brl(m.investimento))+kpi('Impressões',num(m.impressoes))+kpi('Cliques',num(m.cliques))+
         kpi('CTR',pct(m.ctr))+kpi('CPC',brl(m.cpc))+kpi('Leads de mídia',num(k.leads_midia),num(k.matriculas_midia)+' matrículas')+'</div>'+
-      '<div class="card" style="margin-top:12px"><div class="k-sub">⚠ '+k.cpl_cac_nota+'<br>⚠ A conta Meta conectada não separa as empresas: o investimento mostrado é o <b>total da conta</b>, igual nas duas.</div></div>'+
+      '<div class="card" style="margin-top:12px"><div class="k-sub">'+metaAtualizado(m)+'<br>⚠ '+k.cpl_cac_nota+'<br>⚠ A conta Meta conectada não separa as empresas: o investimento mostrado é o <b>total da conta</b>, igual nas duas.</div></div>'+
       '<div class="section-h">Leads de mídia por canal</div><div class="card">'+bars(k.por_canal,function(r){return r.canal||'(sem canal)'},function(r){return r.leads})+'</div>';
     },
     mkt_meta:function(k){ if(!k||!k.meta) return '<div class="empty">Sem dados.</div>'; var m=k.meta;
       return '<div class="grid kpis">'+kpi('Investimento',brl(m.investimento))+kpi('Impressões',num(m.impressoes))+kpi('Cliques',num(m.cliques))+kpi('CTR',pct(m.ctr))+kpi('CPC',brl(m.cpc))+kpi('CPM',brl(m.cpm))+'</div>'+
+      '<div class="k-sub" style="margin-top:8px">'+metaAtualizado(m)+'</div>'+
       '<div class="section-h">Campanhas</div><div class="card" style="overflow:auto">'+tbl(
         [{t:'Campanha'},{t:'Investim.',num:1},{t:'Impr.',num:1},{t:'Cliques',num:1},{t:'CTR',num:1},{t:'CPC',num:1}],m.campanhas,
         function(r){return '<tr><td>'+r.campanha+'</td><td class="num">'+brl(r.spend)+'</td><td class="num">'+num(r.impr)+'</td><td class="num">'+num(r.clicks)+'</td><td class="num">'+pct(r.ctr)+'</td><td class="num">'+brl(r.cpc)+'</td></tr>'})+
@@ -394,7 +414,31 @@
     return '<div class="empty"><span class="flag">EM CONSTRUÇÃO</span><div style="margin-top:10px">Esta página entra nas próximas fases (dados já existem no banco).</div></div>';
   }
 
+  function metaAtualizado(m){
+    if(!m||!m.atualizado_em) return 'Investimento da Meta: ainda não sincronizado.';
+    var d=new Date(m.atualizado_em);
+    return 'Investimento da Meta atualizado em '+d.toLocaleDateString('pt-BR')+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' (a Meta é sincronizada 1 vez por dia, de manhã).';
+  }
+
   // ---------- init ----------
+  document.getElementById('syncBtn').onclick=function(){
+    var b=this; if(b.disabled||!TOKEN) return;
+    b.disabled=true; b.textContent='Sincronizando…';
+    fetch('/api/painel/sincronizar?token='+encodeURIComponent(TOKEN)+'&empresa='+state.empresa,{method:'POST',cache:'no-store'})
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(x){
+        var h=new Date(x.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+        var partes=[num(x.cobrancas_conferidas)+' cobranças conferidas'];
+        if(x.pagamentos_confirmados) partes.push(num(x.pagamentos_confirmados)+' pagamentos confirmados');
+        if(x.cadastros_corrigidos) partes.push(num(x.cadastros_corrigidos)+' cadastros corrigidos');
+        if(x.cards_movidos) partes.push(num(x.cards_movidos)+' cards movidos');
+        if(x.erros) partes.push(num(x.erros)+' com erro');
+        state.syncMsg='<span title="'+partes.join(' · ')+'">⟳ sincronizado às '+h+' ('+partes.join(', ')+')</span>';
+        load(true);
+      })
+      .catch(function(e){ state.syncMsg='<span style="color:var(--red)">não foi possível sincronizar ('+String(e.message||e)+'), tente de novo</span>'; render(); })
+      .finally(function(){ b.disabled=false; b.textContent='⟳ Sincronizar agora'; });
+  };
   document.getElementById('themeBtn').onclick=function(){
     var cur=document.documentElement.getAttribute('data-theme')==='dark'?'':'dark';
     document.documentElement.setAttribute('data-theme',cur); try{localStorage.setItem('painel_theme',cur)}catch(e){}

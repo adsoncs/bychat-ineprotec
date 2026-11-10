@@ -461,7 +461,7 @@ function createWhatsAppWorker() {
 
 function createEmailWorker() {
   return new Worker('wf-email', async (job) => {
-    const { leadId, subject, body, to, stepExecutionId } = job.data
+    const { leadId, subject, body, to, interno, stepExecutionId } = job.data
     const lead = await prisma.lead.findUnique({ where: { id: leadId } })
     const email = to || lead?.email
     if (!email) throw new Error(`Lead ${leadId} sem email`)
@@ -474,7 +474,8 @@ function createEmailWorker() {
     // Bounce/spam: não adianta tentar de novo — falha definitiva do passo.
     const bloqueio = await motivoDeBloqueio(email, true)
     if (bloqueio) throw new UnrecoverableError(`E-mail não enviado: ${bloqueio}`)
-    const { headers, tags } = await extrasDoEnvio(leadId)
+    // Aviso interno (destinatário fixo): sem o descadastro de um clique do lead.
+    const { headers, tags } = await extrasDoEnvio(interno ? null : leadId)
 
     const trackResult = await trackedSend({
       channel: 'email',

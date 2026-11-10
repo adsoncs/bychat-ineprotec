@@ -229,6 +229,21 @@ const PAG_LANCADA = `STR_TO_DATE(${J('data_pagamento_matricula')},'%d/%m/%Y')`
 const PAG = `COALESCE(${PAG_LANCADA}, DATE(DATE_SUB(COALESCE(l.outcomeAt, l.saleDetectedAt), INTERVAL 3 HOUR)))`
 const FORMA_NEG = `CASE n.pagamentoForma WHEN 'boleto' THEN 'BOLETO' WHEN 'cartao' THEN 'CARTÃO DE CRÉDITO' WHEN 'pix' THEN 'PIX' ELSE NULLIF(UPPER(n.pagamentoForma),'') END`
 const FORMA_LEAD = `NULLIF(${J('forma_pagamento')},'')`
+// Matrícula feita pelo portal: a forma é a da cobrança que o aluno PAGOU (a
+// proposta guarda a forma negociada, que muda — ex.: negociou PIX e pagou o
+// boleto da entrada). Pago "manual" não diz a forma: com títulos gerados no
+// Asaas a forma do curso é o boleto; senão vale a da proposta/lead.
+const FORMA_PAGA = `(SELECT CASE LOWER(pm.method) WHEN 'boleto' THEN 'BOLETO' WHEN 'pix' THEN 'PIX'
+      WHEN 'credit_card' THEN 'CARTÃO DE CRÉDITO' WHEN 'card' THEN 'CARTÃO DE CRÉDITO' ELSE NULL END
+    FROM bychat_enrollment_payment_methods pm JOIN bychat_enrollment_registrations rr ON rr.id = pm.registrationId
+   WHERE rr.leadId = l.id AND pm.status = 'paid' AND (n.registrationId IS NULL OR rr.id = n.registrationId)
+     AND LOWER(pm.method) IN ('boleto','pix','credit_card','card')
+   ORDER BY pm.paidAt, pm.id LIMIT 1)`
+const FORMA_TITULOS = `(SELECT 'BOLETO' FROM bychat_enrollment_titulos t JOIN bychat_enrollment_registrations rt ON rt.id = t.registrationId
+   WHERE rt.leadId = l.id AND (n.registrationId IS NULL OR rt.id = n.registrationId) LIMIT 1)`
+// Valor de quem está ganho sem proposta aceita nem valor de venda (ex.: contrato
+// reaberto): a última proposta não recusada do lead.
+const VALOR_PROPOSTA = `(SELECT n2.valorFinal FROM bychat_negotiations n2 WHERE n2.leadId = l.id AND n2.status <> 'recusada' ORDER BY n2.id DESC LIMIT 1)`
 // Curso pelo título da negociação ("Proposta – AGRIMENSURA" → "AGRIMENSURA"; "Proposta" sozinho = sem curso).
 const CURSO_NEG = `NULLIF(TRIM(REGEXP_REPLACE(n.titulo, '^Proposta[[:space:]]*[–—-]?[[:space:]]*', '')), '')`
 // Fase 5 (23/10/2026): curso pela OFERTA ligada à negociação — nome do portal,
@@ -259,10 +274,10 @@ function unidadesSql(FN: string, WON: string, POS = '0'): string {
         ${origemSql('l')} AS origem,
         REGEXP_REPLACE(COALESCE(l.whatsapp, l.phoneKey, ''), '[^0-9]', '') AS ph,
         COALESCE(k.qtd, 0) AS negs, n.id AS negId,
-        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN n.valorFinal ELSE l.saleValue END AS valor,
+        COALESCE(CASE WHEN ${PORTAL} OR k.qtd > 1 THEN n.valorFinal ELSE l.saleValue END, ${VALOR_PROPOSTA}) AS valor,
         CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(DATE(DATE_SUB(n.fechadaEm, INTERVAL 3 HOUR)), ${PAG}) ELSE ${PAG} END AS dt,
         (${PAG_LANCADA} IS NULL) AS pelo_ganho,
-        CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(${FORMA_NEG}, ${FORMA_LEAD}) ELSE COALESCE(${FORMA_LEAD}, ${FORMA_NEG}) END AS forma,
+        COALESCE(${FORMA_PAGA}, CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(${FORMA_NEG}, ${FORMA_LEAD}) ELSE COALESCE(${FORMA_LEAD}, ${FORMA_NEG}) END, ${FORMA_TITULOS}) AS forma,
         CASE WHEN ${PORTAL} OR k.qtd > 1 THEN COALESCE(${CURSO_OFERTA}, ${CURSO_NEG}, '(sem curso)') ELSE COALESCE(${CURSO_OFERTA}, ${J('curso_de_interesse_1')}, ${CURSO_NEG}, '(sem curso)') END AS curso,
         ${J('registro_atendimento')} AS registro,
         DATE_FORMAT(DATE_SUB(l.outcomeAt, INTERVAL 3 HOUR),'%d/%m/%Y') AS data_ganho
@@ -553,6 +568,47 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
       GROUP BY u.leadId ORDER BY vendedor, nome`,
     F, T, F, T,
   )
+  // ── Avisos para o time (inscrições do portal x Ganho) ──
+  // PAGA = alguma cobrança da matrícula paga ou o cadastro marcado como pago;
+  // ASSINADA = termo/contrato assinado (envelope ASSINADO).
+  const REG_PAGA = `(r.paymentStatus = 'paid' OR EXISTS (SELECT 1 FROM bychat_enrollment_payment_methods pm WHERE pm.registrationId = r.id AND pm.status = 'paid'))`
+  const REG_ASSINADA = `EXISTS (SELECT 1 FROM AcaAssinatura a WHERE a.registrationId = r.id AND a.status = 'ASSINADO')`
+  const REG_ENVELOPE = `EXISTS (SELECT 1 FROM AcaAssinatura a WHERE a.registrationId = r.id)`
+  const avisosRows = await prisma.$queryRawUnsafe<Array<any>>(
+    `SELECT l.id, MAX(l.nome) AS nome, MAX(${VEND}) AS vendedor, MAX(r.candidateCode) AS codigo,
+            MAX(COALESCE(l.outcome,'')='won') AS ganho, MAX(${REG_PAGA}) AS paga, MAX(${REG_ASSINADA}) AS assinada,
+            MAX(${REG_ENVELOPE}) AS tem_envelope, MAX(l.outcomeAt >= ? AND l.outcomeAt < ?) AS ganho_no_periodo
+       FROM bychat_enrollment_registrations r JOIN bychat_leads l ON l.id = r.leadId
+       LEFT JOIN ${USUARIOS} uu ON uu.id = l.assignedUserId
+      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','expired')
+        AND r.createdAt >= DATE_SUB(NOW(), INTERVAL 120 DAY)
+      GROUP BY l.id ORDER BY vendedor, nome`,
+    F, T,
+  )
+  // Ganho sem inscrição, sem proposta aceita e sem valor de venda: nada indica
+  // que houve pagamento (venda fora do portal tem proposta aceita ou valor).
+  const ganhoSemNadaRows = await prisma.$queryRawUnsafe<Array<any>>(
+    `SELECT l.id, l.nome, ${VEND} AS vendedor
+       FROM bychat_leads l LEFT JOIN ${USUARIOS} uu ON uu.id = l.assignedUserId
+      WHERE l.funnelId IN (${ALL}) AND l.outcome = 'won' AND l.outcomeAt >= ? AND l.outcomeAt < ?
+        AND (l.saleValue IS NULL OR l.saleValue = 0)
+        AND NOT EXISTS (SELECT 1 FROM bychat_enrollment_registrations r WHERE r.leadId = l.id)
+        AND NOT EXISTS (SELECT 1 FROM bychat_negotiations n WHERE n.leadId = l.id AND n.status = 'aceita')
+      ORDER BY vendedor, l.nome`,
+    F, T,
+  )
+  const avisos = {
+    pagas_sem_ganho: avisosRows.filter((r) => !n(r.ganho) && n(r.paga) && n(r.assinada))
+      .map((r) => ({ id: n(r.id), nome: r.nome, vendedor: r.vendedor, codigo: r.codigo })),
+    ganho_sem_pagamento: [
+      ...avisosRows.filter((r) => n(r.ganho) && n(r.ganho_no_periodo) && !n(r.paga))
+        .map((r) => ({ id: n(r.id), nome: r.nome, vendedor: r.vendedor, codigo: r.codigo })),
+      ...ganhoSemNadaRows.map((r) => ({ id: n(r.id), nome: r.nome, vendedor: r.vendedor, codigo: 'sem inscrição' })),
+    ],
+    ganho_sem_assinatura: avisosRows.filter((r) => n(r.ganho) && n(r.ganho_no_periodo) && n(r.paga) && !n(r.assinada) && n(r.tem_envelope))
+      .map((r) => ({ id: n(r.id), nome: r.nome, vendedor: r.vendedor, codigo: r.codigo })),
+  }
+
   const empDeFn = (fn: number) => (Object.keys(EMPRESAS) as EmpresaKey[])
     .find((k) => ([...EMPRESAS[k].funis, ...EMPRESAS[k].posVenda] as number[]).includes(fn))
   const vgPorEmpresa: Record<string, number> = {}
@@ -591,6 +647,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
       data_ganho: r.data_ganho, data_pgto: r.data_pgto, pgto_pelo_ganho: n(r.pelo_ganho) > 0, multi: n(r.negs) > 1,
     })),
     conferencia,
+    avisos,
   }
 
   // ── Metas & Comissões (tabela COMISSAO_FAIXAS acima) ──────────────────────
@@ -674,7 +731,11 @@ export async function painelMarketing(periodo: PeriodoIn, funnelId?: number, emp
   )
   const m = totMeta[0] || {}
   const spend = n(m.spend), impr = n(m.impr), clicks = n(m.clicks)
+  const atualizadoMeta = await prisma.$queryRawUnsafe<Array<any>>(
+    `SELECT MAX(updatedAt) AS em FROM bychat_campaign_costs WHERE source='meta_api' AND level='campaign'`,
+  ).catch(() => [] as any[])
   const meta = {
+    atualizado_em: atualizadoMeta[0]?.em ? new Date(atualizadoMeta[0].em).toISOString() : null,
     investimento: spend, impressoes: impr, cliques: clicks,
     ctr: impr > 0 ? clicks / impr : 0,
     cpc: clicks > 0 ? spend / clicks : 0,
@@ -735,13 +796,108 @@ async function wonKeysDe(funnelId?: number, empresa: EmpresaKey = empresaDe(unde
  * só recarrega os números (consultas pesadas) quando a versão muda.
  */
 export async function painelVersao(funnelId?: number, empresa: EmpresaKey = empresaDe(undefined)): Promise<string> {
-  const FN = fnList(funnelId, empresa)
+  // Tudo o que muda um número do painel: leads (vendas E pós-venda), cards
+  // movidos, propostas, inscrições, cobranças, assinaturas e investimento.
+  const ALL = `${fnList(funnelId, empresa)},${posList(funnelId, empresa)}`
   const r = await prisma.$queryRawUnsafe<Array<any>>(
-    `SELECT (SELECT MAX(updatedAt) FROM bychat_leads WHERE funnelId IN (${FN})) AS lu,
-            (SELECT COUNT(*) FROM bychat_leads WHERE funnelId IN (${FN})) AS lc,
+    `SELECT (SELECT MAX(updatedAt) FROM bychat_leads WHERE funnelId IN (${ALL})) AS lu,
+            (SELECT COUNT(*) FROM bychat_leads WHERE funnelId IN (${ALL})) AS lc,
             (SELECT MAX(id) FROM bychat_lead_stage_movements) AS mv,
-            (SELECT MAX(updatedAt) FROM bychat_negotiations) AS nu`,
+            (SELECT MAX(updatedAt) FROM bychat_negotiations) AS nu,
+            (SELECT MAX(updatedAt) FROM bychat_enrollment_registrations) AS ru,
+            (SELECT MAX(updatedAt) FROM bychat_enrollment_payment_methods) AS pu,
+            (SELECT MAX(updatedAt) FROM AcaAssinatura) AS au,
+            (SELECT MAX(updatedAt) FROM bychat_campaign_costs WHERE source='meta_api' AND level='campaign') AS cu`,
   )
   const x = r[0] || {}
-  return [x.lu ? new Date(x.lu).getTime() : 0, n(x.lc), n(x.mv), x.nu ? new Date(x.nu).getTime() : 0].join('.')
+  const t = (v: any) => (v ? new Date(v).getTime() : 0)
+  return [t(x.lu), n(x.lc), n(x.mv), t(x.nu), t(x.ru), t(x.pu), t(x.au), t(x.cu)].join('.')
+}
+
+// ─── Sincronizar agora (botão do painel) ─────────────────────────────────────
+//
+// Confere no provedor (Asaas) as cobranças pendentes das matrículas da empresa,
+// corrige o cadastro que ficou "pendente" com cobrança da matrícula já paga e
+// passa cada inscrição pela mesma sincronização de funil/proposta do portal
+// (paga + assinada → MATRÍCULA REALIZADA → Ganho). Não envia nada a ninguém.
+// Uma rodada por vez; um clique em seguida devolve a rodada que acabou de rodar.
+export interface ResultadoSincronizacao {
+  em: string; inscricoes: number; cobrancas_conferidas: number; pagamentos_confirmados: number
+  cadastros_corrigidos: number; cards_movidos: number; erros: number
+}
+let sincronizando: Promise<ResultadoSincronizacao> | null = null
+let ultimaSincronizacao: { em: number; empresa: string; r: ResultadoSincronizacao } | null = null
+
+export function painelSincronizar(empresa: EmpresaKey = empresaDe(undefined)): Promise<ResultadoSincronizacao> {
+  if (ultimaSincronizacao && ultimaSincronizacao.empresa === empresa && Date.now() - ultimaSincronizacao.em < 30_000) {
+    return Promise.resolve(ultimaSincronizacao.r)
+  }
+  if (sincronizando) return sincronizando
+  sincronizando = rodarSincronizacao(empresa)
+    .then((r) => { ultimaSincronizacao = { em: Date.now(), empresa, r }; return r })
+    .finally(() => { sincronizando = null })
+  return sincronizando
+}
+
+async function rodarSincronizacao(empresa: EmpresaKey): Promise<ResultadoSincronizacao> {
+  const { syncChargeFromProvider } = await import('./paymentSync.js')
+  const { sincronizarFunilDaInscricao } = await import('./funilDaJornada.js')
+  const { sincronizarPropostaDaInscricao } = await import('./propostaDaInscricao.js')
+  const ALL = `${fnList(undefined, empresa)},${posList(undefined, empresa)}`
+  const ids = (await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    `SELECT r.id FROM bychat_enrollment_registrations r JOIN bychat_leads l ON l.id = r.leadId
+      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','expired')
+        AND r.createdAt >= DATE_SUB(NOW(), INTERVAL 120 DAY)
+      ORDER BY r.id DESC LIMIT 300`,
+  )).map((r) => Number(r.id))
+  const out: ResultadoSincronizacao = {
+    em: new Date().toISOString(), inscricoes: ids.length, cobrancas_conferidas: 0, pagamentos_confirmados: 0,
+    cadastros_corrigidos: 0, cards_movidos: 0, erros: 0,
+  }
+  if (!ids.length) return out
+
+  // 1) Cobranças pendentes (últimos 60 dias) conferidas no provedor que as emitiu.
+  const pendentes = await prisma.enrollmentPaymentMethod.findMany({
+    where: { registrationId: { in: ids }, status: 'pending', externalId: { not: null }, createdAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+    orderBy: { createdAt: 'desc' }, take: 80,
+    select: {
+      externalId: true, provider: true,
+      registration: { select: { portal: { select: { paymentConnection: { select: { id: true, provider: true, active: true, apiKey: true, environment: true, publicKey: true } } } } } },
+    },
+  })
+  for (const m of pendentes) {
+    const conn = m.registration?.portal?.paymentConnection
+    if (!conn || !conn.active || !m.externalId || (m.provider && m.provider !== conn.provider)) continue
+    try {
+      const r = await syncChargeFromProvider(conn as any, m.externalId)
+      out.cobrancas_conferidas++
+      if (r.transitionedToPaid) out.pagamentos_confirmados++
+      if (!r.ok) out.erros++
+    } catch { out.erros++ }
+    await new Promise((res) => setTimeout(res, 300))
+  }
+
+  // 2) Cadastro "pendente" com cobrança da matrícula já paga (outra cobrança da
+  //    mesma inscrição gravou o status dela por cima): volta para pago.
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { id: { in: ids }, NOT: { paymentStatus: 'paid' }, paymentMethods: { some: { status: 'paid' } } },
+    select: { id: true, paymentMethods: { where: { status: 'paid' }, orderBy: { paidAt: 'asc' }, take: 1, select: { externalId: true, paidAt: true } } },
+  })
+  for (const r of regs) {
+    const pago = r.paymentMethods[0]
+    await prisma.enrollmentRegistration.update({
+      where: { id: r.id },
+      data: { paymentStatus: 'paid', ...(pago?.externalId ? { paymentId: pago.externalId } : {}), ...(pago?.paidAt ? { paymentPaidAt: pago.paidAt } : {}) },
+    }).then(() => { out.cadastros_corrigidos++ }).catch(() => { out.erros++ })
+  }
+
+  // 3) Funil e proposta de cada inscrição (paga + assinada → Ganho).
+  for (const id of ids) {
+    try {
+      const f = await sincronizarFunilDaInscricao(id)
+      if (f.moved) out.cards_movidos++
+      await sincronizarPropostaDaInscricao(id)
+    } catch { out.erros++ }
+  }
+  return out
 }

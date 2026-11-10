@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolvePeriod } from '../lib/period.js'
-import { painelComercial, painelMarketing, painelVersao, empresaDe, carregarConfigPainel } from '../services/painelGerencial.js'
+import { painelComercial, painelMarketing, painelVersao, painelSincronizar, empresaDe, carregarConfigPainel } from '../services/painelGerencial.js'
 import { isModuleEnabled } from '../lib/moduleManager.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -71,6 +71,17 @@ export async function painelGerencialRoutes(app: FastifyInstance) {
     const periodo = resolvePeriod(q, 30)
     const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : undefined
     return painelMarketing(periodo, funnelId, empresaDe(q.empresa))
+  })
+
+  // Sincronizar agora — botão do painel. Confere os pagamentos no provedor e
+  // passa as inscrições pela sincronização de funil/proposta (ver serviço).
+  app.post('/api/painel/sincronizar', async (req, reply) => {
+    if (!(await isModuleEnabled('painel_gerencial'))) return reply.code(404).send({ error: 'Não encontrado' })
+    if (!tokenOk(req)) return reply.code(401).send({ error: 'token inválido' })
+    if (!(await carregarConfigPainel())) return reply.code(409).send({ error: 'Painel não configurado (painel_gerencial.config)' })
+    const q: any = req.query || {}
+    reply.header('Cache-Control', 'no-store')
+    return painelSincronizar(empresaDe(q.empresa))
   })
 
   // Versão dos dados — a página faz polling barato aqui e só recarrega os
