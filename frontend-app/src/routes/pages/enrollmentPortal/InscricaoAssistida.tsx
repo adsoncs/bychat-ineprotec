@@ -15,7 +15,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { ChevronLeft, ExternalLink, GraduationCap } from '@/components/ui/icon-set'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
-import { useCan } from '@/hooks/usePermissions'
+import { useCan, useEducacionalLigado } from '@/hooks/usePermissions'
 import { NovaMatriculaModal, type LeadInicial } from './matricula/NovaMatricula'
 
 interface RespostaAtendimento {
@@ -48,8 +48,10 @@ export function MatricularPeloPainel({ leadId, de, variante = 'botao', aoAbrir }
   aoAbrir?: (() => void) | undefined
 }) {
   const pode = useCan('enrollment_portals', 'create')
+  // Só com o Educacional ligado no cliente (vale também para SUPERADMIN).
+  const eduLigado = useEducacionalLigado()
   const [aberto, setAberto] = useState(false)
-  if (!pode) return null
+  if (!pode || !eduLigado) return null
   const gatilho = variante === 'linha'
     ? <button type="button" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-accent hover:bg-surface-3 border-b border-border" onClick={() => { aoAbrir?.(); setAberto(true) }}><GraduationCap size={13} /> Matricular pelo painel</button>
     : <Button size="sm" variant="secondary" onClick={() => { aoAbrir?.(); setAberto(true) }}><GraduationCap size={12} /> Matricular pelo painel</Button>

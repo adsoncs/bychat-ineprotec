@@ -11,7 +11,7 @@ import {
   type WidgetSize,
 } from '@/hooks/useWidgets'
 import { useFunnels } from '@/hooks/useFunnels'
-import { useMyPermissions } from '@/hooks/usePermissions'
+import { useMyPermissions, useEducacionalLigado } from '@/hooks/usePermissions'
 import { useUserStore } from '@/stores/user'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -43,8 +43,12 @@ export function DashboardPage() {
 export function AnalyticsPage() {
   const role = useUserStore((s) => s.user?.role ?? null)
   const { data: permsData } = useMyPermissions()
-  const canViewEducational = role === 'SUPERADMIN'
-    || !!permsData?.permissions['educacional']?.canView
+  // Widgets de inscrição só com o Educacional ligado (SUPERADMIN também).
+  const eduLigado = useEducacionalLigado()
+  // Antes de as permissões chegarem vale a regra de sempre (SUPERADMIN vê).
+  const canViewEducational = permsData
+    ? eduLigado && (role === 'SUPERADMIN' || !!permsData.permissions['educacional']?.canView)
+    : role === 'SUPERADMIN'
   return (
     <DashboardPageInner
       pageType="analytics"

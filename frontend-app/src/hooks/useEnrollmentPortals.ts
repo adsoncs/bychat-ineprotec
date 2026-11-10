@@ -262,11 +262,12 @@ export interface BrandingInput {
 /** Mapa id→"Nome da origem" dos portais, p/ resolver `source = enrollment_portal:<id>`.
  *  Fica sob ['enrollment-portals'] de propósito: salvar um portal já invalida o
  *  prefixo e o rótulo novo aparece sem recarregar. */
-export function useEnrollmentPortalSourceLabels() {
+export function useEnrollmentPortalSourceLabels(enabled = true) {
   return useQuery<{ items: { id: number; name: string }[] }>({
     queryKey: ['enrollment-portals', 'source-labels'],
     queryFn: () => api.get('/admin/enrollment-portals/source-labels'),
     staleTime: 5 * 60_000,
+    enabled,
   })
 }
 

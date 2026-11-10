@@ -872,7 +872,7 @@ export function Router() {
             // amigável "Módulo não disponível" / "Acesso restrito" em vez de
             // erro genérico de fetch. SUPERADMIN sempre passa.
             const RouteEl = item.permission
-              ? () => <ModuleGate moduleId={item.permission!}><Migrated /></ModuleGate>
+              ? () => <ModuleGate moduleId={item.permission!} requerModulos={item.requerModulos}><Migrated /></ModuleGate>
               : () => <Migrated />
             return <Route key={item.id} path={path} component={RouteEl} />
           })}

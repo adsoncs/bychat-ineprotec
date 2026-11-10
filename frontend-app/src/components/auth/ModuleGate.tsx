@@ -14,7 +14,7 @@
 import type { ComponentChildren } from 'preact'
 import { useLocation } from 'wouter-preact'
 import { Lock, Package, Loader2, Home } from '@/components/ui/icon-set'
-import { useModuleAccess, type PermAction } from '@/hooks/usePermissions'
+import { useModuleAccess, useMyPermissions, type PermAction } from '@/hooks/usePermissions'
 import { useAuth } from '@/hooks/useAuth'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -24,11 +24,18 @@ interface ModuleGateProps {
   action?: PermAction
   /** Título customizado pra Page wrapper quando bloqueia (default: "Acesso restrito") */
   fallbackTitle?: string
+  /** Módulos que precisam estar ligados no cliente além do `moduleId` (ex.:
+   *  Moodle/SEI → Educacional). Desligado = "Módulo não disponível", também
+   *  para SUPERADMIN. */
+  requerModulos?: string[] | undefined
   children: ComponentChildren
 }
 
-export function ModuleGate({ moduleId, action = 'view', fallbackTitle, children }: ModuleGateProps) {
+export function ModuleGate({ moduleId, action = 'view', fallbackTitle, requerModulos, children }: ModuleGateProps) {
   const access = useModuleAccess(moduleId, action)
+  const { data: perms } = useMyPermissions()
+  const faltando = requerModulos?.find((m) => perms && !perms.modules.some((x) => x.id === m && x.active !== false))
+  if (faltando) return <ModuleInactiveScreen moduleId={faltando} />
 
   if (access.status === 'allowed') return <>{children}</>
 

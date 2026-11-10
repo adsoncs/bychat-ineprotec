@@ -89,7 +89,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { LeadsColumnsModal } from '@/components/LeadsColumnsModal'
 import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
-import { useModuleAccess } from '@/hooks/usePermissions'
+import { useModuleAccess, useEducacionalLigado } from '@/hooks/usePermissions'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { useLeadsColumnsStore, leadColumnLabel, isCustomColumn, customColumnKey, isEduColumn, type LeadColumnKey } from '@/stores/leadsColumns'
 import { eduCellText, useEducacionalAtivo } from '@/components/leads/eduColumns'
@@ -1981,6 +1981,8 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
   const delMut = useDeleteLead()
   const dup = useDuplicateLead()
   const enrollLink = useEnrollmentLinkByLead()
+  // "Link matrícula" só existe com o Educacional ligado no cliente.
+  const eduLigado = useEducacionalLigado()
 
   function handleEnrollmentLink() {
     enrollLink.mutate(id, {
@@ -2050,9 +2052,11 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
             <Button variant="ghost" size="sm" onClick={() => setMergeOpen(true)} disabled={!lead}>
               <GitMerge size={12} /> Mesclar
             </Button>
-            <Button variant="ghost" size="sm" onClick={handleEnrollmentLink} disabled={!lead || enrollLink.isPending}>
-              <GraduationCap size={12} /> {enrollLink.isPending ? 'Buscando…' : 'Link matrícula'}
-            </Button>
+            {eduLigado && (
+              <Button variant="ghost" size="sm" onClick={handleEnrollmentLink} disabled={!lead || enrollLink.isPending}>
+                <GraduationCap size={12} /> {enrollLink.isPending ? 'Buscando…' : 'Link matrícula'}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"

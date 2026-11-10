@@ -109,6 +109,28 @@ export function useIsModuleActive(moduleId: string | undefined): boolean | null 
 }
 
 /**
+ * O módulo está LIGADO no cliente? Ao contrário do `useCan`, não abre exceção
+ * para SUPERADMIN nem enquanto carrega (devolve `false`): serve para esconder o
+ * que só existe com o módulo — ex.: "Matricular pelo painel" num cliente sem
+ * Educacional. Aparecer um instante depois é melhor que aparecer e sumir.
+ */
+export function useModuloLigado(moduleId: string): boolean {
+  const { data } = useMyPermissions()
+  return !!data?.modules.some((m) => m.id === moduleId && m.active !== false)
+}
+
+/**
+ * Educacional ligado: o módulo `educacional` e o Portal de Matrículas
+ * (`enrollment_portals`). Tudo o que só existe por causa do Educacional e
+ * aparece fora das telas dele (ficha do lead, conversa, integrações) usa isto.
+ */
+export function useEducacionalLigado(): boolean {
+  const edu = useModuloLigado('educacional')
+  const portais = useModuloLigado('enrollment_portals')
+  return edu && portais
+}
+
+/**
  * Resultado consolidado pra UI decidir o que renderizar.
  *
  * Casos:

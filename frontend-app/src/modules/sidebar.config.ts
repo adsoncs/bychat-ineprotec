@@ -42,6 +42,21 @@ export interface SidebarItem {
    * taxonomias do produto se afastaram.
    */
   atalho?: boolean
+  /**
+   * Módulos que precisam estar LIGADOS no cliente para o item existir, além da
+   * `permission` (que fala de quem pode). Ex.: Moodle e SEI só fazem sentido com
+   * o Educacional — sem ele, somem do menu, da busca e a rota mostra "Módulo
+   * não disponível", inclusive para SUPERADMIN.
+   */
+  requerModulos?: string[]
+}
+
+/** Módulos de que dependem as integrações que só existem com o Educacional. */
+export const MODULOS_DO_EDUCACIONAL = ['educacional', 'enrollment_portals']
+
+/** O item pede módulos que não estão ligados? (`ligados` = ids ativos no cliente) */
+export function faltaModuloDoItem(item: Pick<SidebarItem, 'requerModulos'>, ligados: ReadonlySet<string>): boolean {
+  return !!item.requerModulos?.some((m) => !ligados.has(m))
 }
 
 export interface SidebarGroup {
@@ -227,8 +242,8 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-clinica-experts', label: 'Clinica Experts', href: '/app/integrations/clinica-experts', icon: 'Stethoscope', permission: 'settings', atalho: true },
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings', atalho: true },
         { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings', atalho: true },
-        { id: 'integ-sei', label: 'SEI (ERP acadêmico)', href: '/app/integrations/sei', icon: 'GraduationCap', permission: 'settings', atalho: true },
-        { id: 'integ-moodle', label: 'Moodle (AVA)', href: '/app/integrations/moodle', icon: 'BookOpen', permission: 'settings', atalho: true },
+        { id: 'integ-sei', label: 'SEI (ERP acadêmico)', href: '/app/integrations/sei', icon: 'GraduationCap', permission: 'settings', atalho: true, requerModulos: MODULOS_DO_EDUCACIONAL },
+        { id: 'integ-moodle', label: 'Moodle (AVA)', href: '/app/integrations/moodle', icon: 'BookOpen', permission: 'settings', atalho: true, requerModulos: MODULOS_DO_EDUCACIONAL },
       ],
       initiallyCollapsed: true,
     },

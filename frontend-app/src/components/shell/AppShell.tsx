@@ -6,6 +6,7 @@ import { useDbConnectorNames } from '@/hooks/useDbConnectors'
 import { setDbConnectorNames, setFormSourceNames, setPortalSourceNames } from '@/lib/leadSourceLabels'
 import { useFormSourceLabels } from '@/hooks/useForms'
 import { useEnrollmentPortalSourceLabels } from '@/hooks/useEnrollmentPortals'
+import { useModuloLigado } from '@/hooks/usePermissions'
 import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
@@ -92,7 +93,9 @@ export function AppShell({ children }: AppShellProps) {
     }
   }, [formSourceLabels])
   // Idem para portais de matrícula com "Nome da origem" (source = enrollment_portal:<id>).
-  const { data: portalSourceLabels } = useEnrollmentPortalSourceLabels()
+  // Sem o Portal de Matrículas ligado a rota nem existe (o backend devolve 404).
+  const portaisLigados = useModuloLigado('enrollment_portals')
+  const { data: portalSourceLabels } = useEnrollmentPortalSourceLabels(portaisLigados)
   useMemo(() => {
     if (portalSourceLabels?.items) {
       setPortalSourceNames(Object.fromEntries(portalSourceLabels.items.map((p) => [p.id, p.name])))

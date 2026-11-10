@@ -43,6 +43,9 @@ export function AddWidgetModal({ open, onClose, onAdd }: AddWidgetModalProps) {
   const { data: permsData, isLoading: loadingPerms } = useMyPermissions()
   function canSeeCategory(perm: string | undefined): boolean {
     if (!perm) return true
+    // Módulo desligado no cliente: a categoria some para todos (SUPERADMIN também).
+    const mod = permsData?.modules.find((m) => m.id === perm)
+    if (mod && mod.active === false) return false
     if (role === 'SUPERADMIN') return true
     if (loadingPerms || !permsData) return true
     return !!permsData.permissions[perm]?.canView

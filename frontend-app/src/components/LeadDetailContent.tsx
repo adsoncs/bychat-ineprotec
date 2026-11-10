@@ -26,7 +26,7 @@ import { LeadAuditTab } from '@/components/LeadAuditTab'
 import { LeadJourneyTab } from '@/components/LeadJourneyTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
 import { LeadStatusHistoryTab } from '@/components/LeadStatusHistoryTab'
-import { useModuleAccess } from '@/hooks/usePermissions'
+import { useModuleAccess, useEducacionalLigado } from '@/hooks/usePermissions'
 import { useBlockLeadContact } from '@/hooks/useSecurity'
 import { toast } from '@/lib/toast'
 import { baseLeadSource } from '@/lib/leadSourceLabels'
@@ -148,8 +148,10 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
   const qualify = useQualifyLead()
   const enrollLink = useEnrollmentLinkByLead()
 
-  const isEnrollmentLead =
-    baseLeadSource(lead?.source) === 'enrollment_portal' || baseLeadSource(lead?.source) === 'enrollment_portal_interest'
+  // "Link de matrícula": lead que veio do portal E Educacional ligado no cliente.
+  const eduLigado = useEducacionalLigado()
+  const isEnrollmentLead = eduLigado &&
+    (baseLeadSource(lead?.source) === 'enrollment_portal' || baseLeadSource(lead?.source) === 'enrollment_portal_interest')
 
   function handleQualify() {
     qualify.mutate(id, {
