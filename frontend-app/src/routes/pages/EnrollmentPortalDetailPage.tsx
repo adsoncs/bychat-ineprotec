@@ -1,3 +1,5 @@
+import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
+import { FaixaDoPortal } from '@/lib/identidadePortal'
 import { useState, useMemo, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import {
@@ -119,6 +121,7 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
 
       {portal && (
         <>
+          <FaixaDoPortalComPolos portal={portal} />
           <PortalTabs tab={tab} onChange={setTab} interesse={portal.formMode === 'interest'} />
           {tab === 'overview' && <OverviewTab portal={portal} onTabChange={setTab} />}
           {tab === 'registrations' && (portal.formMode === 'interest' ? <InteressadosTab portal={portal} /> : <RegistrationsTab portal={portal} />)}
@@ -1425,4 +1428,11 @@ function CelulaDaEtapa({ chave, etapa, valor }: { chave: string; etapa: EtapaDaL
       {chave === 'pagamento' && valor != null && <span class="block font-normal text-fg-muted tabular-nums">R$ {valor.toFixed(2)}</span>}
     </span>
   )
+}
+
+// Faixa do portal com os polos dele (a lista de portais traz os polos; o detalhe não).
+function FaixaDoPortalComPolos({ portal }: { portal: Parameters<typeof FaixaDoPortal>[0]['portal'] & { id: number } }) {
+  const { data } = useEnrollmentPortals()
+  const daLista = data?.portals.find((p) => p.id === portal.id)
+  return <FaixaDoPortal portal={portal} polos={(daLista?.polos ?? []).map((x) => x.nome)} />
 }

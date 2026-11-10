@@ -74,6 +74,12 @@ export interface EnrollmentPortal {
   brandLogoLink: string | null
   brandFaviconUrl: string | null
   brandPrimaryColor: string | null
+  /** Identidade no painel (só a equipe vê) — lib/identidadePortal.tsx. */
+  identidadePainel?: IdentidadePainel | null
+  /** Números do card (lista): últimos 30 dias, pagas e a data da última inscrição. */
+  resumo?: { ultimos30: number; pagas: number; ultimaInscricao: string | null }
+  /** Polos que o portal atende (lista). */
+  polos?: { id: number; nome: string }[]
   brandHeroEnabled: boolean
   brandHeroUrl: string | null
   brandHeroTitle: string | null
@@ -156,7 +162,18 @@ export interface SeoTelas {
   indexarLogin?: boolean
 }
 
+export interface IdentidadePainel {
+  icone: string | null
+  cor: string | null
+  empresa: string | null
+  descricao: string | null
+  ordem: number | null
+  /** Mostra o polo no card e na faixa da inscrição, quando houver. */
+  mostrarPolo?: boolean
+}
+
 export interface EnrollmentPortalInput {
+  identidadePainel?: IdentidadePainel | null | undefined
   /** Jornada (aba Etapas) — a Configuração grava só o de-para com o funil, com o resto como está. */
   jornadaEtapas?: unknown
   nome?: string | undefined

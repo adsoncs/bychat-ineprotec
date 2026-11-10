@@ -22,6 +22,7 @@ import { prisma } from '../lib/prisma.js'
 import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { lerTabelaDePrecos } from '../services/tabelaDePrecos.js'
 import { validarSlugCurso } from '../services/cursoDoLink.js'
+import { exibicaoDoPolo, salvarExibicaoDoPolo } from '../services/exibicaoDoPolo.js'
 
 /**
  * Endereço do curso no link (/portal/<portal>/<slug>): normaliza, recusa os
@@ -465,6 +466,16 @@ export async function educationalRoutes(app: FastifyInstance) {
   // ══════════════════════════════════════════════
   // CAMPUS
   // ══════════════════════════════════════════════
+  // Onde o polo aparece (para o aluno e no contrato) — ver services/exibicaoDoPolo.ts
+  app.get('/api/admin/educacional/polo-exibicao', { preHandler: eduAuth }, async () => exibicaoDoPolo())
+  app.put('/api/admin/educacional/polo-exibicao', { preHandler: eduAdmin }, async (req) => {
+    const b = (req.body ?? {}) as { aluno?: unknown; contrato?: unknown }
+    return salvarExibicaoDoPolo({
+      aluno: typeof b.aluno === 'boolean' ? b.aluno : undefined,
+      contrato: typeof b.contrato === 'boolean' ? b.contrato : undefined,
+    })
+  })
+
   app.get('/api/admin/educacional/campuses', { preHandler: eduAuth }, async (req) => {
     const q = req.query as any
     const where: any = {}

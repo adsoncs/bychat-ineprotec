@@ -257,6 +257,23 @@ export function useUpdateCampus() {
   })
 }
 
+// Onde o polo aparece: para o aluno (resumo da inscrição) e no contrato ({{polo}}).
+export interface ExibicaoDoPolo { aluno: boolean; contrato: boolean }
+export function useExibicaoDoPolo() {
+  return useQuery({
+    queryKey: ['edu', 'polo-exibicao'],
+    queryFn: () => api.get<ExibicaoDoPolo>('/admin/educacional/polo-exibicao'),
+    staleTime: 60_000,
+  })
+}
+export function useSalvarExibicaoDoPolo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: Partial<ExibicaoDoPolo>) => api.put<ExibicaoDoPolo>('/admin/educacional/polo-exibicao', input),
+    onSuccess: (v) => qc.setQueryData(['edu', 'polo-exibicao'], v),
+  })
+}
+
 export function useDeleteCampus() {
   const qc = useQueryClient()
   return useMutation({

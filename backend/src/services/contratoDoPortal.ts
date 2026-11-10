@@ -14,6 +14,7 @@
 //     o aceite da inscrição é gravado (contratoAceite) e, na efetivação, o
 //     envelope passa a pertencer à matrícula — o ERP não manda um 2º contrato.
 
+import { exibicaoDoPolo } from './exibicaoDoPolo.js'
 import { prisma } from '../lib/prisma.js'
 import { CATALOGO, valoresAtuais, type DadosConfig, type CampoConfig } from './dadosCadastro.js'
 import { getDocHeader, dataExtenso } from './acaDocRender.js'
@@ -268,7 +269,8 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
     carga_horaria: of.course?.cargaHoraria ? of.course.cargaHoraria.toLocaleString('pt-BR') : '',
     duracao_meses: of.course?.duracaoMeses ? String(of.course.duracaoMeses) : '',
     inicio_curso: dataBr(of.inicioCurso), termino_curso: dataBr(of.terminoCurso),
-    polo: String((reg.formData as any)?.campusNome ?? ''),
+    // Configuração › Polos: a empresa pode tirar o polo do contrato (variável vazia).
+    polo: (await exibicaoDoPolo()).contrato ? String((reg.formData as any)?.campusNome ?? '') : '',
     valor_total: plano.valorTotalCentavos ? reais(plano.valorTotalCentavos) : '',
     valor_total_extenso: plano.valorTotalCentavos ? reaisPorExtenso(plano.valorTotalCentavos) : '',
     forma_pagamento: forma,

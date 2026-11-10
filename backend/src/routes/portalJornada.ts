@@ -4,6 +4,7 @@
 // escolhida pelo portal — para a tela de inscrição (token do candidato) e para
 // o portal logado (sessão). E o contrato lido e assinado ainda na inscrição.
 
+import { exibicaoDoPolo } from '../services/exibicaoDoPolo.js'
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
@@ -162,6 +163,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     })
     if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     const fd = (r.formData ?? {}) as Record<string, any>
+    const mostrarPolo = (await exibicaoDoPolo()).aluno
     const nome = String(r.lead?.nome ?? fd.nome ?? '').trim()
     const partes = nome.split(/\s+/).filter(Boolean)
     const plano = (r.paymentPlan ?? {}) as Record<string, any>
@@ -182,7 +184,8 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
         modalidade: r.processRegistration?.offering?.modality?.nome ?? null,
         turno: r.processRegistration?.offering?.turno ?? null,
         unidade: r.processRegistration?.offering?.unit?.nome ?? null,
-        polo: typeof fd.campusNome === 'string' && fd.campusNome.trim() ? fd.campusNome.trim() : null,
+        // Configuração › Polos › "Mostrar o polo ao aluno".
+        polo: mostrarPolo && typeof fd.campusNome === 'string' && fd.campusNome.trim() ? fd.campusNome.trim() : null,
         ingresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? null,
       },
       pagamento: plano.valorCobrado != null || plano.valorTabela != null ? {

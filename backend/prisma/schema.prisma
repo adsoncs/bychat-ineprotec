@@ -4280,6 +4280,8 @@ model EnrollmentPortal {
   brandHeroSubtitle       String? @db.VarChar(500)
   brandHeroOverlayOpacity Int? // 0-80
   brandFooterText         String? @db.Text
+  // Identidade no painel (só a equipe vê): { icone, cor, empresa, descricao, ordem }. lib/identidadePainel.ts
+  identidadePainel        Json?   @db.Json
   brandFontFamily         String? @db.VarChar(40) // inter | roboto | poppins | system
   brandRadiusScale        String? @db.VarChar(20) // sharp | medium | rounded
 

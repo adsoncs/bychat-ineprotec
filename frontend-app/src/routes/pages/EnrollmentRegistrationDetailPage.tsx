@@ -1,3 +1,4 @@
+import { FaixaDoPortal } from '@/lib/identidadePortal'
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
 import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal } from './enrollmentPortal/InscricaoAssistida'
 import { AbaFinanceiro } from './enrollmentPortal/matricula/AbaFinanceiro'
@@ -28,6 +29,7 @@ import {
   type EnrollmentDocument,
   type DocumentStatus,
   type EnemImportFull,
+  useEnrollmentPortals,
 } from '@/hooks/useEnrollmentPortals'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -181,6 +183,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               Você vê esta inscrição, mas as ações que exigem "Editar" (no Portal, na Revisão de documentos ou em Avaliações) ficam desativadas para o seu perfil.
             </div>
           )}
+          <FaixaDaInscricao portalId={review.portal?.id ?? portalId} polo={typeof (review.registration.formData as any)?.campusNome === 'string' ? (review.registration.formData as any).campusNome : null} />
           <AvisoDeTransferencia registrationId={review.registration.id} />
           <StatusBanner review={review} aoAbrirEtapa={(chave) => setAba(abaDaEtapa(chave))} />
           <AbasDaMatricula aba={aba} aoMudar={setAba} etapas={todasAsEtapas} temAvaliacao={temAvaliacao} />
@@ -1585,4 +1588,16 @@ function Field({ label, value }: { label: string; value: preact.ComponentChildre
       <span class="text-fg truncate">{value}</span>
     </div>
   )
+}
+
+// Portal da inscrição com o ícone/cor/empresa da "Identidade no painel"
+// (a lista de portais já está em cache; sem ela, mostra só o nome).
+function usePortalDaLista(id: number | null | undefined) {
+  const { data } = useEnrollmentPortals()
+  return data?.portals.find((p) => p.id === id) ?? null
+}
+function FaixaDaInscricao({ portalId, polo }: { portalId: number | null | undefined; polo: string | null }) {
+  const p = usePortalDaLista(portalId)
+  if (!p?.identidadePainel) return null
+  return <FaixaDoPortal portal={p} rotulo="Portal" polos={polo ? [polo] : []} />
 }

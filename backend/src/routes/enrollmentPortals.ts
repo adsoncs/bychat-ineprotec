@@ -1,6 +1,7 @@
 // src/routes/enrollmentPortals.ts
 // Portal de Matrículas — CRUD admin + endpoint público de registro.
 
+import { lerIdentidadePainel } from '../lib/identidadePainel.js'
 import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { join, dirname, extname } from 'path'
@@ -637,7 +638,47 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         _count: { select: { registrations: wr ? { where: wr } : true } },
       },
     })
-    return { portals }
+    // Números do card: inscrições dos últimos 30 dias e pagas (no alcance da pessoa).
+    const desde = new Date(Date.now() - 30 * 86_400_000)
+    const ids = portals.map((p) => p.id)
+    const contar = async (extra: Record<string, unknown>) => new Map(
+      (await prisma.enrollmentRegistration.groupBy({
+        by: ['portalId'], _count: { _all: true },
+        where: { portalId: { in: ids }, ...extra, ...(wr ? { AND: [wr] } : {}) } as any,
+      })).map((g: any) => [g.portalId, g._count._all as number]),
+    )
+    const [recentes, pagas, ultima] = await Promise.all([
+      contar({ createdAt: { gte: desde } }),
+      contar({ paymentStatus: 'paid' }),
+      prisma.enrollmentRegistration.groupBy({
+        by: ['portalId'], _max: { createdAt: true },
+        where: { portalId: { in: ids }, ...(wr ? { AND: [wr] } : {}) } as any,
+      }).then((l: any[]) => new Map(l.map((g) => [g.portalId, g._max.createdAt as Date | null]))),
+    ])
+    // Polos que o portal atende: os das ofertas dos processos dele, dentro dos permitidos.
+    const sps = [...new Set(portals.flatMap((p) => (Array.isArray(p.selectionProcessIds) ? (p.selectionProcessIds as unknown[]).map(Number) : [])))].filter(Boolean)
+    const vinculos = sps.length ? await prisma.courseOfferingCampus.findMany({
+      where: { offering: { selectionProcessId: { in: sps } } },
+      select: { offering: { select: { selectionProcessId: true } }, campus: { select: { id: true, nome: true, active: true } } },
+    }) : []
+    const polosDo = (p: (typeof portals)[number]) => {
+      const meus = new Set(Array.isArray(p.selectionProcessIds) ? (p.selectionProcessIds as unknown[]).map(Number) : [])
+      const permitidos = Array.isArray(p.allowedCampusIds) && (p.allowedCampusIds as unknown[]).length ? new Set((p.allowedCampusIds as unknown[]).map(Number)) : null
+      const m = new Map<number, string>()
+      for (const v of vinculos) {
+        if (!meus.has(v.offering.selectionProcessId as number) || !v.campus.active) continue
+        if (permitidos && !permitidos.has(v.campus.id)) continue
+        m.set(v.campus.id, v.campus.nome)
+      }
+      return [...m.entries()].map(([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    }
+    return {
+      portals: portals.map((p) => ({
+        ...p,
+        resumo: { ultimos30: recentes.get(p.id) ?? 0, pagas: pagas.get(p.id) ?? 0, ultimaInscricao: ultima.get(p.id) ?? null },
+        polos: polosDo(p),
+      })),
+    }
   })
 
   // GET /api/admin/enrollment-portals/:id — detalhe
@@ -750,6 +791,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         metaTitle: body.metaTitle || null,
         metaDescription: body.metaDescription || null,
         ogImageUrl: body.ogImageUrl || null,
+        identidadePainel: (lerIdentidadePainel(body.identidadePainel) ?? undefined) as any,
         customCss: body.customCss || null,
         customHeadJs: body.customHeadJs || null,
         customBodyJs: body.customBodyJs || null,
@@ -825,6 +867,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const currentProvider = provider ?? (await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) }, select: { paymentProvider: true } }))?.paymentProvider
       data.paymentConfig = ensurePaymentConfigToken(currentProvider as any, body.paymentConfig)
     }
+    if (body.identidadePainel !== undefined) data.identidadePainel = lerIdentidadePainel(body.identidadePainel) ?? Prisma.DbNull
     if (body.requirePayment !== undefined) data.requirePayment = !!body.requirePayment
     if (body.paymentDeadlineHours !== undefined) data.paymentDeadlineHours = parseInt(body.paymentDeadlineHours) || 48
     // O que o portal cobra e as regras de cada meio. `lerRegras` normaliza e
@@ -1060,6 +1103,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           publishedAt: null,
           landingPageId: null,
           createdBy: user.userId,
+          identidadePainel: (src as any).identidadePainel ?? Prisma.DbNull,
         },
       })
       // A cópia segue das Gerais o mesmo que o original.

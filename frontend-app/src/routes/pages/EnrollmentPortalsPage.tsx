@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle } from '@/components/ui/icon-set'
+import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useEnrollmentPortals,
@@ -21,9 +21,13 @@ import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Textarea, Select } from '@/components/ui/Input'
+import { Input, Textarea, Select, Switch } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { ColorPicker } from '@/components/ui/ColorPicker'
+import { formatRelative } from '@/lib/format'
+import { ICONES_PORTAL, CORES_PORTAL, SeloDoPortal, PolosDoPortal, identidadeDo, tinta } from '@/lib/identidadePortal'
+import type { IdentidadePainel } from '@/hooks/useEnrollmentPortals'
 import { Pode } from '@/components/auth/Pode'
 
 export function EnrollmentPortalsPage() {
@@ -96,8 +100,9 @@ export function EnrollmentPortalsPage() {
       )}
 
       {!isLoading && portals.length > 0 && (
-        <div class="grid gap-2 grid-cols-1 lg:grid-cols-2">
-          {portals.map((p) => (
+        <ListaDePortais
+          portals={portals}
+          renderCard={(p) => (
             <PortalCard
               key={p.id}
               portal={p}
@@ -106,8 +111,8 @@ export function EnrollmentPortalsPage() {
               onDelete={() => setDeleting(p)}
               onDuplicate={() => handleDuplicate(p)}
             />
-          ))}
-        </div>
+          )}
+        />
       )}
 
       {(creating || editing) && (
@@ -169,6 +174,101 @@ export function EnrollmentPortalsPage() {
   )
 }
 
+// Busca, filtro por empresa e situação; com 2+ empresas, agrupa por empresa.
+// Ordem: a "Ordem na lista" da identidade, depois o nome.
+function ListaDePortais({ portals, renderCard }: {
+  portals: EnrollmentPortal[]
+  renderCard: (p: EnrollmentPortal) => preact.ComponentChildren
+}) {
+  const [busca, setBusca] = useState('')
+  const [empresa, setEmpresa] = useState<string>('todas')
+  const [situacao, setSituacao] = useState<'todos' | 'ativos' | 'inativos'>('todos')
+
+  const ordenados = useMemo(() => [...portals].sort((a, b) => {
+    const oa = identidadeDo(a).ordem ?? 1000, ob = identidadeDo(b).ordem ?? 1000
+    return oa - ob || a.nome.localeCompare(b.nome, 'pt-BR')
+  }), [portals])
+  const empresas = useMemo(() => {
+    const m = new Map<string, { nome: string; cor: string; total: number }>()
+    for (const p of ordenados) {
+      const id = identidadeDo(p)
+      const k = id.empresa ?? ''
+      const e = m.get(k) ?? { nome: id.empresa ?? 'Sem empresa', cor: id.cor, total: 0 }
+      e.total++; m.set(k, e)
+    }
+    return [...m.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : a[1].nome.localeCompare(b[1].nome, 'pt-BR')))
+  }, [ordenados])
+  const q = busca.trim().toLowerCase()
+  const visiveis = ordenados.filter((p) => {
+    const id = identidadeDo(p)
+    if (empresa !== 'todas' && (id.empresa ?? '') !== empresa) return false
+    if (situacao === 'ativos' && !p.active) return false
+    if (situacao === 'inativos' && p.active) return false
+    if (!q) return true
+    return [p.nome, p.slug, p.codePrefix, id.empresa, id.descricao, p.unit?.nome, p.team?.name].some((v) => (v ?? '').toLowerCase().includes(q))
+  })
+  const agrupar = empresas.length > 1 && empresa === 'todas'
+  const grupos = agrupar
+    ? empresas.map(([k, e]) => ({ k, e, itens: visiveis.filter((p) => (identidadeDo(p).empresa ?? '') === k) })).filter((g) => g.itens.length)
+    : [{ k: '*', e: null, itens: visiveis }]
+  const ativos = portals.filter((p) => p.active).length
+
+  const chip = (ativo: boolean) => cnChip(ativo)
+  return (
+    <div class="space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-center gap-2">
+        <label class="relative flex-1 min-w-0">
+          <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
+          <input
+            type="search"
+            value={busca}
+            onInput={(e) => setBusca((e.target as HTMLInputElement).value)}
+            placeholder="Buscar por nome, empresa, código, equipe…"
+            class="w-full h-9 pl-8 pr-3 rounded-md border border-border bg-surface-inset text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
+          />
+        </label>
+        <div class="flex items-center gap-1 rounded-md border border-border p-0.5 self-start lg:self-auto" role="group" aria-label="Situação">
+          {([['todos', `Todos ${portals.length}`], ['ativos', `Ativos ${ativos}`], ['inativos', `Inativos ${portals.length - ativos}`]] as const).map(([k, r]) => (
+            <button key={k} type="button" aria-pressed={situacao === k} onClick={() => setSituacao(k)}
+              class={`h-7 px-2.5 rounded text-xs tabular-nums ${situacao === k ? 'bg-surface-3 text-fg font-medium' : 'text-fg-muted hover:text-fg'}`}>{r}</button>
+          ))}
+        </div>
+      </div>
+      {empresas.length > 1 && (
+        <div class="flex flex-wrap gap-1.5" role="group" aria-label="Empresa">
+          <button type="button" class={chip(empresa === 'todas')} aria-pressed={empresa === 'todas'} onClick={() => setEmpresa('todas')}>
+            Todas as empresas
+          </button>
+          {empresas.map(([k, e]) => (
+            <button key={k || '-'} type="button" class={chip(empresa === k)} aria-pressed={empresa === k} onClick={() => setEmpresa(k)}>
+              <span class="size-2 rounded-full" style={{ background: k ? e.cor : 'var(--color-fg-muted, #888)' }} />
+              {e.nome} <span class="text-fg-muted tabular-nums">{e.total}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {visiveis.length === 0 ? (
+        <Card><div class="text-xs text-fg-muted italic text-center py-8">Nenhum portal com esses filtros.</div></Card>
+      ) : grupos.map((g) => (
+        <section key={g.k} class="space-y-2">
+          {g.e && (
+            <div class="flex items-center gap-2 pt-1">
+              <span class="h-4 w-1 rounded-full" style={{ background: g.k ? g.e.cor : 'var(--color-border, #888)' }} />
+              <h2 class="text-xs font-semibold uppercase tracking-wider text-fg">{g.e.nome}</h2>
+              <span class="text-2xs text-fg-muted tabular-nums">{g.itens.length} portal(is)</span>
+            </div>
+          )}
+          <div class="grid gap-3 grid-cols-1 lg:grid-cols-2">{g.itens.map(renderCard)}</div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function cnChip(ativo: boolean) {
+  return `inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-xs ${ativo ? 'border-accent bg-accent/10 text-fg font-medium' : 'border-border text-fg-muted hover:text-fg hover:border-border-strong'}`
+}
+
 function PortalCard({
   portal: p, onOpen, onEdit, onDelete, onDuplicate,
 }: {
@@ -178,38 +278,72 @@ function PortalCard({
   onDelete: () => void
   onDuplicate: () => void
 }) {
-  const formModeLabel = p.formMode === 'interest' ? 'Interesse (curto)' : 'Inscrição completa'
+  const formModeLabel = p.formMode === 'interest' ? 'Captura de interesse' : 'Inscrição completa'
   const publicUrl = p.customDomain
     ? `https://${p.customDomain}/portal/${p.slug}`
     : `${window.location.origin}/portal/${p.slug}`
+  const id = identidadeDo(p)
+  const r = p.resumo
+  const copiar = (e: Event) => {
+    e.stopPropagation()
+    void navigator.clipboard.writeText(publicUrl).then(() => toast('URL copiada', 'success'))
+  }
 
   return (
-    <Card>
-      <div class="flex items-start gap-3 group">
-        <span class="size-10 rounded-md bg-surface-3 grid place-items-center text-fg-muted shrink-0">
-          <School size={16} />
-        </span>
+    <div
+      class={`relative rounded-lg border border-border bg-surface-2 overflow-hidden transition-shadow hover:shadow-md ${p.active ? '' : 'opacity-75'}`}
+      style={{ borderLeft: `3px solid ${id.cor}` }}
+    >
+      <div class="p-4 flex items-start gap-3">
+        <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={44} />
         <button type="button" class="min-w-0 flex-1 text-left" onClick={onOpen}>
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-medium text-fg truncate hover:text-accent">{p.nome}</span>
-            <code class="text-3xs text-fg-muted">{p.slug}</code>
-            {!p.active && <span class="text-3xs uppercase text-fg-muted">Inativo</span>}
+            <span class="text-sm font-semibold text-fg truncate hover:text-accent">{p.nome}</span>
+            <span
+              class={`inline-flex items-center gap-1 rounded-full px-1.5 py-px text-3xs font-medium uppercase tracking-wide ${p.active ? 'bg-success/15 text-success' : 'bg-surface-3 text-fg-muted'}`}
+            >
+              <span class={`size-1.5 rounded-full ${p.active ? 'bg-success' : 'bg-fg-muted'}`} />
+              {p.active ? 'Ativo' : 'Inativo'}
+            </span>
           </div>
-          <div class="text-xs text-fg-muted">
-            {p.unit?.nome ?? '—'} · {formModeLabel}
-            {p.team && <> · {p.team.name}</>}
+          <div class="mt-1 flex items-center gap-1.5 flex-wrap text-2xs">
+            {id.empresa && (
+              <span class="rounded px-1.5 py-px font-medium text-fg ring-1 ring-inset" style={{ background: tinta(id.cor, 18), ["--tw-ring-color" as any]: tinta(id.cor, 40) }}>{id.empresa}</span>
+            )}
+            <code class="rounded bg-surface-3 px-1.5 py-px text-fg-muted font-mono">{p.codePrefix}</code>
+            <span class="text-fg-muted">{formModeLabel}</span>
+            {p.team && <span class="text-fg-muted">· {p.team.name}</span>}
           </div>
-          {p._count && (
-            <div class="text-2xs text-fg-muted tabular-nums mt-1">
-              {p._count.registrations} inscrição(ões)
-              {p.requirePayment && <> · pagamento obrigatório</>}
-              {p.formMode === 'interest' && <> · TTL link {p.magicLinkTtlDays}d</>}
-            </div>
-          )}
+          {id.descricao && <div class="mt-1.5 text-xs text-fg-muted line-clamp-2">{id.descricao}</div>}
+          {id.mostrarPolo && (p.polos?.length ?? 0) > 0 && <div class="mt-1.5"><PolosDoPortal polos={p.polos!.map((x) => x.nome)} /></div>}
         </button>
         <PortalActionsMenu portal={p} publicUrl={publicUrl} onEdit={onEdit} onDelete={onDelete} onDuplicate={onDuplicate} onOpen={onOpen} />
       </div>
-    </Card>
+      <div class="grid grid-cols-3 border-t border-border divide-x divide-border">
+        <Numero rotulo="Inscrições" valor={p._count?.registrations ?? 0} />
+        <Numero rotulo="Últimos 30 dias" valor={r?.ultimos30 ?? 0} />
+        <Numero rotulo="Pagas" valor={r?.pagas ?? 0} />
+      </div>
+      <div class="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-fg-muted">
+        <span class="truncate flex-1 font-mono" title={publicUrl}>/portal/{p.slug}</span>
+        <span class="shrink-0 hidden sm:inline">{r?.ultimaInscricao ? `última inscrição ${formatRelative(r.ultimaInscricao)}` : 'sem inscrições'}</span>
+        <button type="button" onClick={copiar} class="shrink-0 size-6 grid place-items-center rounded hover:bg-surface-3 hover:text-fg" aria-label="Copiar URL pública" title="Copiar URL pública">
+          <Copy size={12} />
+        </button>
+        <a href={publicUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} class="shrink-0 size-6 grid place-items-center rounded hover:bg-surface-3 hover:text-fg" aria-label="Abrir portal público" title="Abrir portal público">
+          <ExternalLink size={12} />
+        </a>
+      </div>
+    </div>
+  )
+}
+
+function Numero({ rotulo, valor }: { rotulo: string; valor: number }) {
+  return (
+    <div class="px-4 py-2.5">
+      <div class="text-base font-semibold text-fg tabular-nums leading-none">{valor.toLocaleString('pt-BR')}</div>
+      <div class="mt-1 text-3xs uppercase tracking-wide text-fg-muted">{rotulo}</div>
+    </div>
   )
 }
 
@@ -312,6 +446,14 @@ function PortalFormModal({
   const [requirePayment, setRequirePayment] = useState(portal?.requirePayment ?? false)
   const [metaTitle, setMetaTitle] = useState(portal?.metaTitle ?? '')
   const [metaDescription, setMetaDescription] = useState(portal?.metaDescription ?? '')
+  const [identidade, setIdentidade] = useState<IdentidadePainel>({
+    icone: portal?.identidadePainel?.icone ?? null,
+    cor: portal?.identidadePainel?.cor ?? null,
+    empresa: portal?.identidadePainel?.empresa ?? null,
+    descricao: portal?.identidadePainel?.descricao ?? null,
+    ordem: portal?.identidadePainel?.ordem ?? null,
+    mostrarPolo: portal?.identidadePainel?.mostrarPolo === true,
+  })
 
   const create = useCreateEnrollmentPortal()
   const update = useUpdateEnrollmentPortal()
@@ -388,6 +530,7 @@ function PortalFormModal({
       requirePayment,
       metaTitle: metaTitle.trim() || null,
       metaDescription: metaDescription.trim() || null,
+      identidadePainel: identidade,
     }
 
     if (isEdit) {
@@ -451,6 +594,16 @@ function PortalFormModal({
             {units.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
           </Select>
         </Section>
+
+        <IdentidadeNoPainel
+          valor={identidade}
+          onChange={setIdentidade}
+          nome={nome}
+          codePrefix={codePrefix}
+          corDaMarca={portal?.brandPrimaryColor ?? null}
+          polos={(portal?.polos ?? []).map((x) => x.nome)}
+          empresas={[...new Set(existingPortals.map((p) => p.identidadePainel?.empresa).filter((x): x is string => !!x))]}
+        />
 
         <Section title="Modo do formulário">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -602,6 +755,148 @@ function PortalFormModal({
         )}
       </div>
     </Modal>
+  )
+}
+
+// Ícone, cor, empresa, descrição interna e ordem — só a equipe vê. A prévia
+// mostra o card como vai ficar na lista de portais.
+function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, empresas, polos }: {
+  polos: string[]
+  valor: IdentidadePainel
+  onChange: (v: IdentidadePainel) => void
+  nome: string
+  codePrefix: string
+  corDaMarca: string | null
+  empresas: string[]
+}) {
+  const pôr = (parcial: Partial<IdentidadePainel>) => onChange({ ...valor, ...parcial })
+  const id = identidadeDo({ identidadePainel: valor })
+  const hex = /^#[0-9a-f]{6}$/i
+  const marca = corDaMarca && hex.test(corDaMarca) ? corDaMarca.toLowerCase() : null
+  const corPersonalizada = !!valor.cor && !CORES_PORTAL.some((c) => c.cor === valor.cor)
+  return (
+    <Section title="Identidade no painel">
+      <div class="text-xs text-fg-muted -mt-1">
+        Diferencia este portal (e a empresa dele) para a equipe: na lista de portais, no cabeçalho do portal e na inscrição. O candidato não vê.
+      </div>
+
+      {/* Prévia */}
+      <div class="rounded-lg border border-border bg-surface-2 p-3 flex items-center gap-3" style={{ borderLeft: `3px solid ${id.cor}` }}>
+        <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={44} />
+        <div class="min-w-0">
+          <div class="text-sm font-semibold text-fg truncate">{nome.trim() || 'Nome do portal'}</div>
+          <div class="mt-1 flex items-center gap-1.5 flex-wrap text-2xs">
+            {id.empresa && <span class="rounded px-1.5 py-px font-medium text-fg ring-1 ring-inset" style={{ background: tinta(id.cor, 18), ["--tw-ring-color" as any]: tinta(id.cor, 40) }}>{id.empresa}</span>}
+            <code class="rounded bg-surface-3 px-1.5 py-px text-fg-muted font-mono">{codePrefix || 'MAT'}</code>
+          </div>
+          {id.descricao && <div class="mt-1 text-xs text-fg-muted truncate">{id.descricao}</div>}
+          {id.mostrarPolo && polos.length > 0 && <div class="mt-1"><PolosDoPortal polos={polos} /></div>}
+        </div>
+        <span class="ml-auto text-3xs uppercase tracking-wide text-fg-muted shrink-0 self-start">Prévia</span>
+      </div>
+
+      <div>
+        <div class="text-xs font-medium text-fg mb-1.5">Ícone</div>
+        <div class="grid grid-cols-8 sm:grid-cols-12 gap-1" role="radiogroup" aria-label="Ícone do portal">
+          {ICONES_PORTAL.map(({ chave, rotulo, Icone }) => {
+            const sel = id.icone === chave
+            return (
+              <button
+                key={chave}
+                type="button"
+                role="radio"
+                aria-checked={sel}
+                aria-label={rotulo}
+                title={rotulo}
+                onClick={() => pôr({ icone: chave })}
+                class={`aspect-square rounded-md grid place-items-center border transition-colors ${sel ? '' : 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}`}
+                style={sel ? { background: tinta(id.cor, 16), color: id.cor, borderColor: tinta(id.cor, 50) } : undefined}
+              >
+                <Icone size={16} />
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs font-medium text-fg mb-1.5">Cor</div>
+        <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Cor do portal">
+          {CORES_PORTAL.map(({ cor, nome: n }) => {
+            const sel = valor.cor === cor
+            return (
+              <button
+                key={cor}
+                type="button"
+                role="radio"
+                aria-checked={sel}
+                aria-label={n}
+                title={n}
+                onClick={() => pôr({ cor })}
+                class={`size-7 rounded-full grid place-items-center ring-offset-2 ring-offset-surface ${sel ? 'ring-2' : 'hover:scale-110 transition-transform'}`}
+                style={{ background: cor, ['--tw-ring-color' as any]: cor }}
+              >
+                {sel && <Check size={14} class="text-white" />}
+              </button>
+            )
+          })}
+          {marca && (
+            <button type="button" onClick={() => pôr({ cor: marca })}
+              class={`h-7 px-2 rounded-full border text-2xs inline-flex items-center gap-1.5 ${valor.cor === marca ? 'border-accent text-fg' : 'border-border text-fg-muted hover:text-fg'}`}>
+              <span class="size-3 rounded-full" style={{ background: marca }} /> Cor da marca do portal
+            </button>
+          )}
+        </div>
+        <div class="mt-2 max-w-56">
+          <ColorPicker
+            label={corPersonalizada ? 'Cor personalizada' : 'Outra cor'}
+            value={valor.cor ?? id.cor}
+            onChange={(c: string) => { const v = c.slice(0, 7).toLowerCase(); if (hex.test(v)) pôr({ cor: v }) }}
+          />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-3">
+        <div>
+          <Input
+            label="Empresa / marca"
+            value={valor.empresa ?? ''}
+            list="empresas-dos-portais"
+            maxLength={60}
+            onInput={(e) => pôr({ empresa: (e.target as HTMLInputElement).value || null })}
+            placeholder="Ex.: INEPROTEC"
+            hint="Agrupa os portais na lista e aparece como etiqueta no card."
+          />
+          <datalist id="empresas-dos-portais">{empresas.map((e) => <option key={e} value={e} />)}</datalist>
+        </div>
+        <Input
+          label="Ordem na lista"
+          type="number"
+          min={0}
+          max={999}
+          value={valor.ordem == null ? '' : String(valor.ordem)}
+          onInput={(e) => { const v = (e.target as HTMLInputElement).value; pôr({ ordem: v === '' ? null : Math.max(0, Math.min(999, parseInt(v) || 0)) }) }}
+          placeholder="Automática"
+          hint="Menor aparece primeiro."
+        />
+      </div>
+      <Switch
+        checked={valor.mostrarPolo === true}
+        onChange={(v) => pôr({ mostrarPolo: v })}
+        label="Mostrar polo"
+        hint={polos.length
+          ? `Mostra no card os polos deste portal (${polos.join(', ')}) e, na inscrição, o polo dela.`
+          : 'Este portal ainda não tem polo cadastrado nas ofertas: ligado, o polo aparece quando existir.'}
+      />
+      <Input
+        label="Descrição interna"
+        value={valor.descricao ?? ''}
+        maxLength={200}
+        onInput={(e) => pôr({ descricao: (e.target as HTMLInputElement).value || null })}
+        placeholder="Ex.: Técnicos por consultoria — Tradicional e Certificação por Competência"
+        hint="Uma linha para a equipe saber para que serve o portal."
+      />
+    </Section>
   )
 }
 

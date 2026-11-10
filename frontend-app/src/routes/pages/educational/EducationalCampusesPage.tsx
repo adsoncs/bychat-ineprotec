@@ -6,6 +6,9 @@ import {
   useUpdateCampus,
   useDeleteCampus,
   useEducationalUnits,
+  useExibicaoDoPolo,
+  useSalvarExibicaoDoPolo,
+  type ExibicaoDoPolo,
   type Campus,
   type CampusInput,
 } from '@/hooks/useEducational'
@@ -15,7 +18,7 @@ import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Textarea, Select } from '@/components/ui/Input'
+import { Input, Textarea, Select, Switch } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EduListHero, EduCountPill } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
@@ -77,6 +80,8 @@ export function EducationalCampusesPage() {
           { value: totals.offerings, label: 'Ofertas', tone: 'warning' },
         ]}
       />
+
+      <ExibicaoDoPoloCard />
 
       {noUnits && (
         <Card>
@@ -449,5 +454,48 @@ function DeleteCampusDialog({ campus, onClose }: { campus: Campus; onClose: () =
         })
       }}
     />
+  )
+}
+
+// Cada empresa decide se o polo aparece para o aluno e no contrato — útil
+// quando o polo é uma escola certificadora ou parceiro que fica só com a equipe.
+function ExibicaoDoPoloCard() {
+  const { data } = useExibicaoDoPolo()
+  const salvar = useSalvarExibicaoDoPolo()
+  if (!data) return null
+  const mudar = (campo: keyof ExibicaoDoPolo, v: boolean) =>
+    salvar.mutate({ [campo]: v }, {
+      onSuccess: () => toast(v ? 'Ligado' : 'Desligado', 'success'),
+      onError: (e) => toast(e instanceof ApiError ? e.message : 'Não foi possível salvar', 'danger'),
+    })
+  return (
+    <Card>
+      <div class="flex flex-col gap-3">
+        <div>
+          <div class="text-sm font-medium text-fg">Onde o polo aparece</div>
+          <div class="text-2xs text-fg-muted">A equipe sempre vê o polo no painel da inscrição. Vale para todos os polos.</div>
+        </div>
+        <Pode tela="edu_campus" acao="edit" senao={
+          <div class="text-xs text-fg-muted">Para o aluno: {data.aluno ? 'sim' : 'não'} · No contrato: {data.contrato ? 'sim' : 'não'}</div>
+        }>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <Switch
+              checked={data.aluno}
+              disabled={salvar.isPending}
+              onChange={(v) => mudar('aluno', v)}
+              label="Mostrar o polo ao aluno"
+              hint="No resumo da inscrição do portal, ao lado da unidade. Se a oferta tiver mais de um polo, o aluno ainda escolhe e vê os nomes."
+            />
+            <Switch
+              checked={data.contrato}
+              disabled={salvar.isPending}
+              onChange={(v) => mudar('contrato', v)}
+              label="Polo no contrato"
+              hint="Preenche a variável {{polo}} dos contratos e termos. Desligado, ela sai em branco."
+            />
+          </div>
+        </Pode>
+      </div>
+    </Card>
   )
 }
