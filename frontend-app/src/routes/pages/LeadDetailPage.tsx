@@ -36,6 +36,7 @@ import { SendWhatsAppButton } from '@/components/WhatsappSend'
 import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
 import { MatricularPeloPainel } from '@/routes/pages/enrollmentPortal/InscricaoAssistida'
+import { AgendarReuniaoButton } from '@/components/AgendarReuniaoButton'
 import { LeadExportModal } from '@/components/LeadExportModal'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
@@ -303,6 +304,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         <ConversaInternaButton leadId={id} />
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
+
+        {/* Visita/reunião na agenda (confirmação + lembretes), sem link externo. */}
+        <AgendarReuniaoButton leadId={id} />
 
         {/* Matrícula interna pelo agente: escolhe o portal e abre no painel. */}
         <MatricularPeloPainel leadId={id} de={`/leads/${id}`} />

@@ -1407,19 +1407,36 @@ function HsmFallbackFields({
   )
 }
 
-type TemplateParam = { type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }
+type TemplateParam = { type: 'lead_field' | 'custom_field' | 'fixed' | 'text'; value: string; fallback?: string }
+type ButtonParam = { index: number; value: string }
 
-/** Conta as variáveis posicionais {{1}}..{{n}} num template HSM (header TEXT + body). */
+/**
+ * Variáveis do corpo do template, na ordem em que o backend as preenche
+ * (`templateBodyTokens`): posicionais {{1}}..{{n}} em ordem numérica, ou
+ * nomeadas ({{nome}}) na ordem em que aparecem, cada uma uma vez.
+ */
+function templateVarLabels(components: unknown): string[] {
+  const body = Array.isArray(components) ? (components as any[]).find((c) => String(c?.type || '').toUpperCase() === 'BODY') : null
+  const raw = [...String(body?.text || '').matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)].map((m) => m[1] as string)
+  const named = raw.some((t) => !/^\d+$/.test(t))
+  const ordered = named ? raw : [...raw].sort((a, b) => Number(a) - Number(b))
+  const out: string[] = []
+  for (const t of ordered) if (!out.includes(t)) out.push(t)
+  return out
+}
 function countTemplateVars(components: unknown): number {
-  let max = 0
-  if (Array.isArray(components)) {
-    for (const c of components as any[]) {
-      const t = String(c?.type || '').toUpperCase()
-      const text = (t === 'BODY' || (t === 'HEADER' && c?.format === 'TEXT')) ? String(c?.text || '') : ''
-      for (const m of text.matchAll(/\{\{(\d+)\}\}/g)) max = Math.max(max, Number(m[1]))
-    }
+  return templateVarLabels(components).length
+}
+/** Botões de URL dinâmica (terminam em {{1}}): índice entre todos os botões + rótulo. */
+function templateUrlButtons(components: unknown): { index: number; text: string; url: string }[] {
+  const out: { index: number; text: string; url: string }[] = []
+  for (const c of (Array.isArray(components) ? components : []) as any[]) {
+    if (String(c?.type || '').toUpperCase() !== 'BUTTONS' || !Array.isArray(c.buttons)) continue
+    c.buttons.forEach((b: any, i: number) => {
+      if (String(b?.type || '').toUpperCase() === 'URL' && /\{\{\s*1\s*\}\}/.test(String(b?.url || ''))) out.push({ index: i, text: String(b.text || ''), url: String(b.url || '') })
+    })
   }
-  return max
+  return out
 }
 
 const LEAD_FIELDS = [
@@ -1438,10 +1455,18 @@ function CloudTemplateFields({ config, onPatch }: { config: Record<string, unkno
   const cloudTemplateId = typeof rawId === 'number' ? rawId : (typeof rawId === 'string' && rawId !== '' ? Number(rawId) : undefined)
   const selected = approved.find((t) => t.id === cloudTemplateId)
   const varCount = selected ? countTemplateVars(selected.components) : 0
+  const varLabels = selected ? templateVarLabels(selected.components) : []
+  const urlButtons = selected ? templateUrlButtons(selected.components) : []
   const params = (Array.isArray(config.templateParams) ? config.templateParams : []) as TemplateParam[]
+  const buttonParams = (Array.isArray(config.buttonParams) ? config.buttonParams : []) as ButtonParam[]
+  function setButtonParam(index: number, value: string) {
+    const next = buttonParams.filter((b) => b.index !== index)
+    next.push({ index, value })
+    onPatch({ buttonParams: next })
+  }
 
   function setTemplate(id: number | undefined) {
-    if (id === undefined) { onPatch({ cloudTemplateId: undefined, templateParams: [] }); return }
+    if (id === undefined) { onPatch({ cloudTemplateId: undefined, templateParams: [], buttonParams: [] }); return }
     const tpl = approved.find((t) => t.id === id)
     const n = tpl ? countTemplateVars(tpl.components) : 0
     // Preserva mapeamentos já feitos; completa/apara para n variáveis.
@@ -1485,7 +1510,7 @@ function CloudTemplateFields({ config, onPatch }: { config: Record<string, unkno
             return (
               <div key={i} class="space-y-1">
               <div class="flex items-center gap-1.5">
-                <span class="text-xs font-mono text-fg-muted w-9 shrink-0">{`{{${i + 1}}}`}</span>
+                <span class="text-xs font-mono text-fg-muted min-w-9 shrink-0" title={`Variável ${i + 1} do modelo`}>{`{{${varLabels[i] ?? i + 1}}}`}</span>
                 <select
                   value={p.type}
                   onChange={(e) => setParam(i, { type: (e.target as HTMLSelectElement).value as TemplateParam['type'], value: '' })}
@@ -1494,8 +1519,16 @@ function CloudTemplateFields({ config, onPatch }: { config: Record<string, unkno
                   <option value="lead_field">Campo do lead</option>
                   <option value="custom_field">Campo personalizado</option>
                   <option value="fixed">Valor fixo</option>
+                  <option value="text">Texto com variáveis</option>
                 </select>
-                {p.type === 'fixed' ? (
+                {p.type === 'text' ? (
+                  <input
+                    value={p.value}
+                    onInput={(e) => setParam(i, { value: (e.target as HTMLInputElement).value })}
+                    placeholder="ex.: {{hora_reuniao}} ou {{dia_semana}}, {{data_reuniao}}"
+                    class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg w-full font-mono focus:outline-none focus:border-accent"
+                  />
+                ) : p.type === 'fixed' ? (
                   <input
                     value={p.value}
                     onInput={(e) => setParam(i, { value: (e.target as HTMLInputElement).value })}
@@ -1531,6 +1564,22 @@ function CloudTemplateFields({ config, onPatch }: { config: Record<string, unkno
               </div>
             )
           })}
+        </div>
+      )}
+      {selected && urlButtons.length > 0 && (
+        <div class="space-y-2 pt-1">
+          <p class="text-[0.6875rem] text-fg-muted">Botões com link dinâmico — informe o final do link (aceita variáveis):</p>
+          {urlButtons.map((b) => (
+            <div key={b.index} class="space-y-1">
+              <div class="text-[0.6875rem] text-fg-subtle">Botão “{b.text}” — <span class="font-mono break-all">{b.url}</span></div>
+              <input
+                value={buttonParams.find((x) => x.index === b.index)?.value ?? ''}
+                onInput={(e) => setButtonParam(b.index, (e.target as HTMLInputElement).value)}
+                placeholder="ex.: {{token_reserva}}"
+                class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg w-full font-mono focus:outline-none focus:border-accent"
+              />
+            </div>
+          ))}
         </div>
       )}
       <p class="text-[0.6875rem] text-fg-subtle">

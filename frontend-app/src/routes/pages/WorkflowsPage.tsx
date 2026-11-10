@@ -27,6 +27,7 @@ import { useChatbots } from '@/hooks/useChatbots'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
 import { useForms } from '@/hooks/useForms'
 import { useModules } from '@/hooks/useModules'
+import { useMeetingTypes } from '@/hooks/useScheduling'
 import { filterAvailableTriggers, triggerLabel, CATEGORY_LABELS, type TriggerEvent } from '@/lib/triggerEvents'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -667,6 +668,10 @@ function TriggerFiltersEditor({
     )
   }
 
+  if (triggerEvent === 'meeting.reminder' || ['meeting.confirmed', 'meeting.completed', 'meeting.no_show', 'meeting.cancelled'].includes(triggerEvent)) {
+    return <MeetingTriggerEditor triggerEvent={triggerEvent} value={value} onChange={onChange} />
+  }
+
   if (triggerEvent === 'lead.lost') {
     return (
       <LossReasonsTriggerEditor
@@ -679,6 +684,53 @@ function TriggerFiltersEditor({
   return (
     <div class="text-xs text-fg-muted">
       Nenhum filtro adicional disponível para este gatilho.
+    </div>
+  )
+}
+
+function MeetingTriggerEditor({
+  triggerEvent, value, onChange,
+}: {
+  triggerEvent: string
+  value: WorkflowTriggerConfig
+  onChange: (v: WorkflowTriggerConfig) => void
+}) {
+  const { data } = useMeetingTypes()
+  const tipos = data?.items ?? []
+  const mt = Array.isArray(value.meetingTypeId) ? value.meetingTypeId[0] : value.meetingTypeId
+  const lembrete = triggerEvent === 'meeting.reminder'
+  return (
+    <div class="space-y-3">
+      {lembrete && (
+        <Input
+          label="Horas antes da reunião *"
+          type="number"
+          value={value.hoursBefore == null ? '' : String(value.hoursBefore)}
+          onInput={(e) => {
+            const n = Number((e.target as HTMLInputElement).value)
+            const next = { ...value }
+            if (Number.isFinite(n) && n > 0) next.hoursBefore = n
+            else delete next.hoursBefore
+            onChange(next)
+          }}
+          placeholder="ex.: 24 (um dia antes) ou 2"
+          hint="Dispara uma vez por reunião, nesse ponto antes do início. Variáveis disponíveis: {{dia_semana}}, {{data_reuniao}}, {{hora_reuniao}}, {{quando}}, {{atendente}}, {{local}}, {{link_remarcar}}, {{token_reserva}}."
+        />
+      )}
+      <Select
+        label="Tipo de reunião"
+        value={mt ? String(mt) : ''}
+        onChange={(e) => {
+          const v = (e.target as HTMLSelectElement).value
+          const next = { ...value }
+          if (v) next.meetingTypeId = Number(v)
+          else delete next.meetingTypeId
+          onChange(next)
+        }}
+      >
+        <option value="">Qualquer tipo</option>
+        {tipos.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </Select>
     </div>
   )
 }

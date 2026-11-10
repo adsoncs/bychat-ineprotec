@@ -106,3 +106,20 @@ export function renderTemplateText(
     valorDoToken(tok, named, values, ordemPosicional) || EMPTY_PARAM_PLACEHOLDER,
   ) || '[template]'
 }
+
+/**
+ * Posições (a partir de 0) dos botões de URL DINÂMICA do modelo aprovado — os
+ * que terminam em {{1}} e exigem o sufixo no envio. A Meta conta o índice entre
+ * TODOS os botões, não só os de URL.
+ */
+export function urlButtonIndexes(components: unknown): number[] {
+  const out: number[] = []
+  if (!Array.isArray(components)) return out
+  for (const c of components as any[]) {
+    if (String(c?.type || '').toUpperCase() !== 'BUTTONS' || !Array.isArray(c.buttons)) continue
+    c.buttons.forEach((b: any, i: number) => {
+      if (String(b?.type || '').toUpperCase() === 'URL' && /\{\{\s*1\s*\}\}/.test(String(b?.url || ''))) out.push(i)
+    })
+  }
+  return out
+}

@@ -7,7 +7,7 @@
 // o item da lista. Backend ignora workflows referenciando triggers de módulos
 // desativados (workflows ficam órfãos mas não quebram nada).
 
-export type TriggerCategory = 'lead' | 'message' | 'activity' | 'sales' | 'system' | 'educational' | 'enrollment_portal'
+export type TriggerCategory = 'lead' | 'message' | 'activity' | 'scheduling' | 'sales' | 'system' | 'educational' | 'enrollment_portal'
 
 export interface TriggerEvent {
   value: string
@@ -49,6 +49,14 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'activity.completed',            label: '✅ Atividade concluída',           category: 'activity' },
   { value: 'diagnosis.completed',           label: '📋 Chatbot / formulário concluído', category: 'activity' },
 
+  // ── Agendamento ──────────────────────────────────────────
+  { value: 'meeting.scheduled',             label: '📅 Reunião agendada',             category: 'scheduling' },
+  { value: 'meeting.reminder',              label: '⏰ Lembrete de reunião (X horas antes)', description: 'Dispara X horas antes de cada reunião agendada ou confirmada. Use um modelo aprovado (Utilidade) para lembrar o contato.', category: 'scheduling' },
+  { value: 'meeting.confirmed',             label: '👍 Presença confirmada pelo contato', category: 'scheduling' },
+  { value: 'meeting.completed',             label: '✅ Reunião realizada',             category: 'scheduling' },
+  { value: 'meeting.no_show',               label: '🚫 Não compareceu (no-show)',      category: 'scheduling' },
+  { value: 'meeting.cancelled',             label: '❌ Reunião cancelada',             category: 'scheduling' },
+
   // ── Vendas ───────────────────────────────────────────────
   { value: 'sale.detected',                 label: '💰 Venda detectada',               category: 'sales' },
 
@@ -83,6 +91,7 @@ export const CATEGORY_LABELS: Record<TriggerCategory, string> = {
   lead:              'Ciclo de vida do lead',
   message:           'Mensagens & atendimento',
   activity:          'Atividades & chatbot',
+  scheduling:        'Agendamento',
   sales:             'Vendas',
   system:            'Sistema',
   educational:       'Educacional',

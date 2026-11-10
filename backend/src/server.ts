@@ -1503,6 +1503,9 @@ import('./services/profilePictureSync.js')
   import('./services/clinicaExperts/ocupacao.js').then(m => m.startOcupacaoClinicaExperts()).catch(() => {})
   startPriorityScoreScheduler().catch(err => console.error('[priorityScore] init falhou:', err))
   startEnrollmentExpireJob()
+  // Lembrete de reunião: só emite `meeting.reminder` para os Workflows que
+  // pediram (X horas antes); o envio é decisão do fluxo.
+  import('./services/meetingReminderJob.js').then(m => m.startMeetingReminderJob()).catch(() => {})
   startStatusSummaryAdvanceJob()
   startEnrichmentRerunJob()
   import('./services/reputationIngest.js')

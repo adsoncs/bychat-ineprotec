@@ -5670,6 +5670,7 @@ model MeetingType {
   bookingWindowDays  Int    @default(60) // janela de reserva (dias à frente)
   maxPerDay          Int? // teto de reservas por dia
   visibleSlotsPerDay Int? // limite de slots exibidos por dia
+  slotCapacity       Int    @default(1) // reuniões simultâneas no mesmo horário (modo equipe)
   timezone           String @default("America/Sao_Paulo") @db.VarChar(60)
 
   // Local
@@ -5684,6 +5685,8 @@ model MeetingType {
   // Integração CRM
   funnelId      Int?
   stageKey      String? @db.VarChar(60) // etapa ao agendar
+  stageOnCompleted String? @db.VarChar(60) // etapa quando a reunião é marcada como realizada
+  stageOnNoShow    String? @db.VarChar(60) // etapa quando o contato não compareceu
   defaultTeamId Int?
   landingPageId Int?
 
@@ -5763,6 +5766,7 @@ model Booking {
   // enviamos o pedido de confirmação (HSM) — escopo do auto-cancelamento 3h antes.
   confirmRequestedAt DateTime?
   confirmedAt        DateTime?
+  remindersSent      Json?     @db.Json // lembretes já emitidos: { "<horas>h@<startAt ISO>": quando }
   source             String    @default("scheduling") @db.VarChar(30)
   visitorId          String?   @db.VarChar(64)
   utmSource          String?   @db.VarChar(191)

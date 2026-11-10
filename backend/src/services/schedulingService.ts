@@ -211,8 +211,12 @@ export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts:
   // Eventos do Google Calendar pessoal do dono também ocupam a agenda (free/busy).
   const googleBusyRaw = await getExternalGoogleEvents(ownerForAgenda, new Date(), windowEnd)
   const googleBusy = googleBusyRaw.map((e) => ({ startAt: new Date(e.startAt), endAt: new Date(e.endAt) }))
-  const busy = [...bookings, ...blocks, ...googleBusy]
   const teamMode = mt.assignmentMode === 'team_routing' && !!mt.teamId
+  // Capacidade por horário (só no modo equipe): com 2+, as reservas do tipo não
+  // fecham o horário sozinhas — ele só some quando lota. Quem impede o MESMO
+  // atendente de pegar duas reuniões juntas é a agenda de cada um, logo abaixo.
+  const capacidade = teamMode ? Math.max(1, mt.slotCapacity ?? 1) : 1
+  const busy = [...(capacidade > 1 ? [] : bookings), ...blocks, ...googleBusy]
   const days = computeSlots({
     timezone: mt.timezone,
     durationMin: mt.durationMin,
@@ -255,11 +259,28 @@ export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts:
     const ferias = await onVacation(startAt)
     return operatorIds.some((uid) => !ferias.has(uid) && byOperator.get(uid)?.has(startAt))
   }
+  const lotado = (startAt: string) => {
+    const ini = new Date(startAt).getTime() - mt.bufferBeforeMin * 60000
+    const fim = new Date(startAt).getTime() + (mt.durationMin + mt.bufferAfterMin) * 60000
+    const simultaneas = bookings.filter((b) => b.startAt.getTime() < fim && ini < b.endAt.getTime()).length
+    return simultaneas >= capacidade
+  }
   const cut = mt.visibleSlotsPerDay
   const out: DaySlots[] = []
+  // Com capacidade > 1 as reservas não entraram no cálculo base, então o teto
+  // diário (`maxPerDay`) é conferido aqui.
+  const diaLocal = new Intl.DateTimeFormat('en-CA', { timeZone: mt.timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const porDia = new Map<string, number>()
+  if (capacidade > 1 && mt.maxPerDay != null) {
+    for (const b of bookings) { const k = diaLocal.format(b.startAt); porDia.set(k, (porDia.get(k) ?? 0) + 1) }
+  }
   for (const d of days) {
+    if (capacidade > 1 && mt.maxPerDay != null && (porDia.get(d.date) ?? 0) >= mt.maxPerDay) continue
     const keep: typeof d.slots = []
-    for (const s of d.slots) if (await anyFree(s.startAt)) keep.push(s)
+    for (const s of d.slots) {
+      if (capacidade > 1 && lotado(s.startAt)) continue
+      if (await anyFree(s.startAt)) keep.push(s)
+    }
     const slots = cut != null ? keep.slice(0, cut) : keep
     if (slots.length > 0) out.push({ ...d, slots })
   }
@@ -310,6 +331,11 @@ export interface BookInput {
   /** `false` só para agendamento feito pelo OPERADOR no painel: ali ele está
    *  vendo com quem fala, e a lista de bloqueio vale para entrada automática. */
   enforceBlocklist?: boolean
+  /** Agendamento feito pela equipe DENTRO de um lead: a reserva fica nesse lead,
+   *  sem procurar por telefone/e-mail (que pode casar com outra ficha). */
+  leadId?: number | null
+  /** Origem gravada na reserva (`scheduling` por padrão; `panel` pela equipe). */
+  source?: string
 }
 
 export interface BookResult {
@@ -343,7 +369,9 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // era de outro agente — que é como o agendamento vinha trocando o responsável
   // no meio do caminho.
   let leadId: number | null = null
-  const dup = await findDuplicate(whatsapp || undefined, email || undefined)
+  const dup = input.leadId
+    ? { lead: await prisma.lead.findUnique({ where: { id: input.leadId }, select: { id: true, assignedUserId: true } }) } as any
+    : await findDuplicate(whatsapp || undefined, email || undefined)
 
   // Operador/equipe efetivos da reunião.
   //  • fixed (padrão): dono operador fixo do tipo (mt.ownerUserId).
@@ -510,7 +538,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
       inviteePhone: whatsapp || null,
       answers: (input.answers as any) ?? null,
       locationType: mt.locationType,
-      source: 'scheduling',
+      source: input.source || 'scheduling',
       visitorId: input.visitorId ? String(input.visitorId).substring(0, 64) : null,
       utmSource: input.utm?.source ?? null,
       utmMedium: input.utm?.medium ?? null,

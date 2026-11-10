@@ -372,13 +372,17 @@ export async function tryConfirmBookingReply(phone: string, text: string, intera
   }
   if (!lead) return false
   const booking = await prisma.booking.findFirst({
-    where: { leadId: lead.id, status: 'scheduled', confirmRequestedAt: { not: null }, confirmedAt: null, startAt: { gt: new Date() } },
+    where: { leadId: lead.id, status: { in: ['scheduled', 'confirmed'] }, confirmRequestedAt: { not: null }, startAt: { gt: new Date() } },
     orderBy: { startAt: 'asc' },
-    select: { id: true },
+    select: { id: true, status: true },
   })
   if (!booking) return false
-
-  await prisma.booking.update({ where: { id: booking.id }, data: { status: 'confirmed', confirmedAt: new Date() } })
+  // Já confirmada (ex.: tocou "Confirmar presença" no lembrete da véspera e de
+  // novo no do dia): só reafirma, sem repetir o evento de confirmação.
+  if (booking.status === 'scheduled') {
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: 'confirmed', confirmedAt: new Date() } })
+    import('./meetingStatus.js').then((m) => m.aoMudarStatusDaReuniao(booking.id, 'confirmed', 'contact_reply')).catch(() => {})
+  }
   // Roteador ligado: o aviso de "confirmada" sai pelo MESMO canal da conversa —
   // quem confirmou pela Evolution não tinha resposta nenhuma (o trecho abaixo só
   // fala pela Cloud API) e a reserva mudava de estado em silêncio.

@@ -109,6 +109,8 @@ export async function fecharPelaGravacao(recordingId: number): Promise<boolean> 
 
   // O alerta some sozinho: a condição que o gerou deixou de existir.
   await resolverAusentesDaReuniao(bookingId)
+  const { aoMudarStatusDaReuniao } = await import('./meetingStatus.js')
+  await aoMudarStatusDaReuniao(bookingId, 'completed', 'recording')
   console.log(`[reuniao] booking ${bookingId} concluído pela gravação #${recordingId}`)
   return true
 }
@@ -228,6 +230,8 @@ export async function registrarDesfecho(
     })
   }
   await resolverAusentesDaReuniao(bookingId)
+  const { aoMudarStatusDaReuniao } = await import('./meetingStatus.js')
+  await aoMudarStatusDaReuniao(bookingId, desfecho, 'alert')
   return true
 }
 

@@ -24,6 +24,9 @@ export interface MeetingType {
   teamId: number | null
   funnelId: number | null
   stageKey: string | null
+  stageOnCompleted?: string | null
+  stageOnNoShow?: string | null
+  slotCapacity?: number
   defaultTeamId: number | null
   landingPageId: number | null
   intakeFields: unknown

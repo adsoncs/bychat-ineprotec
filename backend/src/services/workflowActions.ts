@@ -8,7 +8,7 @@ import { redis } from '../lib/redis.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
-import { templateBodyTokens } from '../lib/waTemplateParams.js'
+import { templateBodyTokens, urlButtonIndexes } from '../lib/waTemplateParams.js'
 import { ORDEM_CONEXAO_PADRAO } from './whatsappProvider.js'
 import { aplicarBlocos, primeiroNome, saudacaoAgora } from '../lib/interpolate.js'
 import { variaveisDePerfil } from '../lib/perfilLead.js'
@@ -99,7 +99,9 @@ interface ActionConfig {
   skipIfRecentOperatorMin?: number
   // `fallback`: texto usado quando o campo do lead está vazio — a Meta rejeita o
   // disparo inteiro se algum parâmetro chegar em branco (erro 131008).
-  templateParams?: Array<{ type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }>
+  templateParams?: Array<{ type: 'lead_field' | 'custom_field' | 'fixed' | 'text'; value: string; fallback?: string }>
+  /** Sufixo de cada botão de URL dinâmica do modelo (index = posição do botão, a partir de 0). Aceita variáveis. */
+  buttonParams?: Array<{ index: number; value: string }>
   // send_whatsapp — formato alternativo (nasceu no terram; os fluxos gravados lá
   // usam este): HSM de RESERVA por NOME, usado só quando o contato está FORA da
   // janela de 24h da Cloud API — dentro dela vai o texto do passo. `hsmValues`
@@ -400,6 +402,7 @@ export async function dispatchAction(
         // A Meta recusa o disparo com parâmetro em branco.
         const { textoDoSistema } = await import('./modelosDoSistema.js')
         const reservaHsm = await textoDoSistema('hsm_parametro_vazio')
+        const extrasHsm = await extrasDoLead(lead)
         const values = (config.templateParams || []).map((p) => {
           let raw = ''
           if (p.type === 'fixed') {
@@ -407,6 +410,9 @@ export async function dispatchAction(
           } else if (p.type === 'custom_field') {
             const cf = (lead.customFields || {}) as Record<string, unknown>
             raw = cf[p.value] != null ? String(cf[p.value]) : ''
+          } else if (p.type === 'text') {
+            // Texto com variáveis do lead e do evento: "{{hora_reuniao}}", "{{dia_semana}}, {{data_reuniao}}".
+            raw = resolveVariables(p.value || '', lead, triggerData, extrasHsm)
           } else {
             const v = (lead as any)[p.value]
             raw = v != null && typeof v !== 'object' ? String(v) : ''
@@ -431,6 +437,23 @@ export async function dispatchAction(
             }),
           }]
           : []
+
+        // Botões de URL dinâmica do modelo (ex.: ".../remarcar/{{1}}"): cada um
+        // recebe o sufixo configurado no passo. A Meta recusa o envio se faltar.
+        const botoesUrl = urlButtonIndexes(hsm.components)
+        for (const idx of botoesUrl) {
+          const cfgBtn = (config.buttonParams || []).find((b: any) => Number(b?.index) === idx)
+          const sufixo = resolveVariables(String(cfgBtn?.value || ''), lead, triggerData, extrasHsm).trim()
+          if (!sufixo) {
+            await prisma.workflowStepExecution.update({
+              where: { id: stepExec.id },
+              data: { status: 'failed', error: `Botão ${idx + 1} do modelo "${hsm.name}" precisa de um valor (link dinâmico) e ficou vazio`, completedAt: new Date() },
+            })
+            await finalizarPasso(executionId, stepId, { falhou: true })
+            return
+          }
+          components.push({ type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: sufixo }] } as any)
+        }
 
         const gov = await enforceGovernance(leadId, 'whatsapp', stepExec.id)
         if (!gov.allow) return

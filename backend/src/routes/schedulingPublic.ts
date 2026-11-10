@@ -124,6 +124,7 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     if (b.status === 'cancelled') return { ok: true }
     const reason = ((req.body as any)?.reason || '').toString().substring(0, 255) || null
     await prisma.booking.update({ where: { id: b.id }, data: { status: 'cancelled', cancelReason: reason } })
+    import('../services/meetingStatus.js').then((m) => m.aoMudarStatusDaReuniao(b.id, 'cancelled', 'public_link')).catch(() => {})
     if (b.activityId) {
       await prisma.activity.update({ where: { id: b.activityId }, data: { status: 'cancelled' } }).catch(() => {})
       import('../services/googleCalendarSync.js').then((m) => m.unsyncActivityFromCalendar(b.activityId!)).catch(() => {})

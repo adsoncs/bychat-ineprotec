@@ -22,7 +22,7 @@ const emptyForm: MeetingTypeInput = {
   durationMin: 30, slotIncrementMin: 30, bufferBeforeMin: 0, bufferAfterMin: 0,
   minNoticeMin: 240, bookingWindowDays: 60, maxPerDay: null, visibleSlotsPerDay: null,
   timezone: 'America/Sao_Paulo', locationType: 'google_meet', locationDetail: '',
-  ownerUserId: null, funnelId: null, stageKey: null,
+  ownerUserId: null, funnelId: null, stageKey: null, stageOnCompleted: null, stageOnNoShow: null, slotCapacity: 1,
 }
 
 // Casca da Agenda: um único item de menu com abas internas (Calendário | Tipos de reunião).
@@ -213,6 +213,9 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
             <Input label="Janela de reserva (dias)" type="number" value={String(form.bookingWindowDays ?? 60)} onInput={(e) => set({ bookingWindowDays: numInput((e.target as HTMLInputElement).value) ?? 60 })} hint="Até quantos dias à frente pode agendar" />
             <Input label="Máx. de reservas por dia" type="number" value={form.maxPerDay == null ? '' : String(form.maxPerDay)} onInput={(e) => set({ maxPerDay: numInput((e.target as HTMLInputElement).value) })} placeholder="sem limite" />
             <Input label="Slots visíveis por dia" type="number" value={form.visibleSlotsPerDay == null ? '' : String(form.visibleSlotsPerDay)} onInput={(e) => set({ visibleSlotsPerDay: numInput((e.target as HTMLInputElement).value) })} placeholder="todos" />
+            {isTeamRouting && (
+              <Input label="Reuniões no mesmo horário" type="number" value={String(form.slotCapacity ?? 1)} onInput={(e) => set({ slotCapacity: Math.max(1, numInput((e.target as HTMLInputElement).value) ?? 1) })} hint="Quantas reuniões deste tipo podem acontecer ao mesmo tempo, cada uma com um atendente livre da equipe" />
+            )}
           </div>
         </div>
 
@@ -276,6 +279,15 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
               <option value="">— manter etapa —</option>
               {(stagesData?.stages ?? []).filter((s) => s.active).map((s) => <option key={s.id} value={s.key}>{s.name}</option>)}
             </Select>
+            <Select label="Etapa quando realizada" value={form.stageOnCompleted ?? ''} onChange={(e) => set({ stageOnCompleted: (e.target as HTMLSelectElement).value || null })} disabled={!form.funnelId} hint="Ao marcar a reunião como concluída">
+              <option value="">— manter etapa —</option>
+              {(stagesData?.stages ?? []).filter((s) => s.active).map((s) => <option key={s.id} value={s.key}>{s.name}</option>)}
+            </Select>
+            <Select label="Etapa quando não comparecer" value={form.stageOnNoShow ?? ''} onChange={(e) => set({ stageOnNoShow: (e.target as HTMLSelectElement).value || null })} disabled={!form.funnelId} hint="Ao marcar “Não compareceu”">
+              <option value="">— manter etapa —</option>
+              {(stagesData?.stages ?? []).filter((s) => s.active).map((s) => <option key={s.id} value={s.key}>{s.name}</option>)}
+            </Select>
+            <p class="text-2xs text-fg-muted sm:col-span-2">O lead só é movido se ainda estiver na etapa do agendamento ou numa das etapas de desfecho — quem já avançou no funil não volta.</p>
           </div>
         </div>
 

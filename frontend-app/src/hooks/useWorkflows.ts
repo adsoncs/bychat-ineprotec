@@ -28,6 +28,10 @@ export interface WorkflowTriggerConfig {
    * duplicado por formulário (e esquecer os novos).
    */
   formId?: number | number[] | undefined
+  /** meeting.reminder: quantas horas antes do início da reunião. */
+  hoursBefore?: number | undefined
+  /** meeting.*: só para este(s) tipo(s) de reunião. */
+  meetingTypeId?: number | number[] | undefined
 }
 
 export interface Workflow {

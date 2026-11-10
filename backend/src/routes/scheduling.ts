@@ -70,6 +70,7 @@ function buildData(body: any, isCreate: boolean) {
   if (body.bookingWindowDays !== undefined) data.bookingWindowDays = Math.max(1, numOr(body.bookingWindowDays, 60))
   if (body.maxPerDay !== undefined) data.maxPerDay = numOrNull(body.maxPerDay)
   if (body.visibleSlotsPerDay !== undefined) data.visibleSlotsPerDay = numOrNull(body.visibleSlotsPerDay)
+  if (body.slotCapacity !== undefined) { const n = Number(body.slotCapacity); data.slotCapacity = Number.isFinite(n) ? Math.min(20, Math.max(1, Math.round(n))) : 1 }
   if (body.timezone !== undefined) data.timezone = String(body.timezone || 'America/Sao_Paulo').substring(0, 60)
 
   if (body.locationType !== undefined) data.locationType = LOCATION_TYPES.includes(body.locationType) ? body.locationType : 'google_meet'
@@ -81,6 +82,8 @@ function buildData(body: any, isCreate: boolean) {
 
   if (body.funnelId !== undefined) data.funnelId = numOrNull(body.funnelId)
   if (body.stageKey !== undefined) data.stageKey = body.stageKey ? String(body.stageKey).substring(0, 60) : null
+  if (body.stageOnCompleted !== undefined) data.stageOnCompleted = body.stageOnCompleted ? String(body.stageOnCompleted).substring(0, 60) : null
+  if (body.stageOnNoShow !== undefined) data.stageOnNoShow = body.stageOnNoShow ? String(body.stageOnNoShow).substring(0, 60) : null
   if (body.defaultTeamId !== undefined) data.defaultTeamId = numOrNull(body.defaultTeamId)
   if (body.landingPageId !== undefined) data.landingPageId = numOrNull(body.landingPageId)
 
@@ -228,8 +231,51 @@ export async function schedulingRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // ── Agendar PELA EQUIPE, dentro do lead ──
+  // Mesma regra da página pública (horário válido, rodízio, capacidade, etapa,
+  // confirmação ao contato), mas a reserva fica no lead aberto na tela e não
+  // passa pela lista de bloqueio — quem agenda está falando com a pessoa.
+  app.post('/api/admin/scheduling/meeting-types/:id/book-for-lead', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const id = parseInt((req.params as any).id, 10)
+    const body = (req.body as any) || {}
+    const leadId = Number(body.leadId)
+    if (!leadId || !body.startAt) return reply.code(400).send({ error: 'Informe o lead e o horário' })
+    const { canUserAccessLead } = await import('../lib/teamAccess.js')
+    if (!(await canUserAccessLead(user.userId, user.role as any, leadId))) return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+    const mt = await prisma.meetingType.findUnique({ where: { id } })
+    if (!mt || !mt.active) return reply.code(404).send({ error: 'Tipo de reunião não encontrado ou inativo' })
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, nome: true, whatsapp: true, email: true } })
+    if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
+    // Já tem reunião deste tipo marcada? Remarcar é na agenda — criar outra
+    // deixava duas reservas para a mesma visita (achado no quadro de 10/11).
+    if (!body.force) {
+      const existente = await prisma.booking.findFirst({
+        where: { leadId, meetingTypeId: mt.id, status: { in: ['scheduled', 'confirmed'] }, startAt: { gt: new Date() } },
+        select: { id: true, startAt: true, timezone: true },
+      })
+      if (existente) {
+        const quando = new Intl.DateTimeFormat('pt-BR', { timeZone: existente.timezone || mt.timezone, dateStyle: 'short', timeStyle: 'short' }).format(existente.startAt)
+        return reply.code(409).send({ error: `Este lead já tem ${mt.name} marcada para ${quando}. Para mudar o horário, use Reagendar na agenda.`, code: 'already_booked', bookingId: existente.id })
+      }
+    }
+    const nome = String(body.name || lead.nome || '').trim()
+    const phone = String(body.phone || lead.whatsapp || '').trim()
+    const email = String(body.email || lead.email || '').trim()
+    if (!nome) return reply.code(400).send({ error: 'O lead está sem nome — preencha o nome do responsável' })
+    if (!phone && !email) return reply.code(400).send({ error: 'O lead está sem WhatsApp e sem e-mail' })
+    const { createBooking } = await import('../services/schedulingService.js')
+    const r = await createBooking(mt, {
+      name: nome, phone: phone || null, email: email || null, startAt: String(body.startAt),
+      leadId, source: 'panel', enforceBlocklist: false,
+      answers: body.note ? { observacao: String(body.note).substring(0, 500), agendadoPor: user.userId } : { agendadoPor: user.userId },
+    })
+    if (!r.ok) return reply.code(409).send({ error: r.error || 'Não foi possível agendar' })
+    return r
+  })
+
   // ── SLOTS disponíveis (preview admin; público reusa na Fase 3) ──
-  app.get('/api/admin/scheduling/meeting-types/:id/slots', { preHandler: adminOnly }, async (req, reply) => {
+  app.get('/api/admin/scheduling/meeting-types/:id/slots', { preHandler: authMiddleware }, async (req, reply) => {
     const id = parseInt((req.params as any).id, 10)
     const mt = await prisma.meetingType.findUnique({ where: { id } })
     if (!mt) return reply.code(404).send({ error: 'Tipo de reunião não encontrado' })
@@ -533,6 +579,9 @@ export async function schedulingRoutes(app: FastifyInstance) {
     const status = String(body.status || '')
     if (!['scheduled', 'confirmed', 'completed', 'no_show', 'cancelled'].includes(status)) return reply.code(400).send({ error: 'Status inválido' })
     await prisma.booking.update({ where: { id }, data: { status, ...(status === 'cancelled' ? { cancelReason: body.reason ? String(body.reason).substring(0, 255) : 'Cancelado pelo painel' } : {}) } })
+    if (status !== bk.status && status !== 'scheduled') {
+      import('../services/meetingStatus.js').then((m) => m.aoMudarStatusDaReuniao(id, status as any, 'panel')).catch(() => {})
+    }
     // Cancelamento feito pelo painel avisa o lead por WhatsApp só quando o tenant
     // pede (Setting `agendamento.avisar_cancelamento_painel` = true). O
     // autocancelamento pelo link público já avisa sempre — é resposta à ação da
