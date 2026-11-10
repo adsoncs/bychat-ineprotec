@@ -3,14 +3,14 @@ import { ehDono } from '../lib/dono.js'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
-import { signToken, authMiddleware, adminOnly, adminStrict, superadminOnly, type JwtPayload } from '../lib/auth.js'
+import { signToken, authMiddleware, adminOnly, adminStrict, superadminOnly, esquecerConta, type JwtPayload } from '../lib/auth.js'
 import { verificarTotp, consumirCodigoRecuperacao } from '../services/twoFactor.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail, RESET_EXPIRA_MINUTOS, type SolicitacaoDeSenha } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
 import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole, ESCOPO_EDITAVEL } from '../lib/permissions.js'
-import { broadcastRealtimeEvent } from './realtime.js'
+import { broadcastRealtimeEvent, desconectarUsuario } from './realtime.js'
 import { MODULE_REGISTRY } from '../lib/moduleRegistry.js'
 import { telasParaUi, herdarDoPai } from '../lib/eduTelas.js'
 import { redis } from '../lib/redis.js'
@@ -546,6 +546,9 @@ export async function usersRoutes(app: FastifyInstance) {
     if (name !== undefined && name.trim() !== user.name) changes.name = { from: user.name, to: updated.name }
     if (role !== undefined && role !== user.role) changes.role = { from: user.role, to: updated.role }
     if (active !== undefined && active !== user.active) changes.active = { from: user.active, to: updated.active }
+    // Desativada: corta na hora (o próximo pedido confere a conta no banco) e fecha o tempo real.
+    esquecerConta(updated.id)
+    if (!updated.active) desconectarUsuario(updated.id)
     if (password && password.length >= 6) changes.password = { from: '***', to: '***' }
     if (capacity !== undefined && updated.capacity !== user.capacity) changes.capacity = { from: user.capacity, to: updated.capacity }
 
@@ -592,6 +595,8 @@ export async function usersRoutes(app: FastifyInstance) {
     }
 
     await prisma.user.delete({ where: { id: Number(id) } })
+    esquecerConta(Number(id))
+    desconectarUsuario(Number(id))
 
     // Audit: targetUserId NULL de propósito — o cascade (FK userId) apagaria a
     // própria entrada se apontasse para o usuário recém-excluído. Fica no

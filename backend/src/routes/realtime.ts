@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
-import { verifyToken, authMiddleware } from '../lib/auth.js'
+import { verifyToken, authMiddleware, contaLiberada } from '../lib/auth.js'
 import type { JwtPayload } from '../lib/auth.js'
 import { prisma } from '../lib/prisma.js'
 import { canUserAccessLead } from '../lib/teamAccess.js'
@@ -100,6 +100,17 @@ async function resolveLeadRecipients(leadId: number): Promise<Set<number>> {
   return allowed
 }
 
+/** Fecha as conexões em tempo real de uma conta (desativada ou apagada). */
+export function desconectarUsuario(userId: number): number {
+  let n = 0
+  for (const s of [...sockets]) {
+    if (Number(s.user.userId) !== Number(userId)) continue
+    try { s.socket.close(4401) } catch { /* já fechada */ }
+    sockets.delete(s); n++
+  }
+  return n
+}
+
 export function invalidateLeadAccessCache(leadId?: number) {
   if (leadId) leadAccessCache.delete(leadId)
   else leadAccessCache.clear()
@@ -186,7 +197,7 @@ export async function realtimeRoutes(app: FastifyInstance) {
     },
   })
 
-  app.get('/api/ws', { websocket: true }, (socket, req) => {
+  app.get('/api/ws', { websocket: true }, async (socket, req) => {
     const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`)
     const token = url.searchParams.get('token')
     if (!token) {
@@ -198,6 +209,10 @@ export async function realtimeRoutes(app: FastifyInstance) {
     try {
       user = verifyToken(token)
     } catch {
+      socket.close(4401)
+      return
+    }
+    if (!(await contaLiberada(user))) {
       socket.close(4401)
       return
     }
