@@ -16,6 +16,7 @@
 //      nunca deste código.
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
+import { etapaExisteNoFunil } from '../lib/etapaDoFunil.js'
 
 export type MeetingStatusChange = 'confirmed' | 'completed' | 'no_show' | 'cancelled'
 
@@ -38,7 +39,10 @@ export async function aoMudarStatusDaReuniao(bookingId: number, status: MeetingS
       const lead = await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { status: true, funnelId: true } })
       const etapasDaReuniao = [mt.stageKey, mt.stageOnCompleted, mt.stageOnNoShow].filter(Boolean)
       const mesmoFunil = !mt.funnelId || lead?.funnelId === mt.funnelId
-      if (lead && mesmoFunil && lead.status && etapasDaReuniao.includes(lead.status) && lead.status !== destino) {
+      // Etapa de desfecho que o funil do lead não tem: não move (o lead sumiria do quadro).
+      const destinoExiste = !!lead && (await etapaExisteNoFunil(lead.funnelId, destino))
+      if (lead && !destinoExiste) console.warn(`[reuniao] etapa ${destino} não existe no funil ${lead.funnelId}; lead ${booking.leadId} fica onde está`)
+      if (lead && destinoExiste && mesmoFunil && lead.status && etapasDaReuniao.includes(lead.status) && lead.status !== destino) {
         const { moveLeadStage } = await import('./leadStageMove.js')
         const r = await moveLeadStage({
           leadId: booking.leadId,

@@ -9,6 +9,7 @@ import { getExternalGoogleEvents } from './schedulingGoogle.js'
 import { pickOperatorForTeam } from './teamRouting.js'
 import { rejectLeadAction } from './leadBlocklist.js'
 import { textoDoSistema } from './modelosDoSistema.js'
+import { etapaExisteNoFunil, primeiraEtapaDoFunil } from '../lib/etapaDoFunil.js'
 
 export const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
 
@@ -363,6 +364,11 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   const email = input.email ? String(input.email).trim().toLowerCase() : ''
   // Funil efetivo: override (funil da conexão) tem prioridade sobre o do tipo.
   const effFunnelId = input.funnelOverride ?? mt.funnelId ?? null
+  // A etapa do tipo é do funil do tipo; com funil da conexão (override) ela pode
+  // não existir ali. Sem a trava o lead ia para uma chave que o quadro não tem
+  // e sumia do kanban.
+  const etapaValida = !!mt.stageKey && (await etapaExisteNoFunil(effFunnelId, mt.stageKey))
+  if (mt.stageKey && effFunnelId && !etapaValida) console.warn(`[agendamento] etapa ${mt.stageKey} do tipo ${mt.id} não existe no funil ${effFunnelId}; lead não é movido`)
 
   // Dedup ANTES de escolher o operador: quem já tem dono precisa ser conhecido
   // aqui, senão o rodízio sorteia alguém e só depois descobrimos que o lead já
@@ -501,7 +507,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
         empresa: String(input.name).trim() || 'Lead Agendamento',
         formData: { _source: 'scheduling', _meetingTypeId: mt.id, answers: input.answers ?? null },
         scores: {},
-        status: mt.stageKey || 'NOVO',
+        status: (etapaValida ? mt.stageKey : await primeiraEtapaDoFunil(effFunnelId)) || 'NOVO',
         teamId: effectiveTeamId,
         assignedUserId: effectiveOperatorId ?? null,
         assignedAt: effectiveOperatorId ? new Date() : null,
@@ -561,7 +567,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // ── Fase 6: integração CRM ──
   if (leadId) {
     // Move o lead pra etapa do tipo (novos já nascem lá; dedup-existentes movem).
-    if (effFunnelId && mt.stageKey) {
+    if (effFunnelId && mt.stageKey && etapaValida) {
       try {
         const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true, status: true } })
         if (lead && (lead.status !== mt.stageKey || lead.funnelId !== effFunnelId)) {

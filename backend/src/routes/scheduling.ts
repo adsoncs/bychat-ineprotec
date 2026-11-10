@@ -7,6 +7,7 @@ import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { type WeeklyRule, type ExceptionRule } from '../services/schedulingSlots.js'
 import { getExternalGoogleEvents, pushBlockToGoogle, updateBlockInGoogle, deleteBlockFromGoogle } from '../services/schedulingGoogle.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { etapasForaDoFunil } from '../lib/etapaDoFunil.js'
 
 // Disponibilidade padrão quando o tipo ainda não tem agenda: seg-sex 09-18.
 const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
@@ -99,6 +100,13 @@ function buildData(body: any, isCreate: boolean) {
   return data
 }
 
+/** Etapas do tipo (agendamento, realizada, não compareceu) precisam existir no funil do tipo. */
+async function conferirEtapas(funnelId: number | null, d: { stageKey?: string | null; stageOnCompleted?: string | null; stageOnNoShow?: string | null }): Promise<string | null> {
+  if (funnelId == null) return null
+  const fora = await etapasForaDoFunil(funnelId, [d.stageKey, d.stageOnCompleted, d.stageOnNoShow])
+  return fora.length ? `Etapa ${fora.join(', ')} não existe no funil escolhido. Escolha etapas desse funil.` : null
+}
+
 export async function schedulingRoutes(app: FastifyInstance) {
   // ── LIST ──
   app.get('/api/admin/scheduling/meeting-types', { preHandler: adminOnly }, async () => {
@@ -137,6 +145,8 @@ export async function schedulingRoutes(app: FastifyInstance) {
     const data = buildData(body, true)
     // Quem agenda vira lead, e lead sem funil não existe.
     if (data.funnelId == null) return reply.code(400).send({ error: 'Escolha o funil para onde vai quem agendar' })
+    const erroEtapa = await conferirEtapas(data.funnelId, data)
+    if (erroEtapa) return reply.code(400).send({ error: erroEtapa })
     const baseSlug = body.slug ? slugify(body.slug) : slugify(body.name)
     data.slug = await uniqueSlug(baseSlug)
     const created = await prisma.meetingType.create({ data })
@@ -146,7 +156,7 @@ export async function schedulingRoutes(app: FastifyInstance) {
   // ── UPDATE ──
   app.patch('/api/admin/scheduling/meeting-types/:id', { preHandler: adminOnly }, async (req, reply) => {
     const id = parseInt((req.params as any).id, 10)
-    const exists = await prisma.meetingType.findUnique({ where: { id }, select: { id: true, funnelId: true, active: true } })
+    const exists = await prisma.meetingType.findUnique({ where: { id }, select: { id: true, funnelId: true, active: true, stageKey: true, stageOnCompleted: true, stageOnNoShow: true } })
     if (!exists) return reply.code(404).send({ error: 'Tipo de reunião não encontrado' })
     const body = (req.body as any) || {}
     const data = buildData(body, false)
@@ -154,6 +164,13 @@ export async function schedulingRoutes(app: FastifyInstance) {
     const funilFinal = data.funnelId !== undefined ? data.funnelId : exists.funnelId
     const ativoFinal = data.active !== undefined ? data.active : exists.active
     if (ativoFinal && funilFinal == null) return reply.code(400).send({ error: 'Escolha o funil para onde vai quem agendar' })
+    // Só confere quando mexe no funil ou numa etapa: um tipo antigo já
+    // desalinhado continua podendo ser desativado ou ter o nome trocado.
+    if (['funnelId', 'stageKey', 'stageOnCompleted', 'stageOnNoShow'].some((k) => data[k] !== undefined)) {
+      const pick = (k: 'stageKey' | 'stageOnCompleted' | 'stageOnNoShow') => (data[k] !== undefined ? data[k] : exists[k])
+      const erroEtapa = await conferirEtapas(funilFinal, { stageKey: pick('stageKey'), stageOnCompleted: pick('stageOnCompleted'), stageOnNoShow: pick('stageOnNoShow') })
+      if (erroEtapa) return reply.code(400).send({ error: erroEtapa })
+    }
     if (body.slug !== undefined && body.slug) data.slug = await uniqueSlug(slugify(body.slug), id)
     const updated = await prisma.meetingType.update({ where: { id }, data })
     return { item: updated }
