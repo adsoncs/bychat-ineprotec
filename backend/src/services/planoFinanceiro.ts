@@ -542,6 +542,13 @@ export function boletoUnicoDaEntrada(p: PlanoDaOferta): PlanoDeBoleto | null {
   return opcoesDoBoletoParcelado(f.boletoParcelado.valorBase, f.boletoParcelado, p.diaVencimento).at(-1) ?? null
 }
 
+/** O integral só pode ser pago no boleto parcelado a preço próprio: o maior parcelamento. */
+export function boletoUnicoDoIntegral(p: PlanoDaOferta): PlanoDeBoleto | null {
+  const f = p.regras.integral
+  if (!f.ativo || !f.boletoParcelado.ativo || f.boletoParcelado.valorBase == null || f.pix.ativo || f.boleto.ativo || f.cartao.ativo) return null
+  return opcoesDoBoletoParcelado(f.boletoParcelado.valorBase, f.boletoParcelado, p.diaVencimento).at(-1) ?? null
+}
+
 /** O que a pessoa paga agora nesta opção, para mostrar na tela. */
 export function valorAgoraDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): number {
   const b = o === 'entrada' ? boletoUnicoDaEntrada(p) : null
@@ -653,7 +660,18 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   const nota = Number(tr?.creditoCentavos) > 0 ? `; crédito de ${brl(Number(tr.creditoCentavos))} da inscrição ${tr.deCodigo} aplicado` : ''
   const opcao: OpcaoDePagamento = escolha?.opcao ?? opcoesDoPlano(plano)[0] ?? 'entrada'
 
-  if (pp && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
+  // Pagamento manual (baixa pela equipe) registra só o que entrou — muitas vezes a
+  // 1ª parcela ou um crédito de outro curso —, não a compra inteira. Tratá-lo como
+  // "integral" fazia o contrato dizer "à vista R$ 173,90" para um curso de R$ 3.298,80
+  // (ineprotec, 10/11, INE-26-000005-SECU). Sem o total do checkout, vale o plano,
+  // e o contrato cita o que já foi pago.
+  const soPagamentoManual = !!pp?.pagamentoManual && !(Number(pp?.valorTotal) > 0)
+  const jaPagoCentavos = soPagamentoManual ? Math.round(Number(pp?.pagamentoManual?.valor ?? pp?.valorCobrado ?? 0) * 100) : 0
+  const notaDoPago = jaPagoCentavos > 0
+    ? `; ${brl(jaPagoCentavos)} já pago${pp?.pagamentoManual?.pagoEm ? ` em ${new Date(pp.pagamentoManual.pagoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}`
+    : ''
+
+  if (pp && !soPagamentoManual && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
     const total = Math.round(Number(pp.valorTotal ?? pp.valorCobrado ?? 0) * 100)
     const n = Math.max(1, Number(pp.parcelas) || 1)
     const parcela = Math.round(Number(pp.valorParcela ?? 0) * 100) || total
@@ -663,6 +681,18 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
       descricao: (n > 1
         ? `Pagamento ${opcao === 'integral' ? 'integral ' : ''}em ${n}x de ${brl(parcela)} no ${meio} (total ${brl(total)})${pp.meio === 'boleto' ? fraseDaPontualidade(plano, parcela / 100, opcao) : ''}`
         : `Pagamento integral à vista no ${meio}: ${brl(total)}`) + nota,
+    }
+  }
+  // Integral só no boleto parcelado a preço próprio (ex.: valor personalizado depois
+  // de uma troca de curso): o contrato diz as parcelas do boleto — e, se a equipe
+  // já registrou um pagamento manual, ele entra no total como já pago.
+  const boletoDoIntegral = opcao === 'integral' ? boletoUnicoDoIntegral(plano) : null
+  if (boletoDoIntegral) {
+    const totalBoleto = Math.round(boletoDoIntegral.valorTotal * 100)
+    return {
+      plano, opcao, numParcelas: boletoDoIntegral.parcelas,
+      valorParcelaCentavos: Math.round(boletoDoIntegral.valorParcela * 100), valorTotalCentavos: totalBoleto + jaPagoCentavos,
+      descricao: `Pagamento em ${boletoDoIntegral.parcelas}x de ${brlR(boletoDoIntegral.valorParcela)} no boleto (total ${brlR(boletoDoIntegral.valorTotal)}), todo dia ${plano.diaVencimento}${fraseDaPontualidade(plano, boletoDoIntegral.valorParcela, opcao)}${notaDoPago}` + nota,
     }
   }
   // Ainda sem pagamento, e o único jeito de pagar é o boleto a preço próprio.
@@ -684,7 +714,7 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
     : `${plano.entradaComoParcela ? '1ª parcela' : 'Matrícula'} de ${brl(plano.taxaMatriculaCentavos)} + ${plano.numParcelas}x de ${brl(plano.valorParcelaCentavos)}, todo dia ${plano.diaVencimento}`
   return {
     plano, opcao, numParcelas: n, valorParcelaCentavos: plano.valorParcelaCentavos,
-    valorTotalCentavos: Math.round(valorIntegral(plano) * 100), descricao: descricao + nota,
+    valorTotalCentavos: Math.round(valorIntegral(plano) * 100), descricao: descricao + notaDoPago + nota,
   }
 }
 

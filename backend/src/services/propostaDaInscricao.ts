@@ -128,6 +128,13 @@ async function valorDaVenda(reg: { paymentAmount: unknown; paymentPlan: unknown;
   const total = Number(pp.valorTotal) || 0
   if (pp.combinado && total > 0) return total
   if (pp.planoFinanceiro?.opcao === 'integral' && total > 0) return total
+  // Baixa manual sem o total do checkout (ex.: 1ª parcela ou crédito de outro curso):
+  // a venda é o que o contrato diz — o plano negociado mais o que já foi pago.
+  if (pp.pagamentoManual && !(total > 0) && reg.processRegistration?.offeringId && (reg as any).id) {
+    const { condicaoDoContrato } = await import('./planoFinanceiro.js')
+    const c = await condicaoDoContrato(reg.processRegistration.offeringId, reg.paymentPlan, (reg as any).id).catch(() => null)
+    if (c && c.valorTotalCentavos > 0) return c.valorTotalCentavos / 100
+  }
   const curso = await valorDoCurso(reg)
   if (curso > 0) return curso
   return Number(reg.paymentAmount ?? pp.valorCobrado ?? 0) || 0
@@ -141,7 +148,11 @@ async function valorDoCurso(reg: { paymentPlan: unknown; condicaoNegociada: unkn
   const pp: any = reg.paymentPlan || {}
   const escolhido = planos.find((p) => p.id === Number(pp.planoFinanceiro?.planoId)) ?? planos[0]!
   const cn = pf.lerCondicaoNegociada(pp.condicaoNegociada) ?? pf.lerCondicaoNegociada(reg.condicaoNegociada)
-  return Math.round(pf.valorIntegral(pf.aplicarCondicaoNegociada(escolhido, cn)) * 100) / 100
+  const plano = pf.aplicarCondicaoNegociada(escolhido, cn)
+  // Integral só no boleto parcelado a preço próprio: o curso custa o boleto, não o cartão.
+  const soBoleto = pf.boletoUnicoDoIntegral(plano)
+  if (soBoleto) return Math.round(soBoleto.valorTotal * 100) / 100
+  return Math.round(pf.valorIntegral(plano) * 100) / 100
 }
 
 async function jornadaConcluida(registrationId: number): Promise<boolean> {
