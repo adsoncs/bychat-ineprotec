@@ -771,7 +771,10 @@ function FormularioDeCartao(props: {
             onInput={(e) => {
               const n = (e.target as HTMLInputElement).value.replace(/\D/g, '').slice(0, 4)
               props.aoMudar('expiryMonth', n.slice(0, 2))
-              props.aoMudar('expiryYear', n.length > 2 ? `20${n.slice(2)}` : '')
+              // Ano só vira 4 dígitos quando os 2 estão digitados. Antes o 1º dígito
+              // já virava "20" + dígito ("3" → "203"), a tela mostrava os 2 últimos
+              // ("03") e o campo travava em "08/03" ao digitar "08/33".
+              props.aoMudar('expiryYear', n.length === 4 ? `20${n.slice(2)}` : n.slice(2))
             }}
           />
           {props.erros.validade && <span class="erro">{props.erros.validade}</span>}

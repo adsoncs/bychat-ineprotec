@@ -233,6 +233,8 @@ export function errosDoCartao(c: Partial<DadosDoCartao>, parcial = false, pedeEn
     if (!parcial) e.validade = 'Informe a validade.'
   } else if (!/^(0[1-9]|1[0-2])$/.test(mes)) {
     e.validade = 'Mês inválido.'
+  } else if (ano.length !== 2 && ano.length !== 4) {
+    if (!parcial) e.validade = 'Validade incompleta — use MM/AA.'
   } else {
     const cheio = ano.length === 2 ? `20${ano}` : ano
     const vence = new Date(Number(cheio), Number(mes), 0, 23, 59, 59)
