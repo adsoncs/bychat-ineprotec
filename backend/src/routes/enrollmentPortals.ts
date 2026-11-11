@@ -22,7 +22,7 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
-import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, fetchAsaasBoletoLinha, type AsaasOrderMethod } from '../services/paymentAsaas.js'
+import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, dataDoPagamento, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, fetchAsaasBoletoLinha, type AsaasOrderMethod } from '../services/paymentAsaas.js'
 import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEvent, parsePagarmeWebhookPayload, detectPagarmeEnvironment, createPagarmeOrder, type PagarmeConfig, type PagarmeOrderMethod } from '../services/paymentPagarme.js'
 import { decryptToken } from '../services/cloudApi.js'
 import {
@@ -3667,6 +3667,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           ...(req.ip ? { remoteIp: req.ip } : {}),
         })
         urlDaPagina = order.invoiceUrl ?? null
+        // O Asaas guarda só a DATA do vencimento (a enviada, em UTC): boleto e
+        // Pix valem até o fim desse dia em Brasília. Gravar "agora + 48 h" com
+        // hora fazia a inscrição expirar às 10h de um boleto que vencia no dia
+        // (INE-26-000004-Y3VP, 11/11: proposta perdida com o boleto valendo).
+        const prazoAsaas = method === 'credit_card' ? dueDate : new Date(`${dueDate.toISOString().slice(0, 10)}T23:59:00-03:00`)
         methodRow = await persistPaymentMethod({
           registrationId: enrollment.id,
           provider: 'asaas',
@@ -3676,7 +3681,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           // O que foi COBRADO (cupom, condição da tabela, entrada do boleto),
           // não o valor cheio: é este que a tela mostra ao lado do QR/boleto.
           amount: valorCobrado,
-          dueDate,
+          dueDate: prazoAsaas,
           pixQrCode: order.pixQrCode,
           pixQrCodeUrl: order.pixQrCodeUrl,
           // NÃO usar order.expiresAt aqui: no Asaas é a validade do QR (um ano),
@@ -3701,7 +3706,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             paymentStatus: order.status,
             paymentAmount: valorCobrado,
             paymentMethod: method.toUpperCase(),
-            paymentExpiresAt: dueDate,
+            paymentExpiresAt: prazoAsaas,
             // A página do Asaas é para onde o cartão manda o candidato.
             ...(order.invoiceUrl ? { paymentUrl: order.invoiceUrl } : {}),
             // O que foi escolhido fica registrado: é o que a efetivação vai ler
@@ -5597,7 +5602,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       paymentMethod: payment.billingType || enrollment.paymentMethod,
     }
     if (isPaidNow && !enrollment.paymentPaidAt) {
-      updates.paymentPaidAt = payment.paymentDate ? new Date(payment.paymentDate) : new Date()
+      updates.paymentPaidAt = dataDoPagamento(payment.paymentDate)
       updates.status = 'paid'
     }
     // A cobrança paga passa a ser a da inscrição (o aluno pode ter gerado outra).
@@ -5638,7 +5643,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       where: { registrationId: enrollment.id, externalId: payment.id, provider: 'asaas' },
       data: {
         status: newPaymentStatus,
-        ...(isPaidNow && !wasPaid ? { paidAt: payment.paymentDate ? new Date(payment.paymentDate) : new Date() } : {}),
+        ...(isPaidNow && !wasPaid ? { paidAt: dataDoPagamento(payment.paymentDate) } : {}),
       },
     }).catch(() => {})
 
@@ -5870,7 +5875,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       paymentMethod: payment.billingType !== 'UNDEFINED' ? payment.billingType : enrollment.paymentMethod,
     }
     if (isPaidNow && !enrollment.paymentPaidAt) {
-      updates.paymentPaidAt = payment.paymentDate ? new Date(payment.paymentDate) : new Date()
+      updates.paymentPaidAt = dataDoPagamento(payment.paymentDate)
       updates.status = 'paid'
     }
     if (newPaymentStatus === 'overdue' && enrollment.status === 'pending') {
@@ -5905,7 +5910,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       where: { registrationId: enrollment.id, externalId: payment.id, provider: 'pagarme' },
       data: {
         status: newPaymentStatus,
-        ...(isPaidNow && !wasPaid ? { paidAt: payment.paymentDate ? new Date(payment.paymentDate) : new Date() } : {}),
+        ...(isPaidNow && !wasPaid ? { paidAt: dataDoPagamento(payment.paymentDate) } : {}),
       },
     }).catch(() => {})
 

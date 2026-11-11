@@ -1252,6 +1252,7 @@ button.principal.perigo { background: var(--erro); }
 .ada-vazio { margin: 0; padding: 18px; text-align: center; color: var(--tinta-3); font-size: 14.5px; background: var(--fundo); border-radius: calc(var(--raio) - 4px); }
 .ada-nota { margin: 14px 0 0; font-size: 13px; color: var(--tinta-2); padding: 10px 12px; background: var(--fundo); border-radius: calc(var(--raio) - 4px); }
 .ada-erro { margin: 8px 0 0; font-size: 13px; color: var(--erro); }
+.ada-dica { flex-basis: 100%; font-size: 13px; color: var(--tinta-2); }
 
 .ada-selo {
   display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; white-space: nowrap;

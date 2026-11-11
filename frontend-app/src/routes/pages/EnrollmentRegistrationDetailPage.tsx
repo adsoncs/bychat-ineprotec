@@ -1,4 +1,5 @@
 import { FaixaDoPortal } from '@/lib/identidadePortal'
+import { FaturasVencidasCard } from '@/components/educational/FaturasVencidasCard'
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
 import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal } from './enrollmentPortal/InscricaoAssistida'
 import { AbaFinanceiro } from './enrollmentPortal/matricula/AbaFinanceiro'
@@ -212,9 +213,9 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               acoes={podePagamentoManual && review.registration.paymentStatus !== 'paid' && aberta
                 ? <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)} title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha), com comprovante">Registrar pagamento manual</Button>
                 : undefined}>
-              <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} /></SomenteLeitura>
+              <SomenteLeitura aviso={false} tela="enrollment_portals"><div class="grid gap-3"><FaturasVencidasCard registrationId={review.registration.id} podeOperar={podeAtender} /><PaymentMethodsBlock registrationId={review.registration.id} /></div></SomenteLeitura>
             </AbaFinanceiro>
-          ) : <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} /></SomenteLeitura>)}
+          ) : <SomenteLeitura aviso={false} tela="enrollment_portals"><div class="grid gap-3"><FaturasVencidasCard registrationId={review.registration.id} podeOperar={podeAtender} /><PaymentMethodsBlock registrationId={review.registration.id} /></div></SomenteLeitura>)}
 
           {aba === 'documentos' && (
             <div class="grid gap-3">

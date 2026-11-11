@@ -208,6 +208,16 @@ export async function cancelarCobrancaAsaas(config: AsaasConfig, paymentId: stri
   }
 }
 
+/**
+ * Muda o vencimento de uma cobrança aguardando pagamento ou vencida. A cobrança
+ * é a MESMA (id, link da fatura e avisos seguem valendo); o Asaas renova o
+ * código do boleto e o QR do Pix para a nova data. Valor não muda.
+ */
+export async function atualizarVencimentoAsaas(config: AsaasConfig, paymentId: string, dueDate: string): Promise<any> {
+  const atual = await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
+  return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'POST', { billingType: atual.billingType, value: atual.value, dueDate })
+}
+
 export async function getAsaasPaymentStatus(config: AsaasConfig, paymentId: string): Promise<any> {
   return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
 }
@@ -413,6 +423,26 @@ export async function createAsaasOrder(config: AsaasConfig, input: AsaasOrderInp
   if (p.installment) result.installmentId = String(p.installment)
 
   return result
+}
+
+// ─── Data do pagamento ───────────────────────────────────
+
+/**
+ * O Asaas manda a data do pagamento SEM hora ("2026-11-11"). `new Date()` lê
+ * isso como meia-noite UTC = 21h do dia ANTERIOR em Brasília, e a baixa aparecia
+ * um dia antes (Pix pago em 11/11 mostrado como 10/11). Data pura vira: agora,
+ * se é hoje no Brasil; senão, meio-dia de Brasília do dia informado. Data com
+ * hora (Pagar.me, iugu) segue como veio.
+ */
+export function dataDoPagamento(d: unknown, agora: Date = new Date()): Date {
+  const s = typeof d === 'string' ? d.trim() : ''
+  if (!s) return agora
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(agora)
+    return s === hoje ? agora : new Date(`${s}T12:00:00-03:00`)
+  }
+  const dt = new Date(s)
+  return isNaN(dt.getTime()) ? agora : dt
 }
 
 // ─── Webhook event parsing ───────────────────────────────

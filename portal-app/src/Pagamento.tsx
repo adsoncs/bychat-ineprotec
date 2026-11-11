@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
-  consultarPagamento, iniciarPagamento, opcoesDePagamento, removerValorPersonalizado, salvarValorPersonalizado, simularPagamento,
+  atualizarFaturaVencida, consultarPagamento, iniciarPagamento, opcoesDePagamento, removerValorPersonalizado, salvarValorPersonalizado, simularPagamento,
   type EditorDoPlanoNaTela, type EscolhaDePlano, type MetodoPagamento, type NegociacaoNaTela, type OpcoesDePagamento,
 } from './api'
 import {
@@ -73,6 +73,15 @@ export function Pagamento(props: {
   const [validandoCupom, setValidandoCupom] = useState(false)
   // Valor personalizado salvo pelo agente: recarrega as opções com o novo preço.
   const [recarga, setRecarga] = useState(0)
+  const [atualizando, setAtualizando] = useState<string | null>(null)
+  async function atualizarFatura(chave: string) {
+    if (atualizando) return
+    setAtualizando(chave); setErro(null)
+    try {
+      await atualizarFaturaVencida(props.codigo, props.token, chave)
+      setOpcoes(null); setRecarga((n) => n + 1)
+    } catch (e: any) { setErro(e.message) } finally { setAtualizando(null) }
+  }
   const confirmado = useRef(false)
   // Abrindo a etapa de novo: procura a cobrança já gerada antes de oferecer a
   // escolha do meio. Sem isto, cada "Fazer agora" recomeçava do zero e a pessoa
@@ -289,12 +298,19 @@ export function Pagamento(props: {
         <div class="cartao">
           <h2>Seus pagamentos</h2>
           <p class="sub">Total combinado: <b>{dinheiro(c.total)}</b>. Sua matrícula é confirmada no 1º pagamento recebido.</p>
+          {erro && <div class="aviso erro" role="alert">{erro}</div>}
           <div style="display:grid;gap:12px">
             {c.pagamentos.map((p) => (
               <div key={p.id} class="aviso info">
                 <b>{p.titulo}: {dinheiro(p.valor)}</b>
                 <div>{p.detalhe ?? p.meio}{p.situacao === 'paga' ? ' · pago' : p.vencimento ? ` · ${p.situacao === 'vencida' ? 'venceu' : 'vence'} em ${dia(p.vencimento)}` : ''}</div>
-                {p.situacao !== 'paga' && (
+                {p.situacao === 'vencida' && p.podeAtualizar && (
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+                    <button type="button" disabled={atualizando === p.chave} onClick={() => atualizarFatura(p.chave)}>{atualizando === p.chave ? 'Atualizando…' : 'Atualizar e pagar hoje'}</button>
+                    <span style="font-size:13px">Venceu: atualize para hoje e pague com boleto ou Pix. O valor não muda.</span>
+                  </div>
+                )}
+                {p.situacao !== 'paga' && !(p.situacao === 'vencida' && p.podeAtualizar) && (
                   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
                     {p.pagar && <a class="secundario" href={p.pagar} target="_blank" rel="noopener">Pagar</a>}
                     {p.boletoPdf && <a class="secundario" href={p.boletoPdf} target="_blank" rel="noopener">Abrir boleto</a>}

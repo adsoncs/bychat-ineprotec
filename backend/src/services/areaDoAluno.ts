@@ -12,6 +12,7 @@
 // os contratos/termos. Documentos e dados do curso vêm das rotas que o portal
 // já usa (/api/candidate/me e /registrations/:code/resumo), com o token da
 // inscrição que esta resposta devolve.
+import { fimDoDiaAsaas } from './enrollmentExpireJob.js'
 import { prisma } from '../lib/prisma.js'
 import { avaDaInscricao } from './moodleAcessos.js'
 import { signCandidateToken } from '../lib/candidateAuth.js'
@@ -43,6 +44,8 @@ export interface Fatura {
   buscarCodigos: boolean
   /** Parcela prevista que o aluno pode transformar em boleto agora (a próxima da fila). */
   podeGerar: boolean
+  /** Vencida (boleto/Pix do Asaas): dá para atualizar a data e pagar hoje (services/atualizarFatura). */
+  podeAtualizar?: boolean
 }
 
 export interface ContratoDoAluno {
@@ -83,6 +86,8 @@ export async function areaAtiva(): Promise<boolean> {
 
 const cache = new Map<string, { em: number; dados: any }>()
 const CACHE_MS = 60_000
+/** Depois de mudar uma cobrança (nova data), a próxima leitura vai ao Asaas. */
+export function esquecerConsultasDoAsaas() { cache.clear() }
 
 async function configDoPortal(portalId: number): Promise<AsaasConfig | null> {
   const p = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { paymentConnectionId: true } })
@@ -139,6 +144,7 @@ export function faturaDoAsaas(p: any, total: number): Fatura | null {
     pix: null, linha: null,
     buscarCodigos: aberta && ['BOLETO', 'PIX', 'UNDEFINED'].includes(String(p.billingType)),
     podeGerar: false,
+    podeAtualizar: situacao === 'vencida' && ['BOLETO', 'PIX', 'UNDEFINED'].includes(String(p.billingType)),
   }
 }
 
@@ -159,6 +165,11 @@ const SELECT_REG = {
 
 type Reg = NonNullable<Awaited<ReturnType<typeof inscricoesDaConta>>>[number]
 
+/** A inscrição no formato que faturasDaInscricao lê (tela da equipe). */
+export async function inscricaoParaFaturas(id: number) {
+  return prisma.enrollmentRegistration.findUnique({ where: { id }, select: SELECT_REG })
+}
+
 export async function inscricoesDaConta(leadId: number) {
   return prisma.enrollmentRegistration.findMany({
     where: { leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: SELECT_REG,
@@ -177,13 +188,26 @@ function tituloDaCobranca(r: Reg): string {
   return 'Curso completo'
 }
 
+/**
+ * Até quando a cobrança da inscrição vale. Boleto/Pix do Asaas: o dia todo do
+ * vencimento (o Asaas só guarda a data) — o prazo gravado com hora fazia a
+ * fatura aparecer vencida às 10h do dia em que vencia.
+ */
+function prazoDaCobranca(r: Reg): Date | null {
+  if (!r.paymentExpiresAt) return null
+  const m = r.paymentMethods.find((x) => x.externalId === r.paymentId)
+  return m && m.provider === 'asaas' && (m.method === 'boleto' || m.method === 'pix') ? fimDoDiaAsaas(r.paymentExpiresAt) : r.paymentExpiresAt
+}
+
 function situacaoDaCobranca(r: Reg): SituacaoDaFatura | null {
   const ps = String(r.paymentStatus || '')
   if (ps === 'paid') return 'paga'
   if (ps === 'refunded') return 'estornada'
-  if (r.status === 'cancelled' || r.status === 'expired') return r.paymentId ? 'cancelada' : null
+  if (r.status === 'cancelled') return r.paymentId ? 'cancelada' : null
+  // Expirada pelo prazo: a cobrança segue aberta no Asaas, só venceu (dá para atualizar).
+  if (r.status === 'expired') return r.paymentId ? 'vencida' : null
   if (ps === 'overdue' || ps === 'expired') return 'vencida'
-  if (ps === 'pending' || ps === 'failed') return r.paymentExpiresAt && r.paymentExpiresAt < new Date() ? 'vencida' : 'aberta'
+  if (ps === 'pending' || ps === 'failed') return r.paymentExpiresAt && prazoDaCobranca(r)! < new Date() ? 'vencida' : 'aberta'
   return r.paymentId ? 'aberta' : null
 }
 
@@ -229,7 +253,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
       titulo: tituloDaCobranca(r),
       detalhe: parcelasCartao ? `em ${parcelasCartao}x no cartão` : (manual ? 'Registrado pela secretaria' : null),
       valor: Number(r.paymentAmount),
-      vencimento: aberta && r.paymentExpiresAt ? hojeBrDe(r.paymentExpiresAt) : null,
+      vencimento: aberta && r.paymentExpiresAt ? hojeBrDe(prazoDaCobranca(r)!) : null,
       situacao,
       pagaEm: r.paymentPaidAt ? r.paymentPaidAt.toISOString() : null,
       meio: meioLegivel(r.paymentMethod) ?? meioLegivel(ultima?.method),
@@ -240,6 +264,8 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
       linha: aberta ? (ultima?.boletoLine || null) : null,
       buscarCodigos: false,
       podeGerar: false,
+      podeAtualizar: situacao === 'vencida' && !manual && !!cfg && !!r.paymentId && !String(r.paymentId).startsWith('manual')
+        && (!ultima || (ultima.provider === 'asaas' && ultima.method !== 'credit_card')),
     })
   }
 

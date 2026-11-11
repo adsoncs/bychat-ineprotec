@@ -731,7 +731,7 @@ export async function processarWebhookAsaas(payload: AsaasWebhookPayload): Promi
   }
   let baixou = false
   if (parcela && pago) {
-    await prisma.acaParcela.update({ where: { id: parcela.id }, data: { situacao: 'PAGA', valorPagoCentavos: parcela.valorBrutoCentavos, pagoEm: payload.payment.paymentDate ? new Date(payload.payment.paymentDate) : new Date() } })
+    await prisma.acaParcela.update({ where: { id: parcela.id }, data: { situacao: 'PAGA', valorPagoCentavos: parcela.valorBrutoCentavos, pagoEm: (await import('./paymentAsaas.js')).dataDoPagamento(payload.payment.paymentDate) } })
     await quitarSeCompleto(parcela.contratoId)
     baixou = true
   } else if (parcela && payload.event === 'PAYMENT_OVERDUE') {

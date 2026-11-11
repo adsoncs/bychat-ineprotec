@@ -14,7 +14,7 @@
 import { prisma } from '../lib/prisma.js'
 import { decryptToken } from './cloudApi.js'
 import {
-  ASAAS_STATUS_MAP, cancelarCobrancaAsaas, cancelarParcelamentoAsaas, consultarCobrancaAsaas, listarParcelasAsaas, silenciarAvisosDeCriacaoAsaas, createAsaasOrder, createAsaasPayment,
+  ASAAS_STATUS_MAP, dataDoPagamento, cancelarCobrancaAsaas, cancelarParcelamentoAsaas, consultarCobrancaAsaas, listarParcelasAsaas, silenciarAvisosDeCriacaoAsaas, createAsaasOrder, createAsaasPayment,
   createOrFindAsaasCustomer, fetchAsaasBoletoLinha, fetchAsaasPixQr, type AsaasConfig,
 } from './paymentAsaas.js'
 import { criarCobrancaSimulada, ehSimulado } from './pagamentoSimulado.js'
@@ -482,14 +482,14 @@ export async function aplicarAvisoDoAsaas(tituloId: number, event: string, payme
     if (!t.conferirEm) {
       await prisma.enrollmentTitulo.update({
         where: { id: t.id },
-        data: { conferirEm: new Date(), valorPagoCentavos: payment?.value != null ? Math.round(Number(payment.value) * 100) : 0, paidAt: payment?.paymentDate ? new Date(payment.paymentDate) : new Date(), lastError: 'Pagamento recebido em título já substituído: tratar crédito ou devolução.' },
+        data: { conferirEm: new Date(), valorPagoCentavos: payment?.value != null ? Math.round(Number(payment.value) * 100) : 0, paidAt: dataDoPagamento(payment?.paymentDate), lastError: 'Pagamento recebido em título já substituído: tratar crédito ou devolução.' },
       })
       await registrarEventoDaInscricao({ registrationId: t.registrationId, etapa: 'pagamento', acao: 'pagamento_em_titulo_substituido', ator: 'sistema', dados: { titulo: t.id, valor: payment?.value ?? null } })
     }
     return t.registrationId
   }
   if (novo === 'paid') {
-    const quando = payment?.paymentDate ? new Date(payment.paymentDate) : new Date()
+    const quando = dataDoPagamento(payment?.paymentDate)
     // Compra aprovada no cartão: a troca conclui já na 1ª parcela confirmada.
     if (t.trocaId && t.status === 'aguardando' && t.installmentId) await (await import('./trocaPagamento.js')).concluirTroca(t.trocaId)
     if (t.installmentId) {
@@ -618,6 +618,7 @@ export function faturaDoTitulo(t: any, total: number) {
     linha: aberta ? (t.boletoLinha || null) : null,
     buscarCodigos: false,
     podeGerar: false,
+    podeAtualizar: situacao === 'vencida' && t.meio !== 'credit_card' && !!t.externalId && (!t.provider || t.provider === 'asaas'),
   }
 }
 

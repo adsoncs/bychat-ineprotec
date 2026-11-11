@@ -227,6 +227,8 @@ export const ROTULO_ACAO: Record<string, string> = {
   documento_enviado: 'Documento enviado',
   documento_removido: 'Documento removido',
   cobranca_gerada: 'Cobrança gerada',
+  fatura_atualizada: 'Fatura vencida atualizada (nova data)',
+  prazo_corrigido: 'Prazo do pagamento corrigido (vale até o fim do dia do vencimento)',
   contrato_assinado: 'Contrato assinado',
   parecer_respondido: 'Parecer respondido',
   redacao_enviada: 'Redação enviada',

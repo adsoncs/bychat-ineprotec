@@ -69,6 +69,7 @@ import { portalJornadaRoutes } from './routes/portalJornada.js'
 import { matriculaInternaRoutes } from './routes/matriculaInterna.js'
 import { inadimplenciaRoutes } from './routes/inadimplencia.js'
 import { areaDoAlunoRoutes } from './routes/areaDoAluno.js'
+import { atualizarFaturaRoutes } from './routes/atualizarFatura.js'
 import { leadHistoryRoutes } from './routes/leadHistory.js'
 import { activitiesRoutes, startActivityScheduler } from './routes/activities.js'
 import { alertsRoutes } from './routes/alerts.js'
@@ -863,6 +864,7 @@ await app.register(portalJornadaRoutes)
 await app.register(matriculaInternaRoutes)
 await app.register(inadimplenciaRoutes)
 await app.register(areaDoAlunoRoutes)
+await app.register(atualizarFaturaRoutes)
 await app.register(leadHistoryRoutes)
 await app.register(activitiesRoutes)
 await app.register(alertsRoutes)

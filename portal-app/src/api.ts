@@ -632,9 +632,19 @@ export interface PlanoNaTela {
   opcoes: Array<{ chave: 'entrada' | 'integral'; valor: number; rotulo: string; detalhe: string }>
 }
 
+/** Fatura vencida do combinado: nova data (hoje) na mesma cobrança. */
+export async function atualizarFaturaVencida(codigo: string, token: string, chave: string): Promise<void> {
+  const r = await fetch(`/api/public/registrations/${encodeURIComponent(codigo)}/fatura/atualizar`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ chave }),
+  })
+  const d = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(d.error || 'Não foi possível atualizar a fatura agora.')
+}
+
 export interface PagamentoDoCombinado {
   id: number; titulo: string; detalhe: string | null; valor: number; vencimento: string | null; situacao: string; meio: string | null
   pagar: string | null; boletoPdf: string | null; pix: string | null; linha: string | null
+  chave: string; podeAtualizar?: boolean
 }
 export interface OpcoesDePagamento {
   /** O agente combinou mais de um pagamento: a tela só mostra as cobranças. */

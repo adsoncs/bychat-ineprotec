@@ -28,6 +28,7 @@ import { PagamentoManualModal } from '@/routes/pages/enrollmentPortal/InscricaoA
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEducational'
 import { Pode } from '@/components/auth/Pode'
+import { FaturasVencidasCard } from '@/components/educational/FaturasVencidasCard'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -388,6 +389,8 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
               </Table>
             )}
           </div>
+
+          <Pode tela="enrollment_portals" acao="edit" senao={<FaturasVencidasCard registrationId={id} podeOperar={false} />}><FaturasVencidasCard registrationId={id} /></Pode>
 
           <div class="grid gap-4 md:grid-cols-2">
             <div>

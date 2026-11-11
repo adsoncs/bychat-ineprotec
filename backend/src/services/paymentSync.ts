@@ -11,7 +11,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { decryptToken } from './cloudApi.js'
-import { ASAAS_STATUS_MAP } from './paymentAsaas.js'
+import { ASAAS_STATUS_MAP, dataDoPagamento } from './paymentAsaas.js'
 import { buscarFaturaIugu, iuguDaConexao, type IuguFatura } from './paymentIugu.js'
 import { logEvent } from './leadHistory.js'
 
@@ -103,9 +103,7 @@ async function fetchNormalizedFromProvider(
       // Apagada no Asaas continua com status PENDING e `deleted: true`: sem
       // olhar o `deleted`, a cobrança cancelada voltava a "pendente".
       status: data.deleted ? 'canceled' : (ASAAS_STATUS_MAP[data.status] || 'pending'),
-      paidAt: data.paymentDate
-        ? new Date(data.paymentDate)
-        : (data.confirmedDate ? new Date(data.confirmedDate) : null),
+      paidAt: data.paymentDate || data.confirmedDate ? dataDoPagamento(data.paymentDate || data.confirmedDate) : null,
       billingType: data.billingType || null,
       enrollmentRefId: m ? parseInt(m[1]) : null,
       amount: data.value ? Number(data.value) : null,

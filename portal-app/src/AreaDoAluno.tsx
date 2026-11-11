@@ -21,6 +21,8 @@ interface Fatura {
   situacao: Situacao; pagaEm: string | null; meio: string | null
   pagar: string | null; boletoPdf: string | null; recibo: string | null
   pix: string | null; linha: string | null; buscarCodigos: boolean; podeGerar: boolean
+  /** Vencida: o aluno pode dar nova data (hoje) e pagar — mesmo valor. */
+  podeAtualizar?: boolean
 }
 interface Contrato { id: number; titulo: string; forma: 'eletronica' | 'aceite' | 'papel'; situacao: 'assinado' | 'aguardando'; assinadoEm: string | null; temPdf: boolean }
 export interface Area {
@@ -327,6 +329,21 @@ function LinhaDeFatura({ f, codigo, compacta, aoMudar }: { f: Fatura; codigo: st
     } catch (e: any) { setErro(e.message); setBuscando(false) }
   }
 
+  // Fatura vencida: nova data (hoje) na mesma cobrança, com boleto e PIX renovados.
+  async function atualizar() {
+    if (buscando) return
+    setBuscando(true); setErro(null)
+    try {
+      const r = await fetch('/api/public/portal/area/fatura/atualizar', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, chave: f.chave }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || 'Não foi possível atualizar a fatura agora.')
+      aoMudar()
+    } catch (e: any) { setErro(e.message); setBuscando(false) }
+  }
+  const atualizavel = f.situacao === 'vencida' && !!f.podeAtualizar
+
   const quando = f.situacao === 'paga'
     ? `Paga em ${dia(f.pagaEm)}`
     : f.situacao === 'prevista' ? (f.vencimento ? `Previsão ${dia(f.vencimento)}` : 'Data a definir')
@@ -349,7 +366,13 @@ function LinhaDeFatura({ f, codigo, compacta, aoMudar }: { f: Fatura; codigo: st
           <button type="button" class="ada-botao" disabled={buscando} onClick={gerar}>{buscando ? 'Gerando…' : 'Gerar boleto e PIX'}</button>
         </div>
       )}
-      {!compacta && (aberta || f.recibo) && (
+      {atualizavel && (
+        <div class="ada-fatura-acoes">
+          <button type="button" class="ada-botao" disabled={buscando} onClick={atualizar}>{buscando ? 'Atualizando…' : 'Atualizar e pagar hoje'}</button>
+          {!compacta && <span class="ada-dica">A fatura venceu. Atualize para hoje e pague com boleto ou PIX: o valor não muda.</span>}
+        </div>
+      )}
+      {!compacta && !atualizavel && (aberta || f.recibo) && (
         <div class="ada-fatura-acoes">
           {aberta && f.pagar && <a class="ada-botao" href={f.pagar} target="_blank" rel="noopener">Pagar</a>}
           {aberta && (pix || f.buscarCodigos) && (
