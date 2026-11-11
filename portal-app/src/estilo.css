@@ -11,7 +11,7 @@
 
   --tinta: #16211f;
   --tinta-2: #5b6a66;
-  --tinta-3: #879490;
+  --tinta-3: #66726e; /* 11/11: era #879490 (3,1:1); agora 5:1 no branco e 4,6:1 no fundo */
   --linha: #dfe5e2;
   --fundo: #f4f6f5;
   --papel: #ffffff;
@@ -19,7 +19,7 @@
   --erro-suave: #fbeceb;
   --ok: #2c7a4b;
   /* Pendente (falta a pessoa fazer): laranja em todos os selos de situação. */
-  --pendente: #d97000;
+  --pendente: #9c5200; /* 11/11: era #d97000 (3,3:1); agora 5,8:1 */
   --sombra: 0 1px 2px rgba(20, 33, 31, .06), 0 8px 24px -16px rgba(20, 33, 31, .3);
 }
 
@@ -82,7 +82,9 @@ body {
   transition: border-color .15s, box-shadow .15s;
 }
 .campo input:focus, .campo select:focus, .campo textarea:focus {
-  outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave);
+  /* 11/11: o contorno era só uma sombra verde quase branca (1,1:1) — invisível
+     para baixa visão. Agora um contorno de 2px na cor da marca. */
+  outline: 2px solid var(--marca); outline-offset: 1px; border-color: var(--marca); box-shadow: 0 0 0 4px var(--marca-suave);
 }
 .campo.ruim input, .campo.ruim select { border-color: var(--erro); }
 .campo .erro { display: block; margin-top: 6px; font-size: 13px; color: var(--erro); }
@@ -1338,3 +1340,27 @@ button.principal.perigo { background: var(--erro); }
 .ada .rc-dados .rc-largo { grid-column: auto; }
 .ada .rc-dados dd { overflow-wrap: anywhere; }
 .ada-botao:disabled { opacity: .6; cursor: wait; }
+
+
+/* ── Acessibilidade (11/11) ─────────────────────────────────────────────────
+   Foco visível em tudo que se usa pelo teclado. Regras específicas acima
+   (menus, abas) continuam valendo; esta é a base para o que não tinha. */
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:focus-visible,
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+  outline: 2px solid var(--marca); outline-offset: 2px;
+}
+.texto-redacao:focus { outline: 2px solid var(--marca); outline-offset: 1px; }
+/* Envio de documento: dois botões (arquivo e câmera) no lugar do bloco clicável. */
+.solta { cursor: default; }
+.solta-botoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.solta-botao {
+  min-height: 44px; padding: 10px 16px; font: inherit; font-weight: 600; font-size: 14.5px;
+  color: var(--marca); background: var(--papel); border: 1.5px solid var(--marca);
+  border-radius: calc(var(--raio) - 4px); cursor: pointer;
+}
+.solta-botao:hover { background: var(--marca-suave); }
+.redacao .tema-titulo { margin: 0; font-size: inherit; font-weight: 700; }
+/* Quem pediu menos movimento no aparelho não recebe animação nenhuma. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

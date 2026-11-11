@@ -53,6 +53,16 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
   const tel = useRef<TelemetriaRedacao>(telemetriaVazia())
   const ultimaTecla = useRef(0)
   const escondidaDesde = useRef<number | null>(null)
+  // Acessibilidade (11/11): o cronômetro e o contador só existiam na tela. Quem
+  // usa leitor de tela não sabia quanto tempo faltava nem se já tinha o mínimo
+  // de palavras. Avisos pontuais (não a cada segundo) numa região "ao vivo".
+  const [anuncio, setAnuncio] = useState('')
+  const avisados = useRef<Set<string>>(new Set())
+  function anunciar(chave: string, texto: string) {
+    if (avisados.current.has(chave)) return
+    avisados.current.add(chave)
+    setAnuncio(texto)
+  }
 
   /** Entrega o que foi medido e começa a contar de novo (só depois do OK). */
   function tirarTelemetria(): TelemetriaRedacao {
@@ -152,6 +162,22 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
 
   // Fim do cronômetro: envia o que foi escrito, uma vez só.
   const acabouTempo = !!rascunho?.expiresAt && agora >= new Date(rascunho.expiresAt).getTime()
+  const restanteMs = rascunho?.expiresAt ? new Date(rascunho.expiresAt).getTime() - agora : null
+  useEffect(() => {
+    if (restanteMs == null || restanteMs <= 0) return
+    for (const m of [10, 5, 1]) {
+      // Só anuncia ao CRUZAR o marco: quem começa com 8 minutos não ouve o de 10.
+      if (restanteMs <= m * 60000 && restanteMs > (m * 60000) - 15000) anunciar(`t${m}`, m === 1 ? 'Falta 1 minuto para o fim da redação.' : `Faltam ${m} minutos para o fim da redação.`)
+    }
+  }, [Math.floor((restanteMs ?? 0) / 5000)])
+  const nPalavras = palavras(texto)
+  const minW = estado?.config?.minWords ?? 0, maxW = estado?.config?.maxWords ?? 0
+  useEffect(() => {
+    if (!rascunho) return
+    if (minW && nPalavras >= minW) anunciar('min', `Você atingiu o mínimo de ${minW} palavras.`)
+    if (maxW && nPalavras > maxW) { avisados.current.delete('dentro'); anunciar('max', `Passou do máximo de ${maxW} palavras.`) }
+    if (maxW && nPalavras <= maxW && avisados.current.has('max')) { avisados.current.delete('max'); anunciar('dentro', `Voltou para dentro do limite de ${maxW} palavras.`) }
+  }, [nPalavras, rascunho?.id])
   useEffect(() => {
     if (acabouTempo && !envioAutomatico.current) { envioAutomatico.current = true; void enviar(true) }
   }, [acabouTempo])
@@ -197,7 +223,7 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
           <li>A forma de escrita é registrada para garantir a integridade da prova.</li>
           <li>O tema aparece quando você começar. O texto é salvo sozinho enquanto escreve.</li>
         </ul>
-        {erro && <div class="aviso erro">{erro}</div>}
+        {erro && <div class="aviso erro" role="alert">{erro}</div>}
         {estado.canStart
           ? <button class="principal" type="button" disabled={ocupado} onClick={comecar}>{ocupado ? 'Preparando…' : 'Começar a redação'}</button>
           : <div class="aviso info">Não há tentativas disponíveis agora. Se precisar refazer, fale com a secretaria — ela pode liberar uma nova tentativa.</div>}
@@ -212,15 +238,16 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
   const foraDoTamanho = (cfg.minWords && n < cfg.minWords) || (cfg.maxWords && n > cfg.maxWords)
   return (
     <div class="redacao">
-      <div class="tema"><b>Tema</b><p>{rascunho.prompt}</p></div>
+      <div class="ada-oculto" aria-live="assertive" aria-atomic="true">{anuncio}</div>
+      <div class="tema"><h3 class="tema-titulo">Tema</h3><p>{rascunho.prompt}</p></div>
       <div class="redacao-barra">
-        <span class={restante != null && restante < 5 * 60000 ? 'alerta' : ''}>{restante != null ? `⏱ ${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}` : ''}</span>
+        <span role="timer" aria-label={restante != null ? `Tempo restante: ${min} minutos e ${seg} segundos` : undefined} class={restante != null && restante < 5 * 60000 ? 'alerta' : ''}>{restante != null ? `⏱ ${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}` : ''}</span>
         <span>{n} palavra(s){cfg.minWords ? ` · mín. ${cfg.minWords}` : ''}{cfg.maxWords ? ` · máx. ${cfg.maxWords}` : ''}</span>
         <span class="sub">{salvamento === 'ok' && salvoEm ? `Salvo às ${salvoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : salvamento !== 'ok' ? 'Guardado neste aparelho' : ''}</span>
       </div>
-      {recuperado && <div class="aviso info">Recuperamos o texto que estava guardado neste aparelho. Confira e continue.</div>}
-      {salvamento === 'falhou' && <div class="aviso info">Sem conexão com o servidor agora. Seu texto está guardado neste aparelho e tentamos salvar de novo sozinhos.</div>}
-      {salvamento === 'sessao' && !erro && <div class="aviso erro">Sua sessão expirou. O texto está guardado neste aparelho: entre de novo no portal e ele volta aqui. Se preferir, copie o texto antes.</div>}
+      {recuperado && <div class="aviso info" role="status">Recuperamos o texto que estava guardado neste aparelho. Confira e continue.</div>}
+      {salvamento === 'falhou' && <div class="aviso info" role="status">Sem conexão com o servidor agora. Seu texto está guardado neste aparelho e tentamos salvar de novo sozinhos.</div>}
+      {salvamento === 'sessao' && !erro && <div class="aviso erro" role="alert">Sua sessão expirou. O texto está guardado neste aparelho: entre de novo no portal e ele volta aqui. Se preferir, copie o texto antes.</div>}
       <textarea class="texto-redacao" rows={16} value={texto} disabled={restante === 0}
         spellcheck={!cfg.spellcheckOff}
         autoComplete="off" autoCorrect={cfg.spellcheckOff ? 'off' : 'on'} autoCapitalize="sentences"
@@ -252,9 +279,16 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
           if (cfg.dragBlocked || cfg.pasteBlocked) { e.preventDefault(); setErro('Arrastar texto para o campo não é permitido nesta redação.'); return }
           tel.current.caracteresColados += (e.dataTransfer?.getData('text') ?? '').length
         }}
-        aria-label="Texto da redação" />
-      {restante === 0 && <div class="aviso erro">O tempo acabou. {ocupado ? 'Enviando o que você escreveu…' : 'O que você escreveu será enviado.'}</div>}
-      {erro && <div class="aviso erro">{erro}</div>}
+        aria-label="Texto da redação"
+        aria-describedby="redacao-regras" />
+      <span id="redacao-regras" class="ada-oculto">{[
+        cfg.minWords ? `Mínimo de ${cfg.minWords} palavras.` : '',
+        cfg.maxWords ? `Máximo de ${cfg.maxWords} palavras.` : '',
+        cfg.pasteBlocked ? 'Não é possível colar texto.' : '',
+        'O texto é salvo sozinho.',
+      ].filter(Boolean).join(' ')}</span>
+      {restante === 0 && <div class="aviso erro" role="alert">O tempo acabou. {ocupado ? 'Enviando o que você escreveu…' : 'O que você escreveu será enviado.'}</div>}
+      {erro && <div class="aviso erro" role="alert">{erro}</div>}
       <button class="principal" type="button" disabled={ocupado || (!!foraDoTamanho && restante !== 0)} onClick={() => void enviar(restante === 0)}>
         {ocupado ? 'Enviando…' : 'Enviar redação'}
       </button>

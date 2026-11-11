@@ -183,6 +183,7 @@ function ItemDeDocumento(props: {
 }) {
   const { exigencia: e, enviado } = props
   const entrada = useRef<HTMLInputElement>(null)
+  const camera = useRef<HTMLInputElement>(null)
   const [arrastando, setArrastando] = useState(false)
   const sit = enviado ? (SITUACAO[enviado.status] ?? { rotulo: enviado.status, classe: 'analise' }) : null
   const recusado = enviado?.status === 'rejected'
@@ -203,7 +204,7 @@ function ItemDeDocumento(props: {
           <span class="doc-arquivo-nome" title={enviado.fileName}>{enviado.fileName}</span>
           <span class="doc-arquivo-tam">{tamanho(enviado.sizeBytes)}</span>
           {enviado.status !== 'approved' && (
-            <button class="doc-remover" onClick={() => props.aoRemover(enviado.id)}>remover</button>
+            <button type="button" class="doc-remover" onClick={() => props.aoRemover(enviado.id)} aria-label={`Remover arquivo: ${e.documentType.name}`}>remover</button>
           )}
         </div>
       )}
@@ -216,9 +217,13 @@ function ItemDeDocumento(props: {
 
       {(!enviado || recusado) && (
         <>
+          {/* Acessibilidade (11/11): a área era um <div> clicável com o campo de
+              arquivo escondido — teclado e leitor de tela não chegavam nele, e o
+              capture="environment" abria direto a câmera no Android, sem deixar
+              escolher um PDF já salvo. Agora são dois botões de verdade; arrastar
+              continua valendo no computador. */}
           <div
             class={`solta ${arrastando ? 'ativa' : ''}`}
-            onClick={() => entrada.current?.click()}
             onDragOver={(ev) => { ev.preventDefault(); setArrastando(true) }}
             onDragLeave={() => setArrastando(false)}
             onDrop={(ev) => {
@@ -229,16 +234,40 @@ function ItemDeDocumento(props: {
             }}
           >
             {props.enviando
-              ? <span>Enviando…</span>
-              : <span>{recusado ? 'Enviar outro arquivo' : 'Tirar foto ou escolher arquivo'}</span>}
+              ? <span role="status">Enviando…</span>
+              : (
+                <div class="solta-botoes">
+                  <button type="button" class="solta-botao" onClick={() => entrada.current?.click()}
+                    aria-label={`${recusado ? 'Enviar outro arquivo' : 'Escolher arquivo'}: ${e.documentType.name}`}>
+                    {recusado ? 'Enviar outro arquivo' : 'Escolher arquivo'}
+                  </button>
+                  <button type="button" class="solta-botao" onClick={() => camera.current?.click()}
+                    aria-label={`Tirar foto: ${e.documentType.name}`}>
+                    Tirar foto
+                  </button>
+                </div>
+              )}
             <span class="solta-dica">JPG, PNG, HEIC ou PDF · até 25 MB</span>
           </div>
           <input
             ref={entrada}
             type="file"
             accept="image/*,.pdf,.heic,.heif"
+            hidden
+            tabIndex={-1}
+            onChange={(ev) => {
+              const a = (ev.target as HTMLInputElement).files?.[0]
+              if (a) props.aoEnviar(a)
+              ;(ev.target as HTMLInputElement).value = ''
+            }}
+          />
+          <input
+            ref={camera}
+            type="file"
+            accept="image/*"
             capture="environment"
             hidden
+            tabIndex={-1}
             onChange={(ev) => {
               const a = (ev.target as HTMLInputElement).files?.[0]
               if (a) props.aoEnviar(a)
