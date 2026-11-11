@@ -8,7 +8,7 @@
 // (scriptedChatbotFlow.ts) chamem EXATAMENTE o mesmo código — garantindo que as
 // condicionais de qualificação e as etapas do funil sejam idênticas nos dois canais.
 
-import { identidadeDoContato } from '../lib/phone.js'
+import { identidadeDoContato, phoneKey } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
@@ -436,6 +436,26 @@ export function resolveQualification(fields: any[], answers: Record<string, any>
   return lastPositive
 }
 
+// ── Telefone que não é telefone ───────────────────────────────────────────────
+// fabad, 06/11: o candidato digitou "119878803" (faltaram dígitos) e o form
+// aceitou — a regra era só "8 dígitos ou mais". A ficha nasceu com um número que
+// não existe, as mensagens falharam, e quando ele reenviou com o número certo o
+// e-mail ligou a ficha nova à antiga: a conversa passou a ser gravada na ficha do
+// número errado. A régua agora é a mesma do casamento de contatos (`phoneKey`):
+// o que ela não reconhece como telefone não entra.
+export const MSG_TELEFONE_INVALIDO = 'Telefone inválido — confira o número com DDD (ex.: 11 98765-4321). Fora do Brasil, comece com + e o código do país.'
+const CHAVES_DE_TELEFONE = new Set(['whatsapp', 'phone', 'telefone'])
+export function erroDeTelefone(fields: any[], data: Record<string, any>): string | null {
+  for (const f of fields || []) {
+    if (!f?.key) continue
+    const ehTelefone = f.type === 'phone' || CHAVES_DE_TELEFONE.has(String(f.mapTo || ''))
+    if (!ehTelefone) continue
+    const v = String(data?.[f.key] ?? '').trim()
+    if (v && !phoneKey(v)) return f.label ? `${f.label}: ${MSG_TELEFONE_INVALIDO}` : MSG_TELEFONE_INVALIDO
+  }
+  return null
+}
+
 // ── Validação de campo (espelho server-side do validador do embed) ────────────
 // MESMAS regras/mensagens do widget conversacional (generateConversationalPage):
 // statement/scheduling sempre válidos; required vazio; e-mail e telefone por regex.
@@ -445,7 +465,7 @@ export function validateFieldValue(field: any, value: string): string | null {
   const v = (value ?? '').trim()
   if (field.required && !v) return 'Campo obrigatório'
   if (v && field.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return 'E-mail inválido'
-  if (v && field.type === 'phone' && v.replace(/\D/g, '').length < 8) return 'Telefone inválido'
+  if (v && field.type === 'phone' && !phoneKey(v)) return MSG_TELEFONE_INVALIDO
   if (v && field.type === 'scale') {
     const { min, max } = scaleRange(field)
     const n = Number(v)

@@ -342,6 +342,35 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
     },
   })
 
+  // 1b. A principal tem telefone que não é telefone e a duplicata traz um válido:
+  // é a pessoa corrigindo o próprio número. Sem isto as mensagens da duplicata
+  // (desviadas para a principal por lib/prisma.ts → leadDaConversa) ficavam numa
+  // conversa com o número errado na tela, e o contato aparecia duas vezes
+  // (fabad, Daniel Bertulino, 10/11: "119878803" × +55 11 98788-0379).
+  // Só adota quando nenhuma OUTRA ficha já usa o número — "um número, uma conversa".
+  let telefoneAdotado: string | null = null
+  if (master.matchType !== 'whatsapp') {
+    const chaveNova = phoneKey(newLead.whatsapp)
+    const principal = await prisma.lead.findUnique({ where: { id: masterId }, select: { whatsapp: true, phoneKey: true } })
+    if (chaveNova && principal && !phoneKey(principal.whatsapp)) {
+      const outra = await prisma.lead.findFirst({
+        where: { phoneKey: chaveNova, id: { notIn: [masterId, newLead.id] } },
+        select: { id: true },
+      })
+      if (!outra) {
+        await prisma.lead.update({ where: { id: masterId }, data: { whatsapp: newLead.whatsapp } })
+        telefoneAdotado = newLead.whatsapp
+        logEvent({
+          leadId: masterId, type: EVENT_TYPES.LEAD_EDITED, category: 'lifecycle',
+          title: 'Telefone corrigido pela nova inscrição',
+          description: `O número "${principal.whatsapp || '(vazio)'}" não era um telefone válido; adotado ${newLead.whatsapp}, informado na ficha #${newLead.id}.`,
+          source: input.channel, actorType: 'system',
+          metadata: { de: principal.whatsapp, para: newLead.whatsapp, duplicateLeadId: newLead.id },
+        })
+      }
+    }
+  }
+
   // 2. LeadNote nos dois lados (rastro humano-legível dentro do lead)
   const channelPt: Record<CaptureChannel, string> = {
     forms: 'Form/Landing Page',
@@ -368,7 +397,7 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
           leadId: masterId,
           userId: null,
           userName: 'Sistema',
-          content: `Nova inscrição duplicada criada: ${newLeadLabel}${newLead.nome ? ' — ' + newLead.nome : ''}. Match por ${matchPt}, captura via ${channelPt[input.channel]}. Pendente de revisão.`,
+          content: `Nova inscrição duplicada criada: ${newLeadLabel}${newLead.nome ? ' — ' + newLead.nome : ''}. Match por ${matchPt}, captura via ${channelPt[input.channel]}. Pendente de revisão.${telefoneAdotado ? ` O telefone desta ficha era inválido e passou a ser ${telefoneAdotado}.` : ''}`,
         },
       ],
     })

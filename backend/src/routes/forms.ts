@@ -11,7 +11,7 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
 import { assertUrlIsPublic } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
-import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues, scaleRange, erroDeDependencia, rotaDaOpcao, depsDosSelects, aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
+import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues, scaleRange, erroDeDependencia, erroDeTelefone, rotaDaOpcao, depsDosSelects, aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
 import { escolherOperadorDaRota } from '../services/teamRouting.js'
 import { rejectLeadEntry, candidateFromForm } from '../services/leadBlocklist.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
@@ -138,6 +138,9 @@ export async function formsRoutes(app: FastifyInstance) {
           }
         }
       }
+      // Telefone que não é telefone não entra (ver formFlow.erroDeTelefone).
+      const erroTel = erroDeTelefone(fields, data)
+      if (erroTel) return reply.code(400).send({ ok: false, error: erroTel })
       // Lista dependente: a opção escolhida tem de valer para o valor do campo pai.
       const erroDep = erroDeDependencia(fields, data)
       if (erroDep) return reply.code(400).send({ ok: false, error: erroDep })
@@ -404,6 +407,8 @@ export async function formsRoutes(app: FastifyInstance) {
         entry.count++; submitCounts.set(ip, entry)
         if (entry.count > 5) return reply.code(429).send({ ok: false })
 
+        // Número inválido não cria ficha nem no início; o envio final avisa a pessoa.
+        if (erroDeTelefone(fields, data)) return reply.send({ ok: true, skipped: true })
         if (await rejectLeadEntry(candidateFromForm(fields, data, ip), 'formulário (início)')) {
           return reply.send({ ok: true })
         }
@@ -1427,7 +1432,7 @@ document.getElementById('bk-go').onclick=function(){var ie=document.getElementBy
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm,formId:FID})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
 function scMin(f){return (f.scaleMin===0||f.scaleMin)?Number(f.scaleMin):1;}
 function scMax(f){var m=(f.scaleMax===0||f.scaleMax)?Number(f.scaleMax):5;return m>scMin(f)?m:scMin(f)+1;}
-function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';if(v&&f.type==='scale'){var n=Number(v);if(!(n>=scMin(f)&&n<=scMax(f)))return 'Escolha uma nota de '+scMin(f)+' a '+scMax(f);}return '';}
+function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<10)return 'Telefone inválido — informe com DDD (fora do Brasil, comece com + e o código do país)';if(v&&f.type==='scale'){var n=Number(v);if(!(n>=scMin(f)&&n<=scMax(f)))return 'Escolha uma nota de '+scMin(f)+' a '+scMax(f);}return '';}
 function submit(){/* consentimento e' pedido no inicio (ver render); isto e' so' salvaguarda para formularios sem nenhum campo de coleta */if(!consentGiven){renderConsent();return;}doSubmit();}
 function renderConsent(){var h='<div class="screen"><div class="q">Antes de começar</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions">';if(idx>0||CFG.welcomeEnabled)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(CFG.navButtonText||'Continuar')+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');var bk=document.getElementById('back');if(bk)bk.onclick=function(){idx--;render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para continuar.';return;}consentGiven=true;render();};}
 function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}
