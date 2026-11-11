@@ -1875,10 +1875,19 @@ async function _process(
   if (cfgComercial) {
     const novo = estadoNovo || !!resumedFrom || await eNovoAtendimento(leadId)
     if (novo || !state.comercial) {
-      state.comercial = novo
-        ? await decidirModoComercial(cfgComercial)
-        : { modo: 'completo', em: new Date().toISOString(), motivo: 'atendimento já em andamento' }
+      // Sem decisão gravada (ex.: a triagem recomeçou) decide agora, olhando a
+      // equipe. Antes caía em 'completo' sem olhar e a IA vendia com a equipe online.
+      state.comercial = await decidirModoComercial(cfgComercial)
       app.log.info(`[aiJourney] lead ${leadId}: modo comercial = ${state.comercial.modo} (${state.comercial.motivo})`)
+    } else if (state.comercial.modo === 'completo') {
+      // Atendimento que começou com a equipe fora (madrugada, antes do horário,
+      // ninguém online) passa para a equipe assim que ela fica disponível: a
+      // IA não segue vendendo sozinha com a equipe comercial atendendo.
+      const agora = await decidirModoComercial(cfgComercial)
+      if (agora.modo === 'qualifica') {
+        app.log.info(`[aiJourney] lead ${leadId}: modo comercial completo → qualifica (equipe ficou disponível; antes: ${state.comercial.motivo})`)
+        state.comercial = { ...agora, motivo: `equipe ficou disponível no meio do atendimento (antes: ${state.comercial.motivo})` }
+      }
     }
   }
   const qualificando = !!cfgComercial && state.comercial?.modo === 'qualifica'
