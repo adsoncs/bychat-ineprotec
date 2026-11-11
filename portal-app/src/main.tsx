@@ -8,6 +8,10 @@ import { Contrato } from './Contrato'
 import './estilo.css'
 import { iniciarAtendimento, emAtendimento } from './atendimento'
 import { FaixaDoAtendimento } from './FaixaDoAtendimento'
+import { Acessibilidade, aplicarPreferencias } from './Acessibilidade'
+
+// Tamanho do texto e alto contraste escolhidos neste aparelho: antes do 1º desenho.
+aplicarPreferencias()
 
 // Inscrição assistida: antes de qualquer pedido ao servidor (atendimento.ts).
 iniciarAtendimento()
@@ -44,4 +48,12 @@ if (emAtendimento()) {
   const no = document.createElement('div')
   document.body.insertBefore(no, document.body.firstChild)
   render(<FaixaDoAtendimento />, no)
+}
+
+// Botão "Acessibilidade" (tamanho do texto, alto contraste): em todas as telas,
+// num nó próprio no começo da página — é o primeiro item que o teclado alcança.
+{
+  const no = document.createElement('div')
+  document.body.insertBefore(no, document.body.firstChild)
+  render(<Acessibilidade />, no)
 }

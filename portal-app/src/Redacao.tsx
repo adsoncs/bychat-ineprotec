@@ -2,6 +2,7 @@
 // dentro da inscrição e do portal logado. Tema sorteado ao iniciar, cronômetro,
 // salvamento automático, bloqueio de colar quando o processo pede.
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { BotaoOuvir } from './Acessibilidade'
 import { estadoDaRedacao, iniciarRedacao, salvarRedacao, enviarRedacao, type EstadoRedacao, type TentativaRedacao, type TelemetriaRedacao, type FalhaPedido } from './api'
 
 const palavras = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0)
@@ -239,7 +240,7 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
   return (
     <div class="redacao">
       <div class="ada-oculto" aria-live="assertive" aria-atomic="true">{anuncio}</div>
-      <div class="tema"><h3 class="tema-titulo">Tema</h3><p>{rascunho.prompt}</p></div>
+      <div class="tema"><div class="tema-topo"><h3 class="tema-titulo">Tema</h3><BotaoOuvir texto={rascunho.prompt ?? ''} rotulo="Ouvir o tema" /></div><p>{rascunho.prompt}</p></div>
       <div class="redacao-barra">
         <span role="timer" aria-label={restante != null ? `Tempo restante: ${min} minutos e ${seg} segundos` : undefined} class={restante != null && restante < 5 * 60000 ? 'alerta' : ''}>{restante != null ? `⏱ ${String(min).padStart(2, '0')}:${String(seg).padStart(2, '0')}` : ''}</span>
         <span>{n} palavra(s){cfg.minWords ? ` · mín. ${cfg.minWords}` : ''}{cfg.maxWords ? ` · máx. ${cfg.maxWords}` : ''}</span>
