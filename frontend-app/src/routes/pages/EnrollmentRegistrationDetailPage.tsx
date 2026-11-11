@@ -1,5 +1,5 @@
 import { FaixaDoPortal } from '@/lib/identidadePortal'
-import { FaturasVencidasCard } from '@/components/educational/FaturasVencidasCard'
+import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, type Tentativa } from '@/components/educational/PagamentosDaMatricula'
 import { ComercialInscricaoCard } from '@/components/comercial/ComercialInscricaoCard'
 import { ContratoPresencialModal, HistoricoDaInscricao, PagamentoManualModal } from './enrollmentPortal/InscricaoAssistida'
 import { AbaFinanceiro } from './enrollmentPortal/matricula/AbaFinanceiro'
@@ -42,13 +42,13 @@ import { variacaoDaOferta } from '@/lib/variacaoDaOferta'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/apiClient'
-import { agruparCobrancas, resumoDoPlano, reais } from '@/lib/cobrancas'
+import { resumoDoPlano, reais } from '@/lib/cobrancas'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
 import { EssayReviewModal } from './educational/EducationalEvaluationsPage'
 import { useEssaySubmission } from '@/hooks/useEducationalReview'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
-import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
+import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel } from '@/lib/paymentLabels'
 import { SeiInscricaoCard } from './integrations/SeiIntegration'
 import { MoodleInscricaoCard } from './integrations/MoodleIntegration'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
@@ -213,9 +213,9 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               acoes={podePagamentoManual && review.registration.paymentStatus !== 'paid' && aberta
                 ? <Button variant="secondary" size="sm" onClick={() => setPagamentoManual(true)} title="Pagamento recebido fora do gateway (dinheiro, Pix direto, maquininha), com comprovante">Registrar pagamento manual</Button>
                 : undefined}>
-              <SomenteLeitura aviso={false} tela="enrollment_portals"><div class="grid gap-3"><FaturasVencidasCard registrationId={review.registration.id} podeOperar={podeAtender} /><PaymentMethodsBlock registrationId={review.registration.id} /></div></SomenteLeitura>
+              <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} podeOperar={podeAtender} /></SomenteLeitura>
             </AbaFinanceiro>
-          ) : <SomenteLeitura aviso={false} tela="enrollment_portals"><div class="grid gap-3"><FaturasVencidasCard registrationId={review.registration.id} podeOperar={podeAtender} /><PaymentMethodsBlock registrationId={review.registration.id} /></div></SomenteLeitura>)}
+          ) : <SomenteLeitura aviso={false} tela="enrollment_portals"><PaymentMethodsBlock registrationId={review.registration.id} podeOperar={podeAtender} /></SomenteLeitura>)}
 
           {aba === 'documentos' && (
             <div class="grid gap-3">
@@ -466,10 +466,8 @@ function EnemBlock({ registrationId }: { registrationId: number }) {
   )
 }
 
-function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
+function PaymentMethodsBlock({ registrationId, podeOperar }: { registrationId: number; podeOperar: boolean }) {
   const { data } = useRegistrationFull(registrationId)
-  // Antes de qualquer return: hook sempre na mesma ordem.
-  const [abertos, setAbertos] = useState<string[]>([])
   const sync = useSyncRegistrationPayment(registrationId)
   const methods = data?.registration.paymentMethods ?? []
   const paymentStatus = data?.registration.paymentStatus
@@ -478,15 +476,9 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
   // Pode aparecer mesmo sem methods (modo link antigo) — desde que requirePayment.
   if (methods.length === 0 && !requirePayment) return null
 
-  const methodLabel = paymentMethodLabel
-  const providerLabel = paymentProviderLabel
-  const statusTone = paymentStatusTone
-  const statusLabel = paymentStatusLabel
-
   const hasPending = methods.some(m => m.status !== 'paid') || paymentStatus !== 'paid'
-  // Tentativas iguais juntas (abre para ver cada uma) e o valor real do plano.
-  const grupos = agruparCobrancas(methods)
   const resumo = resumoDoPlano(data?.registration.paymentPlan, { status: paymentStatus ?? null, valor: data?.registration.paymentAmount ?? null })
+  const descontos = resumo ? resumo.descontoCupom + resumo.descontoAVista : 0
 
   function handleSync() {
     sync.mutate(undefined, {
@@ -507,7 +499,7 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
     <Card>
       <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <div class="text-xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-2">
-          <CreditCard size={12} /> Cobranças ({methods.length})
+          <CreditCard size={12} /> Pagamentos
         </div>
         {hasPending && (
           <Button
@@ -518,97 +510,32 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
             title="Consulta o status atual no gateway (Asaas, Pagar.me ou iugu) e replica no banco. Útil quando o webhook não chegou."
           >
             <RefreshCw size={11} class={sync.isPending ? 'animate-spin' : ''} />
-            {sync.isPending ? 'Sincronizando…' : 'Sincronizar agora'}
+            {sync.isPending ? 'Consultando…' : 'Consultar gateway'}
           </Button>
         )}
       </div>
-      {methods.length === 0 && (
-        <div class="text-xs text-fg-muted py-2">
-          Sem histórico de cobrança transparente.
-          {data?.registration.paymentUrl && (
-            <> Modo link: <a href={data.registration.paymentUrl} target="_blank" rel="noopener noreferrer" class="text-accent underline">abrir link de pagamento ↗</a></>
-          )}
-        </div>
-      )}
-      {resumo && (
-        <div class="rounded-md border border-border bg-surface-2 p-3 mb-3">
-          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Valor real da cobrança</div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            <div><div class="text-2xs text-fg-muted">Valor cheio</div><div class="tabular-nums">{reais(resumo.valorCheio)}</div></div>
-            <div>
-              <div class="text-2xs text-fg-muted">Descontos</div>
-              <div class="tabular-nums text-success">{resumo.descontoCupom + resumo.descontoAVista > 0 ? `−${reais(resumo.descontoCupom + resumo.descontoAVista)}` : '—'}</div>
-              {(resumo.cupom || resumo.descontoAVista > 0) && (
-                <div class="text-2xs text-fg-muted">{[resumo.cupom && `cupom ${resumo.cupom}`, resumo.descontoAVista > 0 && 'à vista'].filter(Boolean).join(' · ')}</div>
-              )}
-            </div>
-            {resumo.acrescimo > 0 && <div><div class="text-2xs text-fg-muted">Juros</div><div class="tabular-nums">+{reais(resumo.acrescimo)}</div></div>}
-            <div>
-              <div class="text-2xs text-fg-muted">{paymentStatus === 'paid' ? 'Recebido' : 'A receber'}</div>
-              <div class="tabular-nums font-semibold text-fg">{reais(resumo.valorCobrado)}</div>
-              <div class="text-2xs text-fg-muted">{[resumo.meio && methodLabel(resumo.meio), resumo.parcelas > 1 && `${resumo.parcelas}x`].filter(Boolean).join(' · ')}{' · antes das taxas do gateway'}</div>
-            </div>
+      <div class="space-y-4">
+        {resumo && (
+          <ResumoValores itens={[
+            { rotulo: 'Valor de tabela', valor: reais(resumo.valorCheio) },
+            { rotulo: 'Descontos', valor: descontos > 0 ? `−${reais(descontos)}` : '—', tom: descontos > 0 ? 'success' : undefined, extra: [resumo.cupom && `cupom ${resumo.cupom}`, resumo.descontoAVista > 0 && 'à vista'].filter(Boolean).join(' · ') },
+            resumo.acrescimo > 0 && { rotulo: 'Juros do parcelamento', valor: `+${reais(resumo.acrescimo)}` },
+            { rotulo: paymentStatus === 'paid' ? 'Recebido' : 'A receber', valor: reais(resumo.valorCobrado), extra: [resumo.meio && paymentMethodLabel(resumo.meio), resumo.parcelas > 1 && `${resumo.parcelas}x`].filter(Boolean).join(' · ') || null },
+          ]} />
+        )}
+        {methods.length === 0 && data?.registration.paymentUrl ? (
+          <div class="text-sm text-fg-muted">
+            Pagamento por link, sem cobrança registrada: <a href={data.registration.paymentUrl} target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">abrir link de pagamento ↗</a>
           </div>
-        </div>
-      )}
-      <ul class="space-y-2">
-        {grupos.map((g) => {
-          const m = g.principal
-          const varias = g.itens.length > 1
-          const aberto = abertos.includes(g.chave)
-          return (
-          <li key={g.chave} class={`rounded-md border p-3 ${m.status === 'pending' ? 'border-warning/40 bg-warning/5' : m.status === 'paid' ? 'border-success/40 bg-success/5' : 'border-border bg-surface'}`}>
-            <div class="flex items-start gap-3 flex-wrap">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 flex-wrap mb-1">
-                  {varias && <span class="text-xs font-semibold text-fg tabular-nums">{g.itens.length}×</span>}
-                  <span class="text-sm font-medium text-fg">{methodLabel(m.method)}</span>
-                  <span class="text-2xs text-fg-muted">via {providerLabel(m.provider)}</span>
-                  <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
-                  {m.status === 'pending' && <span class="text-2xs font-medium text-warning">cobrança vigente</span>}
-                </div>
-                <div class="text-xs text-fg-muted">
-                  Valor: <strong class="text-fg">{reais(m.amount)}</strong>
-                  {/* Vencimento é data (dia), não hora: "vence agora" confundia num boleto que vence amanhã. */}
-                  {!varias && m.expiresAt && m.status === 'pending' && <span> · vence em {new Date(m.expiresAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>}
-                  {m.paidAt && <span class="text-success"> · pago {formatRelative(m.paidAt)}</span>}
-                  {varias && <span> · última em {new Date(m.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>}
-                </div>
-                {m.method === 'credit_card' && (m.cardBrand || m.cardLastDigits) && (
-                  <div class="text-2xs text-fg-muted mt-1">{m.cardBrand || 'Cartão'} •••• {m.cardLastDigits || '????'}</div>
-                )}
-                {m.method === 'boleto' && m.boletoLine && (
-                  <div class="text-2xs text-fg-muted mt-1 font-mono truncate" title={m.boletoLine}>{m.boletoLine}</div>
-                )}
-                {m.lastErrorMessage && <div class="text-2xs text-danger mt-1">{m.lastErrorMessage}</div>}
-                {varias && (
-                  <button type="button" class="text-2xs text-accent hover:underline mt-1"
-                    onClick={() => setAbertos((x) => (aberto ? x.filter((k) => k !== g.chave) : [...x, g.chave]))}>
-                    {aberto ? 'Ocultar tentativas' : `Ver as ${g.itens.length} tentativas`}
-                  </button>
-                )}
-                {varias && aberto && (
-                  <ul class="mt-2 space-y-1 border-t border-border pt-2">
-                    {g.itens.map((t) => (
-                      <li key={t.id} class="text-2xs text-fg-muted flex flex-wrap gap-x-3">
-                        <span>{new Date(t.createdAt).toLocaleString('pt-BR')}</span>
-                        <span class="tabular-nums">{reais(t.amount)}</span>
-                        {t.externalId && <code class="font-mono">{t.externalId}</code>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              {m.boletoPdfUrl && (
-                <a href={m.boletoPdfUrl} target="_blank" rel="noopener noreferrer" class="text-2xs text-accent underline inline-flex items-center gap-1">
-                  <ExternalLink size={10} /> PDF
-                </a>
-              )}
-            </div>
-          </li>
-          )
-        })}
-      </ul>
+        ) : (
+          <ListaDeFaturas registrationId={registrationId} origem="inscricao" podeOperar={podeOperar} />
+        )}
+        {methods.length > 0 && (
+          <Recolhivel titulo={`Histórico técnico · ${methods.length} ${methods.length === 1 ? 'tentativa' : 'tentativas'} no gateway`} dica="cada cobrança criada no gateway, com o código">
+            <TentativasDeCobranca tentativas={methods as unknown as Tentativa[]} />
+          </Recolhivel>
+        )}
+      </div>
     </Card>
   )
 }

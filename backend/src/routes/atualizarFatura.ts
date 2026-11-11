@@ -1,6 +1,9 @@
 // routes/atualizarFatura.ts — "Atualizar fatura vencida" (services/atualizarFatura).
 //   Equipe:  GET  /api/admin/enrollment-registrations/:id/faturas
 //            POST /api/admin/enrollment-registrations/:id/faturas/atualizar  { chave, vencimento }
+//   Financeiro do portal (mesmas rotas, permissão da tela edu_financeiro_portal):
+//            GET  /api/admin/educational/portal-financeiro/:id/faturas
+//            POST /api/admin/educational/portal-financeiro/:id/faturas/atualizar
 //   Aluno:   POST /api/public/portal/area/fatura/atualizar                  { codigo, chave }  (Meu Portal, cookie)
 //            POST /api/public/registrations/:code/fatura/atualizar          { chave }          (tela de pagamento, token)
 // O aluno só atualiza a vencida e só para hoje; a equipe escolhe a data.
@@ -16,23 +19,27 @@ import { hojeBr } from '../services/pagamentoCombinado.js'
 const CHAVE = /^(titulo:\d+|reg:\d+|asaas:[A-Za-z0-9_]+)$/
 
 export async function atualizarFaturaRoutes(app: FastifyInstance) {
-  app.get('/api/admin/enrollment-registrations/:id/faturas', { preHandler: guardTela('admin') }, async (req, reply) => {
-    const r = await inscricaoParaFaturas(Number((req.params as any).id))
-    if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada.' })
-    const { faturas, aviso } = await faturasDaInscricao(r)
-    return { faturas, aviso, hoje: hojeBr() }
-  })
+  // Mesmo serviço nas duas telas da equipe; o guardTela decide a permissão
+  // pela URL (inscrição = Portal de Matrículas; Financeiro = Financeiro do portal).
+  for (const base of ['/api/admin/enrollment-registrations', '/api/admin/educational/portal-financeiro']) {
+    app.get(`${base}/:id/faturas`, { preHandler: guardTela('admin') }, async (req, reply) => {
+      const r = await inscricaoParaFaturas(Number((req.params as any).id))
+      if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada.' })
+      const { faturas, aviso } = await faturasDaInscricao(r)
+      return { faturas, aviso, hoje: hojeBr() }
+    })
 
-  app.post('/api/admin/enrollment-registrations/:id/faturas/atualizar', { preHandler: guardTela('admin') }, async (req, reply) => {
-    const id = Number((req.params as any).id)
-    const b = (req.body as any) || {}
-    const chave = String(b.chave || '')
-    if (!CHAVE.test(chave)) return reply.code(400).send({ error: 'Fatura inválida.' })
-    const user = (req as any).user as JwtPayload
-    const r = await atualizarFaturaVencida({ registrationId: id, chave, vencimento: b.vencimento ? String(b.vencimento) : null, ator: { tipo: 'atendente', userId: user?.userId ?? null, nome: (user as any)?.name ?? null, req } })
-    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
-    return { ...r, mensagem: await mensagemDaFaturaAtualizada(id, r) }
-  })
+    app.post(`${base}/:id/faturas/atualizar`, { preHandler: guardTela('admin') }, async (req, reply) => {
+      const id = Number((req.params as any).id)
+      const b = (req.body as any) || {}
+      const chave = String(b.chave || '')
+      if (!CHAVE.test(chave)) return reply.code(400).send({ error: 'Fatura inválida.' })
+      const user = (req as any).user as JwtPayload
+      const r = await atualizarFaturaVencida({ registrationId: id, chave, vencimento: b.vencimento ? String(b.vencimento) : null, ator: { tipo: 'atendente', userId: user?.userId ?? null, nome: (user as any)?.name ?? null, req } })
+      if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+      return { ...r, mensagem: await mensagemDaFaturaAtualizada(id, r) }
+    })
+  }
 
   app.post('/api/public/portal/area/fatura/atualizar', async (req, reply) => {
     reply.header('cache-control', 'no-store')

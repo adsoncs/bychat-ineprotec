@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import {
   Wallet, Clock, AlertTriangle, TrendingUp, Receipt, Percent, Download, RefreshCw, X,
-  CheckCircle2, Ban, Undo2, Send, Copy, Eye, QrCode, FileText, CreditCard, Banknote, Filter, Mail,
+  CheckCircle2, Ban, Undo2, Send, Copy, Eye, Filter, Mail,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -16,8 +16,6 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Pagination } from '@/components/ui/Pagination'
 import { toast } from '@/lib/toast'
-import { agruparCobrancas } from '@/lib/cobrancas'
-import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { baixarCsv } from '@/lib/baixarCsv'
 import {
   usePortalFinanceiro, useDetalheFinanceiro, useCancelarCobranca, useEstornar,
@@ -28,7 +26,9 @@ import { PagamentoManualModal } from '@/routes/pages/enrollmentPortal/InscricaoA
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEducational'
 import { Pode } from '@/components/auth/Pode'
-import { FaturasVencidasCard } from '@/components/educational/FaturasVencidasCard'
+import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, quandoBr } from '@/components/educational/PagamentosDaMatricula'
+import { useCan } from '@/hooks/usePermissions'
+import { COLUNAS_FIN, SeletorDeColunas, useColunasFin } from './financeiroColunas'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -55,7 +55,10 @@ function hojeMenos(dias: number) {
 }
 
 export function EducationalPortalFinanceiroPage() {
-  const [f, setF] = useState<FiltrosFin>({ de: hojeMenos(90), ate: hojeMenos(0), limit: 50, offset: 0, ordenar: 'recentes' })
+  const [f, setF] = useState<FiltrosFin>({ dataPor: 'pagamento', de: hojeMenos(90), ate: hojeMenos(0), limit: 50, offset: 0, ordenar: 'recentes' })
+  const [colunas, setColunas] = useColunasFin()
+  const visiveis = COLUNAS_FIN.filter((c) => colunas.includes(c.id))
+  const porPagamento = (f.dataPor ?? 'pagamento') === 'pagamento'
   const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState<number | null>(null)
   const q = usePortalFinanceiro(f)
@@ -67,7 +70,7 @@ export function EducationalPortalFinanceiroPage() {
 
   const set = (patch: Partial<FiltrosFin>) => setF((a) => ({ ...a, ...patch, offset: 0 }))
   const temFiltro = !!(f.portalId || f.courseId || f.offeringId || f.processId || f.situacao || f.meio || f.gateway || f.escopo || f.cupom || f.search)
-  const limpar = () => { setBusca(''); setF({ de: f.de, ate: f.ate, limit: 50, offset: 0, ordenar: 'recentes' }) }
+  const limpar = () => { setBusca(''); setF({ dataPor: f.dataPor, de: f.de, ate: f.ate, limit: 50, offset: 0, ordenar: 'recentes' }) }
 
   const maxDia = useMemo(() => Math.max(1, ...(ind?.porDia ?? []).map((d) => d.valor)), [ind])
 
@@ -89,6 +92,11 @@ export function EducationalPortalFinanceiroPage() {
       {/* Período — o recorte de todos os números da tela */}
       <Card class="p-3 mb-4">
         <div class="flex flex-wrap items-end gap-3">
+          <Select label="Data de" value={f.dataPor ?? 'pagamento'} onChange={(e) => set({ dataPor: (e.target as HTMLSelectElement).value as FiltrosFin['dataPor'] })}>
+            <option value="pagamento">Pagamento</option>
+            <option value="vencimento">Vencimento</option>
+            <option value="inscricao">Inscrição</option>
+          </Select>
           <Input label="De" type="date" value={f.de ?? ''} onInput={(e) => set({ de: (e.target as HTMLInputElement).value })} />
           <Input label="Até" type="date" value={f.ate ?? ''} onInput={(e) => set({ ate: (e.target as HTMLInputElement).value })} />
           <div class="flex gap-1 pb-0.5">
@@ -96,12 +104,16 @@ export function EducationalPortalFinanceiroPage() {
               <Button key={r} size="sm" variant={f.de === hojeMenos(d as number) && f.ate === hojeMenos(0) ? 'primary' : 'ghost'} onClick={() => set({ de: hojeMenos(d as number), ate: hojeMenos(0) })}>{r}</Button>
             ))}
           </div>
-          <div class="text-2xs text-fg-muted pb-2 ml-auto">Período pela data da inscrição.</div>
+          <div class="text-2xs text-fg-muted pb-2 ml-auto max-w-xs">
+            {porPagamento ? 'Mostra quem pagou nessas datas (1ª cobrança, parcelas e pagamentos combinados), no dia em que o dinheiro entrou.'
+              : f.dataPor === 'vencimento' ? 'Mostra as cobranças que vencem nessas datas, pagas ou não.'
+                : 'Mostra as inscrições feitas nessas datas.'}
+          </div>
         </div>
       </Card>
 
       <div class="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-4">
-        <KpiCard label="Recebido" value={brl(ind?.recebido)} hint={`${ind?.pagos ?? 0} pagamento(s)`} icon={<Wallet size={16} />} tone="success" loading={q.isLoading} />
+        <KpiCard label={porPagamento ? 'Recebido no período' : 'Recebido'} value={brl(ind?.recebido)} hint={`${ind?.pagamentos ?? ind?.pagos ?? 0} pagamento(s)${ind?.parcelasPagas ? `, ${ind.parcelasPagas} de parcelas` : ''}`} icon={<Wallet size={16} />} tone="success" loading={q.isLoading} />
         <KpiCard label="A receber" value={brl(ind?.pendente)} hint={`${ind?.porSituacao?.pendente ?? 0} cobrança(s) em aberto`} icon={<Clock size={16} />} tone="warning" loading={q.isLoading} />
         <KpiCard label="Vencido" value={brl(ind?.vencido)} hint={`${ind?.porSituacao?.vencido ?? 0} sem pagar no prazo`} icon={<AlertTriangle size={16} />} tone="danger" loading={q.isLoading} />
         <KpiCard label="Conversão" value={`${(ind?.conversao ?? 0).toLocaleString('pt-BR')}%`} hint={`${ind?.pagos ?? 0} de ${ind?.comCobranca ?? 0} com cobrança`} icon={<TrendingUp size={16} />} tone="accent" loading={q.isLoading} />
@@ -199,6 +211,7 @@ export function EducationalPortalFinanceiroPage() {
           <Select label="Ordenar" value={f.ordenar ?? 'recentes'} onChange={(e) => set({ ordenar: (e.target as HTMLSelectElement).value })}>
             <option value="recentes">Inscrição mais recente</option>
             <option value="pagamento">Pagamento mais recente</option>
+            <option value="recebido">Maior valor pago no período</option>
             <option value="vencimento">Vence primeiro</option>
             <option value="valor">Maior valor</option>
           </Select>
@@ -222,6 +235,10 @@ export function EducationalPortalFinanceiroPage() {
         </div>
       </Card>
 
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <div class="text-xs text-fg-muted">{q.data ? `${q.data.total} ${q.data.total === 1 ? 'matrícula' : 'matrículas'}` : ''}</div>
+        <SeletorDeColunas ids={colunas} aoMudar={setColunas} />
+      </div>
       <Card class="p-0 overflow-hidden">
         {q.isLoading ? (
           <div class="p-4 space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} class="h-10 w-full" />)}</div>
@@ -229,11 +246,12 @@ export function EducationalPortalFinanceiroPage() {
           <EmptyState icon={<Wallet size={22} />} title="Nenhuma cobrança no recorte" description={temFiltro ? 'Ajuste ou limpe os filtros.' : 'Quando candidatos pagarem pelo portal, os pagamentos aparecem aqui.'} />
         ) : (
           <>
-            <Table minWidth="72rem">
+            <Table minWidth={`${Math.max(40, 14 + visiveis.length * 8)}rem`}>
               <THead>
                 <TR>
-                  <TH>Candidato</TH><TH>Curso / oferta</TH><TH>Cobrança</TH><TH align="right">Tabela</TH><TH align="right">Desconto</TH>
-                  <TH align="right">A receber</TH><TH>Meio</TH><TH>Situação</TH><TH>Pago / vence</TH><TH> </TH>
+                  <TH>Candidato</TH>
+                  {visiveis.map((c) => <TH key={c.id} align={c.direita ? 'right' : undefined}><span title={c.dica}>{c.rotulo}</span></TH>)}
+                  <TH> </TH>
                 </TR>
               </THead>
               <TBody>
@@ -244,20 +262,7 @@ export function EducationalPortalFinanceiroPage() {
                       <div class="text-2xs text-fg-muted font-mono">{l.candidateCode}</div>
                       {!!l.mescladas?.length && <div class="text-2xs text-fg-muted" title="Inscrições da mesma pessoa mescladas nesta">inclui {l.mescladas.join(', ')}</div>}
                     </TD>
-                    <TD>
-                      <div class="text-sm">{l.curso?.nome ?? '—'}</div>
-                      <div class="text-2xs text-fg-muted">{l.oferta?.nome ?? l.portal?.nome ?? ''}</div>
-                    </TD>
-                    <TD><span class="text-xs">{l.rotulo}</span></TD>
-                    <TD align="right" class="tabular-nums">{brl(l.valorTabela)}</TD>
-                    <TD align="right" class="tabular-nums">
-                      {l.descontoCupom + l.descontoAVista > 0 ? <span class="text-success">−{brl(l.descontoCupom + l.descontoAVista)}</span> : '—'}
-                      {l.cupom && <div class="text-2xs text-fg-muted font-mono">{l.cupom}</div>}
-                    </TD>
-                    <TD align="right" class="tabular-nums font-medium">{brl(l.valorCobrado)}{l.parcelas > 1 && <div class="text-2xs text-fg-muted">{l.parcelas}x</div>}</TD>
-                    <TD><span class="text-xs">{l.meio ? MEIO[l.meio] : '—'}</span>{l.gateway && <div class="text-2xs text-fg-muted">{GATEWAY[l.gateway] ?? l.gateway}</div>}</TD>
-                    <TD><Badge tone={SITUACAO[l.situacao].tom}>{SITUACAO[l.situacao].rotulo}</Badge></TD>
-                    <TD><span class="text-xs">{l.situacao === 'pago' ? data(l.pagoEm, true) : data(l.venceEm, true)}</span></TD>
+                    {visiveis.map((c) => <TD key={c.id} align={c.direita ? 'right' : undefined}>{c.render(l)}</TD>)}
                     <TD><Eye size={14} class="text-fg-muted" /></TD>
                   </TR>
                 ))}
@@ -276,7 +281,7 @@ export function EducationalPortalFinanceiroPage() {
 }
 
 function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
-  const [abertos, setAbertos] = useState<string[]>([])
+  const podeOperar = useCan('edu_financeiro_portal', 'edit')
   const q = useDetalheFinanceiro(id)
   const sync = useSincronizarPagamento()
   const reenviar = useReenviarLink()
@@ -304,12 +309,12 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
             {l.portal && <a class="text-xs text-accent hover:underline" href={`/app/enrollment-portals/${l.portal.id}/registrations/${l.id}`}>Abrir inscrição</a>}
           </div>
 
-          <div class="grid gap-3 sm:grid-cols-4">
-            <Resumo rotulo="Valor de tabela" valor={brl(l.valorTabela)} />
-            <Resumo rotulo="Descontos" valor={l.descontoCupom + l.descontoAVista > 0 ? `−${brl(l.descontoCupom + l.descontoAVista)}` : '—'} extra={[l.cupom && `cupom ${l.cupom}`, l.descontoAVista > 0 && 'à vista PIX'].filter(Boolean).join(' · ')} />
-            <Resumo rotulo={l.situacao === 'pago' ? 'Recebido' : 'A receber'} valor={brl(l.valorCobrado)} extra={l.parcelas > 1 ? `${l.parcelas}x${l.acrescimo ? ` · +${brl(l.acrescimo)} juros` : ''}` : undefined} />
-            <Resumo rotulo={l.situacao === 'pago' ? 'Pago em' : 'Vence em'} valor={l.situacao === 'pago' ? data(l.pagoEm, true) : data(l.venceEm, true)} extra={l.meio ? `${MEIO[l.meio]}${l.gateway ? ` · ${GATEWAY[l.gateway] ?? l.gateway}` : ''}` : undefined} />
-          </div>
+          <ResumoValores itens={[
+            { rotulo: 'Valor de tabela', valor: brl(l.valorTabela) },
+            { rotulo: 'Descontos', valor: l.descontoCupom + l.descontoAVista > 0 ? `−${brl(l.descontoCupom + l.descontoAVista)}` : '—', tom: l.descontoCupom + l.descontoAVista > 0 ? 'success' : undefined, extra: [l.cupom && `cupom ${l.cupom}`, l.descontoAVista > 0 && 'à vista PIX'].filter(Boolean).join(' · ') },
+            { rotulo: l.situacao === 'pago' ? 'Recebido' : 'A receber', valor: brl(l.valorCobrado), extra: l.parcelas > 1 ? `${l.parcelas}x${l.acrescimo ? ` · +${brl(l.acrescimo)} juros` : ''}` : null },
+            { rotulo: l.situacao === 'pago' ? 'Pago em' : 'Vence em', valor: l.situacao === 'pago' ? data(l.pagoEm, true) : data(l.venceEm, true), extra: l.meio ? `${MEIO[l.meio]}${l.gateway ? ` · ${GATEWAY[l.gateway] ?? l.gateway}` : ''}` : null },
+          ]} />
 
           <div class="grid gap-3 sm:grid-cols-3 text-sm">
             <div><div class="text-2xs text-fg-muted">Curso / oferta</div>{l.curso?.nome ?? '—'}<div class="text-xs text-fg-muted">{l.oferta?.nome}</div></div>
@@ -347,73 +352,47 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
           </div>
 
           <div>
-            <div class="text-sm font-semibold mb-2">Tentativas de pagamento ({d.tentativas.length})</div>
-            {!!l.mescladas?.length && <div class="text-xs text-fg-muted mb-2">Inclui as tentativas de {l.mescladas.join(', ')}, mescladas nesta inscrição.</div>}
-            {!d.tentativas.length ? <div class="text-xs text-fg-muted">Nenhuma cobrança gerada ainda.</div> : (
-              <Table minWidth="44rem">
-                <THead><TR><TH>Quando</TH><TH>Meio</TH><TH>Gateway</TH><TH align="right">Valor</TH><TH>Status</TH><TH>Detalhe</TH></TR></THead>
-                <TBody>
-                  {agruparCobrancas(d.tentativas).flatMap((g) => (abertos.includes(g.chave) ? g.itens : [g.principal]).map((t, i) => (
-                    <TR key={t.id} class={i > 0 ? 'bg-surface-2' : ''}>
-                      <TD>
-                        <span class="text-xs">{data(t.createdAt, true)}</span>
-                        {i === 0 && g.itens.length > 1 && (
-                          <button class="block text-2xs text-accent hover:underline" onClick={() => setAbertos((x) => (x.includes(g.chave) ? x.filter((k) => k !== g.chave) : [...x, g.chave]))}>
-                            {abertos.includes(g.chave) ? 'ocultar iguais' : `+${g.itens.length - 1} iguais`}
-                          </button>
-                        )}
-                        {t.deInscricao && <span class="block text-2xs text-fg-muted font-mono">de {t.deInscricao}</span>}
-                      </TD>
-                      <TD>
-                        <span class="inline-flex items-center gap-1 text-xs">
-                          {t.method === 'pix' ? <QrCode size={12} /> : t.method === 'boleto' ? <FileText size={12} /> : t.method === 'credit_card' ? <CreditCard size={12} /> : <Banknote size={12} />}
-                          {t.method === 'credit_card' ? 'Cartão' : t.method === 'pix' ? 'PIX' : t.method === 'boleto' ? 'Boleto' : t.method}
-                        </span>
-                      </TD>
-                      <TD><span class="text-xs">{GATEWAY[t.provider] ?? t.provider}</span></TD>
-                      <TD align="right" class="tabular-nums">{brl(t.amount)}</TD>
-                      <TD><Badge tone={paymentStatusTone(t.status)}>{paymentStatusLabel(t.status)}</Badge></TD>
-                      <TD>
-                        <div class="text-2xs text-fg-muted max-w-[18rem] break-words">
-                          {t.cardLastDigits && `${t.cardBrand ?? 'Cartão'} final ${t.cardLastDigits} · `}
-                          {t.lastErrorMessage ?? ''}
-                          {t.boletoLine && <button class="text-accent hover:underline ml-1" onClick={() => copiar(t.boletoLine!)}>copiar linha</button>}
-                          {t.qrCode && <button class="text-accent hover:underline ml-1" onClick={() => copiar(t.qrCode!)}>copiar PIX</button>}
-                          {t.boletoPdfUrl && <a class="text-accent hover:underline ml-1" href={t.boletoPdfUrl} target="_blank" rel="noopener">PDF</a>}
-                          {t.externalId && <div class="font-mono">{t.externalId}</div>}
-                        </div>
-                      </TD>
-                    </TR>
-                  )))}
-                </TBody>
-              </Table>
-            )}
+            <div class="text-sm font-semibold mb-2">Pagamentos</div>
+            <ListaDeFaturas registrationId={id} origem="financeiro" podeOperar={podeOperar} />
           </div>
 
-          <Pode tela="enrollment_portals" acao="edit" senao={<FaturasVencidasCard registrationId={id} podeOperar={false} />}><FaturasVencidasCard registrationId={id} /></Pode>
-
-          <div class="grid gap-4 md:grid-cols-2">
+          <Recolhivel titulo="Histórico técnico" dica={`${d.tentativas.length} ${d.tentativas.length === 1 ? 'tentativa' : 'tentativas'} · ${d.eventos.length} eventos · ${d.avisos.length} avisos do gateway`}>
             <div>
-              <div class="text-sm font-semibold mb-2">Linha do tempo</div>
-              {!d.eventos.length ? <div class="text-xs text-fg-muted">Sem eventos de pagamento.</div> : (
-                <ul class="space-y-1.5">
-                  {d.eventos.map((e) => (
-                    <li key={e.id} class="text-xs"><span class="text-fg-muted">{data(e.createdAt, true)}</span> · {e.title}{e.userName ? ` (${e.userName})` : ''}{e.description && <div class="text-2xs text-fg-muted">{e.description}</div>}</li>
-                  ))}
-                </ul>
-              )}
+              <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Tentativas no gateway</div>
+              {!!l.mescladas?.length && <div class="text-xs text-fg-muted mb-2">Inclui as tentativas de {l.mescladas.join(', ')}, mescladas nesta inscrição.</div>}
+              <TentativasDeCobranca tentativas={d.tentativas} />
             </div>
-            <div>
-              <div class="text-sm font-semibold mb-2">Avisos do gateway ({d.avisos.length})</div>
-              {!d.avisos.length ? <div class="text-xs text-fg-muted">Nenhum aviso recebido.</div> : (
-                <ul class="space-y-1.5">
-                  {d.avisos.map((a) => (
-                    <li key={a.id} class="text-xs"><span class="text-fg-muted">{data(a.receivedAt, true)}</span> · {GATEWAY[a.provider] ?? a.provider} · {a.eventType} · <Badge tone={a.status === 'processed' ? 'success' : a.status === 'error' ? 'danger' : 'neutral'}>{a.status}</Badge>{a.errorMessage && <div class="text-2xs text-danger">{a.errorMessage}</div>}</li>
-                  ))}
-                </ul>
-              )}
+            <div class="grid gap-4 md:grid-cols-2">
+              <div>
+                <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Linha do tempo</div>
+                {!d.eventos.length ? <div class="text-xs text-fg-muted">Sem eventos de pagamento.</div> : (
+                  <ol class="space-y-2 border-l border-border pl-3">
+                    {d.eventos.map((e) => (
+                      <li key={e.id} class="text-xs">
+                        <div class="text-2xs text-fg-muted tabular-nums">{quandoBr(e.createdAt)}{e.userName ? ` · ${e.userName}` : ''}</div>
+                        <div class="text-fg">{e.title}</div>
+                        {e.description && <div class="text-2xs text-fg-muted">{e.description}</div>}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+              <div>
+                <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Avisos do gateway</div>
+                {!d.avisos.length ? <div class="text-xs text-fg-muted">Nenhum aviso recebido.</div> : (
+                  <ol class="space-y-2 border-l border-border pl-3">
+                    {d.avisos.map((a) => (
+                      <li key={a.id} class="text-xs">
+                        <div class="text-2xs text-fg-muted tabular-nums">{quandoBr(a.receivedAt)} · {GATEWAY[a.provider] ?? a.provider}</div>
+                        <div class="flex items-center gap-2"><span class="font-mono text-fg">{a.eventType}</span><Badge tone={a.status === 'processed' ? 'success' : a.status === 'error' ? 'danger' : 'neutral'}>{a.status === 'processed' ? 'processado' : a.status === 'error' ? 'erro' : a.status}</Badge></div>
+                        {a.errorMessage && <div class="text-2xs text-danger">{a.errorMessage}</div>}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
             </div>
-          </div>
+          </Recolhivel>
           {d.cupom && <div class="text-xs text-fg-muted">Cupom <span class="font-mono text-fg">{d.cupom.code}</span> consumido em {data(d.cupom.em, true)} · desconto {brl(d.cupom.desconto)}</div>}
         </div>
       )}
@@ -435,16 +414,6 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
         })}
       />
     </Modal>
-  )
-}
-
-function Resumo({ rotulo, valor, extra }: { rotulo: string; valor: string; extra?: string | undefined }) {
-  return (
-    <div class="rounded-md border border-border bg-surface-2 p-3">
-      <div class="text-2xs text-fg-muted">{rotulo}</div>
-      <div class="text-base font-semibold tabular-nums">{valor}</div>
-      {extra && <div class="text-2xs text-fg-muted">{extra}</div>}
-    </div>
   )
 }
 

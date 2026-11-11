@@ -57,8 +57,77 @@ const SELECT_LINHA = {
     },
   },
   paymentMethods: { orderBy: { createdAt: 'desc' as const }, take: 1, select: { provider: true, method: true, status: true } },
+  titulos: { select: { ordem: true, origem: true, meio: true, pagoComo: true, status: true, valorCentavos: true, valorPagoCentavos: true, paidAt: true, vencimento: true, externalId: true } },
   _count: { select: { paymentMethods: true } },
 } as const
+
+/** Dia de Brasília (YYYY-MM-DD) de uma data com hora, ou a própria data. */
+const diaBr = (v: Date | string | null | undefined): string | null => {
+  if (!v) return null
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d)
+}
+const hojeBrDia = () => diaBr(new Date())!
+const centavos = (n: number) => Math.round(n * 100) / 100
+
+/** Cada dinheiro que ENTROU (no dia em que entrou) e cada cobrança da matrícula
+ *  com o seu vencimento: 1ª cobrança do portal, parcelas geradas no Meu Portal e
+ *  títulos do combinado/acordo. O título que é a própria 1ª cobrança (mesmo id
+ *  no gateway) conta uma vez só. */
+export interface Recebimento { dia: string; em: string | null; valor: number; meio: string | null; origem: 'cobranca' | 'parcela' | 'titulo'; rotulo: string }
+export interface Vencimento { dia: string; valor: number; paga: boolean; rotulo: string }
+function movimentos(r: any, plano: Record<string, any>) {
+  const recebimentos: Recebimento[] = []
+  const vencimentos: Vencimento[] = []
+  // Combinado: o plano diz "combinado"; o meio é o do título que é a 1ª cobrança.
+  const tituloDaReg = ((r.titulos ?? []) as any[]).find((t) => t.externalId && t.externalId === r.paymentId)
+  const meioDaReg = meioDe(plano.meio ?? r.paymentMethod) ?? meioDe(tituloDaReg?.pagoComo ?? tituloDaReg?.meio) ?? meioDe(r.paymentMethods?.[0]?.method)
+  const valorDaReg = r.paymentStatus === 'paid'
+    ? Number(r.paymentAmount ?? plano.valorCobrado ?? 0)
+    : Number(plano.valorCobrado ?? r.paymentAmount ?? 0)
+  const nParcelas = Number(plano.parcelas ?? 1) || 1
+  const rotuloReg = nParcelas > 1 ? `Parcela 1 de ${nParcelas}` : (plano.rotulo ?? 'Cobrança')
+  if (r.paymentStatus === 'paid' && r.paymentPaidAt) {
+    recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })
+  }
+  if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled') {
+    vencimentos.push({ dia: diaBr(r.paymentExpiresAt)!, valor: valorDaReg, paga: r.paymentStatus === 'paid', rotulo: rotuloReg })
+  }
+  for (const [n, g] of Object.entries((plano.parcelasPortal ?? {}) as Record<string, any>)) {
+    if (!g || g.situacao === 'renegociada' || g.situacao === 'cancelada') continue
+    const rot = `Parcela ${n}${nParcelas > 1 ? ` de ${nParcelas}` : ''}`
+    const valor = Number(g.valor ?? 0)
+    if (g.situacao === 'paga' && g.pagaEm) recebimentos.push({ dia: diaBr(g.pagaEm)!, em: String(g.pagaEm).length > 10 ? String(g.pagaEm) : null, valor, meio: 'boleto', origem: 'parcela', rotulo: rot })
+    if (g.vencimento) vencimentos.push({ dia: String(g.vencimento).slice(0, 10), valor, paga: g.situacao === 'paga', rotulo: rot })
+  }
+  const titulos = (r.titulos ?? []) as any[]
+  const totalTit = titulos.filter((t) => t.status !== 'cancelada' && t.status !== 'renegociada').length
+  for (const t of titulos) {
+    if (t.externalId && r.paymentId && t.externalId === r.paymentId) continue // é a 1ª cobrança
+    if (['cancelada', 'renegociada', 'estornada'].includes(t.status)) continue
+    const rot = `${t.origem === 'acordo' ? 'Acordo' : 'Pagamento'} ${t.ordem}${totalTit > 1 ? ` de ${totalTit}` : ''}`
+    const valor = (t.status === 'paga' && t.valorPagoCentavos ? t.valorPagoCentavos : t.valorCentavos) / 100
+    if (t.status === 'paga' && t.paidAt) recebimentos.push({ dia: diaBr(t.paidAt)!, em: new Date(t.paidAt).toISOString(), valor, meio: meioDe(t.pagoComo ?? t.meio), origem: 'titulo', rotulo: rot })
+    if (t.vencimento) vencimentos.push({ dia: t.vencimento, valor, paga: t.status === 'paga', rotulo: rot })
+  }
+  recebimentos.sort((a, b) => a.dia.localeCompare(b.dia))
+  vencimentos.sort((a, b) => a.dia.localeCompare(b.dia))
+  const hoje = hojeBrDia()
+  const abertos = vencimentos.filter((v) => !v.paga)
+  return {
+    recebimentos,
+    vencimentos,
+    recebidoTotal: centavos(recebimentos.reduce((a, x) => a + x.valor, 0)),
+    pagamentosFeitos: recebimentos.length,
+    ultimoPagamento: recebimentos.length ? (recebimentos[recebimentos.length - 1]!.em ?? recebimentos[recebimentos.length - 1]!.dia) : null,
+    emAberto: centavos(abertos.reduce((a, x) => a + x.valor, 0)),
+    vencidoValor: centavos(abertos.filter((v) => v.dia < hoje).reduce((a, x) => a + x.valor, 0)),
+    parcelasEmAberto: abertos.length,
+    proximoVencimento: abertos.find((v) => v.dia >= hoje)?.dia ?? null,
+    vencimentoMaisAntigo: abertos[0]?.dia ?? null,
+  }
+}
 
 function linha(r: any) {
   const plano = (r.paymentPlan ?? {}) as Record<string, any>
@@ -69,7 +138,19 @@ function linha(r: any) {
   const descontoCupom = Number(plano.descontoCupom ?? 0)
   const descontoAVista = Number(plano.descontoAVista ?? 0)
   const ultimo = r.paymentMethods?.[0]
+  // Parcelas seguintes geradas e pagas pelo aluno no Meu Portal (boleto
+  // parcelado). Não são a cobrança da inscrição, mas são dinheiro recebido:
+  // antes ficavam fora do Financeiro e só o aluno as via.
+  const parcelasPortal = Object.entries((plano.parcelasPortal ?? {}) as Record<string, any>)
+    .map(([n, g]) => ({ numero: Number(n), valor: g?.valor != null ? Number(g.valor) : null, vencimento: g?.vencimento ?? null, situacao: String(g?.situacao ?? 'aberta'), pagaEm: g?.pagaEm ?? null, invoiceUrl: g?.invoiceUrl ?? null, cobranca: g?.id ?? null }))
+    .sort((a, b) => a.numero - b.numero)
+  const recebidoParcelas = Math.round(parcelasPortal.filter((p) => p.situacao === 'paga').reduce((a, p) => a + (p.valor ?? 0), 0) * 100) / 100
+  const mov = movimentos(r, plano)
   return {
+    ...mov,
+    /** No período do filtro (preenchido em recortar). */
+    recebidoNoPeriodo: null as number | null,
+    venceNoPeriodo: null as number | null,
     id: r.id,
     candidateCode: r.candidateCode,
     nome: r.lead?.nome ?? (r.formData as any)?.nome ?? null,
@@ -98,16 +179,19 @@ function linha(r: any) {
     /** Inscrições da mesma pessoa mescladas nesta (preenchido na consulta). */
     mescladas: [] as string[],
     parcelas: Number(plano.parcelas ?? 1) || 1,
-    meio: meioDe(plano.meio ?? r.paymentMethod),
+    meio: meioDe(plano.meio ?? r.paymentMethod) ?? meioDe(mov.recebimentos[0]?.meio) ?? meioDe(r.paymentMethods?.[0]?.method),
     gateway: ultimo?.provider ?? r.portal?.paymentConnection?.provider ?? null,
     situacao: situacaoDe(r),
     paymentStatus: r.paymentStatus,
     inscricaoStatus: r.status,
     pagoEm: r.paymentPaidAt,
+    portalId: r.portal?.id ?? null,
     venceEm: r.paymentExpiresAt,
     criadoEm: r.createdAt,
     tentativas: r._count?.paymentMethods ?? 0,
     temLink: !!r.paymentUrl,
+    parcelasPortal,
+    recebidoParcelas,
   }
 }
 
@@ -116,7 +200,7 @@ function filtros(q: any) {
   const where: any = { OR: [{ paymentId: { not: null } }, { portal: { requirePayment: true } }], status: { not: 'merged' } }
   const de = q.de ? new Date(`${q.de}T00:00:00-03:00`) : null
   const ate = q.ate ? new Date(`${q.ate}T23:59:59.999-03:00`) : null
-  if (de || ate) where.createdAt = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) }
+  if ((de || ate) && dataPor(q) === 'inscricao') where.createdAt = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) }
   if (q.portalId) where.portalId = parseInt(q.portalId)
   if (q.offeringId) where.processRegistration = { offeringId: parseInt(q.offeringId) }
   else if (q.courseId) where.processRegistration = { offering: { courseId: parseInt(q.courseId) } }
@@ -126,6 +210,28 @@ function filtros(q: any) {
     where.AND = [{ OR: [{ candidateCode: { contains: t } }, { lead: { nome: { contains: t } } }, { lead: { email: { contains: t } } }, { paymentId: { contains: t } }] }]
   }
   return where
+}
+
+/** A que data o período se refere: o dia em que o dinheiro entrou (padrão),
+ *  o vencimento das cobranças ou a data da inscrição. */
+type DataPor = 'pagamento' | 'vencimento' | 'inscricao'
+function dataPor(q: any): DataPor {
+  return q.dataPor === 'vencimento' || q.dataPor === 'inscricao' ? q.dataPor : 'pagamento'
+}
+
+/** Recorte por pagamento ou vencimento: só as linhas com movimento no período,
+ *  e o valor que caiu nele. Sem período, tudo vale. */
+function recortar(itens: ReturnType<typeof linha>[], q: any) {
+  const de = q.de ? String(q.de) : '0000-00-00'
+  const ate = q.ate ? String(q.ate) : '9999-99-99'
+  const dentro = (d: string) => d >= de && d <= ate
+  for (const l of itens) {
+    l.recebidoNoPeriodo = centavos(l.recebimentos.filter((x) => dentro(x.dia)).reduce((a, x) => a + x.valor, 0))
+    l.venceNoPeriodo = centavos(l.vencimentos.filter((x) => dentro(x.dia)).reduce((a, x) => a + x.valor, 0))
+  }
+  const modo = dataPor(q)
+  if (modo === 'inscricao' || (!q.de && !q.ate)) return itens
+  return itens.filter((l) => (modo === 'pagamento' ? l.recebimentos : l.vencimentos).some((x) => dentro(x.dia)))
 }
 
 /** Filtros que dependem do cálculo da linha (situação, meio, cupom, gateway…). */
@@ -139,40 +245,52 @@ function filtrarLinhas(itens: ReturnType<typeof linha>[], q: any) {
   )
 }
 
-function indicadores(itens: ReturnType<typeof linha>[]) {
+function indicadores(itens: ReturnType<typeof linha>[], q: any) {
   const soma = (f: (l: any) => number) => Math.round(itens.reduce((a, l) => a + f(l), 0) * 100) / 100
   const pagos = itens.filter((l) => l.situacao === 'pago')
   const comCobranca = itens.filter((l) => l.situacao !== 'sem_cobranca')
+  // Dinheiro que entrou: no período, quando o período é por pagamento; senão,
+  // tudo o que entrou nas inscrições do recorte.
+  const porPagamento = dataPor(q) === 'pagamento' && (q.de || q.ate)
+  const de = q.de ? String(q.de) : '0000-00-00'
+  const ate = q.ate ? String(q.ate) : '9999-99-99'
+  const entradas = itens.flatMap((l) => l.recebimentos.filter((x) => !porPagamento || (x.dia >= de && x.dia <= ate)).map((x) => ({ ...x, l })))
   const porMeio: Record<string, { quantidade: number; valor: number }> = {}
-  for (const l of pagos) {
-    const k = l.meio ?? 'outro'
+  for (const e of entradas) {
+    const k = e.meio ?? 'outro'
     porMeio[k] = porMeio[k] ?? { quantidade: 0, valor: 0 }
-    porMeio[k].quantidade++; porMeio[k].valor = Math.round((porMeio[k].valor + (l.valorCobrado ?? 0)) * 100) / 100
+    porMeio[k].quantidade++; porMeio[k].valor = centavos(porMeio[k].valor + e.valor)
   }
   const porCurso = new Map<string, { curso: string; inscritos: number; pagos: number; recebido: number }>()
   for (const l of itens) {
     const k = l.curso?.nome ?? 'Sem curso'
     const a = porCurso.get(k) ?? { curso: k, inscritos: 0, pagos: 0, recebido: 0 }
     a.inscritos++
-    if (l.situacao === 'pago') { a.pagos++; a.recebido = Math.round((a.recebido + (l.valorCobrado ?? 0)) * 100) / 100 }
+    if (l.situacao === 'pago') a.pagos++
     porCurso.set(k, a)
   }
-  const porDia = new Map<string, number>()
-  for (const l of pagos) {
-    if (!l.pagoEm) continue
-    const d = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(l.pagoEm))
-    porDia.set(d, Math.round(((porDia.get(d) ?? 0) + (l.valorCobrado ?? 0)) * 100) / 100)
+  for (const e of entradas) {
+    const a = porCurso.get(e.l.curso?.nome ?? 'Sem curso')!
+    a.recebido = centavos(a.recebido + e.valor)
   }
+  const porDia = new Map<string, number>()
+  for (const e of entradas) porDia.set(e.dia, centavos((porDia.get(e.dia) ?? 0) + e.valor))
   const contar = (s: Situacao) => itens.filter((l) => l.situacao === s).length
+  const recebido = centavos(entradas.reduce((a, e) => a + e.valor, 0))
   return {
     inscricoes: itens.length,
     comCobranca: comCobranca.length,
     pagos: pagos.length,
+    /** Quantos pagamentos (1ª cobrança, parcelas e títulos) entraram no recebido. */
+    pagamentos: entradas.length,
     conversao: comCobranca.length ? Math.round((pagos.length / comCobranca.length) * 1000) / 10 : 0,
-    recebido: soma((l) => (l.situacao === 'pago' ? l.valorCobrado ?? 0 : 0)),
+    recebido,
+    parcelasPagas: entradas.filter((e) => e.origem !== 'cobranca').length,
     pendente: soma((l) => (l.situacao === 'pendente' ? l.valorCobrado ?? l.valorTabela ?? 0 : 0)),
     vencido: soma((l) => (l.situacao === 'vencido' ? l.valorCobrado ?? l.valorTabela ?? 0 : 0)),
-    ticketMedio: pagos.length ? Math.round((pagos.reduce((a, l) => a + (l.valorCobrado ?? 0), 0) / pagos.length) * 100) / 100 : 0,
+    emAberto: soma((l) => l.emAberto),
+    vencidoTotal: soma((l) => l.vencidoValor),
+    ticketMedio: entradas.length ? centavos(recebido / entradas.length) : 0,
     descontos: soma((l) => (l.situacao === 'pago' ? l.descontoCupom + l.descontoAVista : 0)),
     comCupom: pagos.filter((l) => l.cupom).length,
     porSituacao: { pago: contar('pago'), pendente: contar('pendente'), vencido: contar('vencido'), falhou: contar('falhou'), estornado: contar('estornado'), cancelado: contar('cancelado'), sem_cobranca: contar('sem_cobranca') },
@@ -212,28 +330,31 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const rows = await prisma.enrollmentRegistration.findMany({
       where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 5000,
     })
-    const itens = filtrarLinhas(await comMescladas(rows.map(linha)), q)
+    const itens = recortar(filtrarLinhas(await comMescladas(rows.map(linha)), q), q)
     const ordem = String(q.ordenar || 'recentes')
     if (ordem === 'valor') itens.sort((a, b) => (b.valorCobrado ?? 0) - (a.valorCobrado ?? 0))
-    if (ordem === 'pagamento') itens.sort((a, b) => +new Date(b.pagoEm ?? 0) - +new Date(a.pagoEm ?? 0))
-    if (ordem === 'vencimento') itens.sort((a, b) => +new Date(a.venceEm ?? 8.64e15) - +new Date(b.venceEm ?? 8.64e15))
+    if (ordem === 'pagamento') itens.sort((a, b) => String(b.ultimoPagamento ?? '').localeCompare(String(a.ultimoPagamento ?? '')))
+    if (ordem === 'vencimento') itens.sort((a, b) => String(a.vencimentoMaisAntigo ?? '9999').localeCompare(String(b.vencimentoMaisAntigo ?? '9999')))
+    if (ordem === 'recebido') itens.sort((a, b) => (b.recebidoNoPeriodo ?? 0) - (a.recebidoNoPeriodo ?? 0))
     const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
     const offset = parseInt(q.offset) || 0
-    return { indicadores: indicadores(itens), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
+    return { indicadores: indicadores(itens, q), dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
   })
 
   app.get(`${BASE}/export.csv`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({ where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 20000 })
-    const itens = filtrarLinhas(await comMescladas(rows.map(linha)), q)
+    const itens = recortar(filtrarLinhas(await comMescladas(rows.map(linha)), q), q)
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const n = (v: number | null) => (v == null ? '' : v.toFixed(2).replace('.', ','))
     const dt = (d: Date | string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '')
     const linhas = [
-      ['Código', 'Candidato', 'E-mail', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em'].join(';'),
+      ['Código', 'Candidato', 'E-mail', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em', 'Último pagamento', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento', 'Vence no período'].join(';'),
       ...itens.map((l) => [l.candidateCode, l.nome, l.email, l.portal?.nome, l.curso?.nome, l.oferta?.nome, l.processo?.nome, l.rotulo,
         n(l.valorTabela), n(l.descontoCupom), n(l.descontoAVista), l.cupom, n(l.valorCobrado), l.parcelas, l.meio, l.gateway, l.situacao,
-        dt(l.pagoEm), dt(l.venceEm), dt(l.criadoEm)].map(esc).join(';')),
+        dt(l.pagoEm), dt(l.venceEm), dt(l.criadoEm), l.ultimoPagamento ? String(l.ultimoPagamento).slice(0, 10).split('-').reverse().join('/') : '',
+        n(l.recebidoNoPeriodo), n(l.recebidoTotal), n(l.emAberto), n(l.vencidoValor),
+        l.proximoVencimento ? l.proximoVencimento.split('-').reverse().join('/') : '', n(l.venceNoPeriodo)].map(esc).join(';')),
     ]
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="financeiro-portal.csv"')
     return '﻿' + linhas.join('\n')

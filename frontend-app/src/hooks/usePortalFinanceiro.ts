@@ -37,7 +37,27 @@ export interface LinhaFinanceiro {
   /** Inscrições da mesma pessoa mescladas nesta (somem da lista; a principal vale). */
   mescladas?: string[]
   temLink: boolean
+  /** Parcelas seguintes geradas pelo aluno no Meu Portal (boleto parcelado). */
+  parcelasPortal?: Array<{ numero: number; valor: number | null; vencimento: string | null; situacao: string; pagaEm: string | null; invoiceUrl: string | null; cobranca: string | null }>
+  /** Soma das parcelas do Meu Portal já pagas. */
+  recebidoParcelas?: number
+  /** Cada dinheiro que entrou (1ª cobrança, parcelas do Meu Portal, títulos do combinado/acordo), no dia em que entrou. */
+  recebimentos: Array<{ dia: string; em: string | null; valor: number; meio: string | null; origem: 'cobranca' | 'parcela' | 'titulo'; rotulo: string }>
+  vencimentos: Array<{ dia: string; valor: number; paga: boolean; rotulo: string }>
+  recebidoTotal: number
+  pagamentosFeitos: number
+  ultimoPagamento: string | null
+  emAberto: number
+  vencidoValor: number
+  parcelasEmAberto: number
+  proximoVencimento: string | null
+  vencimentoMaisAntigo: string | null
+  /** Recebido / vencendo dentro do período do filtro. */
+  recebidoNoPeriodo: number | null
+  venceNoPeriodo: number | null
 }
+
+export type DataPorFin = 'pagamento' | 'vencimento' | 'inscricao'
 
 export interface IndicadoresFin {
   inscricoes: number
@@ -45,8 +65,14 @@ export interface IndicadoresFin {
   pagos: number
   conversao: number
   recebido: number
+  /** Parcelas do Meu Portal pagas (entram no recebido). */
+  parcelasPagas?: number
   pendente: number
   vencido: number
+  /** Pagamentos (1ª cobrança + parcelas + títulos) somados no recebido. */
+  pagamentos?: number
+  emAberto?: number
+  vencidoTotal?: number
   ticketMedio: number
   descontos: number
   comCupom: number
@@ -57,6 +83,8 @@ export interface IndicadoresFin {
 }
 
 export interface FiltrosFin {
+  /** A que data o período se refere (padrão: pagamento). */
+  dataPor?: DataPorFin | undefined
   de?: string | undefined
   ate?: string | undefined
   portalId?: string | undefined
