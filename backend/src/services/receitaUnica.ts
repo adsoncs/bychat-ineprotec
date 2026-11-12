@@ -73,7 +73,7 @@ export async function receitaDoLead(leadId: number): Promise<ReceitaDoLead> {
     prisma.negotiation.findMany({ where: { leadId }, select: { resultado: true, valorFinal: true, registrationId: true } }),
     prisma.enrollmentRegistration.findMany({
       where: { leadId, mergedIntoId: null, paymentStatus: { not: null } },
-      select: { id: true, paymentStatus: true, paymentAmount: true },
+      select: { id: true, paymentStatus: true, paymentAmount: true, status: true },
     }),
     // Inscrição transferida de curso: o que foi pago nela virou CRÉDITO na nova
     // e já está no valor da venda nova — somar de novo dobrava (12/11/2026).
@@ -84,7 +84,8 @@ export async function receitaDoLead(leadId: number): Promise<ReceitaDoLead> {
   const valorPropostas = r2(ganhas.reduce((s, n) => s + Number(n.valorFinal ?? 0), 0))
   // Inscrição que já tem proposta entra pela proposta — contar as duas dobraria a venda.
   const comProposta = new Set(negs.map((n) => n.registrationId).filter((x): x is number => x != null))
-  const pagas = regs.filter((r) => r.paymentStatus === 'paid' && !comProposta.has(r.id) && !deTransferencia.has(r.id))
+  // Transferida (status próprio desde 12/11/2026, inclusive a troca feita à mão): o pago virou crédito na nova.
+  const pagas = regs.filter((r) => r.paymentStatus === 'paid' && !comProposta.has(r.id) && !deTransferencia.has(r.id) && r.status !== 'transferred')
   const valorInscricoes = r2(pagas.reduce((s, r) => s + Number(r.paymentAmount ?? 0), 0))
   const gerenciado = negs.length > 0 || regs.length > 0
   const total = r2(valorPropostas + valorInscricoes)
