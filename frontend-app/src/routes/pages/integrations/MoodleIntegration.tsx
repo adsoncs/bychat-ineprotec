@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'preact/hooks'
 import {
   BookOpen, Save, PlugZap, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Wand2,
-  Play, Pause, ListChecks, XCircle, ExternalLink, Repeat,
+  Play, Pause, ListChecks, XCircle, ExternalLink, Repeat, Link2, GraduationCap,
 } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
@@ -18,6 +18,7 @@ import { Input, Select, Switch, Checkbox } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
+import { ProgressoAvaPainel, ResumoDoProgresso, useProgressoAva } from '@/components/educational/ProgressoAvaPainel'
 
 interface Config {
   baseUrl: string; tokenConfigurado: boolean; senhaConfigurada: boolean; enabled: boolean; sso: boolean
@@ -109,7 +110,7 @@ function AbaConexao() {
         <Input label="Token do serviço externo" type="password" value={token} placeholder={cfg.tokenConfigurado ? '•••••••• (configurado)' : ''}
           onInput={(e) => setToken(valor(e))} hint="Moodle › Administração › Servidor › Serviços web › Gerenciar tokens. Fica guardado cifrado." />
         <Input label="Senha inicial do aluno" type="password" value={senha} placeholder={cfg.senhaConfigurada ? '•••••••• (configurada)' : ''}
-          onInput={(e) => setSenha(valor(e))} hint="Usada só para o aluno novo. O Moodle pede a troca no primeiro acesso. O usuário é o CPF (só números)." />
+          onInput={(e) => setSenha(valor(e))} hint="Usada só para o aluno novo (sem troca obrigatória no primeiro acesso). O usuário é o CPF (só números)." />
         <Input label="Papel do aluno no curso (id)" type="number" value={String(cfg.papelId)} onInput={(e) => set({ papelId: Number(valor(e)) || 5 })}
           hint="5 = Estudante, no Moodle padrão." />
         <Switch checked={cfg.sso} onChange={(v) => set({ sso: v })} label="Entrar no Moodle já logado"
@@ -140,7 +141,105 @@ function AbaConexao() {
           <div key={s} class="flex items-center justify-between text-sm"><Badge tone={TOM[s]}>{ROTULO[s]}</Badge><span class="text-fg font-semibold">{t[s] ?? 0}</span></div>
         ))}
       </Card>
+      <VincularAlunosCard aoVincular={carregar} />
     </div>
+  )
+}
+
+// ── Vincular alunos que já estudavam no Moodle (pelo CPF) ──────────────────
+
+interface CandidatoVinculo {
+  registrationId: number; codigo: string; aluno: string | null; portal: string | null; portalId: number | null
+  situacao: 'vinculavel' | 'sem_usuario' | 'sem_cpf' | 'fora_do_curso' | 'sem_curso_no_depara' | 'erro'
+  usuario: string | null; curso: string | null; cursosNoMoodle: string[]; erro?: string
+}
+const SITUACAO_VINCULO: Record<CandidatoVinculo['situacao'], { rotulo: string; tom: 'success' | 'warning' | 'danger' | 'neutral' }> = {
+  vinculavel: { rotulo: 'Pode vincular', tom: 'success' },
+  fora_do_curso: { rotulo: 'No Moodle, mas não neste curso', tom: 'warning' },
+  sem_usuario: { rotulo: 'Não está no Moodle', tom: 'neutral' },
+  sem_cpf: { rotulo: 'Sem CPF na inscrição', tom: 'neutral' },
+  sem_curso_no_depara: { rotulo: 'Oferta sem curso no de-para', tom: 'warning' },
+  erro: { rotulo: 'Erro ao consultar', tom: 'danger' },
+}
+
+function VincularAlunosCard({ aoVincular }: { aoVincular: () => void }) {
+  const [aberto, setAberto] = useState(false)
+  const [lista, setLista] = useState<CandidatoVinculo[] | null>(null)
+  const [marcadas, setMarcadas] = useState<number[]>([])
+  const [carregando, setCarregando] = useState(false)
+  const [gravando, setGravando] = useState(false)
+  const [filtro, setFiltro] = useState<'todas' | 'vinculavel'>('vinculavel')
+
+  async function procurar() {
+    setAberto(true); setCarregando(true); setLista(null)
+    try {
+      const r = await api.get<{ candidatos: CandidatoVinculo[] }>('/admin/moodle/vincular')
+      setLista(r.candidatos)
+      setMarcadas(r.candidatos.filter((c) => c.situacao === 'vinculavel').map((c) => c.registrationId))
+    } catch (e) { toast(msg(e), 'danger'); setAberto(false) } finally { setCarregando(false) }
+  }
+  async function vincularMarcadas() {
+    setGravando(true)
+    try {
+      const r = await api.post<{ vinculadas: number; ignoradas: number }>('/admin/moodle/vincular', { ids: marcadas })
+      toast(`${r.vinculadas} aluno(s) vinculado(s)${r.ignoradas ? ` · ${r.ignoradas} ignorado(s)` : ''}`, 'success')
+      setAberto(false); aoVincular()
+    } catch (e) { toast(msg(e), 'danger') } finally { setGravando(false) }
+  }
+  const vinculaveis = (lista ?? []).filter((c) => c.situacao === 'vinculavel')
+  const mostradas = (lista ?? []).filter((c) => filtro === 'todas' || c.situacao === 'vinculavel')
+
+  return (
+    <Card class="p-4 space-y-2 h-fit lg:col-start-2">
+      <div class="flex items-center gap-2"><Link2 size={15} class="text-accent" /><span class="text-sm font-semibold text-fg">Alunos que já estudam no Moodle</span></div>
+      <p class="text-xs text-fg-muted">Procura, pelo CPF (ou e-mail), as inscrições dos portais ligados que ainda não estão vinculadas e cujo aluno já está no curso certo do Moodle. Vincular não inscreve ninguém no Moodle: só liga a inscrição ao aluno que já existe, para o andamento aparecer no Meu Portal e na ficha.</p>
+      <Button variant="secondary" size="sm" onClick={procurar} loading={carregando}><GraduationCap size={14} /> Procurar e vincular</Button>
+      {aberto && (
+        <Modal open onOpenChange={(o) => { if (!o) setAberto(false) }} title="Vincular alunos que já estão no Moodle" size="xl"
+          footer={
+            <div class="flex flex-wrap items-center justify-between gap-2 w-full">
+              <span class="text-xs text-fg-muted">{marcadas.length} selecionada(s)</span>
+              <div class="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setAberto(false)}>Cancelar</Button>
+                <Button size="sm" onClick={vincularMarcadas} loading={gravando} disabled={!marcadas.length}><Link2 size={13} /> Vincular selecionadas</Button>
+              </div>
+            </div>
+          }>
+          {!lista ? <div class="flex items-center gap-2 text-sm text-fg-muted"><Loader2 size={14} class="animate-spin" /> Consultando o Moodle… (pode levar alguns segundos)</div> : (
+            <div class="space-y-3">
+              <div class="flex flex-wrap items-center gap-3 text-xs">
+                <span class="text-fg-muted">{lista.length} inscrição(ões) sem vínculo · <b class="text-fg">{vinculaveis.length}</b> podem ser vinculadas</span>
+                <Select value={filtro} onChange={(e) => setFiltro(valor(e) as 'todas' | 'vinculavel')}>
+                  <option value="vinculavel">Só as que podem vincular</option>
+                  <option value="todas">Todas (com o motivo)</option>
+                </Select>
+                {vinculaveis.length > 0 && <button class="text-accent hover:underline" onClick={() => setMarcadas(marcadas.length === vinculaveis.length ? [] : vinculaveis.map((c) => c.registrationId))}>{marcadas.length === vinculaveis.length ? 'Desmarcar todas' : 'Marcar todas'}</button>}
+              </div>
+              {!mostradas.length ? <div class="text-sm text-fg-muted py-4 text-center">Nenhuma inscrição para vincular agora.</div> : (
+                <div class="rounded-lg border border-border overflow-hidden">
+                  <table class="w-full text-sm">
+                    <thead class="bg-surface-2 text-2xs uppercase tracking-wider text-fg-muted"><tr>
+                      <th class="px-3 py-2 w-8"></th><th class="text-left px-3 py-2">Aluno</th><th class="text-left px-3 py-2">Curso no Moodle</th><th class="text-left px-3 py-2">Situação</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-border">
+                      {mostradas.map((c) => (
+                        <tr key={c.registrationId}>
+                          <td class="px-3 py-2">{c.situacao === 'vinculavel' && <input type="checkbox" checked={marcadas.includes(c.registrationId)} onChange={(e) => setMarcadas((x) => (e.target as HTMLInputElement).checked ? [...x, c.registrationId] : x.filter((k) => k !== c.registrationId))} />}</td>
+                          <td class="px-3 py-2"><div class="text-fg">{c.aluno ?? '—'}</div><div class="text-2xs text-fg-muted">{c.codigo} · {c.portal}{c.usuario ? ` · usuário ${c.usuario}` : ''}</div></td>
+                          <td class="px-3 py-2 text-xs">{c.curso ?? '—'}{c.cursosNoMoodle.length > 0 && <div class="text-2xs text-fg-muted">No Moodle: {c.cursosNoMoodle.slice(0, 3).join(' · ')}{c.cursosNoMoodle.length > 3 ? '…' : ''}</div>}</td>
+                          <td class="px-3 py-2"><Badge tone={SITUACAO_VINCULO[c.situacao].tom}>{SITUACAO_VINCULO[c.situacao].rotulo}</Badge>{c.erro && <div class="text-2xs text-danger mt-0.5">{c.erro}</div>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p class="text-2xs text-fg-muted">"No Moodle, mas não neste curso": o aluno existe no Moodle, mas não está no curso do de-para desta oferta. Use "Trocar curso" na ficha da inscrição se ele estuda em outro curso.</p>
+            </div>
+          )}
+        </Modal>
+      )}
+    </Card>
   )
 }
 
@@ -310,7 +409,7 @@ interface EstadoInscricao {
 export function MoodleInscricaoCard({ registrationId }: { registrationId: number }) {
   const [estado, setEstado] = useState<EstadoInscricao | null>(null)
   const [ocupado, setOcupado] = useState(false)
-  const [vendo, setVendo] = useState<'checklist' | 'curso' | null>(null)
+  const [vendo, setVendo] = useState<'checklist' | 'curso' | 'progresso' | null>(null)
   const [cursos, setCursos] = useState<Curso[]>([])
   const [filtro, setFiltro] = useState('')
   const [novoCurso, setNovoCurso] = useState<number | null>(null)
@@ -354,6 +453,7 @@ export function MoodleInscricaoCard({ registrationId }: { registrationId: number
       {(a?.cursoNome || apt?.cursoNome) && <div class="text-xs text-fg">Curso: <b>{a?.cursoNome || apt?.cursoNome}</b>{a?.cursoEscolhido ? ' (escolhido pelo agente)' : ''}</div>}
       {a?.username && <div class="text-xs text-fg-muted">Usuário no Moodle: <b class="text-fg">{a.username}</b>{a.liberadoEm ? ` · liberado em ${dataBr(a.liberadoEm)}` : ''}</div>}
       {a?.ultimoErro && st !== 'LIBERADO' && <div class="text-xs text-danger">{a.ultimoErro}</div>}
+      {(liberado || suspenso) && <ProgressoNoCartao registrationId={registrationId} aoAbrir={() => setVendo('progresso')} />}
       {!liberado && !suspenso && apt && (
         apt.apta
           ? <div class="flex items-center gap-1.5 text-xs text-success"><CheckCircle2 size={13} /> Pago e com contrato aceito{estado.automatico ? ': libera sozinho em até 2 minutos' : ''}</div>
@@ -368,6 +468,11 @@ export function MoodleInscricaoCard({ registrationId }: { registrationId: number
         {suspenso && <Button size="sm" loading={ocupado} onClick={() => acao('reativar', {}, 'Acesso reativado')}><Play size={14} /> Reativar</Button>}
         {estado.urlCurso && <a class="inline-flex items-center gap-1 text-xs text-accent hover:underline" href={estado.urlCurso} target="_blank" rel="noopener"><ExternalLink size={13} /> Abrir no Moodle</a>}
       </div>
+      {vendo === 'progresso' && (
+        <Modal open onOpenChange={(o) => { if (!o) setVendo(null) }} title="Andamento no Moodle" size="lg">
+          <ProgressoAvaPainel registrationId={registrationId} />
+        </Modal>
+      )}
       {vendo === 'checklist' && apt && (
         <Modal open onOpenChange={(o) => { if (!o) setVendo(null) }} title="Liberação no Moodle" size="md">
           <ul class="space-y-1.5 text-sm">
@@ -392,5 +497,17 @@ export function MoodleInscricaoCard({ registrationId }: { registrationId: number
         </Modal>
       )}
     </Card>
+  )
+}
+
+function ProgressoNoCartao({ registrationId, aoAbrir }: { registrationId: number; aoAbrir: () => void }) {
+  const q = useProgressoAva(registrationId, true)
+  if (q.isLoading) return <div class="flex items-center gap-2 text-2xs text-fg-muted"><Loader2 size={12} class="animate-spin" /> Lendo o andamento no Moodle…</div>
+  if (q.isError || !q.data) return null
+  return (
+    <button type="button" class="block w-full text-left rounded-md border border-border p-2 hover:bg-surface-2" onClick={aoAbrir} title="Ver progresso, avaliações e requisitos de conclusão">
+      <ResumoDoProgresso p={q.data} />
+      <span class="text-2xs text-accent">Ver andamento completo →</span>
+    </button>
   )
 }

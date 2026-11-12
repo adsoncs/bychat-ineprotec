@@ -72,6 +72,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'enrollment.payment_pending_reminder', label: '⏰ Lembrete de pagamento',             category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.document_approved',        label: '📄 Documento aprovado',                category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.document_rejected',        label: '📄 Documento rejeitado',               category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.curso_concluido',          label: '🎓 Curso concluído no AVA (Moodle)', description: 'Quando o Moodle marca o curso como concluído (critérios de conclusão cumpridos). Uma vez por inscrição. Traz {{curso}} e {{concluidoEm}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
 
   // ── Educacional — avaliações (requer módulo `educacional`) ──
   { value: 'enrollment.essay_submitted',          label: '📝 Redação recebida',                   category: 'educational', requiresModule: 'educacional' },

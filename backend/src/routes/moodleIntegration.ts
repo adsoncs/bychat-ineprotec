@@ -9,7 +9,10 @@
 //   GET  /api/admin/moodle/acessos             POST /api/admin/moodle/varrer
 //   GET  /api/admin/moodle/inscricao/:id       (estado + aptidão)
 //   POST /api/admin/moodle/inscricao/:id/liberar | /suspender | /reativar | /curso
+//   GET  /api/admin/moodle/inscricao/:id/progresso  (andamento no curso, para a ficha)
+//   GET  /api/admin/moodle/vincular · POST /api/admin/moodle/vincular { ids }  (alunos que já estavam no Moodle, pelo CPF)
 //   GET  /api/public/portal/area/ava/entrar?registro=  (Meu Portal → Moodle)
+//   GET  /api/public/portal/area/ava/progresso?registro=  (Meu Portal: aba AVA)
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
@@ -19,6 +22,7 @@ import {
   aptidao, liberar, suspender, reativar, trocarCurso, varrer, estadoDaInscricao, quadroDepara, destinoDeEntrada,
 } from '../services/moodleAcessos.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
+import { candidatosAoVinculo, progressoDaInscricao, vincular } from '../services/moodleProgresso.js'
 
 const guardAdmin = { preHandler: [authMiddleware, adminOnly] }
 const guardAgente = { preHandler: [authMiddleware] }
@@ -159,6 +163,41 @@ export async function moodleIntegrationRoutes(app: FastifyInstance) {
     const courseId = Number(((req.body ?? {}) as any).courseId)
     if (!Number.isInteger(courseId) || courseId <= 0) return reply.code(400).send({ error: 'Escolha o curso do Moodle.' })
     try { await trocarCurso(Number((req.params as any).id), courseId, ator(req)); return { ok: true } } catch (e) { return erro(reply, e) }
+  })
+
+  // Andamento do aluno no curso (progresso, avaliações, requisitos de conclusão).
+  app.get('/api/admin/moodle/inscricao/:id/progresso', guardAgente, async (req, reply) => {
+    try {
+      const p = await progressoDaInscricao(Number((req.params as any).id), { forcar: String((req.query as any)?.forcar ?? '') === '1' })
+      return { progresso: p }
+    } catch (e) { return erro(reply, e) }
+  })
+
+  // Alunos que já estudavam no Moodle antes da integração: o time confere e
+  // vincula pelo CPF (usuário do Moodle). Não inscreve ninguém no Moodle.
+  app.get('/api/admin/moodle/vincular', guardAdmin, async (_req, reply) => {
+    try { return { candidatos: await candidatosAoVinculo() } } catch (e) { return erro(reply, e) }
+  })
+  app.post('/api/admin/moodle/vincular', guardAdmin, async (req, reply) => {
+    const ids = (((req.body ?? {}) as any).ids ?? []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    if (!ids.length) return reply.code(400).send({ error: 'Escolha ao menos uma inscrição.' })
+    const u = (req as any).user as { userId?: number; name?: string; email?: string } | undefined
+    try { return await vincular(ids, { userId: u?.userId ?? null, userName: u?.name || u?.email || null }) } catch (e) { return erro(reply, e) }
+  })
+
+  // Meu Portal: aba AVA. Só a conta dona da inscrição.
+  app.get('/api/public/portal/area/ava/progresso', async (req, reply) => {
+    reply.header('cache-control', 'no-store')
+    const conta = await contaDaRequisicao(req)
+    if (!conta) return reply.code(401).send({ error: 'Entre no portal de novo.' })
+    const registro = Number((req.query as any)?.registro)
+    const reg = Number.isInteger(registro) ? await prisma.enrollmentRegistration.findFirst({ where: { id: registro, leadId: conta.leadId }, select: { id: true } }) : null
+    if (!reg) return reply.code(404).send({ error: 'Curso não encontrado nesta conta.' })
+    try {
+      return { progresso: await progressoDaInscricao(reg.id, { forcar: String((req.query as any)?.forcar ?? '') === '1' }) }
+    } catch (e: any) {
+      return reply.code(502).send({ error: 'Não foi possível ler o seu andamento no AVA agora. Tente de novo em alguns minutos.' })
+    }
   })
 
   // Meu Portal → Moodle. Só a conta dona da inscrição; abre já logado (SSO) ou no curso.

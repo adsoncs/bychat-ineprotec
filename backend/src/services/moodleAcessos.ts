@@ -14,7 +14,7 @@
 //
 // Aluno no Moodle: usuário = CPF só com números (o padrão da casa); quem já
 // existe (pelo CPF ou pelo e-mail) é reaproveitado. O aluno novo nasce com a
-// senha padrão da configuração e a troca obrigatória no 1º acesso.
+// senha padrão da configuração (sem troca obrigatória no 1º acesso desde 12/11).
 
 import { prisma } from '../lib/prisma.js'
 import * as moodle from '../lib/moodleClient.js'
@@ -139,7 +139,9 @@ async function garantirUsuario(aluno: { cpf: string; email: string; nome: string
   if (porEmail.length > 1) throw new Error(`Há ${porEmail.length} usuários no Moodle com o e-mail ${aluno.email}: escolha à mão qual é o aluno.`)
   if (!cfg.senha) throw new Error('Defina a senha inicial do aluno em Integrações › Moodle.')
   const { firstname, lastname } = partesDoNome(aluno.nome)
-  const id = await moodle.criarUsuario({ username: aluno.cpf, password: cfg.senha, firstname, lastname, email: aluno.email, trocarSenha: true })
+  // Sem troca obrigatória no 1º acesso (pedido do cliente, 12/11/2026): com o
+  // login automático pelo Meu Portal, a tela de "mudar a senha" atrapalhava.
+  const id = await moodle.criarUsuario({ username: aluno.cpf, password: cfg.senha, firstname, lastname, email: aluno.email, trocarSenha: false })
   return { id, username: aluno.cpf, criado: true }
 }
 
@@ -313,6 +315,8 @@ export function iniciarAgendadorMoodle() {
   if (timer) return
   timer = setInterval(() => { varrer().catch((e) => console.warn('[moodle] varredura:', e?.message || e)) }, 120_000)
   setTimeout(() => { varrer().catch(() => {}) }, 30_000)
+  // Curso concluído no Moodle → evento na ficha + gatilho dos fluxos (a cada 6 h).
+  import('./moodleProgresso.js').then((m) => m.iniciarVarreduraDeConclusoes()).catch(() => {})
 }
 
 // ── Leitura para as telas ──────────────────────────────────────────────────

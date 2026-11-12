@@ -13,6 +13,7 @@ import type { ComponentChildren } from 'preact'
 import { Jornada } from './Jornada'
 import { Documentos } from './Documentos'
 import { ResumoDoCandidato, tomDaSituacao } from './ResumoDoCandidato'
+import { AvaProgresso } from './AvaProgresso'
 import { carregarCandidato, type Candidato, type carregarJornadaDoPortal } from './api'
 
 type Situacao = 'paga' | 'aberta' | 'vencida' | 'cancelada' | 'estornada' | 'prevista'
@@ -158,7 +159,9 @@ export function AreaDoAluno(props: {
               legenda={(() => { const c = area.contratos.find((x) => x.situacao === 'assinado'); return c ? `em ${dia(c.assinadoEm)}` : area.contratos.length ? 'Falta a sua assinatura' : 'Ainda não emitido' })()}
               acao="Ver contrato" aoClicar={() => ir('contratos')} />
             <CartaoResumo icone="ava" titulo="AVA" tom="neutro" valor={area.ava.disponivel ? 'Disponível' : area.ava.suspenso ? 'Suspenso' : 'Em breve'}
-              legenda={area.ava.disponivel ? 'Suas aulas e materiais' : 'Acesso às aulas por aqui'} acao="Saiba mais" aoClicar={() => ir('ava')} />
+              legenda={area.ava.disponivel ? 'Suas aulas e materiais' : 'Acesso às aulas por aqui'}
+              acao={area.ava.disponivel && area.ava.url ? 'Acessar meu curso' : 'Saiba mais'}
+              aoClicar={() => { if (area.ava.disponivel && area.ava.url) window.open(area.ava.url, '_blank', 'noopener'); else ir('ava') }} />
           </div>
 
           <div class="ada-duas">
@@ -226,21 +229,29 @@ export function AreaDoAluno(props: {
 
       {aba === 'ava' && (
         <section class="ada-secao" aria-label="Ambiente Virtual de Aprendizagem">
-          <div class="cartao ada-ava">
-            <span class="ada-ava-icone"><Icone nome="ava" grande /></span>
-            <h2 class="ada-titulo">Ambiente Virtual de Aprendizagem</h2>
-            {area.ava.disponivel && area.ava.url ? (
-              <>
-                <p class="ada-sub">{area.ava.curso ? <>Curso: <b>{area.ava.curso}</b></> : 'Suas aulas, materiais e atividades.'}</p>
-                <a class="ada-botao" href={area.ava.url} target="_blank" rel="noopener">Acessar meu curso</a>
-                {area.ava.usuario && <p class="ada-sub">Seu usuário no AVA: <b>{area.ava.usuario}</b></p>}
-              </>
-            ) : area.ava.suspenso ? (
-              <p class="ada-sub">O acesso ao curso está suspenso no momento. Fale com a secretaria para reativar.</p>
-            ) : (
-              <p class="ada-sub">Em breve você vai acessar suas aulas por aqui, com seu progresso, notas e materiais do curso — sem precisar de outra senha.</p>
-            )}
-          </div>
+          {area.ava.disponivel || area.ava.suspenso ? (
+            <>
+              {/* Entrada no AVA — o botão mais importante da aba: o mesmo cartão
+                * de antes, sempre no topo e independente do andamento carregar
+                * (com o SSO ligado, o aluno já entra logado no Moodle). */}
+              <div class="cartao ada-ava">
+                <span class="ada-ava-icone"><Icone nome="ava" grande /></span>
+                <h2 class="ada-titulo">Ambiente Virtual de Aprendizagem</h2>
+                {area.ava.curso && <p class="ada-sub">Curso: <b>{area.ava.curso}</b></p>}
+                {area.ava.disponivel && area.ava.url
+                  ? <a class="ada-botao ada-botao-grande" href={area.ava.url} target="_blank" rel="noopener">Acessar meu curso</a>
+                  : <p class="ada-sub">O acesso ao curso está suspenso no momento. Fale com a secretaria para reativar.</p>}
+                {area.ava.usuario && <p class="ada-sub ada-ava-usuario">Seu usuário no AVA: <b>{area.ava.usuario}</b></p>}
+              </div>
+              <AvaProgresso registro={area.inscricao.id} url={area.ava.disponivel ? area.ava.url : null} />
+            </>
+          ) : (
+            <div class="cartao ada-ava">
+              <span class="ada-ava-icone"><Icone nome="ava" grande /></span>
+              <h2 class="ada-titulo">Ambiente Virtual de Aprendizagem</h2>
+              <p class="ada-sub">Assim que o seu acesso for liberado, você acompanha aqui o seu progresso, as avaliações e o que falta para concluir o curso.</p>
+            </div>
+          )}
         </section>
       )}
     </div>

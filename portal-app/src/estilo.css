@@ -1305,6 +1305,63 @@ button.principal.perigo { background: var(--erro); }
 }
 .ada-botao:hover { filter: brightness(1.08); }
 
+/* Aba AVA: andamento no Moodle (AvaProgresso.tsx) */
+.ada-ava-acesso { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; border: 2px solid var(--marca); }
+.ada-ava-acesso .ada-titulo { margin: 0 0 4px; }
+.ada-ava-acesso .ada-ava-icone { margin: 0; }
+.ada-ava-acesso .ada-sub { margin: 0; }
+.ada-botao-grande { padding: 14px 26px; font-size: 16px; white-space: nowrap; }
+@media (max-width: 640px) {
+  .ada-ava-acesso { grid-template-columns: auto minmax(0, 1fr); }
+  .ada-ava-acesso .ada-botao-grande { grid-column: 1 / -1; justify-self: stretch; text-align: center; }
+}
+.ada-ava .ada-botao-grande { margin: 6px 0 4px; }
+.ada-ava .ada-ava-usuario { margin: 10px 0 0; }
+.ada-ava-fim { text-align: center; }
+@media (max-width: 640px) { .ada-ava .ada-botao-grande, .ada-ava-fim .ada-botao-grande { display: flex; width: 100%; } }
+.ada-ava-topo { display: grid; gap: 12px; }
+.ada-ava-topo .ada-titulo { margin: 0; }
+.ada-ava-topo .ada-botao { justify-self: start; }
+.ada-progresso { height: 10px; border-radius: 999px; background: var(--fundo); border: 1px solid var(--linha); overflow: hidden; }
+.ada-progresso-barra { height: 100%; background: var(--marca); border-radius: 999px; transition: width .4s ease-out; }
+.ada-progresso-legenda { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; font-size: 13.5px; color: var(--tinta-2); }
+.ada-progresso-legenda b { font-size: 22px; color: var(--marca); font-variant-numeric: tabular-nums; }
+.ada-requisitos, .ada-avaliacoes, .ada-disciplinas { list-style: none; margin: 0; padding: 0; }
+.ada-requisitos li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--linha); }
+.ada-requisitos li:last-child { border-bottom: 0; padding-bottom: 0; }
+.ada-check { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--linha); color: #fff; font-size: 13px; font-weight: 700; }
+.ada-requisitos li.feito .ada-check { background: var(--ok); border-color: var(--ok); }
+.ada-req-texto { display: grid; gap: 2px; min-width: 0; }
+.ada-req-texto b { font-size: 15px; }
+.ada-req-texto span { font-size: 13px; color: var(--tinta-2); }
+.ada-final { border: 2px solid var(--marca); background: linear-gradient(0deg, var(--papel), var(--papel)) padding-box; }
+.ada-final .ada-sobre { color: var(--marca); opacity: 1; margin-bottom: 4px; }
+.ada-final .ada-titulo { margin: 0; }
+.ada-final.sit-aprovado { border-color: var(--ok); }
+.ada-final-dados { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 14px; color: var(--tinta-2); }
+.ada-final-dados b { color: var(--tinta); }
+.ada-avaliacoes li { display: flex; justify-content: space-between; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--linha); }
+.ada-avaliacoes li:last-child { border-bottom: 0; padding-bottom: 0; }
+.ada-avaliacoes li.destaque .ada-av-desc b { color: var(--marca); }
+.ada-av-desc { display: grid; gap: 2px; min-width: 0; }
+.ada-av-desc b { font-size: 15px; }
+.ada-av-desc span { font-size: 13px; color: var(--tinta-2); }
+.ada-av-nota { display: grid; justify-items: end; gap: 5px; text-align: right; }
+.ada-av-nota b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.ada-avaliacoes li.sit-bloqueada .ada-av-desc b, .ada-avaliacoes li.sit-bloqueada .ada-av-nota b { color: var(--tinta-3); }
+.ada-selo.neutro { color: var(--tinta-2); background: var(--fundo); }
+.ada-disciplinas li { display: grid; grid-template-columns: minmax(0, 1fr) 120px 48px; gap: 12px; align-items: center; padding: 9px 0; font-size: 14px; }
+.ada-disc-nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ada-disc-barra { height: 6px; border-radius: 999px; background: var(--fundo); overflow: hidden; }
+.ada-disc-barra span { display: block; height: 100%; background: var(--marca); border-radius: 999px; }
+.ada-disc-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--tinta-2); font-size: 13px; }
+.ada-rodape-ava { margin: 0; font-size: 13px; color: var(--tinta-2); text-align: center; }
+@media (max-width: 640px) {
+  .ada-requisitos li { grid-template-columns: auto minmax(0, 1fr); }
+  .ada-requisitos li .ada-selo { grid-column: 2; justify-self: start; }
+  .ada-disciplinas li { grid-template-columns: minmax(0, 1fr) 70px 40px; }
+}
+
 .ada-contrato { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--linha); }
 .ada-contrato:last-child { border-bottom: 0; padding-bottom: 0; }
 .ada-contrato-icone { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; color: var(--marca); background: var(--marca-suave); }
