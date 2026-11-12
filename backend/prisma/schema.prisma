@@ -3969,6 +3969,10 @@ model DocumentType {
   // null = sem análise automatizada por IA (review puramente humano).
   aiAnalysisTemplate String? @db.VarChar(50)
 
+  // Sugestão ao adicionar o documento numa exigência: costuma ter frente e
+  // verso em arquivos separados (RG, título de eleitor, reservista, CNH).
+  frenteVerso Boolean @default(false)
+
   ordem     Int      @default(0)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -3997,6 +4001,9 @@ model EntryModeDocumentRequirement {
   // Exigido só quando uma resposta do formulário bate: {campo, valores[]}.
   // Ex.: laudo só de quem declarou deficiência. null = sempre.
   condicao Json?
+  // Pede frente e verso em dois campos de envio (o aluno pode mandar um
+  // arquivo único com as duas faces). false = um arquivo só.
+  frenteVerso Boolean @default(false)
 
   createdAt DateTime @default(now())
 
@@ -4021,6 +4028,9 @@ model SelectionProcessDocumentRequirement {
   // Exigido só quando uma resposta do formulário bate: {campo, valores[]}.
   // Ex.: laudo só de quem declarou deficiência. null = sempre.
   condicao Json?
+  // Pede frente e verso em dois campos de envio (o aluno pode mandar um
+  // arquivo único com as duas faces). false = um arquivo só.
+  frenteVerso Boolean @default(false)
 
   createdAt DateTime @default(now())
 
@@ -5171,6 +5181,14 @@ model EnrollmentDocument {
   fileName  String @db.VarChar(191)
   mimeType  String @db.VarChar(50)
   sizeBytes Int
+
+  // Verso, quando o documento foi enviado em dois arquivos (requisito com
+  // frenteVerso). O arquivo principal (fileUrl) é a frente. É um documento só:
+  // uma revisão, uma análise de IA (com as duas imagens), um status.
+  versoFileUrl   String? @db.Text
+  versoFileName  String? @db.VarChar(191)
+  versoMimeType  String? @db.VarChar(50)
+  versoSizeBytes Int?
 
   // Status final da review (decisão humana, final).
   // pending | approved | rejected

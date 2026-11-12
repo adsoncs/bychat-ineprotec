@@ -67,6 +67,7 @@ import { couponsRoutes } from './routes/coupons.js'
 import { portalFinanceiroRoutes } from './routes/portalFinanceiro.js'
 import { portalJornadaRoutes } from './routes/portalJornada.js'
 import { matriculaInternaRoutes } from './routes/matriculaInterna.js'
+import { cepRoutes } from './routes/cep.js'
 import { inadimplenciaRoutes } from './routes/inadimplencia.js'
 import { areaDoAlunoRoutes } from './routes/areaDoAluno.js'
 import { atualizarFaturaRoutes } from './routes/atualizarFatura.js'
@@ -862,6 +863,7 @@ await app.register(couponsRoutes)
 await app.register(portalFinanceiroRoutes)
 await app.register(portalJornadaRoutes)
 await app.register(matriculaInternaRoutes)
+await app.register(cepRoutes)
 await app.register(inadimplenciaRoutes)
 await app.register(areaDoAlunoRoutes)
 await app.register(atualizarFaturaRoutes)

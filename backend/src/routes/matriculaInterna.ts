@@ -385,9 +385,14 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       if (k.startsWith('_') || ['offeringId', 'campusId', 'campusNome', 'senha', 'password', 'lgpdConsent'].includes(k)) continue
       novos[k] = String(v ?? '').trim().slice(0, 500)
     }
-    if ('cpf' in novos && novos.cpf) {
-      const cpf = normalizeCpf(novos.cpf)
-      if (!isValidCpf(cpf)) return reply.code(400).send({ error: 'CPF inválido.' })
+    // Todo campo de CPF do cadastro (aluno e responsável financeiro), não só o do aluno.
+    const { POR_CHAVE } = await import('../services/dadosCadastro.js')
+    for (const [k, v] of Object.entries(novos)) {
+      if (!v || (k !== 'cpf' && POR_CHAVE.get(k)?.tipo !== 'cpf')) continue
+      if (!isValidCpf(normalizeCpf(v))) {
+        const rotulo = POR_CHAVE.get(k)?.rotulo ?? 'CPF'
+        return reply.code(400).send({ error: `${rotulo} não confere. Verifique os números digitados.`, campo: k })
+      }
     }
     const form = (reg.formData as Record<string, any>) || {}
     const mudou = Object.keys(novos).filter((k) => String(form[k] ?? '') !== novos[k])

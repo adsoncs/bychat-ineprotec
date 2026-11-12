@@ -93,7 +93,7 @@ async function carregarInscricao(registrationId: number) {
       paymentPlan: true, paymentAmount: true, paymentPaidAt: true, paymentMethod: true, paymentStatus: true,
       processRegistration: { select: { offeringId: true } },
       documents: {
-        select: { id: true, typeId: true, typeCode: true, label: true, fileUrl: true, fileName: true, mimeType: true, status: true, uploadedAt: true, type: { select: { name: true } } },
+        select: { id: true, typeId: true, typeCode: true, label: true, fileUrl: true, fileName: true, mimeType: true, versoFileUrl: true, versoMimeType: true, status: true, uploadedAt: true, type: { select: { name: true } } },
         orderBy: { uploadedAt: 'desc' },
       },
     },
@@ -407,6 +407,7 @@ async function processarSemTrava(envioId: number): Promise<void> {
       const tipoContrato = await tipoDoContrato()
       const contrato = cfg.enviarContrato ? await contratoAssinado(e.registrationId, e.matriculaId) : null
       const naoAtendidos: string[] = []
+      const versoNaoJuntado: string[] = []
 
       for (const item of Array.isArray(lista) ? lista : []) {
         const codDoc = limpo(item?.codigo)
@@ -414,18 +415,27 @@ async function processarSemTrava(envioId: number): Promise<void> {
         const codTipo = limpo(tipo.codigo)
         if (!codDoc || enviados[codDoc]) continue
         const ehContrato = String(tipo.contrato) === 'true' || (!!tipoContrato && codTipo === tipoContrato)
-        let arquivo: { nome: string; mime: string; url: string; localId: number | null } | null = null
+        let arquivo: { nome: string; mime: string; url: string; localId: number | null; verso?: { url: string; mime: string } } | null = null
         if (ehContrato) {
           if (contrato) arquivo = { nome: contrato.nome, mime: 'application/pdf', url: contrato.url, localId: null }
         } else {
           for (const [typeId, m] of mapasDoc) {
             if (limpo(m.codigoTipoDocumento) !== codTipo) continue
             const d = aprovados.get(typeId)
-            if (d) { arquivo = { nome: nomeDoArquivo(d.type?.name || d.typeCode, d.fileName || basename(d.fileUrl)), mime: d.mimeType || 'application/octet-stream', url: d.fileUrl, localId: d.id }; break }
+            if (d) { arquivo = { nome: nomeDoArquivo(d.type?.name || d.typeCode, d.fileName || basename(d.fileUrl)), mime: d.mimeType || 'application/octet-stream', url: d.fileUrl, localId: d.id, ...(d.versoFileUrl ? { verso: { url: d.versoFileUrl, mime: d.versoMimeType || 'application/octet-stream' } } : {}) }; break }
           }
         }
         if (!arquivo) { naoAtendidos.push(limpo(tipo.nome) || codTipo || codDoc); continue }
-        const bytes = await arquivoLocalOuRemoto(arquivo.url)
+        let bytes = await arquivoLocalOuRemoto(arquivo.url)
+        // Frente e verso em dois arquivos: o SEI aceita um por documento, então
+        // vão juntos num PDF de duas páginas. Sem como juntar (PDF/HEIC), vai a
+        // frente e a secretaria é avisada para completar o verso no SEI.
+        if (arquivo.verso) {
+          const { juntarFrenteVerso } = await import('../lib/frenteVersoPdf.js')
+          const pdf = await juntarFrenteVerso({ bytes, mime: arquivo.mime }, { bytes: await arquivoLocalOuRemoto(arquivo.verso.url), mime: arquivo.verso.mime }).catch(() => null)
+          if (pdf) { bytes = pdf; arquivo.mime = 'application/pdf'; arquivo.nome = arquivo.nome.replace(/\.[A-Za-z0-9]+$/, '') + '.pdf' }
+          else versoNaoJuntado.push(limpo(tipo.nome) || codTipo)
+        }
         const subido: any = await sei.enviarArquivoDocumentacao(codDoc, { nome: arquivo.nome, mime: arquivo.mime, bytes }, ctx)
         await sei.gravarDocumentacao(subido && typeof subido === 'object' ? subido : { ...item }, ctx)
         enviados[codDoc] = { localId: arquivo.localId, nome: arquivo.nome, tipo: limpo(tipo.nome) || codTipo, contrato: ehContrato, em: new Date().toISOString() }
@@ -433,6 +443,7 @@ async function processarSemTrava(envioId: number): Promise<void> {
       }
       const avisos = [...pv.avisos]
       if (naoAtendidos.length) avisos.push(`O SEI pede documentos que o portal não tem aprovados/mapeados: ${naoAtendidos.join(', ')}.`)
+      if (versoNaoJuntado.length) avisos.push(`Só a frente foi enviada (o verso está em PDF ou formato que não dá para juntar): ${versoNaoJuntado.join(', ')}. Anexe o verso direto no SEI.`)
       e = await prisma.seiEnvio.update({
         where: { id: e.id },
         data: { etapa: 'concluido', status: 'CONCLUIDO', concluidoEm: new Date(), ultimoErro: null, proximaTentativaEm: null, avisos },

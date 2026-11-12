@@ -13,7 +13,7 @@ import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
 import { dispensasDe, requisitosDaCondicao, requisitosQueValem } from '../services/docCondicional.js'
 // Formulário inteiro da inscrição (rótulos do portal) para a tela mostrar tudo.
-import { camposDoFormulario, agruparCampos } from '../services/dadosCadastro.js'
+import { camposDoFormulario, agruparCampos, fichaInternaDaInscricao } from '../services/dadosCadastro.js'
 
 export { computeDocsCompletionStatus }  // re-export para preservar callers existentes
 
@@ -39,7 +39,7 @@ async function loadEffectiveRequirements(processRegistrationId: number | null, f
           documentRequirements: {
             orderBy: { ordem: 'asc' },
             select: {
-              required: true, ordem: true, condicao: true, helpText: true,
+              required: true, ordem: true, condicao: true, helpText: true, frenteVerso: true,
               documentType: { select: { id: true, code: true, name: true, category: true } },
             },
           },
@@ -48,7 +48,7 @@ async function loadEffectiveRequirements(processRegistrationId: number | null, f
               documentRequirements: {
                 orderBy: { ordem: 'asc' },
                 select: {
-                  required: true, ordem: true, condicao: true, helpText: true,
+                  required: true, ordem: true, condicao: true, helpText: true, frenteVerso: true,
                   documentType: { select: { id: true, code: true, name: true, category: true } },
                 },
               },
@@ -392,7 +392,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                 documentRequirements: {
                   orderBy: { ordem: 'asc' },
                   select: {
-                    required: true, ordem: true, condicao: true, helpText: true,
+                    required: true, ordem: true, condicao: true, helpText: true, frenteVerso: true,
                     documentType: { select: { id: true, code: true, name: true, category: true, aiAnalysisTemplate: true } },
                   },
                 },
@@ -402,7 +402,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                     documentRequirements: {
                       orderBy: { ordem: 'asc' },
                       select: {
-                        required: true, ordem: true, condicao: true, helpText: true,
+                        required: true, ordem: true, condicao: true, helpText: true, frenteVerso: true,
                         documentType: { select: { id: true, code: true, name: true, category: true, aiAnalysisTemplate: true } },
                       },
                     },
@@ -424,6 +424,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
           select: {
             id: true, typeCode: true, label: true,
             fileUrl: true, fileName: true, mimeType: true, sizeBytes: true,
+            versoFileUrl: true, versoFileName: true, versoMimeType: true,
             status: true, reviewNote: true, reviewedAt: true, reviewedBy: true,
             aiStatus: true, aiSuggestion: true, aiConfidence: true, aiAnalysis: true,
             uploadedAt: true,
@@ -468,6 +469,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       ordem: r.ordem,
       required: r.required,
       helpText: r.helpText,
+      frenteVerso: !!r.frenteVerso,
       documentType: r.documentType,
       latestDoc: r.documentType?.code ? (latestByCode[r.documentType.code] || null) : null,
       dispensa: (r.documentType?.code && docsDispensados[r.documentType.code]) || null,
@@ -528,6 +530,8 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       portal: reg.portal ? { ...reg.portal, formConfig: undefined } : null,
       // Tudo o que o candidato preencheu, na ordem do formulário do portal.
       cadastro: agruparCampos(camposDoFormulario((reg.portal as any)?.formConfig, (reg.formData as Record<string, any>) || {})),
+      // Dados que só a equipe preenche (Setting edu.ficha_interna); vazio = nada configurado.
+      fichaInterna: await fichaInternaDaInscricao({ leadId: reg.lead?.id ?? null, formData: reg.formData }).catch(() => []),
       processRegistration: reg.processRegistration,
       completion,  // 'pending' | 'rejected' | 'complete'
       essay: {

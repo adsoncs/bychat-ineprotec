@@ -42,6 +42,7 @@ export interface DadoCatalogo {
 }
 
 const RACA_COR = ['Branca', 'Preta', 'Parda', 'Amarela', 'Indígena', 'Não declarada']
+const TIPO_SANGUINEO = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Não sabe']
 const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
 
 export const CATALOGO: DadoCatalogo[] = [
@@ -59,6 +60,8 @@ export const CATALOGO: DadoCatalogo[] = [
   { chave: 'estadoCivil', rotulo: 'Estado civil', tipo: 'select', grupo: 'Identificação', opcoes: ['Solteiro(a)', 'Casado(a)', 'União estável', 'Divorciado(a)', 'Viúvo(a)'], destino: { aluno: 'estadoCivil' } },
   { chave: 'nacionalidade', rotulo: 'Nacionalidade', tipo: 'text', grupo: 'Identificação', destino: { aluno: 'nacionalidade' } },
   { chave: 'naturalidade', rotulo: 'Naturalidade (cidade/UF)', tipo: 'text', grupo: 'Identificação', destino: { aluno: 'naturalidade' } },
+  // Sem coluna própria no aluno: guardado junto da ficha sócio-econômica.
+  { chave: 'tipoSanguineo', rotulo: 'Tipo sanguíneo', tipo: 'select', grupo: 'Identificação', opcoes: TIPO_SANGUINEO, destino: { json: 'socioEconomicoJson', campo: 'tipoSanguineo' } },
   { chave: 'nomeMae', rotulo: 'Nome da mãe', tipo: 'text', grupo: 'Filiação', destino: { aluno: 'nomeMae' } },
   { chave: 'nomePai', rotulo: 'Nome do pai', tipo: 'text', grupo: 'Filiação', destino: { aluno: 'nomePai' } },
   // Endereço — mesmas chaves da ficha em Acadêmico › Pessoas
@@ -101,6 +104,53 @@ const SINONIMOS: Record<string, string[]> = {
   // Pergunta em duas partes do portal ("tem deficiência?" → qual): o tipo,
   // quando houver; senão a resposta ("Não").
   deficiencia: ['tipoDeficiencia', 'possuiDeficiencia'],
+}
+
+// ─── Ficha interna ────────────────────────────────────────────────────────
+//
+// Dados que a EQUIPE preenche na aba Cadastro da matrícula interna e que o
+// aluno não vê: não entram em etapa, formulário, IA nem contrato. Vale para
+// todos os portais da instituição (Setting `edu.ficha_interna`). Sem a
+// configuração, a aba fica como sempre foi.
+
+export interface FichaInterna { campos: { chave: string; obrigatorio: boolean }[] }
+
+const CHAVE_FICHA = 'edu.ficha_interna'
+
+export function normalizarFichaInterna(bruto: unknown): FichaInterna {
+  const lista = Array.isArray((bruto as any)?.campos) ? (bruto as any).campos as any[] : []
+  const vistos = new Set<string>()
+  const campos: FichaInterna['campos'] = []
+  for (const c of lista) {
+    const chave = String(c?.chave ?? '')
+    const d = POR_CHAVE.get(chave)
+    // Essenciais (nome, e-mail, WhatsApp) já estão no topo da aba.
+    if (!d || d.essencial || vistos.has(chave)) continue
+    vistos.add(chave)
+    campos.push({ chave, obrigatorio: !!c?.obrigatorio })
+  }
+  return { campos }
+}
+
+export async function lerFichaInterna(): Promise<FichaInterna> {
+  const s = await prisma.setting.findUnique({ where: { key: CHAVE_FICHA } }).catch(() => null)
+  return normalizarFichaInterna(s?.value)
+}
+
+export interface CampoDaFicha { chave: string; rotulo: string; tipo: TipoDado; opcoes?: string[]; obrigatorio: boolean; valor: string }
+
+/** Campos da ficha interna com o valor atual (inscrição ou cadastro do aluno). */
+export async function fichaInternaDaInscricao(reg: { leadId: number | null; formData: unknown }): Promise<CampoDaFicha[]> {
+  const ficha = await lerFichaInterna()
+  if (!ficha.campos.length) return []
+  const atuais = await valoresAtuais(reg, ficha.campos.map((c) => c.chave))
+  return ficha.campos.map((c) => {
+    const d = POR_CHAVE.get(c.chave)!
+    return {
+      chave: c.chave, rotulo: d.rotulo, tipo: d.tipo, ...(d.opcoes ? { opcoes: d.opcoes } : {}),
+      obrigatorio: c.obrigatorio, valor: vazio(atuais[c.chave]) ? '' : String(atuais[c.chave]),
+    }
+  })
 }
 
 // ─── Etapas onde um dado pode ser pedido ──────────────────────────────────

@@ -244,15 +244,22 @@ async function callClaudeVision(params: {
   userPrompt: string
   fileBase64: string
   mimeType: string
+  /** Verso do documento enviado em dois arquivos: vai junto, na mesma análise. */
+  verso?: { fileBase64: string; mimeType: string } | null
 }): Promise<{ text: string; inputTokens: number; outputTokens: number; model: string }> {
-  const { systemPrompt, userPrompt, fileBase64, mimeType } = params
+  const { systemPrompt, fileBase64, mimeType, verso } = params
 
   // Claude aceita image/jpeg, image/png, image/gif, image/webp como image
   // e application/pdf como document (suporta até ~100 páginas em PDF).
-  const isPdf = mimeType === 'application/pdf'
-  const fileBlock = isPdf
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
-    : { type: 'image', source: { type: 'base64', media_type: mimeType, data: fileBase64 } }
+  const bloco = (data: string, mime: string) => mime === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } }
+    : { type: 'image', source: { type: 'base64', media_type: mime, data } }
+  const fileBlocks: any[] = verso
+    ? [{ type: 'text', text: 'Frente do documento:' }, bloco(fileBase64, mimeType), { type: 'text', text: 'Verso do documento:' }, bloco(verso.fileBase64, verso.mimeType)]
+    : [bloco(fileBase64, mimeType)]
+  const userPrompt = verso
+    ? `${params.userPrompt}\n\nO documento veio em dois arquivos (frente e verso): considere as duas imagens como um documento só.`
+    : params.userPrompt
 
   const apiKey = await ensureAnthropicKey()
   const model = await getAnthropicModel()
@@ -264,7 +271,7 @@ async function callClaudeVision(params: {
     messages: [
       {
         role: 'user',
-        content: [fileBlock, { type: 'text', text: userPrompt }],
+        content: [...fileBlocks, { type: 'text', text: userPrompt }],
       },
     ],
   }
@@ -348,10 +355,13 @@ export async function reviewDocumentById(docId: number): Promise<{ ok: boolean; 
   try {
     const tmpl = TEMPLATES[tmplKey]
     const formData = (doc.registration?.formData as any) || {}
-    const { base64, bytes } = await loadFileBase64(doc.fileUrl)
+    const { base64, bytes: bytesFrente } = await loadFileBase64(doc.fileUrl)
+    const verso = doc.versoFileUrl ? await loadFileBase64(doc.versoFileUrl) : null
+    const bytes = bytesFrente + (verso?.bytes ?? 0)
 
     // Proteção de tamanho: arquivos > ~5MB consomem muitos tokens. Pula por segurança.
-    if (bytes > 5 * 1024 * 1024) {
+    // Frente e verso: o limite vale por arquivo.
+    if (bytesFrente > 5 * 1024 * 1024 || (verso?.bytes ?? 0) > 5 * 1024 * 1024) {
       await prisma.enrollmentDocument.update({
         where: { id: docId },
         data: {
@@ -368,6 +378,7 @@ export async function reviewDocumentById(docId: number): Promise<{ ok: boolean; 
       userPrompt: tmpl.userPrompt(formData),
       fileBase64: base64,
       mimeType: doc.mimeType,
+      verso: verso && doc.versoMimeType ? { fileBase64: verso.base64, mimeType: doc.versoMimeType } : null,
     })
 
     const parsed = parseResponse(text)

@@ -198,7 +198,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
                 documentRequirements: {
                   orderBy: { ordem: 'asc' },
                   select: {
-                    required: true, ordem: true, helpText: true, condicao: true,
+                    required: true, ordem: true, helpText: true, condicao: true, frenteVerso: true,
                     documentType: { select: { id: true, code: true, name: true, category: true } },
                   },
                 },
@@ -208,7 +208,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
                     documentRequirements: {
                       orderBy: { ordem: 'asc' },
                       select: {
-                        required: true, ordem: true, helpText: true, condicao: true,
+                        required: true, ordem: true, helpText: true, condicao: true, frenteVerso: true,
                         documentType: { select: { id: true, code: true, name: true, category: true } },
                       },
                     },
@@ -222,7 +222,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
           orderBy: { uploadedAt: 'desc' },
           select: {
             id: true, typeCode: true, typeId: true, label: true,
-            fileName: true, mimeType: true, sizeBytes: true,
+            fileName: true, mimeType: true, sizeBytes: true, versoFileName: true,
             status: true, reviewNote: true, uploadedAt: true, reviewedAt: true,
             aiStatus: true, aiSuggestion: true, aiConfidence: true,
             type: { select: { code: true, name: true, category: true } },
@@ -318,17 +318,12 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // A trava depende do TIPO (documento da análise acadêmica × demais), que só
     // se sabe depois de ler o multipart — ver logo abaixo de `typeCode`.
 
-    // Override do limite default de 10MB do fastify-multipart só para esta rota
-    // — fotos modernas de celular e PDFs escaneados frequentemente excedem 10MB.
-    const file = await (req as any).file?.({ limits: { fileSize: 25 * 1024 * 1024 } })
-    if (!file) return reply.code(400).send({ error: 'Nenhum arquivo enviado' })
-
-    // Validação de extensão / MIME — lista ampla.
-    // Inclui formatos comuns (JPG/PNG/WebP/GIF/BMP/HEIC) e PDF.
-    const ext = (file.filename.split('.').pop() || 'bin').toLowerCase()
+    // Até dois arquivos no mesmo envio: `file` (frente, ou o documento inteiro)
+    // e `verso` (quando o requisito pede frente e verso). Um documento só, com
+    // uma revisão e uma análise de IA que vê as duas faces.
+    // Limite de 25MB por arquivo: fotos modernas de celular e PDFs escaneados
+    // frequentemente passam dos 10MB padrão do fastify-multipart.
     const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif', 'pdf']
-    if (!allowedExts.includes(ext)) return reply.code(400).send({ error: `Tipo de arquivo não permitido: .${ext}. Aceitos: ${allowedExts.join(', ')}` })
-
     const allowedMimes = [
       'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/bmp',
       'image/heic', 'image/heif',
@@ -336,50 +331,67 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       // Alguns navegadores enviam 'application/octet-stream' para HEIC; tolera.
       'application/octet-stream',
     ]
-    if (file.mimetype && !allowedMimes.includes(file.mimetype)) {
-      return reply.code(400).send({ error: `MIME não permitido: ${file.mimetype}` })
-    }
-
     const uploadsDir = join(process.cwd(), '..', 'uploads', 'enrollment-docs')
     await fs.mkdir(uploadsDir, { recursive: true })
-
-    const savedName = `${s.enrollmentId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
-    const filePath = join(uploadsDir, savedName)
-
-    // Consome stream do arquivo. Limite generoso (25MB) cobre fotos modernas
-    // de celular e PDFs com várias páginas escaneadas.
-    const chunks: Buffer[] = []
     const MAX = 25 * 1024 * 1024
-    let total = 0
-    for await (const c of file.file) {
-      total += c.length
-      if (total > MAX) return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' })
-      chunks.push(c)
-    }
-    // Valida magic bytes: rejeita markup disfarçado de imagem/PDF (A8/M6).
-    let docBuf: Buffer = Buffer.concat(chunks)
+    type Salvo = { savedName: string; filePath: string; filename: string; mimetype: string; total: number }
+    const salvos: Salvo[] = []
+    const descartar = async () => { for (const s of salvos) await fs.unlink(s.filePath).catch(() => {}) }
+    const fields: Record<string, string> = {}
+    let frente: Salvo | null = null
+    let verso: Salvo | null = null
     try {
-      docBuf = validateUploadContent(docBuf, ext, { allowSvg: false })
+      for await (const part of (req as any).parts({ limits: { fileSize: MAX, files: 2 } })) {
+        if (part.type !== 'file') { fields[part.fieldname] = String(part.value ?? ''); continue }
+        const lado: 'frente' | 'verso' = part.fieldname === 'verso' ? 'verso' : 'frente'
+        if ((lado === 'frente' && frente) || (lado === 'verso' && verso)) { part.file.resume(); continue }
+        // Validação de extensão / MIME — lista ampla (JPG/PNG/WebP/GIF/BMP/HEIC e PDF).
+        const ext = (String(part.filename || '').split('.').pop() || 'bin').toLowerCase()
+        if (!allowedExts.includes(ext)) { part.file.resume(); await descartar(); return reply.code(400).send({ error: `Tipo de arquivo não permitido: .${ext}. Aceitos: ${allowedExts.join(', ')}` }) }
+        if (part.mimetype && !allowedMimes.includes(part.mimetype)) { part.file.resume(); await descartar(); return reply.code(400).send({ error: `MIME não permitido: ${part.mimetype}` }) }
+        const chunks: Buffer[] = []
+        let total = 0
+        for await (const c of part.file) {
+          total += c.length
+          if (total > MAX) { await descartar(); return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' }) }
+          chunks.push(c)
+        }
+        if (part.file.truncated) { await descartar(); return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' }) }
+        // Valida magic bytes: rejeita markup disfarçado de imagem/PDF (A8/M6).
+        let docBuf: Buffer = Buffer.concat(chunks)
+        try {
+          docBuf = validateUploadContent(docBuf, ext, { allowSvg: false })
+        } catch (err: any) {
+          await descartar()
+          if (err instanceof UploadValidationError) return reply.code(400).send({ error: lado === 'verso' ? `Verso: ${err.message}` : err.message })
+          return reply.code(500).send({ error: 'Falha ao processar arquivo' })
+        }
+        const savedName = `${s.enrollmentId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${lado === 'verso' ? '-verso' : ''}.${ext}`
+        const filePath = join(uploadsDir, savedName)
+        await fs.writeFile(filePath, docBuf)
+        const salvo = { savedName, filePath, filename: String(part.filename || savedName), mimetype: part.mimetype || 'application/octet-stream', total }
+        salvos.push(salvo)
+        if (lado === 'verso') verso = salvo; else frente = salvo
+      }
     } catch (err: any) {
-      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
-      return reply.code(500).send({ error: 'Falha ao processar arquivo' })
+      await descartar()
+      if (String(err?.code || '').includes('FILES_LIMIT')) return reply.code(400).send({ error: 'Envie no máximo dois arquivos: frente e verso.' })
+      if (String(err?.code || '').includes('FILE_TOO_LARGE')) return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' })
+      throw err
     }
-    await fs.writeFile(filePath, docBuf)
+    // Só o verso não basta: a frente é o documento.
+    if (!frente) { await descartar(); return reply.code(400).send({ error: verso ? 'Envie também a frente do documento.' : 'Nenhum arquivo enviado' }) }
+    const principal: Salvo = frente
 
-    // IMPORTANTE: lê os fields APÓS consumir o stream do arquivo. fastify-multipart
-    // só popula `file.fields` com campos parseados até aquele momento — campos
-    // que vêm depois do `file` no multipart só ficam disponíveis após drenar
-    // o stream. Antes desta correção, `type` voltava `undefined` e o doc era
-    // salvo como `typeCode='other'` (bug observado com RG).
-    const typeCode = String(file.fields?.type?.value || file.fields?.typeCode?.value || 'other').substring(0, 30)
+    const typeCode = String(fields.type || fields.typeCode || 'other').substring(0, 30)
     if (!(req as any).atendente?.interno) {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDoDocumento(s.enrollmentId, typeCode, s.onde)
       if (trava) {
-        await fs.unlink(filePath).catch(() => {})
+        await descartar()
         return reply.code(409).send({ error: trava, travada: true })
       }
     }
-    const label = String(file.fields?.label?.value || file.filename || 'Documento').substring(0, 100)
+    const label = String(fields.label || principal.filename || 'Documento').substring(0, 100)
 
     // Resolve FK opcional para DocumentType via code (pode ser null se tipo livre).
     const docType = await prisma.documentType.findUnique({ where: { code: typeCode } }).catch(() => null)
@@ -392,10 +404,16 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       data: {
         registrationId: s.enrollmentId,
         typeCode, typeId, label,
-        fileUrl: `${appUrl}/uploads/enrollment-docs/${savedName}`,
-        fileName: file.filename,
-        mimeType: file.mimetype || `application/octet-stream`,
-        sizeBytes: total,
+        fileUrl: `${appUrl}/uploads/enrollment-docs/${principal.savedName}`,
+        fileName: principal.filename.substring(0, 191),
+        mimeType: principal.mimetype.substring(0, 50),
+        sizeBytes: principal.total,
+        ...(verso ? {
+          versoFileUrl: `${appUrl}/uploads/enrollment-docs/${(verso as Salvo).savedName}`,
+          versoFileName: (verso as Salvo).filename.substring(0, 191),
+          versoMimeType: (verso as Salvo).mimetype.substring(0, 50),
+          versoSizeBytes: (verso as Salvo).total,
+        } : {}),
         aiStatus,
       },
     })
@@ -424,8 +442,10 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
     await prisma.enrollmentDocument.delete({ where: { id: doc.id } })
     // Remove arquivo físico (fire-and-forget)
-    const savedName = doc.fileUrl.split('/').pop()
-    if (savedName) fs.unlink(join(process.cwd(), '..', 'uploads', 'enrollment-docs', savedName)).catch(() => {})
+    for (const url of [doc.fileUrl, doc.versoFileUrl]) {
+      const savedName = url?.split('?')[0]?.split('/').pop()
+      if (savedName) fs.unlink(join(process.cwd(), '..', 'uploads', 'enrollment-docs', savedName)).catch(() => {})
+    }
     ;(await import('../services/funilDaJornada.js')).sincronizarFunil(s.enrollmentId)
     return { ok: true }
   })
@@ -508,7 +528,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         take: limit,
         skip: offset,
         select: {
-          id: true, label: true, typeCode: true, fileUrl: true, fileName: true,
+          id: true, label: true, typeCode: true, fileUrl: true, fileName: true, versoFileUrl: true, versoFileName: true,
           mimeType: true, sizeBytes: true,
           status: true, reviewNote: true, reviewedAt: true, reviewedBy: true,
           aiStatus: true, aiSuggestion: true, aiConfidence: true, aiAnalysis: true,

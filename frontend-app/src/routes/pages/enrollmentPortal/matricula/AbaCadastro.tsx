@@ -1,5 +1,5 @@
 // Aba Cadastro da matrícula interna: tudo editável de uma vez e troca de curso.
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
+import { CHAVES_DE_CPF, erroDoCpf, mascararCpf } from '@/lib/cpf'
+import { CHAVES_DE_CEP, CHAVES_DO_ENDERECO, consultarCep, digitosDoCep, mascararCep } from '@/lib/cep'
 import type { RegistrationReview } from '@/hooks/useEnrollmentPortals'
 import { chamarComoAgente, rotaInscricao } from './sessao'
 import { invalidarInscricao } from './Dispensa'
@@ -43,6 +45,8 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
     for (const [chave, rotulo] of [['nome', 'Nome completo'], ['cpf', 'CPF'], ['email', 'E-mail'], ['whatsapp', 'WhatsApp']] as const) {
       pôr({ chave, rotulo, grupo: 'Identificação' }, String(form[chave] ?? ''))
     }
+    // Ficha interna: só a equipe preenche; o aluno não vê.
+    for (const c of review.fichaInterna ?? []) pôr({ chave: c.chave, rotulo: c.rotulo, grupo: 'Ficha do aluno', tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}), ...(c.obrigatorio ? { obrigatorio: true } : {}) }, c.valor)
     for (const g of review.cadastro ?? []) for (const c of g.campos) if (c.chave !== 'campusNome') pôr({ chave: c.chave, rotulo: c.rotulo, grupo: g.grupo, tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}) }, c.valor)
     for (const c of dados.data ?? []) pôr({ chave: c.name, rotulo: c.label, grupo: 'Pedido nas etapas', ...(c.type ? { tipo: c.type } : {}), ...(c.options ? { opcoes: c.options } : {}), ...(c.required ? { obrigatorio: true } : {}) }, c.valor)
     return { grupos: [...out.entries()], iniciais }
@@ -51,6 +55,47 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
   const [valores, setValores] = useState<Record<string, string>>(iniciais)
   useEffect(() => { setValores(iniciais) }, [iniciais])
   const alterados = Object.keys(valores).filter((k) => (valores[k] ?? '') !== (iniciais[k] ?? ''))
+  // ── CEP: ao completar 8 dígitos, busca e preenche rua, bairro, cidade e UF ──
+  const [cepAviso, setCepAviso] = useState<{ erro: boolean; texto: string } | null>(null)
+  const [cepBuscando, setCepBuscando] = useState(false)
+  const ultimoCep = useRef('')
+  const chavesNaTela = useMemo(() => new Set(grupos.flatMap(([, cs]) => cs.map((c) => c.chave))), [grupos])
+  const focar = (chave: string) => setTimeout(() => (document.querySelector(`[data-chave="${chave}"]`) as HTMLElement | null)?.focus(), 50)
+  const aoDigitarCep = (chave: string, bruto: string) => {
+    const v = mascararCep(bruto)
+    setValores((x) => ({ ...x, [chave]: v }))
+    const d = digitosDoCep(v)
+    if (d.length !== 8) { ultimoCep.current = ''; setCepAviso(null); return }
+    if (d === ultimoCep.current) return
+    ultimoCep.current = d
+    setCepBuscando(true); setCepAviso(null)
+    consultarCep(d).then((r) => {
+      if (ultimoCep.current !== d) return // digitou outro CEP enquanto buscava
+      if (r.situacao === 'nao_encontrado') { setCepAviso({ erro: true, texto: 'CEP não encontrado. Confira o número ou preencha o endereço à mão.' }); return }
+      if (r.situacao === 'indisponivel') { setCepAviso({ erro: false, texto: 'Busca de CEP indisponível agora. Preencha o endereço à mão.' }); return }
+      const e = r.endereco
+      setValores((x) => {
+        const n = { ...x }
+        for (const [parte, chaves] of Object.entries(CHAVES_DO_ENDERECO) as [keyof typeof CHAVES_DO_ENDERECO, readonly string[]][]) {
+          const valor = e[parte]
+          const alvo = chaves.find((k) => chavesNaTela.has(k))
+          // Só o que o CEP traz: CEP de cidade inteira vem sem rua e bairro, e aí
+          // o que já estava digitado fica.
+          if (alvo && valor) n[alvo] = valor
+        }
+        return n
+      })
+      if (e.logradouro) { setCepAviso({ erro: false, texto: `${e.logradouro}, ${e.bairro ? e.bairro + ', ' : ''}${e.municipio}/${e.uf}. Confira e informe o número.` }); focar('numero') }
+      else { setCepAviso({ erro: false, texto: `CEP geral de ${e.municipio}/${e.uf}: informe rua e bairro.` }); focar('logradouro') }
+    }).catch(() => { if (ultimoCep.current === d) setCepAviso({ erro: true, texto: 'Não foi possível buscar o CEP. Preencha o endereço à mão.' }) })
+      .finally(() => { if (ultimoCep.current === d) setCepBuscando(false) })
+  }
+
+  // CPF: máscara e conferência na hora; com CPF que não confere não dá para salvar.
+  const ehCpf = (c: { chave: string; tipo?: string }) => c.tipo === 'cpf' || CHAVES_DE_CPF.includes(c.chave)
+  const cpfsComErro = grupos.flatMap(([, cs]) => cs).filter((c) => ehCpf(c) && alterados.includes(c.chave) && erroDoCpf(valores[c.chave] ?? ''))
+
+  const fichaFaltando = (review.fichaInterna ?? []).filter((c) => c.obrigatorio && !String(valores[c.chave] ?? '').trim())
   const salvar = useMutation({
     mutationFn: () => api.put<{ mudou: string[] }>(`/admin/matricula-interna/${id}/cadastro`, { valores: Object.fromEntries(alterados.map((k) => [k, valores[k]])) }),
     onSuccess: () => { toast('Cadastro salvo', 'success'); invalidarInscricao(qc, id) },
@@ -66,10 +111,15 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
           {podeEditar && (
             <div class="flex items-center gap-2">
               {alterados.length > 0 && <span class="text-2xs text-warning">{alterados.length} alteração(ões) sem salvar</span>}
-              <Button size="sm" variant="primary" disabled={!alterados.length || salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar cadastro'}</Button>
+              <Button size="sm" variant="primary" disabled={!alterados.length || cpfsComErro.length > 0 || salvar.isPending} title={cpfsComErro.length ? 'Corrija o CPF antes de salvar' : undefined} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar cadastro'}</Button>
             </div>
           )}
         </div>
+        {fichaFaltando.length > 0 && (
+          <div class="mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            Falta preencher na ficha do aluno: {fichaFaltando.map((c) => c.rotulo).join(', ')}.
+          </div>
+        )}
         <div class="grid gap-4">
           {grupos.map(([grupo, campos]) => (
             <div key={grupo}>
@@ -81,14 +131,23 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
                     {(valores[c.chave] && !c.opcoes.includes(valores[c.chave]!)) && <option value={valores[c.chave]}>{valores[c.chave]}</option>}
                     {c.opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
                   </Select>
+                ) : ehCpf(c) ? (
+                  <Input key={c.chave} data-chave={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} inputMode="numeric" maxLength={14} placeholder="000.000.000-00"
+                    value={valores[c.chave] ?? ''} onInput={(e) => { const v = mascararCpf((e.target as HTMLInputElement).value); setValores((x) => ({ ...x, [c.chave]: v })) }}
+                    error={erroDoCpf(valores[c.chave] ?? '') ?? undefined} />
+                ) : (c.tipo === 'cep' || CHAVES_DE_CEP.includes(c.chave)) ? (
+                  <Input key={c.chave} data-chave={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} inputMode="numeric" autoComplete="postal-code" maxLength={9} placeholder="00000-000"
+                    value={valores[c.chave] ?? ''} onInput={(e) => aoDigitarCep(c.chave, (e.target as HTMLInputElement).value)}
+                    hint={cepBuscando ? 'Buscando endereço…' : (cepAviso && !cepAviso.erro ? cepAviso.texto : (podeEditar ? 'Digite o CEP para preencher o endereço' : undefined))}
+                    error={!cepBuscando && cepAviso?.erro ? cepAviso.texto : undefined} />
                 ) : (
-                  <Input key={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} value={valores[c.chave] ?? ''} onInput={(e) => { const v = (e.target as HTMLInputElement).value; setValores((x) => ({ ...x, [c.chave]: v })) }} />
+                  <Input key={c.chave} data-chave={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} value={valores[c.chave] ?? ''} onInput={(e) => { const v = (e.target as HTMLInputElement).value; setValores((x) => ({ ...x, [c.chave]: v })) }} />
                 ))}
               </div>
             </div>
           ))}
         </div>
-        <div class="text-2xs text-fg-muted mt-3">Nome e e-mail acompanham a ficha do lead. O WhatsApp da ficha só muda por lá, porque ele identifica a conversa. Campos * são cobrados na tela do aluno enquanto estiverem vazios.</div>
+        <div class="text-2xs text-fg-muted mt-3">Nome e e-mail acompanham a ficha do lead. O WhatsApp da ficha só muda por lá, porque ele identifica a conversa. Campos * da ficha do aluno são obrigatórios para a equipe e o aluno não os vê; os demais campos * são cobrados na tela do aluno enquanto estiverem vazios.</div>
       </Card>
     </div>
   )

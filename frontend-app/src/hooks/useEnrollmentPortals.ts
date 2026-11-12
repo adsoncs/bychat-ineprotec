@@ -619,6 +619,10 @@ export interface EnrollmentDocument {
   fileName: string | null
   mimeType: string | null
   sizeBytes: number | null
+  /** Verso, quando o documento veio em dois arquivos. */
+  versoFileUrl?: string | null
+  versoFileName?: string | null
+  versoMimeType?: string | null
   status: DocumentStatus
   reviewNote: string | null
   reviewedAt: string | null
@@ -636,6 +640,8 @@ export interface DocumentSlot {
   ordem: number
   required: boolean
   helpText: string | null
+  /** O requisito pede frente e verso em dois arquivos. */
+  frenteVerso?: boolean
   documentType?: { id: number; code: string; name: string; category: string; aiAnalysisTemplate: string | null }
   latestDoc: EnrollmentDocument | null
   /** A equipe dispensou este documento (matrícula interna). */
@@ -707,6 +713,8 @@ export interface RegistrationReview {
    * na ordem em que o portal pede. Os rótulos são os que ele leu na tela.
    */
   cadastro?: { grupo: string; campos: CampoDoCadastro[] }[]
+  /** Dados que só a equipe preenche (Setting edu.ficha_interna). */
+  fichaInterna?: Array<{ chave: string; rotulo: string; tipo: string; opcoes?: string[]; obrigatorio: boolean; valor: string }>
   slots: DocumentSlot[]
   extras: EnrollmentDocument[]
   autoAdvance:

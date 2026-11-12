@@ -379,28 +379,67 @@ function EtapasCard({ registrationId, etapas, dispensas, aoAbrir, podeOperar }: 
   )
 }
 
-/** Anexa um arquivo pela mesma rota do aluno: entra igual e aparece na tela dele. */
-function AnexarDocumento({ registrationId, typeCode, rotulo, class: classe }: { registrationId: number; typeCode: string; rotulo: string; class?: string }) {
+/**
+ * Anexa pela mesma rota do aluno: entra igual e aparece na tela dele.
+ * Requisito com frente e verso abre a escolha dos dois arquivos (ou um único
+ * com as duas faces, como um PDF escaneado).
+ */
+function AnexarDocumento({ registrationId, typeCode, rotulo, frenteVerso = false, class: classe }: { registrationId: number; typeCode: string; rotulo: string; frenteVerso?: boolean; class?: string }) {
   const qc = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
+  const [aberto, setAberto] = useState(false)
   const enviar = useMutation({
-    mutationFn: (arquivo: File) => {
+    mutationFn: ({ frente, verso }: { frente: File; verso?: File | null }) => {
       const fd = new FormData()
       fd.append('type', typeCode); fd.append('label', rotulo)
-      fd.append('file', arquivo)
+      fd.append('file', frente)
+      if (verso) fd.append('verso', verso)
       return chamarComoAgente(registrationId, () => '/candidate/documents', { method: 'POST', form: fd })
     },
-    onSuccess: () => { toast('Documento anexado', 'success'); invalidarInscricao(qc, registrationId) },
+    onSuccess: () => { toast('Documento anexado', 'success'); invalidarInscricao(qc, registrationId); setAberto(false) },
     onError: (e: unknown) => toast((e as Error).message, 'danger'),
   })
   return (
     <span class={classe}>
       <input ref={input} type="file" class="hidden" accept=".pdf,image/*"
-        onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) enviar.mutate(f); (e.target as HTMLInputElement).value = '' }} />
-      <Button size="sm" variant="secondary" disabled={enviar.isPending} onClick={() => input.current?.click()}>
+        onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) enviar.mutate({ frente: f }); (e.target as HTMLInputElement).value = '' }} />
+      <Button size="sm" variant="secondary" disabled={enviar.isPending} onClick={() => frenteVerso ? setAberto(true) : input.current?.click()}>
         <Paperclip size={12} /> {enviar.isPending ? 'Enviando…' : 'Anexar'}
       </Button>
+      {aberto && <AnexarFrenteVersoModal rotulo={rotulo} enviando={enviar.isPending} onClose={() => setAberto(false)} onEnviar={(frente, verso) => enviar.mutate({ frente, verso })} />}
     </span>
+  )
+}
+
+function AnexarFrenteVersoModal({ rotulo, enviando, onClose, onEnviar }: { rotulo: string; enviando: boolean; onClose: () => void; onEnviar: (frente: File, verso: File | null) => void }) {
+  const [unico, setUnico] = useState(false)
+  const [frente, setFrente] = useState<File | null>(null)
+  const [verso, setVerso] = useState<File | null>(null)
+  const pronto = !!frente && (unico || !!verso)
+  const Campo = ({ titulo, arquivo, onEscolher }: { titulo: string; arquivo: File | null; onEscolher: (f: File | null) => void }) => (
+    <label class="flex flex-col gap-1">
+      <span class="text-xs font-semibold text-fg-muted">{titulo}</span>
+      <input type="file" accept=".pdf,image/*" class="text-xs text-fg file:mr-2 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-2 file:py-1 file:text-xs file:text-fg"
+        onChange={(e) => onEscolher((e.target as HTMLInputElement).files?.[0] ?? null)} />
+      {arquivo && <span class="text-2xs text-fg-muted truncate">{arquivo.name}</span>}
+    </label>
+  )
+  return (
+    <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`Anexar ${rotulo}`} size="sm"
+      description="Este documento é pedido com frente e verso."
+      footer={<>
+        <Button size="sm" variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button size="sm" variant="primary" disabled={!pronto || enviando} onClick={() => frente && onEnviar(frente, unico ? null : verso)}>{enviando ? 'Enviando…' : 'Anexar'}</Button>
+      </>}>
+      <div class="grid gap-3">
+        <Campo titulo={unico ? 'Arquivo com as duas faces' : 'Frente'} arquivo={frente} onEscolher={setFrente} />
+        {!unico && <Campo titulo="Verso" arquivo={verso} onEscolher={setVerso} />}
+        <label class="flex items-center gap-2 text-xs text-fg-muted">
+          <input type="checkbox" checked={unico} onChange={(e) => setUnico((e.target as HTMLInputElement).checked)} />
+          Tenho um arquivo único com frente e verso (ex.: PDF escaneado)
+        </label>
+      </div>
+    </Modal>
   )
 }
 
@@ -1218,6 +1257,7 @@ function SlotRow({ slot, registrationId, podeOperar }: { slot: DocumentSlot; reg
             <span class={`text-3xs uppercase ${slot.required ? 'text-warning' : 'text-fg-muted'}`}>
               {reqLabel}
             </span>
+            {slot.frenteVerso && <span class="text-3xs uppercase text-accent">frente e verso</span>}
           </div>
           {slot.helpText && (
             <div class="text-xs text-fg-muted mt-0.5">{slot.helpText}</div>
@@ -1234,7 +1274,7 @@ function SlotRow({ slot, registrationId, podeOperar }: { slot: DocumentSlot; reg
       )}
       {podeOperar && dt?.code && (
         <div class="ml-11 mt-2 flex flex-wrap items-center gap-1.5">
-          {!slot.dispensa && (!doc || doc.status !== 'approved') && <AnexarDocumento registrationId={registrationId} typeCode={dt.code} rotulo={dt.name} />}
+          {!slot.dispensa && (!doc || doc.status !== 'approved') && <AnexarDocumento registrationId={registrationId} typeCode={dt.code} rotulo={dt.name} frenteVerso={!!slot.frenteVerso} />}
           {doc && doc.status !== 'approved' && <RemoverDocumento registrationId={registrationId} docId={doc.id} />}
           {(!doc || doc.status !== 'approved') && <BotaoDispensa registrationId={registrationId} tipo="documento" chave={dt.code} nome={dt.name} dispensa={slot.dispensa} />}
         </div>
@@ -1342,7 +1382,19 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
               ? 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold border border-warning bg-warning/10 text-warning hover:bg-warning/20 btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
               : 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'}
           >
-            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar documento' : 'Ver documento'} <ExternalLink size={10} />
+            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} {doc.versoFileUrl ? 'frente' : 'documento'} <ExternalLink size={10} />
+          </a>
+        )}
+        {doc.versoFileUrl && (
+          <a
+            href={doc.versoFileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class={doc.status === 'pending'
+              ? 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold border border-warning bg-warning/10 text-warning hover:bg-warning/20 btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+              : 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'}
+          >
+            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} verso <ExternalLink size={10} />
           </a>
         )}
         {doc.status !== 'approved' && (

@@ -95,7 +95,7 @@ export function Documentos(props: {
   })
   const faltam = obrigatorios.length - entregues.length
 
-  async function subir(exig: Exigencia, escolhido: File) {
+  async function subir(exig: Exigencia, escolhido: File, escolhidoVerso?: File | null) {
     const codigo = exig.documentType.code
     setErros((e) => ({ ...e, [codigo]: '' }))
     setEnviando(codigo)
@@ -103,12 +103,19 @@ export function Documentos(props: {
       // Comprime antes de checar o limite: foto de 8 MB costuma virar menos de
       // 1 MB e passa, em vez de ser recusada por tamanho.
       const r = await comprimirSePreciso(escolhido)
-      if (r.arquivo.size > MAX_BYTES) {
-        setErros((e) => ({ ...e, [codigo]: `O arquivo tem ${tamanho(r.arquivo.size)} — o limite é 25 MB. Envie em PDF ou tire a foto com menos qualidade.` }))
-        return
+      const rv = escolhidoVerso ? await comprimirSePreciso(escolhidoVerso) : null
+      for (const [lado, x] of [['', r], ['O verso: ', rv]] as const) {
+        if (x && x.arquivo.size > MAX_BYTES) {
+          setErros((e) => ({ ...e, [codigo]: `${lado}${lado ? 'o' : 'O'} arquivo tem ${tamanho(x.arquivo.size)} — o limite é 25 MB. Envie em PDF ou tire a foto com menos qualidade.` }))
+          return
+        }
       }
-      if (r.comprimido) setNotas((n) => ({ ...n, [codigo]: `Foto reduzida de ${tamanho(r.de)} para ${tamanho(r.para)} antes de enviar.` }))
-      await enviarDocumento(codigo, exig.documentType.name, r.arquivo, props.token)
+      if (r.comprimido || rv?.comprimido) {
+        const antes = r.de + (rv?.de ?? 0)
+        const depois = r.para + (rv?.para ?? 0)
+        setNotas((n) => ({ ...n, [codigo]: `${rv ? 'Fotos reduzidas' : 'Foto reduzida'} de ${tamanho(antes)} para ${tamanho(depois)} antes de enviar.` }))
+      }
+      await enviarDocumento(codigo, exig.documentType.name, r.arquivo, props.token, rv?.arquivo ?? null)
       await recarregar()
       props.aoMudar?.()
     } catch (e: any) {
@@ -163,7 +170,7 @@ export function Documentos(props: {
           enviando={enviando === exig.documentType.code}
           erro={erros[exig.documentType.code]}
           nota={notas[exig.documentType.code]}
-          aoEnviar={(a) => subir(exig, a)}
+          aoEnviar={(a, v) => subir(exig, a, v)}
           aoRemover={remover}
         />
       ))}
@@ -178,21 +185,26 @@ function ItemDeDocumento(props: {
   enviando: boolean
   erro?: string
   nota?: string
-  aoEnviar: (a: File) => void
+  aoEnviar: (a: File, verso?: File | null) => void
   aoRemover: (id: number) => void
 }) {
   const { exigencia: e, enviado } = props
-  const entrada = useRef<HTMLInputElement>(null)
-  const camera = useRef<HTMLInputElement>(null)
-  const [arrastando, setArrastando] = useState(false)
+  // Frente e verso: o padrão é um campo para cada lado (quem fotografa o RG
+  // tira duas fotos); quem tem o documento escaneado num arquivo só escolhe
+  // "um arquivo com as duas faces".
+  const [modo, setModo] = useState<'separados' | 'unico'>('separados')
+  const [frente, setFrente] = useState<File | null>(null)
+  const [verso, setVerso] = useState<File | null>(null)
   const sit = enviado ? (SITUACAO[enviado.status] ?? { rotulo: enviado.status, classe: 'analise' }) : null
   const recusado = enviado?.status === 'rejected'
+  const doisCampos = !!e.frenteVerso && modo === 'separados'
+  const nome = e.documentType.name
 
   return (
     <div class="doc">
       <div class="doc-topo">
         <div>
-          <span class="doc-nome">{e.documentType.name}</span>
+          <span class="doc-nome">{nome}</span>
           {!e.required && <span class="opcional"> (opcional)</span>}
           {e.helpText && <span class="doc-ajuda">{e.helpText}</span>}
         </div>
@@ -201,10 +213,12 @@ function ItemDeDocumento(props: {
 
       {enviado && (
         <div class="doc-arquivo">
-          <span class="doc-arquivo-nome" title={enviado.fileName}>{enviado.fileName}</span>
+          <span class="doc-arquivo-nome" title={enviado.fileName}>
+            {enviado.versoFileName ? <>Frente: {enviado.fileName} · Verso: {enviado.versoFileName}</> : enviado.fileName}
+          </span>
           <span class="doc-arquivo-tam">{tamanho(enviado.sizeBytes)}</span>
           {enviado.status !== 'approved' && (
-            <button type="button" class="doc-remover" onClick={() => props.aoRemover(enviado.id)} aria-label={`Remover arquivo: ${e.documentType.name}`}>remover</button>
+            <button type="button" class="doc-remover" onClick={() => props.aoRemover(enviado.id)} aria-label={`Remover arquivo: ${nome}`}>remover</button>
           )}
         </div>
       )}
@@ -217,68 +231,87 @@ function ItemDeDocumento(props: {
 
       {(!enviado || recusado) && (
         <>
-          {/* Acessibilidade (11/11): a área era um <div> clicável com o campo de
-              arquivo escondido — teclado e leitor de tela não chegavam nele, e o
-              capture="environment" abria direto a câmera no Android, sem deixar
-              escolher um PDF já salvo. Agora são dois botões de verdade; arrastar
-              continua valendo no computador. */}
-          <div
-            class={`solta ${arrastando ? 'ativa' : ''}`}
-            onDragOver={(ev) => { ev.preventDefault(); setArrastando(true) }}
-            onDragLeave={() => setArrastando(false)}
-            onDrop={(ev) => {
-              ev.preventDefault()
-              setArrastando(false)
-              const a = ev.dataTransfer?.files?.[0]
-              if (a) props.aoEnviar(a)
-            }}
-          >
-            {props.enviando
-              ? <span role="status">Enviando…</span>
-              : (
-                <div class="solta-botoes">
-                  <button type="button" class="solta-botao" onClick={() => entrada.current?.click()}
-                    aria-label={`${recusado ? 'Enviar outro arquivo' : 'Escolher arquivo'}: ${e.documentType.name}`}>
-                    {recusado ? 'Enviar outro arquivo' : 'Escolher arquivo'}
-                  </button>
-                  <button type="button" class="solta-botao" onClick={() => camera.current?.click()}
-                    aria-label={`Tirar foto: ${e.documentType.name}`}>
-                    Tirar foto
-                  </button>
+          {e.frenteVerso && (
+            <fieldset class="lados-modo">
+              <legend>Este documento tem frente e verso. Como você vai enviar?</legend>
+              <label><input type="radio" name={`modo-${e.documentType.code}`} checked={modo === 'separados'} onChange={() => setModo('separados')} /> Frente e verso separados</label>
+              <label><input type="radio" name={`modo-${e.documentType.code}`} checked={modo === 'unico'} onChange={() => setModo('unico')} /> Um arquivo com as duas faces</label>
+            </fieldset>
+          )}
+
+          {doisCampos ? (
+            props.enviando ? (
+              <div class="solta"><span role="status">Enviando…</span></div>
+            ) : (
+              <>
+                <div class="lados">
+                  {([['Frente', frente, setFrente], ['Verso', verso, setVerso]] as const).map(([lado, arquivo, definir]) => (
+                    <div key={lado}>
+                      <span class="lado-titulo">{lado}</span>
+                      <ZonaDeEnvio descricao={`${lado} do ${nome}`} rotulo={arquivo ? 'Trocar arquivo' : 'Escolher arquivo'} aoEscolher={definir} />
+                      {arquivo && <span class="lado-escolhido">✓ {arquivo.name}</span>}
+                    </div>
+                  ))}
                 </div>
-              )}
-            <span class="solta-dica">JPG, PNG, HEIC ou PDF · até 25 MB</span>
-          </div>
-          <input
-            ref={entrada}
-            type="file"
-            accept="image/*,.pdf,.heic,.heif"
-            hidden
-            tabIndex={-1}
-            onChange={(ev) => {
-              const a = (ev.target as HTMLInputElement).files?.[0]
-              if (a) props.aoEnviar(a)
-              ;(ev.target as HTMLInputElement).value = ''
-            }}
-          />
-          <input
-            ref={camera}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            tabIndex={-1}
-            onChange={(ev) => {
-              const a = (ev.target as HTMLInputElement).files?.[0]
-              if (a) props.aoEnviar(a)
-              ;(ev.target as HTMLInputElement).value = ''
-            }}
-          />
+                <button type="button" class="principal lados-enviar" disabled={!frente || !verso}
+                  onClick={() => { if (frente && verso) { props.aoEnviar(frente, verso); setFrente(null); setVerso(null) } }}>
+                  {!frente && !verso ? 'Escolha a frente e o verso' : !frente ? 'Falta a frente' : !verso ? 'Falta o verso' : 'Enviar frente e verso'}
+                </button>
+              </>
+            )
+          ) : (
+            props.enviando
+              ? <div class="solta"><span role="status">Enviando…</span></div>
+              : <ZonaDeEnvio descricao={nome} rotulo={recusado ? 'Enviar outro arquivo' : 'Escolher arquivo'} aoEscolher={(a) => props.aoEnviar(a)} />
+          )}
         </>
       )}
 
       {props.erro && <div class="aviso erro" style="margin:10px 0 0" role="alert">{props.erro}</div>}
       {props.nota && !props.erro && <span class="doc-ajuda" style="margin-top:8px">{props.nota}</span>}
     </div>
+  )
+}
+
+/**
+ * Área de envio de um arquivo. Acessibilidade (11/11): dois botões de verdade
+ * (teclado e leitor de tela chegam neles) — escolher um arquivo salvo, inclusive
+ * PDF, ou tirar a foto na hora; arrastar continua valendo no computador.
+ */
+function ZonaDeEnvio(props: { descricao: string; rotulo: string; aoEscolher: (a: File) => void }) {
+  const entrada = useRef<HTMLInputElement>(null)
+  const camera = useRef<HTMLInputElement>(null)
+  const [arrastando, setArrastando] = useState(false)
+  const escolher = (ev: Event) => {
+    const a = (ev.target as HTMLInputElement).files?.[0]
+    if (a) props.aoEscolher(a)
+    ;(ev.target as HTMLInputElement).value = ''
+  }
+  return (
+    <>
+      <div
+        class={`solta ${arrastando ? 'ativa' : ''}`}
+        onDragOver={(ev) => { ev.preventDefault(); setArrastando(true) }}
+        onDragLeave={() => setArrastando(false)}
+        onDrop={(ev) => {
+          ev.preventDefault()
+          setArrastando(false)
+          const a = ev.dataTransfer?.files?.[0]
+          if (a) props.aoEscolher(a)
+        }}
+      >
+        <div class="solta-botoes">
+          <button type="button" class="solta-botao" onClick={() => entrada.current?.click()} aria-label={`${props.rotulo}: ${props.descricao}`}>
+            {props.rotulo}
+          </button>
+          <button type="button" class="solta-botao" onClick={() => camera.current?.click()} aria-label={`Tirar foto: ${props.descricao}`}>
+            Tirar foto
+          </button>
+        </div>
+        <span class="solta-dica">JPG, PNG, HEIC ou PDF · até 25 MB</span>
+      </div>
+      <input ref={entrada} type="file" accept="image/*,.pdf,.heic,.heif" hidden tabIndex={-1} onChange={escolher} />
+      <input ref={camera} type="file" accept="image/*" capture="environment" hidden tabIndex={-1} onChange={escolher} />
+    </>
   )
 }

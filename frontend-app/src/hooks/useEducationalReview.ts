@@ -69,6 +69,10 @@ export interface DocReviewDocument {
   fileName: string
   mimeType: string | null
   sizeBytes: number | null
+  /** Verso, quando o documento veio em dois arquivos. */
+  versoFileUrl?: string | null
+  versoFileName?: string | null
+  versoMimeType?: string | null
   status: 'pending' | 'approved' | 'rejected'
   uploadedAt: string
   reviewedAt: string | null
@@ -159,6 +163,10 @@ export interface DocItem {
   fileName: string
   mimeType: string | null
   sizeBytes: number | null
+  /** Verso, quando o documento veio em dois arquivos. */
+  versoFileUrl?: string | null
+  versoFileName?: string | null
+  versoMimeType?: string | null
   status: 'pending' | 'approved' | 'rejected'
   reviewNote: string | null
   reviewedAt: string | null

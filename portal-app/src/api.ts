@@ -252,6 +252,8 @@ export interface Exigencia {
   required: boolean
   ordem: number
   helpText?: string | null
+  /** A secretaria pede frente e verso: dois campos de envio. */
+  frenteVerso?: boolean
   documentType: { id: number; code: string; name: string; category?: string | null }
 }
 
@@ -262,6 +264,8 @@ export interface DocumentoEnviado {
   fileName: string
   mimeType: string
   sizeBytes: number
+  /** Nome do verso, quando o documento foi enviado em dois arquivos. */
+  versoFileName?: string | null
   status: string
   reviewNote?: string | null
   uploadedAt: string
@@ -281,7 +285,7 @@ const comToken = (token?: string): RequestInit => (token ? { headers: { Authoriz
 export const carregarCandidato = (token?: string) => pedir<Candidato>('/api/candidate/me', comToken(token))
 
 /** Envio do arquivo. Multipart porque o backend valida os bytes, não só o nome. */
-export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string): Promise<void> {
+export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string, verso?: File | null): Promise<void> {
   // No Android, o arquivo escolhido direto do Google Drive, de um anexo do
   // WhatsApp ou movido depois da escolha às vezes não pode ser lido: o envio
   // falhava antes de sair do aparelho e a pessoa via só "Failed to fetch"
@@ -289,11 +293,14 @@ export async function enviarDocumento(typeCode: string, label: string, arquivo: 
   // separa esse caso de queda de conexão e diz o que fazer em cada um.
   try {
     await arquivo.slice(0, 1).arrayBuffer()
+    if (verso) await verso.slice(0, 1).arrayBuffer()
   } catch {
     throw new Error('Não conseguimos ler este arquivo no seu aparelho. Baixe o arquivo para o celular (pasta Downloads) e escolha-o de novo — se estiver no Google Drive ou veio pelo WhatsApp, salve antes. Se continuar, tente por outro navegador, como o Chrome.')
   }
   const fd = new FormData()
   fd.append('file', arquivo, arquivo.name)
+  // Frente e verso vão no mesmo envio: viram um documento só para a secretaria.
+  if (verso) fd.append('verso', verso, verso.name)
   fd.append('typeCode', typeCode)
   fd.append('label', label)
   let r: Response

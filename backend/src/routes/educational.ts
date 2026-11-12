@@ -972,8 +972,9 @@ export async function educationalRoutes(app: FastifyInstance) {
           ordem: body.ordem != null ? parseInt(body.ordem) : 0,
           helpText: body.helpText || null,
           condicao: (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull,
+          frenteVerso: body.frenteVerso !== undefined ? !!body.frenteVerso : dt.frenteVerso,
         },
-        include: { documentType: { select: { id: true, code: true, name: true, category: true } } },
+        include: { documentType: { select: { id: true, code: true, name: true, category: true, frenteVerso: true } } },
       })
       return { ok: true, requirement: req_ }
     } catch (err: any) {
@@ -990,6 +991,7 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.ordem !== undefined) data.ordem = parseInt(body.ordem) || 0
     if (body.helpText !== undefined) data.helpText = body.helpText || null
     if (body.condicao !== undefined) data.condicao = (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull
+    if (body.frenteVerso !== undefined) data.frenteVerso = !!body.frenteVerso
     try {
       const updated = await prisma.entryModeDocumentRequirement.update({
         where: { id: parseInt(reqId) },
@@ -1188,8 +1190,9 @@ export async function educationalRoutes(app: FastifyInstance) {
           ordem: body.ordem != null ? parseInt(body.ordem) : 0,
           helpText: body.helpText || null,
           condicao: (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull,
+          frenteVerso: body.frenteVerso !== undefined ? !!body.frenteVerso : dt.frenteVerso,
         },
-        include: { documentType: { select: { id: true, code: true, name: true, category: true } } },
+        include: { documentType: { select: { id: true, code: true, name: true, category: true, frenteVerso: true } } },
       })
       return { ok: true, requirement: req_ }
     } catch (err: any) {
@@ -1206,6 +1209,7 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.ordem !== undefined) data.ordem = parseInt(body.ordem) || 0
     if (body.helpText !== undefined) data.helpText = body.helpText || null
     if (body.condicao !== undefined) data.condicao = (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull
+    if (body.frenteVerso !== undefined) data.frenteVerso = !!body.frenteVerso
     try {
       const updated = await prisma.selectionProcessDocumentRequirement.update({
         where: { id: parseInt(reqId) },
@@ -1259,6 +1263,7 @@ export async function educationalRoutes(app: FastifyInstance) {
         ordem: r.ordem,
         helpText: r.helpText,
         condicao: (r.condicao as any) ?? Prisma.DbNull,
+        frenteVerso: r.frenteVerso,
       })),
     })
     return { ok: true, cloned: toCreate.length }

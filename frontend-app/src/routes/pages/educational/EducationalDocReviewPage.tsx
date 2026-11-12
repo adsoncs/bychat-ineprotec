@@ -998,6 +998,26 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
           </div>
         </div>
 
+        {doc.versoFileUrl && (
+          <div class="rounded-md border border-border bg-surface overflow-hidden">
+            <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
+              <span class="text-fg-muted truncate">Verso · {doc.versoFileName ?? 'arquivo'}</span>
+              <a href={doc.versoFileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
+                Abrir em nova aba <ExternalLink size={10} />
+              </a>
+            </div>
+            <div class="bg-[oklch(0.15_0_0)] flex items-center justify-center min-h-[200px]">
+              {(doc.versoMimeType ?? '').startsWith('image/') ? (
+                <img src={doc.versoFileUrl} alt={doc.versoFileName ?? 'Verso'} class="max-w-full max-h-[55vh] object-contain" />
+              ) : doc.versoMimeType === 'application/pdf' ? (
+                <iframe src={doc.versoFileUrl} class="w-full h-[55vh] bg-white border-0" title={doc.versoFileName ?? 'Verso'} />
+              ) : (
+                <a href={doc.versoFileUrl} target="_blank" rel="noreferrer" class="text-accent hover:underline p-8 text-xs">Abrir o verso em nova aba ↗</a>
+              )}
+            </div>
+          </div>
+        )}
+
         {doc.status === 'rejected' && doc.reviewNote && (
           <div class="rounded-md border border-danger/30 bg-danger/10 p-3 text-xs">
             <div class="text-3xs uppercase tracking-wider font-semibold text-danger mb-1">Motivo da rejeição (já enviado)</div>

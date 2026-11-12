@@ -617,6 +617,8 @@ export interface DocumentType {
   category: string
   ordem: number
   active: boolean
+  /** Sugestão ao adicionar numa exigência: costuma ter frente e verso. */
+  frenteVerso?: boolean
 }
 
 export function useDocumentTypes(category?: string) {
@@ -640,7 +642,9 @@ export interface DocumentRequirement {
   helpText: string | null
   /** Exigido só quando uma resposta do formulário bate. null = de todos. */
   condicao?: CondicaoDoc | null
-  documentType?: { id: number; code: string; name: string; category: string }
+  /** Pede frente e verso em dois campos de envio. */
+  frenteVerso?: boolean
+  documentType?: { id: number; code: string; name: string; category: string; frenteVerso?: boolean }
 }
 
 export interface CondicaoDoc { campo: string; valores: string[] }
@@ -651,6 +655,7 @@ export interface DocumentRequirementInput {
   ordem?: number | undefined
   helpText?: string | null | undefined
   condicao?: CondicaoDoc | null | undefined
+  frenteVerso?: boolean | undefined
 }
 
 export type DocOwner =

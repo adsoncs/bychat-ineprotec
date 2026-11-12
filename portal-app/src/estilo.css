@@ -223,6 +223,17 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 .solta:hover, .solta.ativa { border-color: var(--marca); background: var(--marca-suave); }
 .solta-dica { color: var(--tinta-3); font-weight: 400; font-size: 12.5px; }
 
+/* Frente e verso: escolha do formato e as duas áreas lado a lado (empilha no celular). */
+.lados-modo { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; border: 0; padding: 0; }
+.lados-modo legend { padding: 0; margin-bottom: 4px; font-size: 13.5px; color: var(--tinta-2); width: 100%; }
+.lados-modo label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.lados { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .lados { grid-template-columns: 1fr; } }
+.lado-titulo { display: block; margin-top: 12px; font-size: 13.5px; font-weight: 600; color: var(--tinta-2); }
+.lados .solta { margin-top: 6px; }
+.lado-escolhido { display: block; margin-top: 6px; font-size: 13px; color: var(--ok); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lados-enviar { margin-top: 12px; width: 100%; }
+
 /* Par rótulo/valor usado nas listas de conta e boletim. */
 .item { display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
         padding: 10px 0; border-bottom: 1px solid var(--linha); font-size: 14.5px; }
