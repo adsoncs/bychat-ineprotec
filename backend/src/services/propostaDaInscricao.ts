@@ -248,6 +248,29 @@ const emAndamento = new Map<number, Promise<unknown>>()
  * Aplica a decisão (portal com modo 'ativo'). Serializado por inscrição —
  * vários eventos da mesma inscrição em sequência não criam duas propostas.
  */
+async function alinharProposta(id: number, r: any, curso: string, valor: number | null) {
+  const titulo = `Inscrição ${r.candidateCode} — ${curso}`.slice(0, 191)
+  const n = await prisma.negotiation.findUnique({ where: { id }, select: { titulo: true, offeringId: true, registrationId: true, items: { select: { id: true, productId: true, nome: true } } } })
+  // Só a proposta que já é desta inscrição (nunca uma aberta "adotável" de outro curso).
+  if (!n || n.registrationId !== r.id) return
+  const offeringId = r.processRegistration?.offeringId ?? null
+  if (n.titulo !== titulo || (offeringId && n.offeringId !== offeringId)) {
+    await prisma.negotiation.update({ where: { id }, data: { titulo, ...(offeringId ? { offeringId } : {}) } as any })
+  }
+  // Só mexe no item quando a proposta tem UM item (a da inscrição); proposta montada à mão fica como está.
+  if (n.items.length !== 1) return
+  const courseId = r.processRegistration?.offering?.courseId
+  const produto = courseId ? await prisma.product.findFirst({ where: { courseId, active: true }, select: { id: true } }) : null
+  const it = n.items[0]!
+  const nome = curso.slice(0, 191)
+  if (it.nome !== nome || (produto && it.productId !== produto.id)) {
+    await prisma.negotiationItem.update({
+      where: { id: it.id },
+      data: { nome, ...(produto ? { productId: produto.id } : {}), ...(valor != null ? { precoUnit: valor, subtotal: valor } : {}) } as any,
+    })
+  }
+}
+
 export function sincronizarPropostaDaInscricao(registrationId: number): Promise<AcaoProposta | null> {
   const anterior = emAndamento.get(registrationId) ?? Promise.resolve()
   const p = anterior.catch(() => null).then(() => aplicar(registrationId))
@@ -261,8 +284,12 @@ async function aplicar(registrationId: number): Promise<AcaoProposta | null> {
   if (!reg) return null
   const cfg = await configDoPortal(reg.portalId)
   if (cfg.modo !== 'ativo') return null
-  const { acao, sit } = await decidir(registrationId, cfg.marco)
-  if (acao.tipo === 'nada' || !sit) return acao
+  const { acao, sit, propostaId } = await decidir(registrationId, cfg.marco)
+  if (!sit) return acao
+  if (acao.tipo === 'nada') {
+    if (propostaId) await alinharProposta(propostaId, sit.reg, sit.curso, null).catch(() => {})
+    return acao
+  }
   const { reg: r, curso, valor } = sit
   const { onNegotiationChanged } = await import('./commissions.js')
   const { logEvent } = await import('./leadHistory.js')
@@ -304,6 +331,11 @@ async function aplicar(registrationId: number): Promise<AcaoProposta | null> {
   } else if (acao.tipo === 'reabrir') {
     await prisma.negotiation.update({ where: { id: id! }, data: { status: 'enviada', resultado: null, fechadaEm: null, fechadaPor: null, lostReasonId: null, ...valores } as any })
   }
+  // A proposta segue a inscrição ATUAL: depois de uma transferência de curso ela
+  // muda de inscrição, mas o título e o item ficavam com o curso e o código
+  // antigos (12/11/2026). Realinha título e item (curso/produto; valor só
+  // quando a decisão não manda manter).
+  if (id && acao.tipo !== 'criar') await alinharProposta(id, r, curso, acao.manterValor ? null : valor).catch(() => {})
   if (id) await onNegotiationChanged(id).catch((e) => console.warn('[propostaDaInscricao] comissão:', e?.message || e))
   const titulos: Record<string, string> = {
     criar: ganha ? 'Proposta criada e ganha pela inscrição' : 'Proposta criada pela inscrição',

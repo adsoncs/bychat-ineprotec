@@ -215,14 +215,42 @@ async function acessoLiberado(registrationId: number) {
   return a
 }
 
+/**
+ * Inscrição encerrada (cancelada, transferida, mesclada) não mexe no Moodle: o
+ * acesso do aluno agora é o da inscrição atual. Caso real (11/11/2026): depois
+ * da transferência, o curso foi trocado e reativado na inscrição ANTIGA, que
+ * passou a apontar para o mesmo curso da nova (12/11/2026).
+ */
+async function exigirInscricaoAtiva(registrationId: number) {
+  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { status: true, formData: true } })
+  if (!r) throw new Error('Inscrição não encontrada')
+  if (['cancelled', 'merged'].includes(r.status)) {
+    const para = (r.formData as any)?._transferidaPara?.codigo
+    throw new Error(para
+      ? `Esta inscrição foi transferida para ${para}: o acesso ao Moodle é cuidado por lá.`
+      : 'Inscrição encerrada: o acesso ao Moodle não é alterado por aqui.')
+  }
+}
+
+/** Outra inscrição ATIVA do mesmo aluno usa este curso no Moodle? (aí não se suspende o curso.) */
+async function cursoEmUsoPorOutra(a: { registrationId: number; moodleUserId: number | null; moodleCourseId: number | null }) {
+  if (!a.moodleUserId || !a.moodleCourseId) return false
+  return (await prisma.moodleAcesso.count({
+    where: { registrationId: { not: a.registrationId }, moodleUserId: a.moodleUserId, moodleCourseId: a.moodleCourseId, status: 'LIBERADO' },
+  })) > 0
+}
+
 export async function suspender(registrationId: number, ator: Ator) {
   const a = await acessoLiberado(registrationId)
-  await moodle.inscrever(a.moodleUserId!, a.moodleCourseId!, { suspenso: true })
+  // Mesmo usuário e mesmo curso liberados por outra inscrição: só registra aqui,
+  // sem tirar o aluno do curso que ele usa pela outra.
+  if (!(await cursoEmUsoPorOutra(a))) await moodle.inscrever(a.moodleUserId!, a.moodleCourseId!, { suspenso: true })
   await prisma.moodleAcesso.update({ where: { registrationId }, data: { status: 'SUSPENSO', suspensoEm: new Date(), suspensoPorId: ator.userId ?? null } })
   await registrarEventoDaInscricao({ registrationId, etapa: 'acesso', acao: 'moodle_suspenso', ator: 'atendente', userId: ator.userId, userName: ator.userName, dados: { curso: a.cursoNome } })
 }
 
 export async function reativar(registrationId: number, ator: Ator) {
+  await exigirInscricaoAtiva(registrationId)
   const a = await acessoLiberado(registrationId)
   await moodle.inscrever(a.moodleUserId!, a.moodleCourseId!, { suspenso: false })
   await prisma.moodleAcesso.update({ where: { registrationId }, data: { status: 'LIBERADO', suspensoEm: null, suspensoPorId: null, ultimoErro: null } })
@@ -236,6 +264,7 @@ export async function reativar(registrationId: number, ator: Ator) {
 export async function trocarCurso(registrationId: number, courseId: number, ator: Ator) {
   const curso = (await moodle.listarCursos()).find((c) => c.id === courseId)
   if (!curso) throw new Error('Curso não encontrado no Moodle.')
+  await exigirInscricaoAtiva(registrationId)
   const reg = await lerInscricao(registrationId)
   if (!reg) throw new Error('Inscrição não encontrada')
   const a = await prisma.moodleAcesso.upsert({
@@ -247,7 +276,7 @@ export async function trocarCurso(registrationId: number, courseId: number, ator
   const anteriores = Array.isArray(a.cursosAnteriores) ? (a.cursosAnteriores as any[]) : []
   if (a.status === 'LIBERADO' || a.status === 'SUSPENSO') {
     await moodle.inscrever(a.moodleUserId!, courseId, { suspenso: a.status === 'SUSPENSO' })
-    if (a.moodleCourseId && a.moodleCourseId !== courseId) await moodle.inscrever(a.moodleUserId!, a.moodleCourseId, { suspenso: true })
+    if (a.moodleCourseId && a.moodleCourseId !== courseId && !(await cursoEmUsoPorOutra(a))) await moodle.inscrever(a.moodleUserId!, a.moodleCourseId, { suspenso: true })
   }
   await prisma.moodleAcesso.update({
     where: { registrationId },

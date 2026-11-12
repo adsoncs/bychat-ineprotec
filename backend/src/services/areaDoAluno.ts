@@ -184,6 +184,11 @@ function tituloDaCobranca(r: Reg): string {
   if (r.portal?.paymentScope !== 'curso') return 'Taxa de inscrição'
   const parcelas = Number(plano.parcelas) || 1
   if (plano.meio === 'boleto' && parcelas > 1) return `Parcela 1 de ${parcelas}`
+  // Transferência: a 1ª foi paga com o crédito da inscrição anterior.
+  if (plano.meio === 'credito' && plano.transferencia) {
+    const resto = Number(plano.condicaoNegociada?.numParcelas) || 0
+    return plano.condicaoNegociada?.entradaComoParcela && resto > 0 ? `Parcela 1 de ${resto + 1} (crédito da transferência)` : 'Matrícula (crédito da transferência)'
+  }
   if (plano.planoFinanceiro?.opcao === 'entrada') return 'Matrícula'
   return 'Curso completo'
 }
@@ -273,9 +278,18 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   //    ineprotec não há ERP para emiti-las: o aluno gera a PRÓXIMA aqui
   //    ("Gerar boleto e PIX" → gerarParcela), uma de cada vez. A gerada vira
   //    uma cobrança do Asaas, lida ao vivo como as do cartão parcelado.
-  const n = Number(plano.parcelas) || 1
-  if (plano.meio === 'boleto' && n > 1 && !plano.installmentId && situacao !== 'cancelada') {
-    const valor = Number(plano.valorParcela) || 0
+  //    Transferência de curso (12/11/2026): a entrada da inscrição nova foi
+  //    paga com o CRÉDITO da antiga (meio 'credito') e as demais parcelas
+  //    seguem a condição gravada na transferência — o aluno paga aqui, igual
+  //    ao boleto parcelado. Antes elas não apareciam em lugar nenhum.
+  //    Inscrição ENCERRADA (cancelada/transferida) não projeta nem gera parcela:
+  //    o que restava dela foi para a inscrição nova.
+  const cnTransf = plano.meio === 'credito' && plano.transferencia ? lerCondicaoNegociada(plano.condicaoNegociada) : null
+  const restantesTransf = cnTransf?.numParcelas ?? 0
+  const n = cnTransf ? 1 + restantesTransf : (Number(plano.parcelas) || 1)
+  const parcelado = plano.meio === 'boleto' || (!!cnTransf && restantesTransf > 0)
+  if (parcelado && n > 1 && !plano.installmentId && situacao !== 'cancelada' && r.status !== 'cancelled') {
+    const valor = cnTransf ? cnTransf.valorParcelaCentavos / 100 : (Number(plano.valorParcela) || 0)
     // Valor personalizado (congelado no pagamento): dia e 1ª data combinados.
     const cn = lerCondicaoNegociada(plano.condicaoNegociada)
     const dia = cn?.diaVencimento ?? await diaDoVencimento(plano.planoFinanceiro?.planoId)
