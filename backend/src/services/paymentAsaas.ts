@@ -218,6 +218,16 @@ export async function atualizarVencimentoAsaas(config: AsaasConfig, paymentId: s
   return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'POST', { billingType: atual.billingType, value: atual.value, dueDate })
 }
 
+/**
+ * Muda o VALOR (e a data, quando vencida) de uma cobrança em aberto: desconto
+ * dado pela equipe (services/descontoFatura). Mesma cobrança, mesmo link; o
+ * Asaas renova boleto e QR do Pix. Cartão não passa por aqui.
+ */
+export async function atualizarValorAsaas(config: AsaasConfig, paymentId: string, value: number, dueDate: string): Promise<any> {
+  const atual = await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
+  return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'POST', { billingType: atual.billingType, value, dueDate })
+}
+
 export async function getAsaasPaymentStatus(config: AsaasConfig, paymentId: string): Promise<any> {
   return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
 }

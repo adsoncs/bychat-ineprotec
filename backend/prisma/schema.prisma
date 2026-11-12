@@ -10978,3 +10978,38 @@ model CobrancaContato {
   @@index([leadId, createdAt])
   @@map("bychat_cobranca_contatos")
 }
+
+/// Desconto concedido pela equipe numa fatura já gerada (services/descontoFatura,
+/// 12/11/2026). Sem limite de valor: tudo fica registrado — quem deu, quem
+/// aprovou, motivo, de quanto para quanto e por qual caminho.
+model EnrollmentDesconto {
+  id                  Int      @id @default(autoincrement())
+  registrationId      Int
+  leadId              Int?
+  chave               String   @db.VarChar(80) // titulo:N | reg:N | asaas:ID
+  fatura              String   @db.VarChar(191) // rótulo legível ("Pagamento combinado 2")
+  meio                String?  @db.VarChar(20)
+  externalId          String?  @db.VarChar(191)
+  modo                String   @db.VarChar(12) // valor | percentual | cupom
+  percentual          Decimal? @db.Decimal(5, 2)
+  couponId            Int?
+  couponCode          String?  @db.VarChar(50)
+  valorAntesCentavos  Int
+  descontoCentavos    Int
+  valorDepoisCentavos Int
+  /// aplicado = já vale | aguardando_cartao = link novo do cartão (troca) | cancelado
+  situacao            String   @default("aplicado") @db.VarChar(20)
+  trocaId             Int?
+  motivo              String   @db.Text
+  aprovadoPor         String?  @db.VarChar(191)
+  criadoPorUserId     Int?
+  criadoPorNome       String?  @db.VarChar(191)
+  createdAt           DateTime @default(now())
+
+  @@index([registrationId])
+  @@index([leadId])
+  @@index([createdAt])
+  @@index([couponId])
+  @@index([trocaId])
+  @@map("bychat_enrollment_descontos")
+}

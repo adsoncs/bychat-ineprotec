@@ -36,7 +36,7 @@ const fimDoDia = (iso: string) => new Date(`${iso}T23:59:00-03:00`)
 const meioDia = (iso: string) => new Date(`${iso}T12:00:00-03:00`)
 
 /** De qual cobrança do Asaas a chave fala — e se ela é mesmo desta inscrição. */
-async function cobrancaDaChave(registrationId: number, chave: string): Promise<{ id: string } | { erro: string; status: number }> {
+export async function cobrancaDaChave(registrationId: number, chave: string): Promise<{ id: string } | { erro: string; status: number }> {
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: { id: true, paymentId: true, paymentStatus: true, paymentMethod: true, paymentPlan: true },
@@ -137,7 +137,7 @@ async function executar(p: { registrationId: number; chave: string; ator: Ator }
   return { ok: true, ...c, vencimento: venc, valor: Number(novo.value) || 0, jaEstava: de === venc }
 }
 
-async function codigos(cfg: any, id: string, p: any) {
+export async function codigos(cfg: any, id: string, p: any) {
   const comBoleto = p.billingType === 'BOLETO' || p.billingType === 'UNDEFINED'
   const [pix, linha] = await Promise.all([
     fetchAsaasPixQr(cfg, id).catch(() => null),
@@ -147,7 +147,7 @@ async function codigos(cfg: any, id: string, p: any) {
 }
 
 /** Tudo o que guarda a data dessa cobrança passa a ter a nova. */
-async function gravarLocal(registrationId: number, id: string, venc: string, c: { pix: string | null; linha: string | null; link: string | null; boletoPdf: string | null }) {
+export async function gravarLocal(registrationId: number, id: string, venc: string, c: { pix: string | null; linha: string | null; link: string | null; boletoPdf: string | null }) {
   await prisma.enrollmentTitulo.updateMany({
     where: { registrationId, externalId: id },
     data: { vencimento: venc, lastError: null, ...(c.pix ? { pixCopiaCola: c.pix } : {}), ...(c.linha ? { boletoLinha: c.linha } : {}), ...(c.link ? { invoiceUrl: c.link } : {}) },

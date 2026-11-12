@@ -26,9 +26,10 @@ import { PagamentoManualModal } from '@/routes/pages/enrollmentPortal/InscricaoA
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEducational'
 import { Pode } from '@/components/auth/Pode'
-import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, quandoBr } from '@/components/educational/PagamentosDaMatricula'
+import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, TrocarPlano, quandoBr } from '@/components/educational/PagamentosDaMatricula'
 import { useCan } from '@/hooks/usePermissions'
 import { COLUNAS_FIN, SeletorDeColunas, useColunasFin } from './financeiroColunas'
+import { DescontosConcedidosCard } from './DescontosConcedidosCard'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -178,6 +179,8 @@ export function EducationalPortalFinanceiroPage() {
           </Table>
         </Card>
       )}
+
+      <DescontosConcedidosCard de={f.de} ate={f.ate} portalId={f.portalId} />
 
       {/* Filtros */}
       <Card class="p-3 mb-3">
@@ -353,6 +356,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
 
           <div>
             <div class="text-sm font-semibold mb-2">Pagamentos</div>
+            {podeOperar && <div class="mb-3"><TrocarPlano registrationId={id} origem="financeiro" linkInscricao={l.portal ? `/app/enrollment-portals/${l.portal.id}/registrations/${l.id}` : null} /></div>}
             <ListaDeFaturas registrationId={id} origem="financeiro" podeOperar={podeOperar} />
           </div>
 

@@ -447,6 +447,16 @@ function CupomModal({ cupom, cat, lote, onClose }: { cupom: CupomEdu | null; cat
           </div>
         )}
 
+        {/* Cupom aberto ao público, sem nenhuma trava: qualquer um que digitar o código ganha (12/11/2026). */}
+        {!lote && !s.somenteEquipe && !s.allowedCpfs.trim() && !s.emailDomains.trim() && !s.usageLimit
+          && ![s.portalIds, s.courseIds, s.offeringIds, s.processIds, s.levelIds, s.modalityIds].some((x) => x.length) && (
+          <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs space-y-1">
+            <div class="font-semibold text-warning">Cupom público e sem trava</div>
+            <div>Qualquer pessoa que digitar este código no portal ganha o desconto, em qualquer curso, sem limite de usos.</div>
+            <div>Desconto para <b>um aluno só</b> (fatura já gerada, pedido aprovado pela gestão)? Use <b>“Dar desconto”</b> na fatura da inscrição: fica registrado quem deu, quem aprovou e o motivo. Para uso interno, marque <b>“Desconto da equipe”</b>.</div>
+          </div>
+        )}
+
         <div class="rounded-md bg-surface-3 p-3 text-xs">
           <div class="font-semibold mb-1">Resumo da regra</div>
           <div>

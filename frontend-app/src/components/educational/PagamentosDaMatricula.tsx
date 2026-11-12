@@ -14,16 +14,20 @@
 // Fatura vencida (boleto/Pix do Asaas): "Atualizar fatura" dá nova data na
 // MESMA cobrança, sem multa nem juros (services/atualizarFatura). Nada é
 // enviado ao aluno: a equipe copia a mensagem e manda pela conversa.
+//
+// "Dar desconto" (services/descontoFatura, 12/11/2026): valor, % ou cupom
+// interno numa fatura já gerada. Sem limite, mas com motivo, quem aprovou e
+// quem deu — tudo registrado e listado em "Descontos concedidos".
 import type { ComponentChildren } from 'preact'
 import { useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import {
-  Banknote, CalendarClock, ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, FileText, MessageCircle, QrCode, Receipt,
+  Banknote, CalendarClock, ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, FileText, MessageCircle, Percent, QrCode, Receipt,
 } from '@/components/ui/icon-set'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Input, Textarea } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table'
@@ -151,6 +155,7 @@ export function ListaDeFaturas({ registrationId, origem, podeOperar }: { registr
     staleTime: 30_000,
   })
   const [alvo, setAlvo] = useState<Fatura | null>(null)
+  const [descontar, setDescontar] = useState<Fatura | null>(null)
 
   if (q.isLoading) return <div class="space-y-2">{[0, 1].map((i) => <Skeleton key={i} class="h-12 w-full" />)}</div>
   if (q.isError) return <div class="text-xs text-danger">Não foi possível carregar os pagamentos: {(q.error as Error).message}</div>
@@ -184,20 +189,24 @@ export function ListaDeFaturas({ registrationId, origem, podeOperar }: { registr
           <span>Parcela</span><span>Vencimento</span><span>Pagamento</span><span>Meio</span><span class="text-right">Valor</span><span>Situação</span>
         </div>
         <ul class="divide-y divide-border">
-          {faturas.map((f) => <LinhaDaFatura key={f.chave} f={f} podeOperar={podeOperar} aoAtualizar={() => setAlvo(f)} />)}
+          {faturas.map((f) => <LinhaDaFatura key={f.chave} f={f} podeOperar={podeOperar} aoAtualizar={() => setAlvo(f)} aoDescontar={() => setDescontar(f)} />)}
         </ul>
       </div>
       {alvo && q.data && <AtualizarFaturaModal registrationId={registrationId} base={BASE[origem]} fatura={alvo} hoje={q.data.hoje} onClose={() => setAlvo(null)} />}
+      {descontar && q.data && <DescontoModal registrationId={registrationId} base={BASE[origem]} fatura={descontar} hoje={q.data.hoje} onClose={() => setDescontar(null)} />}
+      <DescontosConcedidos registrationId={registrationId} base={BASE[origem]} />
     </div>
   )
 }
 
-function LinhaDaFatura({ f, podeOperar, aoAtualizar }: { f: Fatura; podeOperar: boolean; aoAtualizar: () => void }) {
+function LinhaDaFatura({ f, podeOperar, aoAtualizar, aoDescontar }: { f: Fatura; podeOperar: boolean; aoAtualizar: () => void; aoDescontar: () => void }) {
   const s = SITUACAO[f.situacao] ?? { rotulo: f.situacao, tom: 'neutral' as const }
   const apagada = f.situacao === 'cancelada' || f.situacao === 'estornada'
   const aberta = f.situacao === 'aberta' || f.situacao === 'vencida'
   const cartaoVencido = f.situacao === 'vencida' && !f.podeAtualizar
-  const temAcao = !!(f.recibo || (aberta && (f.pagar || f.boletoPdf || f.linha || f.pix)) || (f.situacao === 'vencida'))
+  // Título ainda não gerado também aceita desconto (só o valor muda).
+  const podeDescontar = podeOperar && (aberta || (f.situacao === 'prevista' && f.chave.startsWith('titulo:')))
+  const temAcao = !!(f.recibo || (aberta && (f.pagar || f.boletoPdf || f.linha || f.pix)) || (f.situacao === 'vencida') || podeDescontar)
   return (
     <li class={`px-3 py-2.5 ${f.situacao === 'vencida' ? 'bg-danger/5' : ''} ${apagada ? 'opacity-60' : ''}`}>
       <div class={`grid grid-cols-2 gap-x-3 gap-y-1.5 ${COLUNAS}`}>
@@ -216,6 +225,7 @@ function LinhaDaFatura({ f, podeOperar, aoAtualizar }: { f: Fatura; podeOperar: 
           {f.situacao === 'vencida' && podeOperar && f.podeAtualizar && (
             <Button size="sm" onClick={aoAtualizar}><CalendarClock size={12} /> Atualizar vencimento</Button>
           )}
+          {podeDescontar && <Button size="sm" variant="secondary" onClick={aoDescontar}><Percent size={12} /> Dar desconto</Button>}
           {aberta && f.pagar && <AcaoLink href={f.pagar} icone={<ExternalLink size={12} />}>Abrir fatura</AcaoLink>}
           {aberta && f.boletoPdf && <AcaoLink href={f.boletoPdf} icone={<FileText size={12} />}>Boleto em PDF</AcaoLink>}
           {aberta && f.linha && <AcaoBotao onClick={() => copiar(f.linha!, 'Linha digitável')} icone={<Copy size={12} />}>Copiar linha digitável</AcaoBotao>}
@@ -306,6 +316,238 @@ function AtualizarFaturaModal({ registrationId, base, fatura, hoje, onClose }: {
         </div>
       )}
     </Modal>
+  )
+}
+
+// ─── trocar plano / nova cobrança ────────────────────────────────────────────
+// Não pagou e quer outro plano: cancela a cobrança em aberto e destrava a
+// inscrição expirada (services/reabrirPagamento). Sempre permitido enquanto
+// nada foi pago; fica registrado quem fez e o motivo.
+
+interface EstadoReabrir {
+  pode: boolean; motivoNao: string | null; status: string; expirada: boolean; combinado: boolean
+  abertas: Array<{ meio: string; valor: number; vencimento: string | null; criadaEm: string }>
+}
+
+export function TrocarPlano({ registrationId, origem, linkInscricao }: { registrationId: number; origem: OrigemDasFaturas; linkInscricao?: string | null | undefined }) {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['reabrir-pagamento', registrationId], queryFn: () => api.get<EstadoReabrir>(`${BASE[origem]}/${registrationId}/reabrir-pagamento`), staleTime: 15_000 })
+  const [abrir, setAbrir] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const [feito, setFeito] = useState(false)
+  const m = useMutation({
+    mutationFn: () => api.post<{ avisos: string[]; canceladas: number }>(`${BASE[origem]}/${registrationId}/reabrir-pagamento`, { motivo: motivo.trim() }),
+    onSuccess: (r) => {
+      toast(r.canceladas ? 'Cobrança antiga cancelada: escolha o novo plano e gere a cobrança' : 'Inscrição liberada: escolha o novo plano', 'success')
+      for (const a of r.avisos ?? []) toast(a, 'warning')
+      setAbrir(false); setMotivo(''); setFeito(true)
+      void qc.invalidateQueries()
+    },
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
+  const e = q.data
+  if (feito && origem === 'financeiro' && linkInscricao) {
+    return <div class="rounded-md border border-success/40 bg-success/10 p-3 text-xs">Liberado. <a class="text-accent hover:underline" href={`${linkInscricao}?aba=financeiro`}>Abrir a inscrição para escolher o novo plano</a>.</div>
+  }
+  if (!e?.pode) return null
+  const meio = (x: string) => ({ boleto: 'Boleto', pix: 'Pix', credit_card: 'Cartão' } as Record<string, string>)[x] ?? x
+
+  return (
+    <div class={`rounded-md border p-3 text-xs space-y-2 ${e.expirada ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-2'}`}>
+      <div class={`font-semibold ${e.expirada ? 'text-warning' : 'text-fg'}`}>{e.expirada ? 'Inscrição expirada: a cobrança venceu sem pagamento' : 'Há uma cobrança em aberto com o plano atual'}</div>
+      <div class="text-fg">
+        Para mudar o plano, a forma de pagamento ou os valores, libere a inscrição.
+        {e.abertas.length ? ' A cobrança em aberto é cancelada no gateway, para o aluno não pagar o plano antigo.' : ''}
+        {e.combinado ? ' Pagamento combinado: depois de liberar, use "Alterar forma de pagamento".' : ''}
+      </div>
+      {!!e.abertas.length && (
+        <ul class="text-fg-muted">{e.abertas.map((a, i) => <li key={i}>{meio(a.meio)} de {brl(a.valor)}{a.vencimento ? ` · vence${e.expirada ? 'u' : ''} em ${diaBr(a.vencimento)}` : ''}</li>)}</ul>
+      )}
+      <Button size="sm" variant={e.expirada ? 'primary' : 'secondary'} onClick={() => setAbrir(true)}><CreditCard size={12} /> Trocar plano / nova cobrança</Button>
+      {abrir && (
+        <Modal open onOpenChange={(o) => { if (!o) setAbrir(false) }} title="Trocar plano / nova cobrança" size="md"
+          description={e.abertas.length ? `Cancela ${e.abertas.length === 1 ? 'a cobrança em aberto' : `${e.abertas.length} cobranças em aberto`} e libera a escolha de outro plano.` : 'Libera a inscrição para escolher outro plano.'}
+          footer={<div class="flex justify-end gap-2 w-full">
+            <Button variant="secondary" size="sm" onClick={() => setAbrir(false)}>Cancelar</Button>
+            <Button size="sm" disabled={m.isPending || motivo.trim().length < 3} onClick={() => m.mutate()}>{m.isPending ? 'Liberando…' : 'Liberar para trocar'}</Button>
+          </div>}>
+          <div class="space-y-3">
+            <Textarea label="Motivo" rows={3} value={motivo} placeholder="Ex.: aluna não pagou o boleto 8x e quer passar para 12x no cartão" onInput={(x) => setMotivo((x.target as HTMLTextAreaElement).value)} />
+            <div class="text-2xs text-fg-muted">
+              Depois: {origem === 'financeiro' ? 'abra a inscrição › Financeiro, ' : ''}escolha o plano, ajuste os valores se precisar e gere a nova cobrança (ou copie o link do cartão).
+              Fica registrado no histórico da inscrição e do lead.
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+// ─── desconto em fatura já gerada ────────────────────────────────────────────
+
+type ModoDesconto = 'valor' | 'percentual' | 'cupom'
+interface CupomUtilizavel { code: string; somenteEquipe: boolean; descricao: string | null; regra: string }
+interface DescontoDado {
+  id: number; fatura: string; modo: ModoDesconto; percentual: number | null; cupom: string | null
+  antes: number; desconto: number; depois: number; situacao: 'aplicado' | 'aguardando_cartao' | 'nao_usado'
+  motivo: string; aprovadoPor: string | null; por: string | null; em: string
+}
+interface ResultadoDesconto {
+  valorAntes: number; desconto: number; valorDepois: number; vencimento: string | null; link: string | null; pendente: boolean
+  mensagem: { texto: string; leadId: number | null; whatsapp: string | null }
+}
+const chaveDosDescontos = (id: number) => ['descontos-da-inscricao', id]
+const numeroBr = (v: string) => Number(v.trim().replace(/\./g, '').replace(',', '.'))
+
+function DescontoModal({ registrationId, base, fatura, hoje, onClose }: { registrationId: number; base: string; fatura: Fatura; hoje: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const extras = useQuery({ queryKey: chaveDosDescontos(registrationId), queryFn: () => api.get<{ descontos: DescontoDado[]; cupons: CupomUtilizavel[] }>(`${base}/${registrationId}/descontos`) })
+  const [modo, setModo] = useState<ModoDesconto>('valor')
+  const [valor, setValor] = useState('')
+  const [pct, setPct] = useState('')
+  const [cupom, setCupom] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [aprovadoPor, setAprovadoPor] = useState('')
+  const vencida = fatura.situacao === 'vencida'
+  const cartao = /cart/i.test(fatura.meio ?? '')
+  const [venc, setVenc] = useState(vencida ? hoje : '')
+  const [conferir, setConferir] = useState(false)
+  const [r, setR] = useState<ResultadoDesconto | null>(null)
+
+  const desconto = modo === 'valor' ? numeroBr(valor) : modo === 'percentual' ? Math.round(fatura.valor * numeroBr(pct)) / 100 : NaN
+  const previa = Number.isFinite(desconto) && desconto > 0 ? Math.round((fatura.valor - desconto) * 100) / 100 : null
+  const faltando = !motivo.trim() || motivo.trim().length < 5 ? 'Escreva o motivo.'
+    : modo === 'valor' && !(numeroBr(valor) > 0) ? 'Informe o valor do desconto.'
+      : modo === 'percentual' && !(numeroBr(pct) > 0 && numeroBr(pct) < 100) ? 'Informe a porcentagem.'
+        : modo === 'cupom' && !cupom.trim() ? 'Escolha ou digite o cupom.'
+          : previa != null && previa <= 0 ? 'O desconto não pode zerar a fatura.' : null
+
+  const m = useMutation({
+    mutationFn: () => api.post<ResultadoDesconto>(`${base}/${registrationId}/faturas/desconto`, {
+      chave: fatura.chave, modo, motivo: motivo.trim(), aprovadoPor: aprovadoPor.trim() || null,
+      ...(modo === 'valor' ? { valor: numeroBr(valor) } : modo === 'percentual' ? { percentual: numeroBr(pct) } : { cupom: cupom.trim().toUpperCase() }),
+      ...(venc && !cartao ? { vencimento: venc } : {}),
+    }),
+    onSuccess: (res) => {
+      setR(res)
+      toast(res.pendente ? 'Desconto registrado: falta o aluno pagar o novo link do cartão' : `Desconto aplicado: fatura agora de ${brl(res.valorDepois)}`, 'success')
+      void qc.invalidateQueries()
+    },
+    onError: (e: unknown) => { setConferir(false); toast((e as Error).message, 'danger') },
+  })
+  const wa = r?.mensagem.whatsapp ? r.mensagem.whatsapp.replace(/\D/g, '') : ''
+
+  return (
+    <Modal
+      open onOpenChange={(o) => { if (!o) onClose() }}
+      title={r ? 'Desconto aplicado' : 'Dar desconto'}
+      description={`${fatura.titulo} · ${brl(fatura.valor)}${fatura.vencimento ? ` · vence${vencida ? 'u' : ''} em ${diaBr(fatura.vencimento)}` : ''}`}
+      size="md"
+      footer={r ? (
+        <div class="flex flex-wrap justify-end gap-2 w-full">
+          <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
+          {r.link && <Button variant="secondary" size="sm" onClick={() => copiar(r.link!, 'Link')}><Copy size={12} /> Copiar link</Button>}
+          <Button size="sm" onClick={() => copiar(r.mensagem.texto, 'Mensagem')}><Copy size={12} /> Copiar mensagem</Button>
+        </div>
+      ) : (
+        <div class="flex justify-end gap-2 w-full">
+          <Button variant="secondary" size="sm" onClick={conferir ? () => setConferir(false) : onClose}>{conferir ? 'Voltar' : 'Cancelar'}</Button>
+          {conferir
+            ? <Button size="sm" disabled={m.isPending} onClick={() => m.mutate()}>{m.isPending ? 'Aplicando…' : 'Confirmar desconto'}</Button>
+            : <Button size="sm" disabled={!!faltando} title={faltando ?? undefined} onClick={() => setConferir(true)}>Continuar</Button>}
+        </div>
+      )}
+    >
+      {r ? (
+        <div class="space-y-3">
+          <div class="text-sm">{brl(r.valorAntes)} − {brl(r.desconto)} = <strong>{brl(r.valorDepois)}</strong>{r.vencimento ? ` · vence em ${diaBr(r.vencimento)}` : ''}</div>
+          {r.pendente && <div class="text-xs text-warning">Cartão: o aluno precisa pagar pelo link novo. A fatura antiga continua valendo até o cartão aprovar.</div>}
+          <Textarea label="Mensagem para o aluno" rows={6} value={r.mensagem.texto} readOnly />
+          <div class="text-xs text-fg-muted flex flex-wrap gap-x-3 gap-y-1">
+            <span>Copie e envie pela conversa do aluno:</span>
+            {r.mensagem.leadId && <a class="text-accent hover:underline inline-flex items-center gap-1" href={`/app/leads/${r.mensagem.leadId}`}><MessageCircle size={11} /> Abrir lead</a>}
+            {wa && <a class="text-accent hover:underline inline-flex items-center gap-1" href={`https://wa.me/${wa}?text=${encodeURIComponent(r.mensagem.texto)}`} target="_blank" rel="noopener"><ExternalLink size={11} /> WhatsApp Web</a>}
+          </div>
+        </div>
+      ) : conferir ? (
+        <div class="space-y-2 text-sm">
+          <div class="font-medium">Confira antes de aplicar</div>
+          <div>Fatura: {fatura.titulo}</div>
+          <div>Desconto: {modo === 'cupom' ? `cupom ${cupom.toUpperCase()}` : modo === 'percentual' ? `${pct}% (${brl(desconto)})` : brl(desconto)}{previa != null ? <> → fica <strong>{brl(previa)}</strong></> : ''}</div>
+          {venc && !cartao && <div>Vencimento: {diaBr(venc)}</div>}
+          <div>Motivo: {motivo.trim()}</div>
+          <div>Aprovado por: {aprovadoPor.trim() || '— (não informado)'}</div>
+          <div class="text-xs text-fg-muted pt-1">
+            {cartao ? 'Cartão: sai um link novo com o valor menor; a fatura antiga segue valendo até o aluno pagar o novo.'
+              : fatura.situacao === 'prevista' ? 'A fatura ainda não foi gerada: ela já nasce com o valor novo.'
+                : 'A cobrança continua a mesma no Asaas, com o mesmo link: só o valor muda (e a data, se estiver vencida).'}
+            {' '}Fica registrado no histórico da inscrição, do lead e no relatório de descontos.
+          </div>
+        </div>
+      ) : (
+        <div class="space-y-3">
+          <div class="flex gap-1">
+            {([['valor', 'Valor (R$)'], ['percentual', 'Porcentagem'], ['cupom', 'Cupom interno']] as const).map(([k, rot]) => (
+              <Button key={k} size="sm" variant={modo === k ? 'primary' : 'ghost'} onClick={() => setModo(k)}>{rot}</Button>
+            ))}
+          </div>
+          {modo === 'valor' && <Input label="Desconto (R$)" inputMode="decimal" value={valor} placeholder="100,00" onInput={(e) => setValor((e.target as HTMLInputElement).value)} />}
+          {modo === 'percentual' && <Input label="Desconto (%)" inputMode="decimal" value={pct} placeholder="10" onInput={(e) => setPct((e.target as HTMLInputElement).value)} />}
+          {modo === 'cupom' && (
+            <div class="space-y-1">
+              <Select label="Cupom" value={cupom} onChange={(e) => setCupom((e.target as HTMLSelectElement).value)}>
+                <option value="">Escolha…</option>
+                {(extras.data?.cupons ?? []).map((c) => <option key={c.code} value={c.code}>{c.code} · {c.regra}{c.somenteEquipe ? ' · equipe' : ''}{c.descricao ? ` · ${c.descricao}` : ''}</option>)}
+              </Select>
+              <div class="text-2xs text-fg-muted">Os marcados "equipe" são os cupons internos (Desconto da equipe). O uso é contado no cupom.</div>
+            </div>
+          )}
+          {previa != null && <div class="text-sm">Fica <strong class="tabular-nums">{brl(previa)}</strong> <span class="text-fg-muted">(era {brl(fatura.valor)})</span></div>}
+          {!cartao && fatura.situacao !== 'prevista' && (
+            <Input label={vencida ? 'Novo vencimento' : 'Vencimento (opcional)'} type="date" value={venc} min={hoje} max={somarDias(hoje, 60)} onInput={(e) => setVenc((e.target as HTMLInputElement).value)} />
+          )}
+          <Textarea label="Motivo" rows={3} value={motivo} placeholder="Ex.: aluna pediu desconto para quitar; aprovado pela gestão" onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
+          <Input label="Aprovado por" value={aprovadoPor} placeholder="Quem autorizou (ex.: Edilvo, gestão)" onInput={(e) => setAprovadoPor((e.target as HTMLInputElement).value)} />
+          <div class="text-2xs text-fg-muted">Sem limite de valor. Fica registrado quem deu, quem aprovou e o motivo.</div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+const SITUACAO_DESCONTO: Record<DescontoDado['situacao'], { rotulo: string; tom: 'success' | 'warning' | 'neutral' }> = {
+  aplicado: { rotulo: 'Aplicado', tom: 'success' },
+  aguardando_cartao: { rotulo: 'Aguardando cartão', tom: 'warning' },
+  nao_usado: { rotulo: 'Não usado', tom: 'neutral' },
+}
+
+/** Os descontos dados nesta inscrição: quem deu, quem aprovou, motivo. */
+function DescontosConcedidos({ registrationId, base }: { registrationId: number; base: string }) {
+  const q = useQuery({ queryKey: chaveDosDescontos(registrationId), queryFn: () => api.get<{ descontos: DescontoDado[]; cupons: CupomUtilizavel[] }>(`${base}/${registrationId}/descontos`), staleTime: 30_000 })
+  const lista = q.data?.descontos ?? []
+  if (!lista.length) return null
+  return (
+    <div class="rounded-lg border border-border">
+      <div class="px-3 py-2 bg-surface-2 text-2xs uppercase tracking-wider text-fg-muted">Descontos concedidos</div>
+      <ul class="divide-y divide-border">
+        {lista.map((d) => {
+          const s = SITUACAO_DESCONTO[d.situacao] ?? SITUACAO_DESCONTO.aplicado
+          return (
+            <li key={d.id} class="px-3 py-2 text-xs space-y-0.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <strong class="text-sm tabular-nums">−{brl(d.desconto)}</strong>
+                <span class="text-fg-muted tabular-nums">{brl(d.antes)} → {brl(d.depois)}</span>
+                <span class="text-fg-muted">· {d.fatura}{d.modo === 'percentual' && d.percentual ? ` · ${d.percentual.toLocaleString('pt-BR')}%` : ''}{d.cupom ? ` · cupom ${d.cupom}` : ''}</span>
+                <Badge tone={s.tom}>{s.rotulo}</Badge>
+              </div>
+              <div class="text-fg">{d.motivo}</div>
+              <div class="text-fg-muted">Por {d.por ?? '—'}{d.aprovadoPor ? ` · aprovado por ${d.aprovadoPor}` : ''} · {quandoBr(d.em)}</div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 

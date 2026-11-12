@@ -37,7 +37,7 @@ export const tituloElegivel = (t: { status: string; valorPagoCentavos: number; t
   TITULO_EM_ABERTO.includes(t.status as any) && t.valorPagoCentavos === 0
 
 /** Reescreve a condição combinada com o que vale depois da troca: é o que o contrato mostra. */
-async function recontarCombinado(registrationId: number) {
+export async function recontarCombinado(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPlan: true } })
   const plano = (reg?.paymentPlan ?? {}) as Record<string, any>
   if (!plano.combinado) return
