@@ -190,7 +190,9 @@ export async function syncChargeFromProvider(
   // inscrição cujo boleto vigente era de R$ 5,02).
   const ehAtual = norm.status === 'paid' || !enrollment.paymentId || enrollment.paymentId === norm.externalId
 
-  const wasPaid = enrollment.paymentStatus === 'paid'
+  // "Paga" só conta como concluída com a data do pagamento (cartão aprovado na
+  // hora já chega 'paid' sem a conclusão — INE-26-000005-FLT9, 09/11).
+  const wasPaid = enrollment.paymentStatus === 'paid' && !!enrollment.paymentPaidAt
   const isPaidNow = norm.status === 'paid'
 
   const updates: any = {
@@ -220,7 +222,7 @@ export async function syncChargeFromProvider(
   let euFizATransicao = false
   if (isPaidNow) {
     const r = await prisma.enrollmentRegistration.updateMany({
-      where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
+      where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }, { paymentPaidAt: null }] },
       data: updates,
     })
     euFizATransicao = r.count === 1

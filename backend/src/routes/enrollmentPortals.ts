@@ -5595,7 +5595,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // evento PAYMENT_DELETED). Sem isto a cobrança cancelada voltava a pendente.
     const apagada = event === 'PAYMENT_DELETED' || payment.deleted === true
     const newPaymentStatus = apagada ? 'canceled' : (ASAAS_STATUS_MAP[payment.status] || 'pending')
-    const wasPaid = enrollment.paymentStatus === 'paid'
+    // "Paga" só conta como concluída com a data do pagamento: o cartão aprovado
+    // na hora já chega gravado como 'paid' pela tela de pagamento, e a conclusão
+    // (data, status, efeitos) ficava pulada (INE-26-000005-FLT9, 09/11).
+    const wasPaid = enrollment.paymentStatus === 'paid' && !!enrollment.paymentPaidAt
     const isPaidNow = newPaymentStatus === 'paid'
     // Só a cobrança atual da inscrição (ou um pagamento confirmado) mexe no
     // pagamento da inscrição; evento de cobrança antiga atualiza só ela.
@@ -5623,7 +5626,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let euFizATransicao = false
     if (isPaidNow) {
       const r = await prisma.enrollmentRegistration.updateMany({
-        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
+        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }, { paymentPaidAt: null }] },
         data: updates,
       })
       euFizATransicao = r.count === 1
@@ -5871,7 +5874,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     const newPaymentStatus = payment.status
-    const wasPaid = enrollment.paymentStatus === 'paid'
+    // "Paga" só conta como concluída com a data do pagamento: o cartão aprovado
+    // na hora já chega gravado como 'paid' pela tela de pagamento, e a conclusão
+    // (data, status, efeitos) ficava pulada (INE-26-000005-FLT9, 09/11).
+    const wasPaid = enrollment.paymentStatus === 'paid' && !!enrollment.paymentPaidAt
     const isPaidNow = newPaymentStatus === 'paid'
 
     const updates: any = {
@@ -5894,7 +5900,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let euFizATransicao = false
     if (isPaidNow) {
       const r = await prisma.enrollmentRegistration.updateMany({
-        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
+        where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }, { paymentPaidAt: null }] },
         data: updates,
       })
       euFizATransicao = r.count === 1
