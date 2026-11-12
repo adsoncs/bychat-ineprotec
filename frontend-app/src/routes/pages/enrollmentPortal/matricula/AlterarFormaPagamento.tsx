@@ -57,6 +57,12 @@ export function AlterarFormaPagamento({ registrationId, fechada }: { registratio
   const saldo = selecionados.reduce((s, e) => s + e.valor, 0)
   const novoTotal = alterarValor ? Math.round(numero(total) * 100) : saldo
   const soma = Math.round(linhas.reduce((s, l) => s + numero(l.valor), 0) * 100)
+  // Novo total menor que o saldo = parte da dívida deixa de existir: exige o motivo
+  // da redução (mesma regra do servidor, 15 caracteres).
+  const reduz = novoTotal < saldo
+  const motivoMinimo = reduz ? 15 : 3
+  // Um envio por vez (botão travado enquanto processa): o Asaas pode demorar, e
+  // cliques repetidos disparavam várias trocas ao mesmo tempo (ineprotec 12/11).
   const criar = useMutation({
     mutationFn: () => api.post<{ pendente: boolean; link: string | null; falhas: string[] }>(base, {
       titulos: marcados, total: novoTotal / 100, motivo,
@@ -145,9 +151,10 @@ export function AlterarFormaPagamento({ registrationId, fechada }: { registratio
           </div>
           {temCartao && <div class="text-2xs text-fg-muted">Os pagamentos antigos só são cancelados quando o cartão for aprovado. O link vale por até {d.prazoDias} dias e sempre antes do próximo vencimento. Com cartão, as outras formas só são geradas depois da aprovação.</div>}
           {d.contratoAssinado && <div class="text-xs text-warning" role="status">O contrato já foi assinado. Esta troca muda a condição de pagamento e pode exigir um aditivo.</div>}
-          <Textarea label={alterarValor ? 'Motivo da troca e da alteração de valor (fica no histórico)' : 'Motivo da troca (fica no histórico)'} rows={2} value={motivo} onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
+          {reduz && <div class="text-xs text-warning" role="status">O novo total é {brl(saldo - novoTotal)} menor que o saldo: essa diferença deixa de ser cobrada. Escreva o motivo da redução e quem autorizou.</div>}
+          <Textarea label={reduz ? 'Motivo da redução e quem autorizou (obrigatório, fica no histórico)' : alterarValor ? 'Motivo da troca e da alteração de valor (fica no histórico)' : 'Motivo da troca (fica no histórico)'} rows={2} value={motivo} onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
           <div class="flex gap-2">
-            <Button size="sm" variant="primary" disabled={!selecionados.length || !fecha || motivo.trim().length < 3 || criar.isPending} onClick={() => setConfirmar(true)}>Revisar e confirmar</Button>
+            <Button size="sm" variant="primary" disabled={!selecionados.length || !fecha || motivo.trim().length < motivoMinimo || criar.isPending} onClick={() => setConfirmar(true)}>Revisar e confirmar</Button>
             <Button size="sm" variant="ghost" onClick={() => setAbrir(false)}>Voltar</Button>
           </div>
         </div>
@@ -170,7 +177,7 @@ export function AlterarFormaPagamento({ registrationId, fechada }: { registratio
 
       <ConfirmDialog open={confirmar} onOpenChange={setConfirmar} title={temCartao ? 'Gerar o link do cartão?' : 'Trocar a forma de pagamento agora?'}
         description={`De ${selecionados.length} pagamento(s), saldo de ${brl(saldo)}, para ${brl(novoTotal)}. ${temCartao ? 'Os pagamentos antigos valem até o cartão ser aprovado.' : 'Os pagamentos antigos serão cancelados agora e os novos serão gerados.'} Nenhuma mensagem é enviada ao aluno por aqui.`}
-        confirmLabel="Confirmar" onConfirm={() => criar.mutate()} />
+        confirmLabel="Confirmar" loading={criar.isPending} onConfirm={() => { if (!criar.isPending) criar.mutate() }} />
       <ConfirmDialog open={cancelar} onOpenChange={setCancelar} title="Cancelar a troca?" description="O link do cartão será excluído e os pagamentos antigos continuam valendo." confirmLabel="Cancelar troca" destructive onConfirm={() => cancelarM.mutate()} />
     </Card>
   )

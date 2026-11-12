@@ -459,6 +459,11 @@ export async function efetivarAcordo(b: any, op: Operador) {
   }
   const sim = await simularAcordo(b)
   if ('erro' in sim) return { ok: false as const, status: 400, erro: sim.erro as string }
+  // Acordo abaixo do valor original (desconto além dos encargos) = parte da dívida
+  // deixa de existir. Só com o motivo da redução escrito.
+  if (sim.total < sim.original && motivo.length < 15) {
+    return { ok: false as const, status: 400, erro: `O acordo (${brl(sim.total)}) fica abaixo do valor original (${brl(sim.original)}): a diferença deixa de ser cobrada. Escreva o motivo da redução e quem autorizou.` }
+  }
 
   if (e.academico) {
     const r = await efetivarAcordoAca({

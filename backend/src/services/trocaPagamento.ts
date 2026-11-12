@@ -83,7 +83,21 @@ async function acompanharNoAcademico(antigas: Array<{ externalId: string | null 
 
 type Resposta = { ok: true; trocaId: number; pendente: boolean; link: string | null; falhas: string[] } | { ok: false; status: number; erro: string }
 
+// Uma troca por matrícula de cada vez. Sem isso, 3 cliques seguidos (o Asaas
+// demorando) disparavam 3 exclusões do mesmo parcelamento (ineprotec 12/11).
+const trocasEmAndamento = new Set<number>()
+
 export async function criarTroca(registrationId: number, body: any, op: Operador): Promise<Resposta> {
+  if (trocasEmAndamento.has(registrationId)) return { ok: false, status: 409, erro: 'Já há uma troca desta matrícula sendo processada. Aguarde a resposta antes de tentar de novo.' }
+  trocasEmAndamento.add(registrationId)
+  try {
+    return await criarTrocaSemTrava(registrationId, body, op)
+  } finally {
+    trocasEmAndamento.delete(registrationId)
+  }
+}
+
+async function criarTrocaSemTrava(registrationId: number, body: any, op: Operador): Promise<Resposta> {
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { id: true, status: true, leadId: true } })
   if (!reg) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
   if (FECHADAS.includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada.' }
@@ -103,6 +117,11 @@ export async function criarTroca(registrationId: number, body: any, op: Operador
   const cartoes = v.titulos.filter((t) => t.meio === 'credit_card')
   if (cartoes.length > 1) return { ok: false, status: 400, erro: 'Use um cartão só por troca: é ele que confirma a mudança.' }
   const alterado = v.totalCentavos !== saldo
+  // Total menor que o saldo = parte da dívida deixa de existir. Só com o motivo
+  // da redução escrito (fica na troca, na linha do tempo e no lead).
+  if (v.totalCentavos < saldo && v.motivo.trim().length < 15) {
+    return { ok: false, status: 400, erro: `O novo total (${brl(v.totalCentavos)}) é menor que o saldo (${brl(saldo)}): a diferença de ${brl(saldo - v.totalCentavos)} deixa de ser cobrada. Escreva o motivo da redução e quem autorizou.` }
+  }
 
   // Conferência na hora: não substitui o que acabou de ser pago.
   const cfg = await configDaInscricao(registrationId)
@@ -130,7 +149,7 @@ export async function criarTroca(registrationId: number, body: any, op: Operador
   })
   const registrar = (acao: string, trocaId: number, extra: Record<string, unknown> = {}) => registrarEventoDaInscricao({
     registrationId, etapa: 'pagamento', acao, ator: 'atendente', userId: op.userId, userName: op.nome,
-    dados: { troca: trocaId, saldo: saldo / 100, novoTotal: v.totalCentavos / 100, ...(alterado ? { valorAlterado: true, diferenca: (v.totalCentavos - saldo) / 100 } : {}), motivo: v.motivo, ...extra },
+    dados: { troca: trocaId, saldo: saldo / 100, novoTotal: v.totalCentavos / 100, ...(alterado ? { valorAlterado: true, diferenca: (v.totalCentavos - saldo) / 100 } : {}), ...(v.totalCentavos < saldo ? { reducaoDoSaldo: (saldo - v.totalCentavos) / 100 } : {}), motivo: v.motivo, ...extra },
   })
 
   // Cartão: pendente até a aprovação. Só o link é gerado, os antigos seguem valendo.

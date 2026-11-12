@@ -41,7 +41,9 @@ async function asaasFetch(config: AsaasConfig, path: string, method = 'GET', bod
       'User-Agent': 'crm-integracao/1.0',
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(10_000),
+    // Excluir um parcelamento inteiro (11 cobranças) passa de 10 s no Asaas — e ele
+    // conclui mesmo depois que desistimos (fabad/ineprotec 12/11). DELETE espera mais.
+    signal: AbortSignal.timeout(method === 'DELETE' ? 45_000 : 10_000),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -183,12 +185,42 @@ export async function listarParcelasAsaas(config: AsaasConfig, installmentId: st
   return Array.isArray(d?.data) ? d.data : []
 }
 
+const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Erro na exclusão (tempo esgotado, 5xx) NÃO quer dizer que não apagou: o Asaas
+ * pode concluir depois. Antes de responder "falhou", confere de verdade — senão a
+ * tela diz erro, nada novo é gerado e a cobrança some mesmo assim (Gabrielly,
+ * ineprotec 12/11: parcelamento de R$ 1.550 apagado, dívida sumida).
+ * Erro 4xx de regra do Asaas (ex.: cobrança já paga) é falha de verdade.
+ */
+async function exclusaoConfirmada(config: AsaasConfig, alvo: { paymentId?: string; installmentId?: string }, e: any): Promise<boolean> {
+  if (e?.status === 404) return true
+  if (e?.status && e.status >= 400 && e.status < 500) return false
+  for (const espera of [0, 4_000, 8_000]) {
+    if (espera) await esperar(espera)
+    try {
+      if (alvo.installmentId) {
+        const vivas = await listarParcelasAsaas(config, alvo.installmentId)
+        if (!vivas.some((p: any) => !p?.deleted)) return true
+      } else if (alvo.paymentId) {
+        const p = await asaasFetch(config, `/payments/${encodeURIComponent(alvo.paymentId)}`)
+        if (p?.deleted === true) return true
+      }
+    } catch (x: any) {
+      if (x?.status === 404) return true
+    }
+  }
+  return false
+}
+
 /** Excluir só uma parcela deixa as outras pagáveis: o parcelamento sai inteiro. */
 export async function cancelarParcelamentoAsaas(config: AsaasConfig, installmentId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     await asaasFetch(config, `/installments/${encodeURIComponent(installmentId)}`, 'DELETE')
     return { ok: true }
   } catch (e: any) {
+    if (await exclusaoConfirmada(config, { installmentId }, e)) return { ok: true }
     return { ok: false, message: String(e?.message || 'falha ao cancelar o parcelamento') }
   }
 }
@@ -203,7 +235,7 @@ export async function cancelarCobrancaAsaas(config: AsaasConfig, paymentId: stri
     await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'DELETE')
     return { ok: true }
   } catch (e: any) {
-    if (e?.status === 404) return { ok: true }
+    if (await exclusaoConfirmada(config, { paymentId }, e)) return { ok: true }
     return { ok: false, message: e?.message || 'falha ao cancelar no Asaas' }
   }
 }

@@ -330,10 +330,25 @@ export async function criarCombinado(registrationId: number, body: any, op: Oper
 }
 
 /** Tira do Asaas a cobrança do título, inteira quando for parcelada. */
+// Exclusões que o PRÓPRIO sistema pediu ao Asaas. O aviso de exclusão que chega
+// delas não é sumiço de dívida: quem pediu grava o novo estado (substituída,
+// cancelada com motivo, prevista para gerar de novo). Fica marcada por 2 min
+// depois do sucesso, que é quando o aviso costuma chegar.
+const exclusoesDoSistema = new Set<string>()
+export function exclusaoPedidaPeloSistema(payment: any): boolean {
+  return [payment?.id, payment?.installment].some((x) => x && exclusoesDoSistema.has(String(x)))
+}
+
 export async function cancelarNoGateway(cfg: AsaasConfig | null, t: { externalId: string | null; installmentId: string | null; provider: string | null }): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!t.externalId || t.provider !== 'asaas') return { ok: true }
   if (!cfg) return { ok: false, message: 'conexão Asaas indisponível' }
+  const ids = [t.externalId, t.installmentId].filter(Boolean) as string[]
+  ids.forEach((x) => exclusoesDoSistema.add(x))
   const r = t.installmentId ? await cancelarParcelamentoAsaas(cfg, t.installmentId) : await cancelarCobrancaAsaas(cfg, t.externalId)
+  // Falhou: a marca sai já — se o Asaas ainda apagar depois, o aviso trata como
+  // exclusão de fora e a dívida continua (ver aplicarAvisoDoAsaas).
+  if (!r.ok) ids.forEach((x) => exclusoesDoSistema.delete(x))
+  else setTimeout(() => ids.forEach((x) => exclusoesDoSistema.delete(x)), 120_000).unref?.()
   return r.ok ? { ok: true } : { ok: false, message: (r as any).message }
 }
 
@@ -514,7 +529,24 @@ export async function aplicarAvisoDoAsaas(tituloId: number, event: string, payme
     })
   } else if (apagada && (TITULO_EM_ABERTO as string[]).concat('aguardando').includes(t.status) && t.externalId === payment?.id) {
     // Título renegociado já saiu de "em aberto": o aviso de exclusão não o altera.
-    await prisma.enrollmentTitulo.update({ where: { id: t.id }, data: { status: 'cancelada', lastError: 'Excluída no Asaas' } })
+    if (exclusaoPedidaPeloSistema(payment)) {
+      // Exclusão pedida por um fluxo daqui: ele mesmo grava o estado novo.
+    } else if (t.status === 'aguardando') {
+      // Link do cartão de uma troca pendente: os títulos antigos seguem valendo.
+      await prisma.enrollmentTitulo.update({ where: { id: t.id }, data: { status: 'cancelada', lastError: 'Excluída no Asaas' } })
+    } else {
+      // Apagada no Asaas sem passar por um fluxo daqui (no painel do Asaas, ou um
+      // pedido que respondeu erro e concluiu depois). A DÍVIDA NÃO SOME: o título
+      // volta a "não gerado", com alerta em Inadimplência › A conferir. Para baixar
+      // o valor é preciso outra cobrança no lugar ou uma baixa com motivo.
+      const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+      await prisma.enrollmentTitulo.update({ where: { id: t.id }, data: {
+        status: 'prevista', externalId: null, installmentId: null, invoiceUrl: null, boletoPdfUrl: null, boletoLinha: null, pixCopiaCola: null,
+        conferirEm: new Date(), conferidoEm: null,
+        lastError: `Cobrança ${payment?.id ?? ''} excluída no Asaas em ${quando}, fora do sistema. A dívida continua: gere uma nova cobrança (troca ou 2ª via) ou registre o motivo da baixa.`.slice(0, 500),
+      } })
+      await registrarEventoDaInscricao({ registrationId: t.registrationId, etapa: 'pagamento', acao: 'cobranca_excluida_no_asaas', ator: 'sistema', dados: { titulo: t.id, cobranca: payment?.id ?? null, parcelamento: payment?.installment ?? null, valor: payment?.value ?? null, dividaMantida: true } })
+    }
   } else if (novo === 'refunded' && t.status === 'paga') {
     await prisma.enrollmentTitulo.update({ where: { id: t.id }, data: { status: 'estornada', valorPagoCentavos: 0 } })
     await atualizarRecebido(t.registrationId)
