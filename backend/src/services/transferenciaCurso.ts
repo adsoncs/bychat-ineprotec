@@ -416,6 +416,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
     deId, deCodigo: reg.candidateCode, creditoCentavos: credito, em: agora.toISOString(), por: op.nome,
     valorCursoCentavos: plano ? Math.round(valorIntegral(plano) * 100) : 0,
     ...(precoEscolhido ? { precoPor: previa.para.precoPor, precoRotulo: precoEscolhido.rotulo } : {}),
+    ...(previa.financeiro.pontualidadeCentavos ? { pontualidadeCentavos: previa.financeiro.pontualidadeCentavos } : {}),
     ...(fech ? { fechamento: { data: fech.data.toISOString(), forma: fech.forma } } : {}),
   }
 
@@ -455,6 +456,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
   const { generateCandidateCode } = await import('./enrollmentCode.js')
   const codigo = await generateCandidateCode(previa.para.portalId)
   const pagoPeloCredito = dist?.caso === 'cobre_entrada'
+  const pagoNaEntradaCentavos = Math.max(0, (dist?.creditoNaEntradaCentavos ?? 0) - (previa.financeiro.pontualidadeCentavos ?? 0))
   const processoId = (await prisma.courseOffering.findUnique({ where: { id: previa.para.offeringId }, select: { selectionProcessId: true } }))!.selectionProcessId
   if (!processoId) return { ok: false, status: 400, erro: 'O curso novo não tem processo seletivo.' }
 
@@ -492,10 +494,11 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
           ...(condicao ? { condicaoNegociada: condicao as any } : valorAvulso ? { condicaoNegociada: valorAvulso as any } : {}),
           ...(pagoPeloCredito && plano && condicao ? {
             paymentStatus: 'paid', paymentPaidAt: agora, paymentMethod: 'CREDITO',
-            paymentAmount: dist!.creditoNaEntradaCentavos / 100, paymentId: `credito-${deId}-${agora.getTime()}`,
+            // Valor pago = dinheiro que entrou: o desconto de pontualidade conta como quitado, mas não como recebido.
+            paymentAmount: pagoNaEntradaCentavos / 100, paymentId: `credito-${deId}-${agora.getTime()}`,
             paymentPlan: {
               planoFinanceiro: escolhaParaGravar({ ...plano, taxaMatriculaCentavos: condicao.taxaMatriculaCentavos, valorParcelaCentavos: condicao.valorParcelaCentavos, numParcelas: dist!.condicao!.numParcelas }, 'entrada', true),
-              meio: 'credito', parcelas: 1, valorCobrado: dist!.creditoNaEntradaCentavos / 100,
+              meio: 'credito', parcelas: 1, valorCobrado: pagoNaEntradaCentavos / 100,
               condicaoNegociada: condicao, transferencia,
             } as any,
           } : {}),
