@@ -338,6 +338,19 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
           : 'As próximas parcelas podem ser geradas aqui depois que a 1ª for paga.')
     }
   }
+  // Títulos do combinado numa inscrição SEM o plano combinado — parcelas geradas
+  // à parte (ex.: troca de curso feita à mão em 09/11, INE-26-000005-SECU). Antes
+  // não apareciam nem ao aluno nem à equipe (12/11/2026). Entram como as
+  // parcelas seguintes à cobrança da inscrição.
+  if (!plano.combinado) {
+    const extras = (await faturasDosTitulos(r.id, 'combinado')) as Fatura[]
+    if (extras.length) {
+      const total = extras.length + (faturas.some((f) => f.chave === `reg:${r.id}`) ? 1 : 0)
+      const desloc = total - extras.length
+      for (const f of faturas) if (f.chave === `reg:${r.id}` && desloc) f.titulo = `Parcela 1 de ${total}`
+      faturas.push(...extras.map((f, k) => ({ ...f, titulo: `Parcela ${k + 1 + desloc} de ${total}` })))
+    }
+  }
   faturas.push(...((await faturasDosTitulos(r.id, 'acordo')) as Fatura[]))
   return { faturas, aviso }
 }
