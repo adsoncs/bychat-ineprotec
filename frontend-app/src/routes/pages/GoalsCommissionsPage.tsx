@@ -25,6 +25,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CommissionRuleEditor } from '@/components/CommissionRuleEditor'
+import { PeriodPicker, usePeriod } from '@/components/ui/PeriodPicker'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
@@ -35,7 +36,7 @@ import {
   useCommissionEntries, usePayCommission, usePayBonus, usePayCommissionBatch,
   useRecalcCommissions, useCommissionReconcile,
   useReceitaConfig, useSalvarReceitaConfig, useReceitaConciliacao, useAplicarConciliacao,
-  type CommissionRule, type GoalInput, type GoalMetric, type MetricProgress, type RateType,
+  type CommissionRule, type GoalInput, type Periodo, type GoalMetric, type MetricProgress, type RateType,
 } from '@/hooks/useGoalsCommissions'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
@@ -54,6 +55,9 @@ function metricValue(metric: GoalMetric, v: number | null): string {
   if (METRIC_UNIT[metric] === 'percent') return `${num(v).toFixed(0)}%`
   return String(Math.round(v))
 }
+
+/** "2026-10-05" → "05/10/2026". */
+const fmtDia = (iso: string) => iso.split('-').reverse().join('/')
 
 function currentPeriod(): string {
   const d = new Date()
@@ -110,7 +114,12 @@ export function GoalsCommissionsPage() {
   const isManager = ['SUPERADMIN', 'ADMIN', 'MANAGER'].includes(String(user?.role))
 
   const [tab, setTab] = useState<Tab>('painel')
-  const [period, setPeriod] = useState(currentPeriod())
+  // Seletor padrão do sistema (últimos meses + Personalizado), lembrado por navegador.
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('metas-comissoes.periodo')
+  const periodo: Periodo = useMemo(() => ({ dateFrom: range.dateFrom, dateTo: range.dateTo }), [range.dateFrom, range.dateTo])
+  // A aba Metas edita UM mês (a meta é mensal): começa no mês do fim do período.
+  const [mesDasMetas, setMesDasMetas] = useState(range.dateTo.slice(0, 7))
+  useEffect(() => { setMesDasMetas(periodo.dateTo.slice(0, 7)) }, [periodo.dateTo])
   const [funnelId, setFunnelId] = useState<number | null>(null)
   const [showHow, setShowHow] = useState(false)
 
@@ -120,12 +129,12 @@ export function GoalsCommissionsPage() {
   // `name` é nullable no cadastro; sem fallback o seletor mostraria vazio.
   const userOptions = (users.data?.users ?? []).map((u) => ({ id: u.id, name: u.name ?? `Usuário ${u.id}` }))
 
-  const panel = useCommissionPanel(period, funnelId)
+  const panel = useCommissionPanel(periodo, funnelId)
   const recalc = useRecalcCommissions()
 
   function runRecalc() {
-    recalc.mutate({ period }, {
-      onSuccess: (r) => toast(`Recalculado: ${r.negociacoes} venda(s), ${r.agentes} agente(s)`, 'success'),
+    recalc.mutate({ ...periodo }, {
+      onSuccess: (r) => toast(`Recalculado: ${r.negociacoes} venda(s), ${r.agentes} agente(s)${r.meses > 1 ? ` em ${r.meses} meses` : ''}`, 'success'),
       onError: () => toast('Falha ao recalcular', 'danger'),
     })
   }
@@ -147,7 +156,7 @@ export function GoalsCommissionsPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowHow(true)}><HelpCircle size={14} /> Como funciona?</Button>
           {isManager ? (
             <Button variant="ghost" size="sm" onClick={runRecalc} disabled={recalc.isPending}>
-              <RefreshCw size={14} class={recalc.isPending ? 'animate-spin' : ''} /> Recalcular mês
+              <RefreshCw size={14} class={recalc.isPending ? 'animate-spin' : ''} /> Recalcular período
             </Button>
           ) : null}
         </div>
@@ -156,16 +165,7 @@ export function GoalsCommissionsPage() {
       {/* Recorte: mês e funil valem para todas as abas */}
       <Card class="!p-3">
         <div class="flex flex-wrap items-center gap-2">
-          <div class="flex items-center gap-1">
-            <button type="button" class="h-8 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg" onClick={() => setPeriod(shiftPeriod(period, -1))} aria-label="Mês anterior">‹</button>
-            <input
-              type="month" value={period}
-              onInput={(e) => setPeriod((e.target as HTMLInputElement).value || currentPeriod())}
-              class="h-8 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
-              aria-label="Competência"
-            />
-            <button type="button" class="h-8 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg" onClick={() => setPeriod(shiftPeriod(period, 1))} aria-label="Próximo mês">›</button>
-          </div>
+          <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} label="Período" />
           <Select value={funnelId ? String(funnelId) : ''} onChange={(e) => setFunnelId(Number((e.target as HTMLSelectElement).value) || null)} class="w-48">
             <option value="">Todos os funis</option>
             {funnelOptions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -174,6 +174,7 @@ export function GoalsCommissionsPage() {
         </div>
         <p class="text-2xs text-fg-muted mt-2">
           A venda pertence ao mês em que a proposta foi <strong>fechada como ganha</strong> — é a mesma data que o módulo Negociações usa.
+          {' '}No período personalizado, a meta é a soma das metas mensais (proporcional nos meses cortados) e o bônus por faixa só entra nos meses inteiros.
         </p>
       </Card>
 
@@ -192,11 +193,11 @@ export function GoalsCommissionsPage() {
         ))}
       </div>
 
-      {tab === 'painel' ? <PainelTab period={period} funnelId={funnelId} /> : null}
-      {tab === 'metas' && isManager ? <MetasTab period={period} funnelId={funnelId} users={userOptions} /> : null}
+      {tab === 'painel' ? <PainelTab periodo={periodo} funnelId={funnelId} /> : null}
+      {tab === 'metas' && isManager ? <MetasTab period={mesDasMetas} onPeriod={setMesDasMetas} funnelId={funnelId} users={userOptions} /> : null}
       {tab === 'regras' && isManager ? <RegrasTab funnels={funnelOptions} users={userOptions} /> : null}
       {tab === 'receita' && isManager ? <ReceitaTab onOpenLead={(id) => navigate(`/leads/${id}`)} /> : null}
-      {tab === 'lancamentos' ? <LancamentosTab period={period} funnelId={funnelId} users={userOptions} isManager={isManager} onOpenLead={(id) => navigate(`/leads/${id}`)} /> : null}
+      {tab === 'lancamentos' ? <LancamentosTab periodo={periodo} funnelId={funnelId} users={userOptions} isManager={isManager} onOpenLead={(id) => navigate(`/leads/${id}`)} /> : null}
 
       <HowItWorksModal
         open={showHow}
@@ -241,8 +242,8 @@ export function GoalsCommissionsPage() {
 
 // ── Aba: Painel ───────────────────────────────────────────────────────────
 
-function PainelTab({ period, funnelId }: { period: string; funnelId: number | null }) {
-  const { data, isLoading } = useCommissionPanel(period, funnelId)
+function PainelTab({ periodo, funnelId }: { periodo: Periodo; funnelId: number | null }) {
+  const { data, isLoading } = useCommissionPanel(periodo, funnelId)
   const op = data?.operacao
 
   if (isLoading) {
@@ -251,8 +252,13 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
 
   return (
     <div class="space-y-3">
+      {data?.mesesParciais?.length ? (
+        <p class="text-2xs text-fg-muted">
+          Período cortado em {data.mesesParciais.join(', ')}: a meta desses meses entra proporcional aos dias e o bônus por faixa deles não aparece aqui (é do mês fechado).
+        </p>
+      ) : null}
       <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Receita ganha" value={money(op?.realizado.revenue ?? 0)} hint={`${op?.realizado.count ?? 0} venda(s) no mês`} />
+        <KpiCard label="Receita ganha" value={money(op?.realizado.revenue ?? 0)} hint={`${op?.realizado.count ?? 0} venda(s) no período`} />
         <KpiCard label="Nova mensalidade" value={`${money(op?.realizado.mrr ?? 0)}/mês`} hint="MRR fechado no período" />
         <KpiCard label="Comissão prevista" value={money(op?.comissao.prevista ?? 0)} hint={`${op?.comissao.lancamentos ?? 0} lançamento(s)`} />
         <KpiCard label="Comissão paga" value={money(op?.comissao.paga ?? 0)} hint="já quitada com os agentes" />
@@ -319,7 +325,7 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
 
 // ── Aba: Metas ────────────────────────────────────────────────────────────
 
-function MetasTab({ period, funnelId, users }: { period: string; funnelId: number | null; users: { id: number; name: string }[] }) {
+function MetasTab({ period, onPeriod, funnelId, users }: { period: string; onPeriod: (p: string) => void; funnelId: number | null; users: { id: number; name: string }[] }) {
   const { data, isLoading } = useGoals(period, funnelId)
   const save = useSaveGoals()
   const copy = useCopyGoals()
@@ -377,6 +383,17 @@ function MetasTab({ period, funnelId, users }: { period: string; funnelId: numbe
     <div class="space-y-3">
       <Card class="!p-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
+          {/* A meta é mensal: esta aba edita um mês por vez, com seletor próprio. */}
+          <div class="flex items-center gap-1">
+            <button type="button" class="h-8 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg" onClick={() => onPeriod(shiftPeriod(period, -1))} aria-label="Mês anterior">‹</button>
+            <input
+              type="month" value={period}
+              onInput={(e) => onPeriod((e.target as HTMLInputElement).value || currentPeriod())}
+              class="h-8 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
+              aria-label="Mês das metas"
+            />
+            <button type="button" class="h-8 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg" onClick={() => onPeriod(shiftPeriod(period, 1))} aria-label="Próximo mês">›</button>
+          </div>
           <p class="text-xs text-fg-muted">
             Grade de <strong>{period}</strong>{funnelId ? ' neste funil' : ' somando todos os funis'}.
             Campo vazio = <strong>sem meta</strong> (o painel mostra o realizado e não calcula percentual).
@@ -537,8 +554,8 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
 
 // ── Aba: Lançamentos ──────────────────────────────────────────────────────
 
-function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
-  period: string
+function LancamentosTab({ periodo, funnelId, users, isManager, onOpenLead }: {
+  periodo: Periodo
   funnelId: number | null
   users: { id: number; name: string }[]
   isManager: boolean
@@ -550,14 +567,14 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
   const [selected, setSelected] = useState<number[]>([])
   const [showCheck, setShowCheck] = useState(false)
 
-  useEffect(() => { setPage(1); setSelected([]) }, [period, funnelId, status, userId])
+  useEffect(() => { setPage(1); setSelected([]) }, [periodo, funnelId, status, userId])
 
-  const params = { period, funnelId, status: status || undefined, userId: userId || undefined, page, limit: 50 }
+  const params = { ...periodo, funnelId, status: status || undefined, userId: userId || undefined, page, limit: 50 }
   const { data, isLoading } = useCommissionEntries(params)
   const pay = usePayCommission()
   const payBonus = usePayBonus()
   const payBatch = usePayCommissionBatch()
-  const check = useCommissionReconcile(period, showCheck && isManager)
+  const check = useCommissionReconcile(periodo, showCheck && isManager)
 
   const rows = data?.entries ?? []
   const total = data?.total ?? 0
@@ -568,11 +585,11 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
   }
 
   function exportCsv() {
-    const qs = new URLSearchParams({ period, format: 'csv' })
+    const qs = new URLSearchParams({ ...periodo, format: 'csv' })
     if (funnelId) qs.set('funnelId', String(funnelId))
     if (status) qs.set('status', status)
     if (userId) qs.set('userId', String(userId))
-    downloadFile(`/admin/commissions/entries?${qs.toString()}`, `comissoes-${period}.csv`)
+    downloadFile(`/admin/commissions/entries?${qs.toString()}`, `comissoes-${periodo.dateFrom}_a_${periodo.dateTo}.csv`)
       .catch(() => toast('Falha ao exportar', 'danger'))
   }
 
@@ -601,7 +618,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
           <Button variant="ghost" size="sm" onClick={exportCsv}><Download size={14} /> Exportar</Button>
           {isManager ? (
             <Button variant="ghost" size="sm" onClick={() => setShowCheck((v) => !v)}>
-              <ShieldCheck size={14} /> {showCheck ? 'Ocultar conferência' : 'Conferir o mês'}
+              <ShieldCheck size={14} /> {showCheck ? 'Ocultar conferência' : 'Conferir o período'}
             </Button>
           ) : null}
           {isManager && selected.length ? (
@@ -619,7 +636,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
         <Card>
           <div class="flex items-center gap-2 mb-2">
             <ShieldCheck size={16} class="text-fg-muted" />
-            <h3 class="text-sm font-medium text-fg">Conferência de {period}</h3>
+            <h3 class="text-sm font-medium text-fg">Conferência de {fmtDia(periodo.dateFrom)} a {fmtDia(periodo.dateTo)}</h3>
           </div>
           {check.isLoading ? <Skeleton class="h-16 w-full" /> : (check.data?.total ?? 0) === 0 ? (
             <p class="text-xs text-success">Nenhuma divergência: toda venda ganha do mês tem lançamento e todo lançamento bate com o valor recalculado.</p>

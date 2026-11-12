@@ -85,6 +85,111 @@ export function parseCompetencia(v: unknown): Date | null {
   return new Date(Date.UTC(Number(m[1]), mes - 1, 1))
 }
 
+// ── Recorte de período: mês fechado OU intervalo livre ──────────────────────
+//
+// As telas usam o seletor padrão (meses + "Personalizado"). A comissão e a meta
+// continuam sendo do MÊS (competência); o recorte diz quais meses o período
+// toca e quanto de cada um ele cobre.
+//  · mês "inteiro" = começa no dia 1 e vai até o fim do mês (ou até hoje, no
+//    mês corrente — igual ao preset "mês atual", que sempre mostrou a meta
+//    cheia);
+//  · mês cortado pesa a fração de dias cobertos (meta proporcional) e não leva
+//    o bônus por faixa, que só existe para o mês fechado.
+
+export interface MesDoRecorte { competencia: Date; peso: number; inteiro: boolean }
+export interface Recorte {
+  /** Rótulos UTC (00:00 do 1º dia → 23:59:59.999 do último), como o monthRange. */
+  start: Date
+  end: Date
+  meses: MesDoRecorte[]
+  /** O período é exatamente um mês inteiro → a competência dele; senão null. */
+  mesUnico: Date | null
+  dateFrom: string
+  dateTo: string
+}
+
+const DIA_MS = 86_400_000
+function diaUTC(v: unknown): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v ?? '').trim())
+  if (!m) return null
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  return d.getUTCDate() === Number(m[3]) ? d : null
+}
+
+/** `dateFrom`+`dateTo` (AAAA-MM-DD) têm prioridade; sem eles vale `period` (AAAA-MM) ou o mês atual. */
+export function recorteDoPeriodo(q: any): Recorte {
+  let ini = diaUTC(q?.dateFrom)
+  let fim = diaUTC(q?.dateTo)
+  if (!ini || !fim) {
+    const comp = parseCompetencia(q?.period) ?? competenciaOf(new Date())
+    ini = comp
+    fim = new Date(Date.UTC(comp.getUTCFullYear(), comp.getUTCMonth() + 1, 0))
+  }
+  if (ini > fim) [ini, fim] = [fim, ini]
+  // Teto de 36 meses: o painel faz consultas por mês e por agente.
+  const teto = new Date(Date.UTC(ini.getUTCFullYear(), ini.getUTCMonth() + 36, 0))
+  if (fim > teto) fim = teto
+
+  const agora = new Date(Date.now() - BRT_MS)
+  const hoje = Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate())
+  const meses: MesDoRecorte[] = []
+  for (let c = new Date(Date.UTC(ini.getUTCFullYear(), ini.getUTCMonth(), 1)); c <= fim; c = new Date(Date.UTC(c.getUTCFullYear(), c.getUTCMonth() + 1, 1))) {
+    const ultimo = Date.UTC(c.getUTCFullYear(), c.getUTCMonth() + 1, 0)
+    const de = Math.max(ini.getTime(), c.getTime())
+    const ate = Math.min(fim.getTime(), ultimo)
+    const diasNoMes = Math.round((ultimo - c.getTime()) / DIA_MS) + 1
+    const cobertos = Math.round((ate - de) / DIA_MS) + 1
+    const inteiro = de === c.getTime() && ate >= Math.min(ultimo, hoje)
+    meses.push({ competencia: c, peso: inteiro ? 1 : cobertos / diasNoMes, inteiro })
+  }
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  return {
+    start: ini,
+    end: new Date(fim.getTime() + DIA_MS - 1),
+    meses,
+    mesUnico: meses.length === 1 && meses[0]!.inteiro ? meses[0]!.competencia : null,
+    dateFrom: iso(ini),
+    dateTo: iso(fim),
+  }
+}
+
+/** Filtro dos lançamentos do recorte: meses inteiros pela competência; mês cortado pela data de fechamento. */
+export function filtroDeLancamentos(r: Recorte): Prisma.CommissionEntryWhereInput {
+  return r.meses.every((m) => m.inteiro)
+    ? { competencia: { in: r.meses.map((m) => m.competencia) } }
+    : { fechadaEm: janelaDeFechamento(r.start, r.end) }
+}
+
+/** Competências cujo bônus por faixa entra no recorte (só meses inteiros). */
+export function competenciasDoBonus(r: Recorte): Date[] {
+  return r.meses.filter((m) => m.inteiro).map((m) => m.competencia)
+}
+
+/**
+ * Meta do recorte: soma das metas mensais (proporcional nos meses cortados).
+ * Conversão é taxa — vira a média ponderada. Sem meta em nenhum mês → null.
+ */
+export async function metaDoPeriodo(
+  userId: number | null,
+  funnelId: number | null,
+  metric: GoalMetric,
+  r: Recorte,
+): Promise<{ target: number } | null> {
+  let soma = 0
+  let pesos = 0
+  let achou = false
+  for (const m of r.meses) {
+    const { start, end } = monthRange(m.competencia)
+    const g = await metaDoAgente(userId, funnelId, metric, start, end)
+    if (!g) continue
+    achou = true
+    soma += g.target * m.peso
+    pesos += m.peso
+  }
+  if (!achou) return null
+  return { target: round2(metric === 'conversion' ? soma / (pesos || 1) : soma) }
+}
+
 // ── Regra aplicável ──────────────────────────────────────────────────────────
 
 export interface ResolvedRule {

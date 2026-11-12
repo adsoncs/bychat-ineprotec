@@ -2,10 +2,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
-export interface FiltroComercial { mes: string; portalId?: number | null; courseId?: number | null; campusId?: number | null; vendedorId?: number | null }
+export interface FiltroComercial { dateFrom: string; dateTo: string; portalId?: number | null; courseId?: number | null; campusId?: number | null; vendedorId?: number | null }
 export interface LinhaResumo { id: number | string | null; nome: string; quantidade: number; valor: number }
 export interface PainelComercial {
-  mes: string
+  /** AAAA-MM quando o período é exatamente um mês inteiro (é o mês que a meta do portal edita); senão null. */
+  mes: string | null
+  dateFrom: string
+  dateTo: string
   kpis: { vendas: number; valorVendas: number; ticket: number; abertas: number; valorAberto: number; perdidas: number; conversao: number | null; comissao: number; inscricoes: number; inscricoesComProposta: number }
   metaPortal: { valor: number | null; quantidade: number | null; atingimentoValor: number | null; atingimentoQuantidade: number | null } | null
   porVendedor: Array<{ userId: number | null; nome: string; quantidade: number; valor: number; comissao: number; meta: { valor: number | null; quantidade: number | null }; atingimento: number | null }>
@@ -17,7 +20,7 @@ export function usePainelComercial(f: FiltroComercial) {
   return useQuery({
     queryKey: ['edu-comercial', f],
     queryFn: () => {
-      const qs = new URLSearchParams({ mes: f.mes })
+      const qs = new URLSearchParams({ dateFrom: f.dateFrom, dateTo: f.dateTo })
       for (const k of ['portalId', 'courseId', 'campusId', 'vendedorId'] as const) if (f[k]) qs.set(k, String(f[k]))
       return api.get<PainelComercial>(`/admin/educacional/comercial/painel?${qs}`)
     },

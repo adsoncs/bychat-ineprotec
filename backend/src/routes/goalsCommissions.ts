@@ -17,6 +17,7 @@ import {
   realizadoDoAgente, metaDoAgente, resolveRule, previewNegotiation,
   recalcPeriod, reconcile, type GoalMetric,
   faixasDeBonus, recalcularBonusDaRegra,
+  recorteDoPeriodo, filtroDeLancamentos, competenciasDoBonus, metaDoPeriodo, type Recorte,
 } from '../services/commissions.js'
 
 const dec = (v: unknown): number => {
@@ -264,7 +265,9 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
 
   app.get('/api/admin/commissions/panel', { preHandler: authMiddleware }, async (req) => {
     const q = req.query as any
-    const { competencia, start, end } = periodOf(q)
+    // Mês (period) ou intervalo livre (dateFrom/dateTo) — ver recorteDoPeriodo.
+    const r = recorteDoPeriodo(q)
+    const { start, end } = r
     const funnelId = idOrNull(q.funnelId)
     const scoped = scopedUserId(req)
 
@@ -277,7 +280,8 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       orderBy: { name: 'asc' },
     })
     const comMeta = await prisma.goal.findMany({
-      where: { active: true, periodStart: { lte: start }, periodEnd: { gte: end }, userId: { not: null } },
+      // Meta de qualquer mês que o recorte toca.
+      where: { active: true, periodStart: { lte: end }, periodEnd: { gte: start }, userId: { not: null } },
       select: { userId: true },
     })
     const comVenda = await prisma.negotiation.findMany({
@@ -295,12 +299,12 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     if (scoped) agentes = agentes.filter((u) => u.id === scoped)
 
     const entries = await prisma.commissionEntry.findMany({
-      where: { competencia, ...(funnelId ? { funnelId } : {}), ...(scoped ? { userId: scoped } : {}) },
+      where: { ...filtroDeLancamentos(r), ...(funnelId ? { funnelId } : {}), ...(scoped ? { userId: scoped } : {}) },
       select: { userId: true, valorTotal: true, status: true, negotiationId: true },
     })
-    // Bônus por faixa do mês (filtrado pelo funil da REGRA quando há filtro de funil).
+    // Bônus por faixa dos meses INTEIROS do recorte (filtrado pelo funil da REGRA quando há filtro de funil).
     const bonusRows = await prisma.commissionBonus.findMany({
-      where: { competencia, ...(scoped ? { userId: scoped } : {}), ...(funnelId ? { rule: { funnelId } } : {}) },
+      where: { competencia: { in: competenciasDoBonus(r) }, ...(scoped ? { userId: scoped } : {}), ...(funnelId ? { rule: { funnelId } } : {}) },
       include: { rule: { select: { nome: true } } },
     })
     const bonusDe = (uid: number | null) => {
@@ -317,7 +321,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
       const real = await realizadoDoAgente(u.id, funnelId, start, end)
       const metas: Record<string, { target: number | null; atual: number | null; atingimento: number | null }> = {}
       for (const m of GOAL_METRICS) {
-        const meta = await metaDoAgente(u.id, funnelId, m, start, end)
+        const meta = await metaDoPeriodo(u.id, funnelId, m, r)
         const atual = m === 'conversion' ? real.conversion : real[m]
         metas[m] = {
           target: meta?.target ?? null,
@@ -349,7 +353,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     const totalReal = await realizadoDoAgente(null, funnelId, start, end)
     const totalMetas: Record<string, { target: number | null; atual: number | null; atingimento: number | null }> = {}
     for (const m of GOAL_METRICS) {
-      const meta = await metaDoAgente(null, funnelId, m, start, end)
+      const meta = await metaDoPeriodo(null, funnelId, m, r)
       const atual = m === 'conversion' ? totalReal.conversion : totalReal[m]
       totalMetas[m] = {
         target: meta?.target ?? null,
@@ -359,7 +363,11 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     }
 
     return {
-      period: `${competencia.getUTCFullYear()}-${String(competencia.getUTCMonth() + 1).padStart(2, '0')}`,
+      // `period` só quando o recorte é exatamente um mês inteiro.
+      period: r.mesUnico ? r.mesUnico.toISOString().slice(0, 7) : null,
+      dateFrom: r.dateFrom,
+      dateTo: r.dateTo,
+      mesesParciais: r.meses.filter((m) => !m.inteiro).map((m) => m.competencia.toISOString().slice(0, 7)),
       funnelId,
       escopoProprio: !!scoped,
       agentes: linhas,
@@ -386,7 +394,9 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     const limit = Math.min(200, Math.max(1, Number(q.limit) || 50))
 
     const where: any = {}
-    if (q.period) where.competencia = periodOf(q).competencia
+    // Recorte: mês (period) ou intervalo (dateFrom/dateTo). Sem nenhum dos dois = tudo.
+    const recorte: Recorte | null = q.period || (q.dateFrom && q.dateTo) ? recorteDoPeriodo(q) : null
+    if (recorte) Object.assign(where, filtroDeLancamentos(recorte))
     if (q.status && ['prevista', 'paga', 'cancelada'].includes(q.status)) where.status = q.status
     const filtroUser = scoped ?? idOrNull(q.userId)
     if (filtroUser) where.userId = filtroUser
@@ -448,7 +458,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
     // Bônus por faixa do mesmo recorte (agente/período/status). Lista curta —
     // um por vendedor e regra no mês —, então vem inteira, fora da paginação.
     const bonusWhere: any = {}
-    if (where.competencia) bonusWhere.competencia = where.competencia
+    if (recorte) bonusWhere.competencia = { in: competenciasDoBonus(recorte) }
     if (where.userId) bonusWhere.userId = where.userId
     if (where.status && where.status !== 'cancelada') bonusWhere.status = where.status
     const bonusRows = where.status === 'cancelada' ? [] : await prisma.commissionBonus.findMany({
@@ -533,12 +543,20 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
 
   app.post('/api/admin/commissions/recalc', { preHandler: [authMiddleware, adminOnly] }, async (req, reply) => {
     const b = (req.body as any) || {}
-    const competencia = parseCompetencia(b.period)
-    if (!competencia) return reply.code(400).send({ error: 'period inválido (use AAAA-MM)' })
-    const { start, end } = monthRange(competencia)
-    const r = await recalcPeriod(start, end, idOrNull(b.userId))
-    void logUserAudit({ action: 'commission.recalc', targetType: 'setting', targetLabel: `Recálculo ${b.period}`, changes: r, ...auditActor(req) })
-    return { ok: true, ...r }
+    // Mês (period) ou intervalo (dateFrom/dateTo): recalcula os MESES INTEIROS
+    // que o período toca — a faixa e o bônus são do mês, não de um pedaço dele.
+    if (!parseCompetencia(b.period) && !(b.dateFrom && b.dateTo)) return reply.code(400).send({ error: 'informe period (AAAA-MM) ou dateFrom e dateTo (AAAA-MM-DD)' })
+    const recorte = recorteDoPeriodo(b)
+    const r = { negociacoes: 0, agentes: 0 }
+    for (const m of recorte.meses) {
+      const { start, end } = monthRange(m.competencia)
+      const x = await recalcPeriod(start, end, idOrNull(b.userId))
+      r.negociacoes += x.negociacoes
+      r.agentes = Math.max(r.agentes, x.agentes)
+    }
+    const rotulo = recorte.meses.map((m) => m.competencia.toISOString().slice(0, 7)).join(', ')
+    void logUserAudit({ action: 'commission.recalc', targetType: 'setting', targetLabel: `Recálculo ${rotulo}`, changes: r, ...auditActor(req) })
+    return { ok: true, ...r, meses: recorte.meses.length }
   })
 
   // ── Receita única (Fase 4) ───────────────────────────────────────────────
@@ -580,7 +598,7 @@ export async function goalsCommissionsRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/admin/commissions/reconcile', { preHandler: [authMiddleware, adminOnly] }, async (req) => {
-    const { start, end } = periodOf(req.query as any)
+    const { start, end } = recorteDoPeriodo(req.query as any)
     const divergencias = await reconcile(start, end)
     return { divergencias, total: divergencias.length }
   })

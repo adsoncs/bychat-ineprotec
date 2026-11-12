@@ -189,8 +189,16 @@ export interface PanelAgent {
   comissao: { prevista: number; paga: number; lancamentos: number; bonus?: BonusDoMes }
 }
 
+/** Recorte das telas: as datas do seletor padrão (meses + Personalizado). */
+export interface Periodo { dateFrom: string; dateTo: string }
+
 export interface CommissionPanel {
-  period: string
+  /** AAAA-MM quando o recorte é exatamente um mês inteiro; senão null. */
+  period: string | null
+  dateFrom: string
+  dateTo: string
+  /** Meses cortados pelo recorte: meta proporcional e sem bônus por faixa. */
+  mesesParciais: string[]
   funnelId: number | null
   escopoProprio: boolean
   agentes: PanelAgent[]
@@ -201,11 +209,11 @@ export interface CommissionPanel {
   }
 }
 
-export function useCommissionPanel(period: string, funnelId: number | null) {
+export function useCommissionPanel(periodo: Periodo, funnelId: number | null) {
   return useQuery({
-    queryKey: ['commission-panel', period, funnelId],
+    queryKey: ['commission-panel', periodo.dateFrom, periodo.dateTo, funnelId],
     queryFn: () => {
-      const qs = new URLSearchParams({ period })
+      const qs = new URLSearchParams({ dateFrom: periodo.dateFrom, dateTo: periodo.dateTo })
       if (funnelId) qs.set('funnelId', String(funnelId))
       return api.get<CommissionPanel>(`/admin/commissions/panel?${qs.toString()}`)
     },
@@ -246,7 +254,8 @@ export interface CommissionEntry {
 }
 
 export interface EntriesParams {
-  period: string
+  dateFrom: string
+  dateTo: string
   userId?: number | string | null | undefined
   funnelId?: number | null
   status?: string | undefined
@@ -317,8 +326,8 @@ export function usePayCommissionBatch() {
 export function useRecalcCommissions() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ period, userId }: { period: string; userId?: number | null | undefined }) =>
-      api.post<{ negociacoes: number; agentes: number }>('/admin/commissions/recalc', { period, userId }),
+    mutationFn: ({ dateFrom, dateTo, userId }: Periodo & { userId?: number | null | undefined }) =>
+      api.post<{ negociacoes: number; agentes: number; meses: number }>('/admin/commissions/recalc', { dateFrom, dateTo, userId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['commission-entries'] })
       qc.invalidateQueries({ queryKey: ['commission-panel'] })
@@ -335,10 +344,10 @@ export interface Divergencia {
   detalhe: string
 }
 
-export function useCommissionReconcile(period: string, enabled: boolean) {
+export function useCommissionReconcile(periodo: Periodo, enabled: boolean) {
   return useQuery({
-    queryKey: ['commission-reconcile', period],
-    queryFn: () => api.get<{ divergencias: Divergencia[]; total: number }>(`/admin/commissions/reconcile?period=${period}`),
+    queryKey: ['commission-reconcile', periodo.dateFrom, periodo.dateTo],
+    queryFn: () => api.get<{ divergencias: Divergencia[]; total: number }>(`/admin/commissions/reconcile?dateFrom=${periodo.dateFrom}&dateTo=${periodo.dateTo}`),
     enabled,
     staleTime: 30_000,
   })

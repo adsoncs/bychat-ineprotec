@@ -64,6 +64,8 @@ export async function educacionalComercialRoutes(app: FastifyInstance) {
     const { painelComercial } = await import('../services/comercialEducacional.js')
     return painelComercial({
       mes: /^\d{4}-\d{2}$/.test(String(q.mes || '')) ? String(q.mes) : mesAtual(),
+      dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(String(q.dateFrom || '')) ? String(q.dateFrom) : null,
+      dateTo: /^\d{4}-\d{2}-\d{2}$/.test(String(q.dateTo || '')) ? String(q.dateTo) : null,
       portalId: num(q.portalId), courseId: num(q.courseId), campusId: num(q.campusId), vendedorId: num(q.vendedorId),
     })
   })

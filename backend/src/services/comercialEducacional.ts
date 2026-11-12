@@ -10,10 +10,13 @@
 // em Setting `comercial.metas` = { "<portalId>": { "AAAA-MM": { valor, quantidade } } }.
 
 import { prisma } from '../lib/prisma.js'
-import { janelaDeFechamento, monthRange, parseCompetencia, metaDoAgente } from './commissions.js'
+import { janelaDeFechamento, metaDoPeriodo, recorteDoPeriodo } from './commissions.js'
 
 export interface FiltroComercial {
   mes: string // AAAA-MM
+  /** Intervalo livre (AAAA-MM-DD): quando vem, manda no lugar do mês. */
+  dateFrom?: string | null
+  dateTo?: string | null
   portalId?: number | null
   courseId?: number | null
   campusId?: number | null
@@ -32,8 +35,9 @@ function campusDaInscricao(reg: { formData: unknown; portal: { allowedCampusIds:
 }
 
 export async function painelComercial(f: FiltroComercial) {
-  const competencia = parseCompetencia(f.mes) ?? parseCompetencia(new Date().toISOString())!
-  const { start, end } = monthRange(competencia)
+  // Mês (f.mes) ou intervalo livre (dateFrom/dateTo) — mesmo recorte de Metas & Comissões.
+  const recorte = recorteDoPeriodo({ period: f.mes, dateFrom: f.dateFrom, dateTo: f.dateTo })
+  const { start, end } = recorte
   const janela = janelaDeFechamento(start, end)
 
   // Inscrições do recorte (portal/curso/polo/vendedor).
@@ -88,8 +92,8 @@ export async function painelComercial(f: FiltroComercial) {
   const porVendedorMap = somar(vendas, (p) => p.responsavelUserId ?? 0)
   const porVendedor = [] as Array<{ userId: number | null; nome: string; quantidade: number; valor: number; comissao: number; meta: { valor: number | null; quantidade: number | null }; atingimento: number | null }>
   for (const [uid, v] of porVendedorMap) {
-    const metaValor = uid ? await metaDoAgente(uid, null, 'revenue', start, end).catch(() => null) : null
-    const metaQtd = uid ? await metaDoAgente(uid, null, 'count', start, end).catch(() => null) : null
+    const metaValor = uid ? await metaDoPeriodo(uid, null, 'revenue', recorte).catch(() => null) : null
+    const metaQtd = uid ? await metaDoPeriodo(uid, null, 'count', recorte).catch(() => null) : null
     const com = vendas.filter((p) => (p.responsavelUserId ?? 0) === uid).reduce((s, p) => s + dec(comPorNeg.get(p.id)?.valorTotal), 0)
     porVendedor.push({
       userId: uid || null, nome: uid ? nomeUser.get(uid) ?? `#${uid}` : 'Sem vendedor',
@@ -107,9 +111,12 @@ export async function painelComercial(f: FiltroComercial) {
   const porPolo = lista(somar(vendas, (p) => regInfo.get(p.registrationId!)?.campusId ?? 0), (k) => (k ? nomeCampus.get(k) ?? `Local ${k}` : 'Sem polo definido'))
 
   const valorVendas = vendas.reduce((s, p) => s + dec(p.valorFinal), 0)
-  const metaPortal = f.portalId ? await metaDoPortal(f.portalId, f.mes) : null
+  const metaPortal = f.portalId ? await metaDoPortalNoRecorte(f.portalId, recorte.meses) : null
   return {
-    mes: competencia.toISOString().slice(0, 7),
+    // `mes` só quando o recorte é um mês inteiro (é o mês que a meta do portal edita).
+    mes: recorte.mesUnico ? recorte.mesUnico.toISOString().slice(0, 7) : null,
+    dateFrom: recorte.dateFrom,
+    dateTo: recorte.dateTo,
     kpis: {
       vendas: vendas.length, valorVendas: r2(valorVendas), ticket: vendas.length ? r2(valorVendas / vendas.length) : 0,
       abertas: abertas.length, valorAberto: r2(abertas.reduce((s, p) => s + dec(p.valorFinal), 0)),
@@ -154,6 +161,21 @@ export async function metaDoPortal(portalId: number, mes: string): Promise<{ val
   const m = (await lerMetas())[String(portalId)]?.[mes.slice(0, 7)]
   return m ? { valor: m.valor ?? null, quantidade: m.quantidade ?? null } : null
 }
+/** Meta do portal no recorte: soma das metas mensais, proporcional nos meses cortados. */
+async function metaDoPortalNoRecorte(portalId: number, meses: Array<{ competencia: Date; peso: number }>): Promise<{ valor: number | null; quantidade: number | null } | null> {
+  const todas = (await lerMetas())[String(portalId)] ?? {}
+  let valor: number | null = null
+  let quantidade: number | null = null
+  for (const m of meses) {
+    const x = todas[m.competencia.toISOString().slice(0, 7)]
+    if (!x) continue
+    if (x.valor != null) valor = (valor ?? 0) + Number(x.valor) * m.peso
+    if (x.quantidade != null) quantidade = (quantidade ?? 0) + Number(x.quantidade) * m.peso
+  }
+  if (valor == null && quantidade == null) return null
+  return { valor: valor != null ? r2(valor) : null, quantidade: quantidade != null ? Math.round(quantidade * 10) / 10 : null }
+}
+
 export async function salvarMetaDoPortal(portalId: number, mes: string, meta: { valor?: unknown; quantidade?: unknown }) {
   const todas = await lerMetas()
   const num = (v: unknown) => { const n = Number(v); return v === '' || v == null || !Number.isFinite(n) || n <= 0 ? null : r2(n) }
