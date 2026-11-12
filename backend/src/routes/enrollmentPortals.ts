@@ -1918,6 +1918,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     await prisma.enrollmentRegistration.delete({ where: { id: reg.id } })
+    // A proposta aberta da inscrição sai junto — senão vira órfã e o próximo
+    // Ganho do lead a fecha como venda de R$ 0 (ver encerrarPropostasDaInscricaoApagada).
+    const { encerrarPropostasDaInscricaoApagada } = await import('../services/propostaDaInscricao.js')
+    const propostasApagadas = await encerrarPropostasDaInscricaoApagada(reg.id, reg.candidateCode, reg.leadId).catch(() => [] as number[])
 
     if (reg.leadId) {
       const u = (req as any).user as JwtPayload | undefined
@@ -1936,11 +1940,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       action: 'registration.deleted',
       targetType: 'enrollment_registration',
       targetLabel: reg.candidateCode,
-      changes: { status: reg.status, leadId: reg.leadId },
+      changes: { status: reg.status, leadId: reg.leadId, propostasApagadas },
       ...auditActor(req),
     })
 
-    return { ok: true }
+    return { ok: true, propostasApagadas }
   })
 
   // POST /api/admin/enrollment-registrations/:id/resend-link — admin reenvia link de continuação ao candidato

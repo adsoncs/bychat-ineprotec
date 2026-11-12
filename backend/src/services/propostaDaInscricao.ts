@@ -371,3 +371,40 @@ export function ligarPropostaDaInscricao(): void {
     for (const r of regs) await sincronizarPropostaDaInscricao(r.id).catch(() => null)
   }, 10 * 60_000).unref()
 }
+
+/**
+ * Inscrição apagada → as propostas ABERTAS dela saem junto.
+ *
+ * A proposta guarda só o número da inscrição (sem chave estrangeira), então
+ * apagar a inscrição deixava a proposta para trás, aberta e sem dona. No Ganho
+ * seguinte do lead (por OUTRA inscrição), o Ganho automático fechava essa órfã
+ * como venda de R$ 0 — venda e lançamento de comissão a mais no mês
+ * (fabad, MAT-26-000144-WFWH, 12/11/2026).
+ *
+ * Ganha ou perdida fica como está: é venda (paga) ou histórico, e apagar
+ * sumiria com comissão já apurada.
+ */
+export async function encerrarPropostasDaInscricaoApagada(
+  registrationId: number,
+  codigo: string,
+  leadId: number | null,
+): Promise<number[]> {
+  const abertas = await prisma.negotiation.findMany({
+    where: { registrationId, resultado: null },
+    select: { id: true, titulo: true, leadId: true },
+  })
+  const apagadas: number[] = []
+  for (const n of abertas) {
+    await prisma.negotiation.delete({ where: { id: n.id } }).then(() => apagadas.push(n.id)).catch(() => {})
+  }
+  if (apagadas.length) {
+    const lead = leadId ?? abertas[0]?.leadId ?? null
+    if (lead) {
+      const { logEvent } = await import('./leadHistory.js')
+      logEvent({ leadId: lead, type: 'negotiation_from_enrollment' as any, category: 'lifecycle', title: `Proposta da inscrição ${codigo} apagada junto com a inscrição`, description: abertas.map((n) => n.titulo).join(' · '), actorType: 'system', metadata: { registrationId, negociacoes: apagadas } } as any)
+      const { sincronizarValorDeVenda } = await import('./receitaUnica.js')
+      await sincronizarValorDeVenda(lead, { origem: 'proposta_apagada' }).catch(() => null)
+    }
+  }
+  return apagadas
+}
