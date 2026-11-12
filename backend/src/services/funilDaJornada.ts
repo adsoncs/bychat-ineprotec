@@ -106,7 +106,7 @@ async function situacaoDaInscricao(registrationId: number, mapa: Record<string, 
  */
 export async function inscricaoMaisAdiantada(registrationId: number, leadId: number, funnelId: number, mapa: Record<string, string | undefined>) {
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { leadId, mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } },
+    where: { leadId, mergedIntoId: null, status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] } },
     select: { id: true, candidateCode: true, portal: { select: { id: true, nome: true, funnelId: true, jornadaEtapas: true } } },
   })
   let melhor: any = null
@@ -156,7 +156,7 @@ export function ligarFunilDaJornada(): void {
 /** Aplica o de-para a todas as inscrições ativas do portal (botão no painel). */
 export async function sincronizarFunilDoPortal(portalId: number): Promise<{ total: number; movidos: number }> {
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { portalId, mergedIntoId: null, leadId: { not: null }, status: { notIn: ['cancelled', 'rejected'] } },
+    where: { portalId, mergedIntoId: null, leadId: { not: null }, status: { notIn: ['cancelled', 'transferred', 'rejected'] } },
     select: { id: true },
     take: 2000,
   })
@@ -176,7 +176,7 @@ export async function sincronizarFunilDoPortal(portalId: number): Promise<{ tota
 export async function inscricoesAbertasDaFicha(leadIds: number[]): Promise<Record<number, Array<{ codigo: string; curso: string | null; etapa: string }>>> {
   const out: Record<number, Array<{ codigo: string; curso: string | null; etapa: string }>> = {}
   if (!leadIds.length) return out
-  const abertas = { mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } }
+  const abertas = { mergedIntoId: null, status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] } }
   const contagem = await prisma.enrollmentRegistration.groupBy({ by: ['leadId'], where: { leadId: { in: leadIds }, ...abertas }, _count: { _all: true } })
   const comVarias = contagem.filter((c) => c.leadId && c._count._all > 1).map((c) => c.leadId as number)
   if (!comVarias.length) return out

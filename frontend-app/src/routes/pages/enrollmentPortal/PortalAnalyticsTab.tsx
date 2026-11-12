@@ -130,6 +130,7 @@ const STATUS_COLORS: Record<string, string> = {
   enrolled: 'var(--color-success)',
   rejected: 'var(--color-danger)',
   cancelled: 'var(--color-fg-muted)',
+  transferred: 'var(--color-fg-muted)',
   expired: 'var(--color-fg-muted)',
   pending: 'var(--color-warning)',
 }
@@ -142,6 +143,7 @@ const STATUS_LABELS: Record<string, string> = {
   enrolled: 'Matriculada',
   rejected: 'Rejeitada',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   expired: 'Expirada',
   pending: 'Pendente',
 }

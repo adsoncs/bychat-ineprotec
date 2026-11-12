@@ -27,7 +27,7 @@ const STATUS: Record<string, string> = {
   draft: 'Rascunho', pending: 'Em andamento', submitted: 'Enviada', paid: 'Paga',
   docs_uploaded: 'Documentos enviados', docs_reviewing: 'Documentos em análise', docs_approved: 'Documentos aprovados',
   docs_rejected: 'Documentos recusados', reviewing: 'Em análise', approved: 'Aprovada', enrolled: 'Matriculado',
-  rejected: 'Não aprovada', cancelled: 'Cancelada', expired: 'Expirada',
+  rejected: 'Não aprovada', cancelled: 'Cancelada', transferred: 'Transferida', expired: 'Expirada',
 }
 const q = new URLSearchParams(location.search)
 

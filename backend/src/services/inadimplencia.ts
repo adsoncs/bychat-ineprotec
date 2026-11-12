@@ -43,7 +43,7 @@ export interface ItemDevido {
   acordoId: number | null
 }
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 const NOME_DO_MEIO: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão' }
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const diasEntre = (de: string, ate: string) => Math.round((Date.parse(`${ate}T12:00:00Z`) - Date.parse(`${de}T12:00:00Z`)) / 86_400_000)

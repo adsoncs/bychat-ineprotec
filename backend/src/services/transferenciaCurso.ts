@@ -11,7 +11,7 @@
 //   - documentos do mesmo tipo vão junto com a mesma situação (aprovado segue aprovado):
 //     ficam pendentes só os que o curso novo pede a mais.
 //
-// A inscrição antiga é encerrada ('cancelled' + `_transferidaPara`), sem apagar nada:
+// A inscrição antiga é encerrada ('transferred' + `_transferidaPara`; antes de 12/11/2026 era 'cancelled'), sem apagar nada:
 // pagamento, contrato e documentos dela continuam lá como histórico. A proposta
 // (comissão) muda de inscrição junto, com a data e a forma da venda original.
 //
@@ -31,7 +31,7 @@ import {
 } from './planoFinanceiro.js'
 import { vencimentoPrevisto } from './areaDoAluno.js'
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 /** Abaixo disso o gateway não emite cobrança: a diferença vai para as parcelas. */
 export const MINIMO_COBRANCA_CENTAVOS = 500
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -467,7 +467,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
       // Primeiro encerra a antiga: dois cliques ao mesmo tempo não fazem duas transferências.
       const fechou = await tx.enrollmentRegistration.updateMany({
         where: { id: deId, status: { notIn: FECHADAS } },
-        data: { status: 'cancelled', atendidoPorUserId: op.userId },
+        data: { status: 'transferred', atendidoPorUserId: op.userId },
       })
       if (fechou.count !== 1) throw new Error('JA_ENCERRADA')
       const pr = await tx.processRegistration.upsert({

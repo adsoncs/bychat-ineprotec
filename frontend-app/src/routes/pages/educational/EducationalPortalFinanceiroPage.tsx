@@ -45,6 +45,7 @@ const SITUACAO: Record<SituacaoFin, { rotulo: string; tom: 'success' | 'warning'
   falhou: { rotulo: 'Falhou', tom: 'danger' },
   estornado: { rotulo: 'Estornado', tom: 'info' },
   cancelado: { rotulo: 'Cancelado', tom: 'neutral' },
+  transferido: { rotulo: 'Transferido', tom: 'neutral' },
   sem_cobranca: { rotulo: 'Sem cobrança', tom: 'neutral' },
 }
 const MEIO: Record<string, string> = { pix: 'PIX', boleto: 'Boleto', cartao: 'Cartão', link: 'Link', manual: 'Manual', outro: 'Outro' }

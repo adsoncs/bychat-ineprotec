@@ -143,7 +143,7 @@ export async function registrarPagamentoManual(p: PagamentoManualInput): Promise
     select: { id: true, leadId: true, candidateCode: true, portalId: true, status: true, paymentStatus: true, paymentPlan: true },
   })
   if (!reg) return { ok: false, status: 404, erro: 'Inscrição não encontrada' }
-  if (['cancelled', 'merged', 'expired'].includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada não recebe pagamento.' }
+  if (['cancelled', 'transferred', 'merged', 'expired'].includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada não recebe pagamento.' }
   if (reg.paymentStatus === 'paid') return { ok: false, status: 409, erro: 'Esta inscrição já está paga.' }
 
   // Comprovante primeiro: sem arquivo gravado, nada muda na inscrição.

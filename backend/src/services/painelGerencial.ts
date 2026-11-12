@@ -261,7 +261,7 @@ const CURSO_INSCRICAO = `(SELECT CONCAT(o.nome, CASE WHEN pr.categoria LIKE '%Co
     JOIN bychat_edu_process_registrations epr ON epr.id = ri.processRegistrationId
     JOIN bychat_edu_offerings o ON o.id = epr.offeringId
     LEFT JOIN bychat_products pr ON pr.sku = CONCAT('oferta-', o.id)
-   WHERE ri.leadId = l.id AND ri.mergedIntoId IS NULL AND ri.status NOT IN ('cancelled','expired','merged')
+   WHERE ri.leadId = l.id AND ri.mergedIntoId IS NULL AND ri.status NOT IN ('cancelled','transferred','expired','merged')
    ORDER BY (ri.paymentStatus = 'paid') DESC, ri.id DESC LIMIT 1)`
 
 /**
@@ -591,7 +591,7 @@ export async function painelComercial(periodo: PeriodoIn, funnelId?: number, emp
             MAX(${REG_ENVELOPE}) AS tem_envelope, MAX(l.outcomeAt >= ? AND l.outcomeAt < ?) AS ganho_no_periodo
        FROM bychat_enrollment_registrations r JOIN bychat_leads l ON l.id = r.leadId
        LEFT JOIN ${USUARIOS} uu ON uu.id = l.assignedUserId
-      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','expired')
+      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','transferred','expired')
         AND r.createdAt >= DATE_SUB(NOW(), INTERVAL 120 DAY)
       GROUP BY l.id ORDER BY vendedor, nome`,
     F, T,
@@ -857,7 +857,7 @@ async function rodarSincronizacao(empresa: EmpresaKey): Promise<ResultadoSincron
   const ALL = `${fnList(undefined, empresa)},${posList(undefined, empresa)}`
   const ids = (await prisma.$queryRawUnsafe<Array<{ id: number }>>(
     `SELECT r.id FROM bychat_enrollment_registrations r JOIN bychat_leads l ON l.id = r.leadId
-      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','expired')
+      WHERE l.funnelId IN (${ALL}) AND r.mergedIntoId IS NULL AND r.status NOT IN ('cancelled','transferred','expired')
         AND r.createdAt >= DATE_SUB(NOW(), INTERVAL 120 DAY)
       ORDER BY r.id DESC LIMIT 300`,
   )).map((r) => Number(r.id))

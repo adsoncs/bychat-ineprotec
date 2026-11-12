@@ -28,7 +28,7 @@ export const TITULO_EM_ABERTO: StatusDoTitulo[] = ['prevista', 'aberta']
 /** Nova forma esperando o cartão de uma troca: ainda não é dívida, e os antigos seguem valendo. */
 const PODE_RECEBER = ['prevista', 'aberta', 'aguardando']
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 const MAX_LINHAS = 6
 const VALOR_MINIMO = 500 // R$ 5,00: abaixo disso o Asaas recusa cobrança
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })

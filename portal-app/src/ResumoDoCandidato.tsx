@@ -18,7 +18,7 @@ const SITUACAO: Record<string, string> = {
   draft: 'Rascunho', pending: 'Em andamento', submitted: 'Enviada', paid: 'Paga',
   docs_uploaded: 'Documentos enviados', docs_reviewing: 'Documentos em análise', docs_approved: 'Documentos aprovados',
   docs_rejected: 'Documentos recusados', reviewing: 'Em análise', approved: 'Aprovada', enrolled: 'Matriculado(a)',
-  rejected: 'Não aprovada', cancelled: 'Cancelada', expired: 'Expirada',
+  rejected: 'Não aprovada', cancelled: 'Cancelada', transferred: 'Transferida', expired: 'Expirada',
 }
 /**
  * Cor do selo da situação: em andamento = laranja, concluída = verde,
@@ -30,6 +30,7 @@ export function tomDaSituacao(status: string): 'pendente' | 'ok' | 'erro' | '' {
   if (status === 'submitted') return ''
   if (['paid', 'approved', 'enrolled', 'docs_approved'].includes(status)) return 'ok'
   if (['rejected', 'cancelled', 'expired', 'docs_rejected'].includes(status)) return 'erro'
+  if (status === 'transferred') return ''
   return 'pendente'
 }
 const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão' }

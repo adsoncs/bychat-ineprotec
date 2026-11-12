@@ -15,13 +15,14 @@ import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu
 import { appUrl } from '../lib/appUrl.js'
 import { guardTela } from '../lib/eduTelas.js'
 
-type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'sem_cobranca'
+type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'transferido' | 'sem_cobranca'
 
 /** Situação que a secretaria entende, a partir dos campos de pagamento. */
 function situacaoDe(r: { paymentStatus: string | null; paymentExpiresAt: Date | null; status: string | null; paymentId: string | null }): Situacao {
   const ps = String(r.paymentStatus || '')
   if (ps === 'paid') return 'pago'
   if (ps === 'refunded') return 'estornado'
+  if (r.status === 'transferred' && ps !== 'paid') return 'transferido'
   if (r.status === 'cancelled' && ps !== 'paid') return 'cancelado'
   if (ps === 'failed') return 'falhou'
   if (ps === 'overdue' || ps === 'expired') return 'vencido'
@@ -91,7 +92,7 @@ function movimentos(r: any, plano: Record<string, any>) {
   if (r.paymentStatus === 'paid' && r.paymentPaidAt) {
     recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })
   }
-  if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled') {
+  if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled' && r.status !== 'transferred') {
     vencimentos.push({ dia: diaBr(r.paymentExpiresAt)!, valor: valorDaReg, paga: r.paymentStatus === 'paid', rotulo: rotuloReg })
   }
   for (const [n, g] of Object.entries((plano.parcelasPortal ?? {}) as Record<string, any>)) {
@@ -293,7 +294,7 @@ function indicadores(itens: ReturnType<typeof linha>[], q: any) {
     ticketMedio: entradas.length ? centavos(recebido / entradas.length) : 0,
     descontos: soma((l) => (l.situacao === 'pago' ? l.descontoCupom + l.descontoAVista : 0)),
     comCupom: pagos.filter((l) => l.cupom).length,
-    porSituacao: { pago: contar('pago'), pendente: contar('pendente'), vencido: contar('vencido'), falhou: contar('falhou'), estornado: contar('estornado'), cancelado: contar('cancelado'), sem_cobranca: contar('sem_cobranca') },
+    porSituacao: { pago: contar('pago'), pendente: contar('pendente'), vencido: contar('vencido'), falhou: contar('falhou'), estornado: contar('estornado'), cancelado: contar('cancelado'), transferido: contar('transferido'), sem_cobranca: contar('sem_cobranca') },
     porMeio,
     porCurso: [...porCurso.values()].sort((a, b) => b.recebido - a.recebido || b.inscritos - a.inscritos).slice(0, 12),
     porDia: [...porDia.entries()].sort().map(([dia, valor]) => ({ dia, valor })),

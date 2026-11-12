@@ -30,7 +30,7 @@ import type { JwtPayload } from '../lib/auth.js'
 const DUAS_HORAS = 2 * 3600 * 1000
 /** Pagamento não se dispensa: isenção é cupom de 100%, fora do gateway é pagamento manual. */
 const ETAPAS_DISPENSAVEIS = ['cadastro', 'analise', 'documentos', 'contrato', 'prova']
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 
 const usuario = (req: FastifyRequest) => (req as any).user as JwtPayload
 
@@ -141,7 +141,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
 
     if (leadId != null) {
       const ja = await prisma.enrollmentRegistration.findFirst({
-        where: { leadId, portalId, status: { notIn: ['merged', 'cancelled'] } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
+        where: { leadId, portalId, status: { notIn: ['merged', 'cancelled', 'transferred'] } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
       })
       if (ja) return { ok: true, existente: true, id: ja.id, candidateCode: ja.candidateCode, fichaUsada }
     }

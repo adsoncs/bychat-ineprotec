@@ -1236,8 +1236,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // `situacao` (filtro da lista): cancelada/expirada/mesclada vêm do status;
     // "em andamento" e "etapas concluídas" saem das etapas (calculadas abaixo).
     const situacao = String(q.situacao || '')
-    if (['cancelled', 'expired', 'merged'].includes(situacao)) where.status = situacao
-    else if (situacao === 'andamento' || situacao === 'concluida') where.status = { notIn: ['cancelled', 'expired', 'merged'] }
+    if (['cancelled', 'transferred', 'expired', 'merged'].includes(situacao)) where.status = situacao
+    else if (situacao === 'andamento' || situacao === 'concluida') where.status = { notIn: ['cancelled', 'transferred', 'expired', 'merged'] }
     else if (q.status) where.status = q.status
     else where.status = { not: 'merged' }
     // Duplicidade: grupos vivos (services/inscricaoDuplicada) — o selo em cada
@@ -1687,6 +1687,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     if (reg.status === 'cancelled') return reply.code(400).send({ error: 'Inscrição já está cancelada' })
+    if (reg.status === 'transferred') return reply.code(400).send({ error: 'Inscrição transferida para outro curso: não pode ser cancelada' })
     if (reg.status === 'enrolled') return reply.code(400).send({ error: 'Inscrição já matriculada não pode ser cancelada' })
 
     const updated = await prisma.enrollmentRegistration.update({
@@ -1763,7 +1764,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   const REGISTRATION_STATUSES = [
     'draft', 'pending', 'submitted', 'paid',
     'docs_uploaded', 'docs_reviewing', 'docs_approved', 'docs_rejected',
-    'reviewing', 'approved', 'enrolled', 'rejected', 'cancelled', 'expired',
+    'reviewing', 'approved', 'enrolled', 'rejected', 'cancelled', 'transferred', 'expired',
   ]
 
   // Normaliza o valor de pagamento vindo do body p/ Decimal | null.
@@ -5001,7 +5002,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Já existe inscrição deste lead no portal? O atendimento continua nela.
     const existente = lead
       ? await prisma.enrollmentRegistration.findFirst({
-          where: { leadId: lead.id, portalId: portal.id, status: { notIn: ['merged', 'cancelled'] } },
+          where: { leadId: lead.id, portalId: portal.id, status: { notIn: ['merged', 'cancelled', 'transferred'] } },
           orderBy: { id: 'desc' }, select: { id: true, candidateCode: true, status: true },
         })
       : null
@@ -5045,7 +5046,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     const inscricoes = portalId && leads.length
       ? await prisma.enrollmentRegistration.findMany({
-          where: { portalId, leadId: { in: leads.map((l) => l.id) }, status: { notIn: ['merged', 'cancelled'] } },
+          where: { portalId, leadId: { in: leads.map((l) => l.id) }, status: { notIn: ['merged', 'cancelled', 'transferred'] } },
           orderBy: { id: 'desc' }, select: { leadId: true, candidateCode: true },
         })
       : []
@@ -5064,7 +5065,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { canUserAccessLead } = await import('../lib/teamAccess.js')
     if (!(await canUserAccessLead(u.userId, u.role as any, leadId))) return reply.code(403).send({ error: 'Você não tem acesso a este lead.' })
     const regs = await prisma.enrollmentRegistration.findMany({
-      where: { leadId, status: { notIn: ['merged', 'cancelled'] } }, orderBy: { id: 'desc' },
+      where: { leadId, status: { notIn: ['merged', 'cancelled', 'transferred'] } }, orderBy: { id: 'desc' },
       select: { id: true, portalId: true, candidateCode: true },
     })
     const porPortal: Record<string, string> = {}

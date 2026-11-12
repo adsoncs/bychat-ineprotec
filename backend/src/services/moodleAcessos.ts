@@ -20,7 +20,7 @@ import { prisma } from '../lib/prisma.js'
 import * as moodle from '../lib/moodleClient.js'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 
-const INATIVAS = new Set(['cancelled', 'expired', 'rejected', 'merged'])
+const INATIVAS = new Set(['cancelled', 'transferred', 'expired', 'rejected', 'merged'])
 const ESPERAS_MIN = [5, 15, 60, 180, 360] // nova tentativa após erro
 
 const SELECT_REG = {
@@ -224,7 +224,7 @@ async function acessoLiberado(registrationId: number) {
 async function exigirInscricaoAtiva(registrationId: number) {
   const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { status: true, formData: true } })
   if (!r) throw new Error('Inscrição não encontrada')
-  if (['cancelled', 'merged'].includes(r.status)) {
+  if (['cancelled', 'transferred', 'merged'].includes(r.status)) {
     const para = (r.formData as any)?._transferidaPara?.codigo
     throw new Error(para
       ? `Esta inscrição foi transferida para ${para}: o acesso ao Moodle é cuidado por lá.`

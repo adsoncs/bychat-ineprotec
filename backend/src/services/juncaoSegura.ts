@@ -375,7 +375,7 @@ export async function parecerDaIa(aId: number, bId: number): Promise<any> {
 
 export interface Processo { chave: string; rotulo: string; codigo?: string }
 
-const ABERTA = { mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } }
+const ABERTA = { mergedIntoId: null, status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] } }
 const SELECT_PROCESSO = {
   offering: { select: { courseId: true, nome: true, course: { select: { nome: true } } } },
   selectionProcess: { select: { entryModeId: true, entryMode: { select: { name: true } } } },

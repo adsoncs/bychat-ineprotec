@@ -330,7 +330,7 @@ export interface CandidatoVinculo {
   erro?: string
 }
 
-const INATIVAS = ['cancelled', 'expired', 'rejected', 'merged']
+const INATIVAS = ['cancelled', 'transferred', 'expired', 'rejected', 'merged']
 
 /** Inscrições dos portais ligados que ainda não têm acesso liberado no CRM. */
 export async function candidatosAoVinculo(): Promise<CandidatoVinculo[]> {

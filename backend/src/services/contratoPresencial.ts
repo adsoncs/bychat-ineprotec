@@ -51,7 +51,7 @@ export async function registrarContratoPresencial(p: {
     },
   })
   if (!reg) return { ok: false, status: 404, erro: 'Inscrição não encontrada' }
-  if (['cancelled', 'merged', 'expired'].includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada.' }
+  if (['cancelled', 'transferred', 'merged', 'expired'].includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada.' }
   if (!reg.processRegistration?.offering) return { ok: false, status: 409, erro: 'A inscrição ainda não tem curso escolhido — não há contrato a registrar.' }
   if (reg.processRegistration.offering.course?.exigeContrato === false) return { ok: false, status: 409, erro: 'Este curso não exige contrato.' }
   if ((reg.contratoAceite as any)?.em) return { ok: false, status: 409, erro: 'O contrato desta inscrição já está assinado.' }

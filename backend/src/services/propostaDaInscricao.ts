@@ -63,7 +63,7 @@ export async function salvarConfigDoPortal(portalId: number, c: Partial<ConfigCo
   return todas[String(portalId)]!
 }
 
-const ABERTA_INSC = ['cancelled', 'rejected', 'merged', 'expired']
+const ABERTA_INSC = ['cancelled', 'transferred', 'rejected', 'merged', 'expired']
 
 /** Situação da inscrição que decide o que fazer com a proposta. */
 async function situacao(registrationId: number) {

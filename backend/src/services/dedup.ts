@@ -731,7 +731,7 @@ export async function mergeLeads(opts: MergeOptions) {
   // recalculada pela mais adiantada (services/funilDaJornada.ts), em vez de
   // ficar a etapa de quem tinha mais mensagens.
   const aberta = await prisma.enrollmentRegistration.findFirst({
-    where: { leadId: keepId, mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } },
+    where: { leadId: keepId, mergedIntoId: null, status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] } },
     orderBy: { id: 'desc' }, select: { id: true },
   }).catch(() => null)
   if (aberta) {

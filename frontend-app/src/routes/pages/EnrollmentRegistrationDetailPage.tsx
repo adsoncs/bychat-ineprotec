@@ -75,6 +75,7 @@ const REGISTRATION_STATUS_LABELS: Record<string, string> = {
   enrolled: 'Matriculada',
   rejected: 'Rejeitada',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   expired: 'Expirada',
 }
 
@@ -121,7 +122,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
   const etapaAnalise = todasAsEtapas.find((e) => e.chave === 'analise')
   const etapaContrato = todasAsEtapas.find((e) => e.chave === 'contrato')
   const temAvaliacao = !!review?.essay?.required || todasAsEtapas.some((e) => e.chave === 'prova')
-  const aberta = !!review && !['cancelled', 'merged', 'expired'].includes(String(review.registration.status))
+  const aberta = !!review && !['cancelled', 'transferred', 'merged', 'expired'].includes(String(review.registration.status))
   const dispensasDaTela = ((review?.registration.formData as any)?._dispensas ?? {}) as { etapas?: Record<string, { motivo: string; por: string; em: string }> }
   const verComoAluno = useMutation({
     mutationFn: () => api.post<{ url: string }>('/admin/inscricao-assistida', { portalId, leadId: review?.lead?.id ?? null }),
@@ -1089,6 +1090,7 @@ const REGISTRATION_STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' 
   enrolled: 'success',
   rejected: 'danger',
   cancelled: 'info',
+  transferred: 'info',
   expired: 'info',
 }
 

@@ -692,7 +692,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
           codigo: r.candidateCode, portal: r.portal.nome, local: campus?.nome ?? undefined,
           curso: r.processRegistration?.offering?.nome ?? null, offeringId: r.processRegistration?.offering?.id ?? null,
           formaDeIngresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? undefined,
-          situacao: r.status === 'cancelled' ? 'cancelada (encerrada)' : r.status, etapas: (et?.etapas ?? []).map(etapaParaBot),
+          situacao: r.status === 'cancelled' ? 'cancelada (encerrada)' : r.status === 'transferred' ? 'transferida para outro curso (encerrada)' : r.status, etapas: (et?.etapas ?? []).map(etapaParaBot),
         })
       }
       if (regs[0]) { edu.registrationId = regs[0].id; edu.candidateCode = regs[0].candidateCode; edu.portalSlug = regs[0].portal.slug }
@@ -712,7 +712,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       {
         const fichas = ctx.leadId ? await fichasDaMesmaPessoa(ctx.leadId).catch(() => [ctx.leadId!]) : []
         const vivas = await prisma.enrollmentRegistration.findMany({
-          where: { status: { notIn: ['merged', 'cancelled', 'rejected'] }, processRegistration: { offeringId: o.offeringId } },
+          where: { status: { notIn: ['merged', 'cancelled', 'transferred', 'rejected'] }, processRegistration: { offeringId: o.offeringId } },
           orderBy: { id: 'desc' }, take: 500,
           select: { id: true, candidateCode: true, leadId: true, formData: true, portal: { select: { slug: true } } },
         }).catch(() => [] as any[])

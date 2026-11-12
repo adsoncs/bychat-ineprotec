@@ -431,7 +431,7 @@ export type RegistrationStatus =
   | 'draft' | 'pending' | 'submitted' | 'paid'
   | 'docs_uploaded' | 'docs_reviewing' | 'docs_approved' | 'docs_rejected'
   | 'reviewing' | 'approved' | 'enrolled'
-  | 'rejected' | 'cancelled' | 'expired'
+  | 'rejected' | 'cancelled' | 'transferred' | 'expired'
   /** Mesclada em outra inscrição da mesma pessoa (reversível). */
   | 'merged'
 
@@ -530,7 +530,7 @@ export interface RegistrationFilters {
   atendidoPor?: string
   /** portal | assistida | formulario | link | administrativa */
   origem?: string
-  /** andamento | concluida | cancelled | expired | merged */
+  /** andamento | concluida | cancelled | transferred | expired | merged */
   situacao?: string
   /** Filtro por etapa: chave da etapa + situação dela (feito | aguardando | pendente). */
   etapa?: string

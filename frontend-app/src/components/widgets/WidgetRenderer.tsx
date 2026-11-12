@@ -1878,7 +1878,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     const statusNames: Record<string, string> = {
       pending: 'Pendente', paid: 'Pago', docs_uploaded: 'Docs enviados', docs_reviewing: 'Em análise',
       docs_approved: 'Docs aprov.', docs_rejected: 'Docs rej.', approved: 'Aprovado', rejected: 'Rejeitado',
-      enrolled: 'Matriculado', cancelled: 'Cancelado', expired: 'Expirado',
+      enrolled: 'Matriculado', cancelled: 'Cancelado', transferred: 'Transferido', expired: 'Expirado',
     }
     return (
       <div class="overflow-x-auto -mx-2">

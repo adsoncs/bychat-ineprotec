@@ -240,7 +240,7 @@ export function resolveVariables(text: string, lead: any, triggerData: any = {},
 export async function variaveisDaMatricula(leadId: number, texto: string): Promise<Record<string, string>> {
   if (!/\{\{\s*matricula_/.test(texto)) return {}
   const reg = await prisma.enrollmentRegistration.findFirst({
-    where: { leadId, status: { notIn: ['cancelled', 'expired'] } },
+    where: { leadId, status: { notIn: ['cancelled', 'transferred', 'expired'] } },
     orderBy: { id: 'desc' },
     select: {
       id: true, candidateCode: true, formData: true, paymentMethod: true,

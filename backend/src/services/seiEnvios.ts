@@ -147,7 +147,7 @@ export interface Elegibilidade {
   conferidoNoSei: boolean | null
 }
 
-const STATUS_FORA = new Set(['cancelled', 'rejected', 'expired', 'merged'])
+const STATUS_FORA = new Set(['cancelled', 'transferred', 'rejected', 'expired', 'merged'])
 const ROTULO_STATUS: Record<string, string> = { cancelled: 'cancelada', rejected: 'recusada', expired: 'expirada', merged: 'mesclada em outra' }
 
 const so = (v: unknown) => String(v ?? '').replace(/\D/g, '')

@@ -21,7 +21,7 @@
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 const TIPO_MARCO = 'trilha_marco'
 const UM_DIA = 86_400_000
 

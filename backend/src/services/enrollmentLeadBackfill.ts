@@ -150,7 +150,7 @@ export async function backfillOrphanRegistrations(opts?: { includeCancelled?: bo
   results: Array<{ registrationId: number; status: string } & EnsureLeadResult>
 }> {
   const where: any = { leadId: null }
-  if (!opts?.includeCancelled) where.status = { not: 'cancelled' }
+  if (!opts?.includeCancelled) where.status = { notIn: ['cancelled', 'transferred'] }
 
   const orphans = await prisma.enrollmentRegistration.findMany({ where, select: { id: true, status: true }, orderBy: { createdAt: 'asc' } })
   const results: Array<{ registrationId: number; status: string } & EnsureLeadResult> = []

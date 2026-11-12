@@ -84,7 +84,7 @@ export async function acaEfetivacaoRoutes(app: FastifyInstance) {
     const recorte = whereInscricoes(await alcanceDaRequisicao(req))
     const regs = await prisma.enrollmentRegistration.findMany({
       where: {
-        ...(status ? { status } : { status: { notIn: ['enrolled', 'cancelled', 'expired', 'rejected'] } }),
+        ...(status ? { status } : { status: { notIn: ['enrolled', 'cancelled', 'transferred', 'expired', 'rejected'] } }),
         ...(recorte ? { AND: [recorte] } : {}),
       },
       orderBy: { id: 'desc' },

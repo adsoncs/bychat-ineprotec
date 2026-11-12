@@ -27,7 +27,7 @@ import { cobrancaDaChave, codigos, gravarLocal } from './atualizarFatura.js'
 import { configDaInscricao, hojeBr, type Operador } from './pagamentoCombinado.js'
 import { criarTroca, recontarCombinado } from './trocaPagamento.js'
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 const EM_ABERTO_NO_ASAAS = ['PENDING', 'OVERDUE']
 const VALOR_MINIMO = 500 // R$ 5,00: abaixo disso o Asaas recusa cobrança
 const MAX_DIAS = 60

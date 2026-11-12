@@ -71,6 +71,7 @@ const STATUS_LABELS: Record<RegistrationStatus, string> = {
   enrolled: 'Matriculada',
   rejected: 'Rejeitada',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   expired: 'Expirada',
   merged: 'Mesclada',
 }
@@ -89,6 +90,7 @@ const STATUS_COLORS: Record<RegistrationStatus, string> = {
   enrolled: 'text-success',
   rejected: 'text-danger',
   cancelled: 'text-fg-muted',
+  transferred: 'text-fg-muted',
   expired: 'text-fg-muted',
   merged: 'text-fg-muted',
 }
@@ -729,7 +731,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
 
   function handleExport() {
     const qs = new URLSearchParams()
-    if (['cancelled', 'expired', 'merged'].includes(situacao)) qs.set('status', situacao)
+    if (['cancelled', 'transferred', 'expired', 'merged'].includes(situacao)) qs.set('status', situacao)
     if (utmSource.trim()) qs.set('utmSource', utmSource.trim())
     if (utmMedium.trim()) qs.set('utmMedium', utmMedium.trim())
     if (dateFrom) qs.set('dateFrom', dateFrom)
@@ -794,6 +796,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               <option value="andamento">Em andamento</option>
               <option value="concluida">Todas as etapas concluídas</option>
               <option value="cancelled">Cancelada</option>
+              <option value="transferred">Transferida</option>
               <option value="expired">Expirada</option>
               <option value="merged">Mesclada</option>
             </Select>
@@ -1044,7 +1047,7 @@ function RegistrationRow({
   const partes = partesDaOferta(r.processRegistration?.offering)
   const statusKey = (r.status) ?? 'draft'
   const amount = r.paymentAmount != null ? Number(r.paymentAmount) : null
-  const canCancel = r.status !== 'cancelled' && r.status !== 'enrolled'
+  const canCancel = r.status !== 'cancelled' && r.status !== 'transferred' && r.status !== 'enrolled'
 
   return (
     <tr
@@ -1060,7 +1063,7 @@ function RegistrationRow({
           </div>
         )}
         {/* Situação fora do andamento normal: selo debaixo do código. */}
-        {(r.status === 'cancelled' || r.status === 'expired' || r.status === 'merged') && (
+        {(r.status === 'cancelled' || r.status === 'transferred' || r.status === 'expired' || r.status === 'merged') && (
           <div class="mt-0.5 text-2xs font-medium text-danger uppercase tracking-wider">
             {STATUS_LABELS[statusKey] ?? r.status}
             {r.status === 'merged' && (
@@ -1152,7 +1155,7 @@ function RowActionsMenu({
       </button>
       {open && (
         <div class="absolute right-0 top-full mt-1 w-56 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20">
-          {onAtender && r.status !== 'cancelled' && r.status !== 'merged' && (
+          {onAtender && r.status !== 'cancelled' && r.status !== 'transferred' && r.status !== 'merged' && (
             <MenuButton
               icon={<ExternalLink size={12} />}
               label="Abrir matrícula"

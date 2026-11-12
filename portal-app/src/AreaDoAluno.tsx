@@ -50,7 +50,7 @@ const STATUS: Record<string, string> = {
   submitted: 'Inscrição enviada', paid: 'Pagamento confirmado', docs_uploaded: 'Documentos enviados',
   docs_reviewing: 'Documentos em análise', docs_approved: 'Documentos aprovados', docs_rejected: 'Documento recusado',
   reviewing: 'Em análise', approved: 'Aprovado', enrolled: 'Matriculado', rejected: 'Não aprovado',
-  cancelled: 'Cancelada', expired: 'Expirada',
+  cancelled: 'Cancelada', transferred: 'Transferida', expired: 'Expirada',
 }
 const SITUACAO: Record<Situacao, { rotulo: string; tom: string }> = {
   paga: { rotulo: 'Paga', tom: 'ok' },

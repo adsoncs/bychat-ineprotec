@@ -17,7 +17,7 @@ import {
   gerarCobrancaDoTitulo, hojeBr, TITULO_EM_ABERTO, validarCombinado, type Operador,
 } from './pagamentoCombinado.js'
 
-const FECHADAS = ['cancelled', 'merged', 'expired']
+const FECHADAS = ['cancelled', 'transferred', 'merged', 'expired']
 const PRAZO_DIAS = 7
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const somarDias = (iso: string, dias: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + dias * 86_400_000).toISOString().slice(0, 10)

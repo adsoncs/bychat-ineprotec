@@ -16,7 +16,7 @@ import { prisma } from '../lib/prisma.js'
 import { logEvent } from './leadHistory.js'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 
-const FECHADAS_DE_VEZ = ['cancelled', 'merged']
+const FECHADAS_DE_VEZ = ['cancelled', 'transferred', 'merged']
 
 export async function estadoParaReabrir(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({

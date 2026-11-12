@@ -23,6 +23,7 @@ const STATUS_INSCRICAO: Record<string, string> = {
   enrolled: 'Matriculada',
   rejected: 'Rejeitada',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   expired: 'Expirada',
 }
 
@@ -32,6 +33,7 @@ const PAGAMENTO: Record<string, string> = {
   overdue: 'Vencida',
   expired: 'Expirada',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   refunded: 'Estornada',
 }
 

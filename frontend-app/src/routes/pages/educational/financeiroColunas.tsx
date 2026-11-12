@@ -30,12 +30,13 @@ export const SITUACAO_FIN: Record<SituacaoFin, { rotulo: string; tom: 'success' 
   falhou: { rotulo: 'Falhou', tom: 'danger' },
   estornado: { rotulo: 'Estornado', tom: 'info' },
   cancelado: { rotulo: 'Cancelado', tom: 'neutral' },
+  transferido: { rotulo: 'Transferido', tom: 'neutral' },
   sem_cobranca: { rotulo: 'Sem cobrança', tom: 'neutral' },
 }
 const GATEWAY: Record<string, string> = { iugu: 'iugu', asaas: 'Asaas', pagarme: 'Pagar.me', simulado: 'Simulado', manual: 'Manual', isencao: 'Isento (cupom)' }
 const STATUS_INSCRICAO: Record<string, string> = {
   draft: 'Rascunho', submitted: 'Enviada', pending: 'Aguardando pagamento', paid: 'Paga', approved: 'Aprovada', enrolled: 'Matriculada',
-  rejected: 'Reprovada', cancelled: 'Cancelada', expired: 'Expirada', lost: 'Perdida', merged: 'Mesclada',
+  rejected: 'Reprovada', cancelled: 'Cancelada', transferred: 'Transferida', expired: 'Expirada', lost: 'Perdida', merged: 'Mesclada',
 }
 
 const Sub = ({ children }: { children: ComponentChildren }) => <div class="text-2xs text-fg-muted">{children}</div>

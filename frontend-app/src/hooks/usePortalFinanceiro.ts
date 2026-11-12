@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
-export type SituacaoFin = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'sem_cobranca'
+export type SituacaoFin = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'transferido' | 'sem_cobranca'
 export type MeioFin = 'pix' | 'boleto' | 'cartao' | 'link' | 'manual' | null
 
 export interface LinhaFinanceiro {

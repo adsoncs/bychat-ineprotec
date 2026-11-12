@@ -208,7 +208,7 @@ function situacaoDaCobranca(r: Reg): SituacaoDaFatura | null {
   const ps = String(r.paymentStatus || '')
   if (ps === 'paid') return 'paga'
   if (ps === 'refunded') return 'estornada'
-  if (r.status === 'cancelled') return r.paymentId ? 'cancelada' : null
+  if (r.status === 'cancelled' || r.status === 'transferred') return r.paymentId ? 'cancelada' : null
   // Expirada pelo prazo: a cobrança segue aberta no Asaas, só venceu (dá para atualizar).
   if (r.status === 'expired') return r.paymentId ? 'vencida' : null
   if (ps === 'overdue' || ps === 'expired') return 'vencida'
@@ -288,7 +288,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   const restantesTransf = cnTransf?.numParcelas ?? 0
   const n = cnTransf ? 1 + restantesTransf : (Number(plano.parcelas) || 1)
   const parcelado = plano.meio === 'boleto' || (!!cnTransf && restantesTransf > 0)
-  if (parcelado && n > 1 && !plano.installmentId && situacao !== 'cancelada' && r.status !== 'cancelled') {
+  if (parcelado && n > 1 && !plano.installmentId && situacao !== 'cancelada' && r.status !== 'cancelled' && r.status !== 'transferred') {
     const valor = cnTransf ? cnTransf.valorParcelaCentavos / 100 : (Number(plano.valorParcela) || 0)
     // Valor personalizado (congelado no pagamento): dia e 1ª data combinados.
     const cn = lerCondicaoNegociada(plano.condicaoNegociada)
@@ -415,7 +415,7 @@ function tituloParaAluno(t: string) { return String(t || 'Contrato').split(' —
 export async function montarArea(leadId: number, codigo?: string | null) {
   const regs = await inscricoesDaConta(leadId)
   if (!regs.length) return { ativa: true as const, modo: 'sem-inscricao' as const }
-  const r = (codigo && regs.find((x) => x.candidateCode === codigo)) || regs.find((x) => x.status !== 'cancelled') || regs[0]
+  const r = (codigo && regs.find((x) => x.candidateCode === codigo)) || regs.find((x) => x.status !== 'cancelled' && x.status !== 'transferred') || regs[0]
   // A chave é do portal da inscrição (aba Configuração → Meu Portal).
   if (!r.portal?.areaDoAluno) return { ativa: false as const }
   if (EM_INSCRICAO.includes(r.status)) return { ativa: true as const, modo: 'inscricao' as const }

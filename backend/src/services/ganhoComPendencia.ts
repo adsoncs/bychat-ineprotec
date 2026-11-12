@@ -24,7 +24,7 @@ export async function pendenciasDoGanho(leadId: number): Promise<string[] | null
   const ajustes = await getAjustesRoteamento()
   if (!ajustes.ganhoExigeJornada) return null
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { leadId, mergedIntoId: null, status: { notIn: ['cancelled', 'rejected', 'merged', 'expired'] } },
+    where: { leadId, mergedIntoId: null, status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] } },
     select: { id: true, candidateCode: true },
   })
   if (!regs.length) return null

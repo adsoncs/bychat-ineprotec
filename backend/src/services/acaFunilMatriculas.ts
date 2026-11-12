@@ -125,7 +125,7 @@ export async function funilDeMatriculas(filtros: {
     let etapa: EtapaFunil = 'inscrito'
     let motivo = 'Inscrição recebida, nada pendente ainda.'
 
-    if (['cancelled', 'expired', 'rejected'].includes(r.status)) {
+    if (['cancelled', 'transferred', 'expired', 'rejected'].includes(r.status)) {
       etapa = 'cancelado'
       motivo = `Inscrição ${r.status}.`
     } else if (matricula?.status === 'MATRICULADO') {

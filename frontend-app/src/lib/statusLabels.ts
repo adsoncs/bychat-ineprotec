@@ -91,6 +91,7 @@ export const ACTIVITY_STATUS_LABELS: Record<string, string> = {
   overdue: 'Atrasada',
   completed: 'Concluída',
   cancelled: 'Cancelada',
+  transferred: 'Transferida',
   canceled: 'Cancelada',
 }
 
