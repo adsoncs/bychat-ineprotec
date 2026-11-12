@@ -228,5 +228,11 @@ export async function registrarPagamentoManual(p: PagamentoManualInput): Promise
     m.sendPaymentConfirmation?.({ enrollmentId: reg.id }).catch(() => {}),
   ).catch(() => {})
 
+  // Trilha do Financeiro: pagamento lançado à mão vira evento de fluxo.
+  void import('./trilhaTarefas.js').then((m) => m.avisarBaixaManual({
+    registrationId: reg.id, userId: p.usuario.id, userName: p.usuario.nome,
+    oQue: `Pagamento manual (${FORMAS_PAGAMENTO_MANUAL[p.forma]})`,
+    valor: (p.valorCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), nota: p.motivo,
+  })).catch(() => {})
   return { ok: true, registrationId: reg.id, methodId: metodo.id }
 }

@@ -5559,6 +5559,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     const ref = String(payment.externalReference || '')
+    // Trilha do Financeiro: estorno ou contestação vira evento de fluxo (o
+    // Financeiro confere e decide). Qualquer referência: inscrição, título, parcela.
+    if (/^PAYMENT_(REFUNDED|PARTIALLY_REFUNDED|CHARGEBACK_REQUESTED|CHARGEBACK_DISPUTE|AWAITING_CHARGEBACK_REVERSAL)$/.test(event)) {
+      void import('../services/trilhaTarefas.js').then((m) => m.avisarEstornoAsaas(event, payment)).catch(() => {})
+    }
     // Pagamento combinado/acordo e parcela gerada no Meu Portal têm referência
     // própria: não podem mexer na situação da inscrição como cobrança principal.
     const refTitulo = ref.match(/^titulo-(\d+)$/)

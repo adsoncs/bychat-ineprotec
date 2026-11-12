@@ -101,6 +101,8 @@ const CONDITION_TYPES = [
   { value: 'lost_reason_not_in', label: 'Lead NÃO perdido por estas objeções' },
   { value: 'has_booking', label: 'O lead tem reunião agendada' },
   { value: 'not_has_booking', label: 'O lead NÃO tem reunião agendada' },
+  { value: 'enrollment_docs_missing', label: 'A matrícula ainda tem documento obrigatório faltando' },
+  { value: 'enrollment_docs_complete', label: 'A matrícula já tem todos os documentos obrigatórios' },
   { value: 'not_has_outcome', label: 'O lead ainda está em andamento (nem Ganho, nem Perdido)' },
   { value: 'has_outcome', label: 'O lead já foi classificado (Ganho ou Perdido)' },
   { value: 'never_contacted', label: 'Ninguém falou com este lead ainda' },
@@ -113,6 +115,8 @@ const CONDITION_TYPES = [
 const CONDITION_HINTS: Record<string, string> = {
   has_booking: 'Segue se houver uma reunião agendada (reserva cancelada não conta)',
   not_has_booking: 'Segue se o lead não tiver nenhuma reunião agendada',
+  enrollment_docs_missing: 'Segue se falta enviar (ou reenviar, quando recusado) algum documento obrigatório da matrícula do gatilho. Confere a situação de agora, não a do início do fluxo',
+  enrollment_docs_complete: 'Segue se todos os documentos obrigatórios da matrícula do gatilho já foram enviados',
   never_contacted: 'Segue só se não houver NENHUMA mensagem na conversa — nem nossa, nem dele. É a trava de uma primeira abordagem automática: campo personalizado preenchido não significa que já falamos com a pessoa',
   no_outbound_yet: 'Segue se nunca enviamos mensagem a este lead (anotação interna não conta)',
   no_inbound_yet: 'Segue se o lead nunca respondeu, mesmo que já tenhamos escrito',
@@ -1665,7 +1669,7 @@ function CreateTaskFields({ config, onPatch }: { config: Record<string, unknown>
           label="Título da tarefa"
           value={getStr(config, 'title')}
           onInput={(e) => onPatch({ title: (e.target as HTMLInputElement).value })}
-          hint="Variáveis: {{nome}}, {{empresa}}"
+          hint="Variáveis: {{nome}}, {{empresa}} e as do gatilho, como {{candidateCode}}, {{docName}}, {{parcela}}"
         />
         <Select
           label="Tipo"
@@ -1716,6 +1720,23 @@ function CreateTaskFields({ config, onPatch }: { config: Record<string, unknown>
           }}
           hint="Necessário para fila do setor, rodízio ou pessoa fixa"
         />
+      </div>
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        <Input
+          label="Código da tarefa (opcional)"
+          value={getStr(config, 'templateCode')}
+          onInput={(e) => onPatch({ templateCode: (e.target as HTMLInputElement).value.toUpperCase().slice(0, 20) || null })}
+          placeholder="TR-S1"
+          hint="Identifica o tipo de tarefa nos relatórios. Os códigos TR-S1, TR-S2, TR-F1, TR-F2 e TR-F3 se fecham sozinhos quando o motivo some"
+        />
+        <Select
+          label="Se já houver uma aberta"
+          value={config['naoDuplicar'] === true ? 'sim' : 'nao'}
+          onChange={(e) => onPatch({ naoDuplicar: (e.target as HTMLSelectElement).value === 'sim' })}
+        >
+          <option value="nao">Criar outra mesmo assim</option>
+          <option value="sim">Não repetir (mesma matrícula/situação)</option>
+        </Select>
       </div>
     </>
   )

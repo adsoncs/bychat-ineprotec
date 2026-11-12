@@ -237,7 +237,7 @@ export interface EtapaDaInscricao {
   /** Dados obrigatórios desta etapa ainda em branco (a etapa pede antes da ação). */
   dadosFaltando?: number
   /** Documentos: contagem dos OBRIGATÓRIOS (lista do admin mostra "4/6"). */
-  progresso?: { enviados: number; total: number; aprovados: number; recusados: number }
+  progresso?: { enviados: number; total: number; aprovados: number; recusados: number; faltando?: string[] }
   /** Esta etapa trava as seguintes até ser concluída. */
   trava?: boolean
   /** Travada por uma etapa anterior ainda não concluída: não dá para fazer agora. */
@@ -496,7 +496,9 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
         chave: 'documentos', titulo: ROTULO.documentos, obrigatoria: e.obrigatoria,
         situacao: recusados ? 'pendente' : concluiu ? 'feito' : tudo ? 'aguardando' : 'pendente',
         detalhe,
-        progresso: { enviados: entregues, total: obrigatorios.length, aprovados, recusados },
+        // `faltando`: obrigatórios a enviar ou reenviar (recusados), pelo nome — é o
+        // que os avisos ao aluno e a cobrança da Secretaria listam.
+        progresso: { enviados: entregues, total: obrigatorios.length, aprovados, recusados, faltando: faltamObrig.map((x) => x.documentType.name) },
       })
     } else if (e.chave === 'contrato') {
       if (!reg.processRegistration?.offering) continue

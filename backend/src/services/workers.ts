@@ -665,7 +665,29 @@ function createInternalTaskWorker() {
     const {
       leadId, title, type, description, stepExecutionId,
       dueMode, dueValue, assigneeMode, assigneeUserId, assigneeTeamId, templateCode,
+      vinculo, naoDuplicar,
     } = job.data
+
+    // "Não repetir": já existe tarefa ABERTA deste tipo para a mesma situação
+    // (mesma matrícula/documento/parcela)? Então não cria outra. Sem código de
+    // tarefa não há como comparar, e o passo segue como antes.
+    if (naoDuplicar && templateCode) {
+      const abertas = await prisma.activity.findMany({
+        where: { leadId, templateCode, status: { in: ['pending', 'overdue'] } },
+        select: { id: true, metadata: true },
+      })
+      const ref = vinculo?.trilhaRef ?? vinculo?.documentId ?? vinculo?.chaveParcela ?? vinculo?.enrollmentId ?? null
+      const igual = abertas.find((a) => {
+        const m = (a.metadata ?? {}) as any
+        const refA = m.trilhaRef ?? m.documentId ?? m.chaveParcela ?? m.enrollmentId ?? null
+        return ref == null || String(refA) === String(ref)
+      })
+      if (igual) {
+        await updateStepExecution(stepExecutionId, 'completed', { created: false, jaExistia: igual.id })
+        await advanceWorkflow(stepExecutionId)
+        return
+      }
+    }
 
     // Prazo e responsável: antes toda tarefa de workflow nascia vencendo AGORA e
     // sem dono, o que a tornava inútil para cobrança escalonada. Reusa a mesma
@@ -689,6 +711,7 @@ function createInternalTaskWorker() {
         assignedUserId: assignee.assignedUserId,
         assignedTeamId: assignee.assignedTeamId,
         templateCode: templateCode || null,
+        ...(vinculo ? { metadata: vinculo } : {}),
       }
     })
 

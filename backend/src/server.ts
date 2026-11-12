@@ -1624,6 +1624,12 @@ import('./services/profilePictureSync.js')
   import('./services/leadStaleSweep.js')
     .then(m => m.startLeadStaleSweep())
     .catch(err => console.warn('[leadStale] init falhou:', err?.message || err))
+  // Trilha da Secretaria / régua do Financeiro: anuncia (eventos de fluxo)
+  // documento parado, matrícula completa, parcela vencida e cartão recusado, e
+  // fecha as tarefas cujo motivo sumiu. Não envia nada — quem age é o fluxo.
+  import('./services/trilhaTarefas.js')
+    .then(m => m.startTrilhaTarefas())
+    .catch(err => console.warn('[Trilha] init falhou:', err?.message || err))
   // Número sem WhatsApp: confere o telefone de todo lead novo e marca o que não
   // existe. O operador via o problema só ao tentar falar — e pela Cloud API nem
   // isso, porque lá a Meta aceita o envio e nunca entrega.

@@ -593,6 +593,13 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
   funil.sincronizarFunil(novoId)
   funil.sincronizarFunil(deId)
   await import('./propostaDaInscricao.js').then((m) => m.sincronizarPropostaDaInscricao(novoId)).catch(() => {})
+  // Trilha do Financeiro: o Financeiro confere os valores da troca.
+  void import('./trilhaTarefas.js').then(async (m) => m.emitirEventoDaTrilha('enrollment.transferencia_curso', reg.leadId, {
+    ...((await m.dadosDaInscricao(novoId)) ?? {}),
+    deCodigo: reg.candidateCode, paraCodigo: codigo, cursoNovo: previa.para.curso,
+    credito: brl(credito), sobra: brl(dist?.sobraCentavos ?? 0), motivo,
+    operadorUserId: op.userId, operadorNome: op.nome, trilhaRef: `transferencia:${deId}:${novoId}`,
+  })).catch(() => {})
   return { ok: true, paraId: novoId, paraCodigo: codigo, portalId: previa.para.portalId, avisos }
 }
 

@@ -565,10 +565,26 @@ export async function aplicarAvisoDaParcelaDoPortal(registrationId: number, nume
   const novo = apagada ? 'canceled' : (ASAAS_STATUS_MAP[payment?.status] || 'pending')
   const situacao = novo === 'paid' ? 'paga' : novo === 'canceled' ? 'cancelada' : novo === 'refunded' ? 'estornada' : 'aberta'
   if (atual.situacao === situacao || atual.situacao === 'renegociada') return true
+  const pagaEm = payment?.paymentDate ?? hojeBr()
   await prisma.enrollmentRegistration.update({
     where: { id: registrationId },
-    data: { paymentPlan: { ...plano, parcelasPortal: { ...plano.parcelasPortal, [String(numero)]: { ...atual, situacao, ...(novo === 'paid' ? { pagaEm: payment?.paymentDate ?? hojeBr() } : {}) } } } as any },
+    data: { paymentPlan: { ...plano, parcelasPortal: { ...plano.parcelasPortal, [String(numero)]: { ...atual, situacao, ...(novo === 'paid' ? { pagaEm } : {}) } } } as any },
   })
+  // Parcela paga pelo Meu Portal: entra no histórico da inscrição e no do lead.
+  // Antes só o Meu Portal sabia — a inscrição e o Financeiro não registravam nada.
+  if (situacao === 'paga' || situacao === 'estornada') {
+    await registrarEventoDaInscricao({ registrationId, etapa: 'pagamento', acao: situacao === 'paga' ? 'parcela_paga' : 'parcela_estornada', ator: 'sistema', dados: { parcela: numero, valor: atual.valor ?? null, cobranca: atual.id ?? null, pagaEm: situacao === 'paga' ? pagaEm : null, vencimento: atual.vencimento ?? null } })
+    const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { leadId: true, candidateCode: true } })
+    if (r?.leadId) {
+      const total = Number(plano.parcelas) || null
+      logEvent({
+        leadId: r.leadId, type: situacao === 'paga' ? 'payment_received' : 'payment_refunded', category: 'lifecycle', channel: 'payment', source: 'asaas', actorType: 'system',
+        title: `${situacao === 'paga' ? 'Parcela paga' : 'Parcela estornada'} — ${numero}${total ? ` de ${total}` : ''} · ${r.candidateCode}`,
+        description: atual.valor != null ? `R$ ${Number(atual.valor).toFixed(2).replace('.', ',')}${atual.vencimento ? ` · vencimento ${String(atual.vencimento).split('-').reverse().join('/')}` : ''}` : undefined,
+        metadata: { parcela: numero, paymentId: atual.id ?? null, origem: 'meu_portal' },
+      })
+    }
+  }
   return true
 }
 

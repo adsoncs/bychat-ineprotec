@@ -131,6 +131,8 @@ interface ActionConfig {
   assigneeUserId?: number | null
   assigneeTeamId?: number | null
   templateCode?: string | null
+  /** create_task: não cria se já houver tarefa aberta do mesmo código para a mesma situação. */
+  naoDuplicar?: boolean
   // set_summary
   code?: string
   note?: string
@@ -169,6 +171,17 @@ function describeAssignment(
 // {{segmento}}, {{cidade}}, {{status}} (do lead) e qualquer chave do triggerData
 // (payload do evento que disparou o workflow). Permite chaves aninhadas com
 // notação de ponto (ex: {{enrollment.candidateCode}}, {{document.reviewNote}}).
+/** Dados do evento que a tarefa guarda em `metadata` (matrícula, documento, parcela, situação). */
+function vinculoDaTarefa(triggerData: any): Record<string, any> | null {
+  const p = triggerData?.payload && typeof triggerData.payload === 'object' ? triggerData.payload : triggerData
+  if (!p || typeof p !== 'object') return null
+  const v: Record<string, any> = {}
+  for (const k of ['enrollmentId', 'candidateCode', 'documentId', 'chaveParcela', 'trilhaRef', 'paymentId'] as const) {
+    if (p[k] != null && p[k] !== '') v[k] = p[k]
+  }
+  return Object.keys(v).length ? v : null
+}
+
 export function resolveVariables(text: string, lead: any, triggerData: any = {}, extras: Record<string, string> = {}): string {
   if (!text) return ''
   // Achata uma única camada do triggerData pra acesso direto: {{candidateCode}}.
@@ -257,6 +270,28 @@ export async function variaveisDaMatricula(leadId: number, texto: string): Promi
 /** Variáveis calculadas por consulta ao banco para as mensagens dos fluxos:
  *  {{agente}} e, com o Setting `leads.variaveis_perfil`, as variáveis de perfil
  *  do formulário de anúncio ({{perfil}} etc. — ver lib/perfilLead.ts). */
+/**
+ * {{documentos_faltando}} e {{portal_slug}} da matrícula do evento, lidos na hora
+ * do envio (a cobrança de documentos do 3º dia lista o que falta NO 3º dia, não no
+ * dia do pagamento). Só consulta quando o passo usa uma dessas variáveis.
+ */
+async function extrasDaMatricula(triggerData: any, config: any): Promise<Record<string, string>> {
+  const usados = JSON.stringify([config?.templateParams ?? [], config?.buttonParams ?? []])
+  if (!/documentos_faltando|portal_slug/.test(usados)) return {}
+  const p = triggerData?.payload && typeof triggerData.payload === 'object' ? triggerData.payload : triggerData
+  const regId = Number(p?.enrollmentId)
+  if (!regId) return {}
+  const out: Record<string, string> = {}
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: regId }, select: { portal: { select: { slug: true } } } }).catch(() => null)
+  if (reg?.portal?.slug) out.portal_slug = reg.portal.slug
+  if (usados.includes('documentos_faltando')) {
+    const { documentosDaInscricao } = await import('./trilhaTarefas.js')
+    const d = await documentosDaInscricao(regId).catch(() => null)
+    if (d?.faltando.length) out.documentos_faltando = d.faltando.join(', ')
+  }
+  return out
+}
+
 export async function extrasDoLead(lead: { assignedUserId: number | null; customFields?: unknown }): Promise<Record<string, string>> {
   return { ...(await variaveisDePerfil(lead)), agente: await resolveNomeDoAgente(lead) }
 }
@@ -402,7 +437,7 @@ export async function dispatchAction(
         // A Meta recusa o disparo com parâmetro em branco.
         const { textoDoSistema } = await import('./modelosDoSistema.js')
         const reservaHsm = await textoDoSistema('hsm_parametro_vazio')
-        const extrasHsm = await extrasDoLead(lead)
+        const extrasHsm = { ...(await extrasDoLead(lead)), ...(await extrasDaMatricula(triggerData, config)) }
         const values = (config.templateParams || []).map((p) => {
           let raw = ''
           if (p.type === 'fixed') {
@@ -754,9 +789,15 @@ export async function dispatchAction(
     case 'create_task': {
       const job = await queues.internalTask.add('create', {
         leadId,
-        title: resolveVariables(config.title || 'Tarefa do workflow', lead),
+        // Variáveis do evento também ({{candidateCode}}, {{docName}}, {{parcela}}…):
+        // a tarefa da Secretaria/Financeiro precisa dizer de QUAL matrícula se trata.
+        title: resolveVariables(config.title || 'Tarefa do workflow', lead, triggerData),
         type: config.taskType || 'task',
-        description: config.description ? resolveVariables(config.description, lead) : undefined,
+        description: config.description ? resolveVariables(config.description, lead, triggerData) : undefined,
+        // Vínculo com a matrícula e com a situação que gerou a tarefa (trilha da
+        // Secretaria/Financeiro): é o que permite não repetir e fechar sozinha.
+        vinculo: vinculoDaTarefa(triggerData),
+        naoDuplicar: config.naoDuplicar === true,
         // Prazo e responsável (módulo Resumo). Omitidos = comportamento antigo:
         // vence agora, dono é o responsável pelo lead.
         dueMode: config.dueMode || 'immediate',

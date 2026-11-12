@@ -43,8 +43,20 @@ export function textContainsAny(text: unknown, trechos: unknown): boolean {
 export async function evaluateCondition(
   config: ConditionConfig,
   leadId: number,
-  triggerData?: { payload?: { text?: string } } | null,
+  triggerData?: { payload?: { text?: string; enrollmentId?: number } } | null,
 ): Promise<boolean> {
+  // Documentos da matrícula do evento (trilha da Secretaria): "ainda falta
+  // documento obrigatório (a enviar ou recusado)?". Lê a situação de AGORA, não
+  // a do momento do gatilho — é o que faz a cobrança parar quando o aluno envia.
+  if (config.type === 'enrollment_docs_missing' || config.type === 'enrollment_docs_complete') {
+    const regId = Number(triggerData?.payload?.enrollmentId)
+    if (!regId) return false
+    const { documentosDaInscricao } = await import('./trilhaTarefas.js')
+    const d = await documentosDaInscricao(regId)
+    const falta = d.exige && d.faltando.length > 0
+    return config.type === 'enrollment_docs_missing' ? falta : !falta
+  }
+
   // Texto da mensagem que disparou o fluxo (gatilho "Mensagem recebida").
   // Não depende do lead — vem antes da busca.
   if (config.type === 'message_contains' || config.type === 'message_not_contains') {

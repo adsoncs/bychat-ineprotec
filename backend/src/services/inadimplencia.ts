@@ -92,7 +92,7 @@ export function parcelasEmAbertoDoBoleto(plano: any, base: Date, diaDoPlano: num
 }
 
 /** Todo o devido, vencido ou não, da instituição ou de um lead. */
-async function carregarItens(opts: { leadId?: number; incluirAVencer?: boolean } = {}): Promise<ItemDevido[]> {
+export async function carregarItens(opts: { leadId?: number; incluirAVencer?: boolean } = {}): Promise<ItemDevido[]> {
   const hoje = hojeBr()
   const cfg = await getEncargosConfig()
   const out: ItemDevido[] = []
@@ -591,6 +591,22 @@ export async function segundaVia(tituloId: number, vencimento: string, op: Opera
 
 /** Pago fora do gateway. Cancela a cobrança aberta, para não ser paga de novo. */
 export async function baixaManual(chave: string, nota: string, op: Operador) {
+  const r = await baixaManualSemAviso(chave, nota, op)
+  if (r.ok) {
+    // Trilha do Financeiro: baixa manual vira evento de fluxo (o fluxo decide se
+    // a de alguém de fora do Financeiro precisa ser conferida).
+    let registrationId: number | null = null
+    let leadId: number | null = null
+    if (chave.startsWith('t:')) registrationId = (await prisma.enrollmentTitulo.findUnique({ where: { id: Number(chave.slice(2)) }, select: { registrationId: true } }))?.registrationId ?? null
+    else if (chave.startsWith('p:')) registrationId = Number(chave.split(':')[1]) || null
+    else if (chave.startsWith('a:')) leadId = (await prisma.acaParcela.findUnique({ where: { id: Number(chave.slice(2)) }, select: { contrato: { select: { matricula: { select: { aluno: { select: { leadId: true } } } } } } } }).catch(() => null) as any)?.contrato?.matricula?.aluno?.leadId ?? null
+    const { avisarBaixaManual } = await import('./trilhaTarefas.js')
+    void avisarBaixaManual({ registrationId, leadId, userId: op.userId, userName: op.nome, oQue: 'Baixa manual na Inadimplência', nota: nota.trim() })
+  }
+  return r
+}
+
+async function baixaManualSemAviso(chave: string, nota: string, op: Operador) {
   if (nota.trim().length < 3) return { ok: false as const, status: 400, erro: 'Informe como foi pago.' }
   const texto = `${nota.trim()} (por ${op.nome})`
   if (chave.startsWith('a:')) {

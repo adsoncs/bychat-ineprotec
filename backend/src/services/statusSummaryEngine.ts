@@ -111,7 +111,41 @@ export async function resolveTaskAssignee(
     select: { assignedUserId: true, teamId: true },
   })
   if (!lead) return { assignedUserId: actorUserId, assignedTeamId: null }
+  if (tpl.assigneeMode === 'round_robin') {
+    const teamId = tpl.assigneeTeamId ?? lead.teamId
+    if (teamId) {
+      const u = await rodizioDeTarefas(teamId, leadId)
+      if (u) return { assignedUserId: u, assignedTeamId: teamId }
+    }
+  }
   return resolveAssignee(tpl, lead, actorUserId)
+}
+
+/**
+ * Rodízio de TAREFAS (12/11/2026). O rodízio de leads escolhe quem recebeu LEAD
+ * há mais tempo — tarefa não conta como lead, então todas caíam na mesma pessoa
+ * (18 tarefas da trilha, todas para uma das duas da Secretaria). Aqui:
+ *   1. tarefa em aberto do mesmo aluno nesta equipe → mesma pessoa (as 3 da
+ *      matrícula completa não se espalham);
+ *   2. senão, quem da equipe recebeu tarefa há mais tempo;
+ * sempre entre quem o rodízio da equipe aceita agora (disponível, horário, capacidade).
+ */
+async function rodizioDeTarefas(teamId: number, leadId: number): Promise<number | null> {
+  const aceita = async (userId: number) => (await pickOperatorForTeam(teamId, { onlyUserIds: [userId] }).catch(() => null)) === userId
+  const mesmaPessoa = await prisma.activity.findFirst({
+    where: { leadId, assignedTeamId: teamId, assignedUserId: { not: null }, ...whereActivityOpen } as any,
+    orderBy: { id: 'desc' }, select: { assignedUserId: true },
+  })
+  if (mesmaPessoa?.assignedUserId && (await aceita(mesmaPessoa.assignedUserId))) return mesmaPessoa.assignedUserId
+  const membros = (await prisma.teamMember.findMany({ where: { teamId }, select: { userId: true } })).map((m) => m.userId)
+  if (!membros.length) return null
+  const ultimas = await prisma.activity.groupBy({
+    by: ['assignedUserId'], where: { assignedTeamId: teamId, assignedUserId: { in: membros } }, _max: { id: true },
+  })
+  const ultima = new Map(ultimas.map((u) => [u.assignedUserId, u._max.id ?? 0]))
+  const ordem = [...membros].sort((a, b) => (ultima.get(a) ?? 0) - (ultima.get(b) ?? 0) || a - b)
+  for (const u of ordem) if (await aceita(u)) return u
+  return null
 }
 
 /** Calcula o vencimento de uma atividade a partir do modo de prazo. */

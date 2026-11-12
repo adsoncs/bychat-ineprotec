@@ -72,7 +72,14 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'enrollment.payment_pending_reminder', label: '⏰ Lembrete de pagamento',             category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.document_approved',        label: '📄 Documento aprovado',                category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.document_rejected',        label: '📄 Documento rejeitado',               category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.document_stale',           label: '⏳ Documento parado sem análise (mais de 1 dia)', description: 'Documento enviado pelo aluno e ainda não analisado depois de 1 dia. Uma vez por documento.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.matricula_completa',       label: '✅ Matrícula completa (paga, assinada e documentos aprovados)', description: 'Uma vez por matrícula. Traz {{escola}} (polo/escola certificadora).', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.curso_concluido',          label: '🎓 Curso concluído no AVA (Moodle)', description: 'Quando o Moodle marca o curso como concluído (critérios de conclusão cumpridos). Uma vez por inscrição. Traz {{curso}} e {{concluidoEm}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.transferencia_curso',      label: '🔁 Transferência de curso feita', description: 'Traz {{deCodigo}}, {{paraCodigo}}, {{credito}} e {{sobra}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'financeiro.parcela_vencida',          label: '💸 Parcela vencida (3 dias, 15 dias ou acordo)', description: 'Filtro "marco": 3d, 15d ou acordo_quebrado. Uma vez por parcela e marco.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'financeiro.cartao_recusado',          label: '💳 Cartão recusado e ainda sem pagamento', description: 'Depois de 30 minutos sem nova tentativa aprovada.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'financeiro.estorno',                  label: '↩️ Estorno ou contestação (Asaas)', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'financeiro.baixa_manual',             label: '✍️ Baixa manual de pagamento', description: 'Filtro "operadorForaDasEquipes": só quando quem deu a baixa não é destas equipes.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
 
   // ── Educacional — avaliações (requer módulo `educacional`) ──
   { value: 'enrollment.essay_submitted',          label: '📝 Redação recebida',                   category: 'educational', requiresModule: 'educacional' },

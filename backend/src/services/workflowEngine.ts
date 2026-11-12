@@ -105,6 +105,16 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
       continue
     }
 
+    // Quem fez a ação NÃO pertence a nenhuma destas equipes (ex.: baixa manual
+    // feita por alguém de fora do Financeiro). O evento traz `operadorTeamIds`.
+    if (key === 'operadorForaDasEquipes') {
+      const lista = (Array.isArray(expected) ? expected : [expected]).map(Number).filter((n) => n > 0)
+      if (!lista.length) continue
+      const doOperador: number[] = Array.isArray(event.payload?.operadorTeamIds) ? event.payload.operadorTeamIds.map(Number) : []
+      if (doOperador.some((t) => lista.includes(t))) return false
+      continue
+    }
+
     // Demais chaves (formId, etc.): escalar ou lista.
     if (!valueMatches(actual, expected)) return false
   }
