@@ -34,8 +34,11 @@ interface Previa {
     portal: string; curso: string; ingresso: string | null; polo: { nome: string } | null; escopo: 'curso' | 'taxa'; taxaCentavos: number
     plano: { id: number; nome: string; matricula: number; parcela: number; numParcelas: number; dia: number } | null
     planos: Array<{ id: number; nome: string }>
+    precos?: Array<{ chave: string; rotulo: string; totalCentavos: number }>
+    precoPor?: string
+    precoPadrao?: string
   }
-  financeiro: { recebido: { totalCentavos: number; itens: Array<{ rotulo: string; centavos: number }> }; distribuicao: Distribuicao | null; primeiraSeguinte: string | null }
+  financeiro: { recebido: { totalCentavos: number; itens: Array<{ rotulo: string; centavos: number }> }; distribuicao: Distribuicao | null; primeiraSeguinte: string | null; pontualidadeCentavos?: number }
   documentos: { levados: Doc[]; faltam: Doc[]; ficam: Doc[]; reprovados: Doc[] }
   contrato: { antigo: 'assinado' | 'aceito' | 'pendente' | 'nenhum'; pendentesParaCancelar: number }
 }
@@ -99,12 +102,13 @@ function ModalTransferir({ registrationId, portalIdAtual, onClose }: { registrat
   const [offeringId, setOfferingId] = useState('')
   const [campusId, setCampusId] = useState('')
   const [planoId, setPlanoId] = useState('')
+  const [precoPor, setPrecoPor] = useState('')
   const [motivo, setMotivo] = useState('')
   const [conferido, setConferido] = useState(false)
   const cat = useCatalogo(portalId ? Number(portalId) : null)
   const oferta = cat.data?.ofertas.find((o) => String(o.id) === offeringId)
   const pronto = !!oferta && (oferta.polos.length <= 1 || !!campusId)
-  const alvo = { portalId: Number(portalId), offeringId: Number(offeringId), campusId: campusId ? Number(campusId) : null, planoId: planoId ? Number(planoId) : null }
+  const alvo = { portalId: Number(portalId), offeringId: Number(offeringId), campusId: campusId ? Number(campusId) : null, planoId: planoId ? Number(planoId) : null, precoPor: precoPor || null }
   const previa = useQuery({
     queryKey: ['mi-transferencia-previa', registrationId, alvo],
     queryFn: () => api.post<Previa>(`/admin/matricula-interna/${registrationId}/transferencia/previa`, alvo),
@@ -138,7 +142,7 @@ function ModalTransferir({ registrationId, portalIdAtual, onClose }: { registrat
       </>}>
       <div class="grid gap-4">
         <div class="grid gap-3 sm:grid-cols-2">
-          <Select label="Portal" value={portalId} onChange={(e) => { setPortalId((e.target as HTMLSelectElement).value); setOfferingId(''); setCampusId(''); setPlanoId('') }}>
+          <Select label="Portal" value={portalId} onChange={(e) => { setPortalId((e.target as HTMLSelectElement).value); setOfferingId(''); setCampusId(''); setPlanoId(''); setPrecoPor('') }}>
             {lista.map((x: any) => <option key={x.id} value={String(x.id)}>{x.nome}</option>)}
           </Select>
           <Select label="Novo curso" value={offeringId} onChange={(e) => { setOfferingId((e.target as HTMLSelectElement).value); setCampusId(''); setPlanoId('') }}>
@@ -152,8 +156,15 @@ function ModalTransferir({ registrationId, portalIdAtual, onClose }: { registrat
             </Select>
           )}
           {p && p.para.planos.length > 1 && (
-            <Select label="Plano de pagamento" value={planoId || String(p.para.plano?.id ?? '')} onChange={(e) => setPlanoId((e.target as HTMLSelectElement).value)}>
+            <Select label="Plano de pagamento" value={planoId || String(p.para.plano?.id ?? '')} onChange={(e) => { setPlanoId((e.target as HTMLSelectElement).value); setPrecoPor('') }}>
               {p.para.planos.map((x) => <option key={x.id} value={String(x.id)}>{x.nome}</option>)}
+            </Select>
+          )}
+          {/* Preço do curso novo: o plano tem um por forma de pagamento (12/11/2026). */}
+          {p && (p.para.precos?.length ?? 0) > 1 && (
+            <Select label="Calcular o curso novo pelo preço de" value={precoPor || p.para.precoPor || 'tabela'} onChange={(e) => setPrecoPor((e.target as HTMLSelectElement).value)}
+              hint={p.para.precoPadrao && p.para.precoPadrao !== 'tabela' ? `Padrão: a forma da inscrição antiga (${p.para.precos!.find((x) => x.chave === p.para.precoPadrao)?.rotulo ?? ''}).` : 'Padrão: a tabela do plano.'}>
+              {p.para.precos!.map((x) => <option key={x.chave} value={x.chave}>{x.rotulo} · {brl(x.totalCentavos)}{x.chave === p.para.precoPadrao ? ' (forma da inscrição antiga)' : ''}</option>)}
             </Select>
           )}
         </div>
@@ -170,6 +181,9 @@ function ModalTransferir({ registrationId, portalIdAtual, onClose }: { registrat
               </div>
               {p.financeiro.recebido.itens.length > 0 && (
                 <ul class="text-xs text-fg-muted mt-1">{p.financeiro.recebido.itens.map((i, n) => <li key={n}>{i.rotulo}: <span class="tabular-nums">{brl(i.centavos)}</span></li>)}</ul>
+              )}
+              {!!p.financeiro.pontualidadeCentavos && (
+                <div class="text-xs text-fg-muted mt-1">+ desconto de pontualidade já concedido na 1ª: <span class="tabular-nums">{brl(p.financeiro.pontualidadeCentavos)}</span> (mantendo a mesma forma de pagamento, a 1ª conta como parcela inteira)</div>
               )}
               {p.para.plano && (
                 <div class="text-xs text-fg-muted mt-2">

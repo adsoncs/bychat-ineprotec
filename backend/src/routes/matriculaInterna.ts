@@ -436,7 +436,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     const reg = await inscricaoDa(req, reply)
     if (!reg) return
     const b = (req.body as any) || {}
-    const alvo = { portalId: Number(b.portalId), offeringId: Number(b.offeringId), campusId: b.campusId ? Number(b.campusId) : null, planoId: b.planoId ? Number(b.planoId) : null }
+    const alvo = { portalId: Number(b.portalId), offeringId: Number(b.offeringId), campusId: b.campusId ? Number(b.campusId) : null, planoId: b.planoId ? Number(b.planoId) : null, precoPor: b.precoPor ? String(b.precoPor) : null }
     if (!Number.isFinite(alvo.portalId) || !Number.isFinite(alvo.offeringId)) return reply.code(400).send({ error: 'Escolha o portal e o curso.' })
     const barrado = await barrar(req, alvo.portalId, reg.leadId)
     if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })

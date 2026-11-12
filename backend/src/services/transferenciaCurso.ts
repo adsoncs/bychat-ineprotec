@@ -26,7 +26,7 @@ import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 import { logEvent } from './leadHistory.js'
 import { requisitosDaCondicao } from './docCondicional.js'
 import {
-  escolhaParaGravar, lerRegrasDoPlano, opcoesDoPlano, planosDaOferta, valorIntegral,
+  baseDaForma, escolhaParaGravar, lerRegrasDoPlano, opcoesDoPlano, planosDaOferta, valorIntegral,
   type CondicaoNegociada, type FormasDePagamento, type PlanoDaOferta,
 } from './planoFinanceiro.js'
 import { vencimentoPrevisto } from './areaDoAluno.js'
@@ -173,7 +173,46 @@ export async function recebidoDaInscricao(registrationId: number): Promise<Receb
 
 // ─── Prévia ─────────────────────────────────────────────────────────────────
 
-export interface Alvo { portalId: number; offeringId: number; campusId?: number | null; planoId?: number | null }
+export interface Alvo { portalId: number; offeringId: number; campusId?: number | null; planoId?: number | null; precoPor?: string | null }
+
+// ─── Preço do curso novo (12/11/2026) ───────────────────────────────────────
+// O plano tem um preço por forma de pagamento no curso completo (ex.: cartão
+// 12x 149,90 = 1.798,80; boleto parcelado 12x 216,90 = 2.602,80). Antes a
+// transferência usava sempre a tabela (preço-base) — quem tinha fechado no
+// boleto ficava mais barato. Agora a equipe escolhe na tela; o padrão é a
+// forma que o aluno usou na inscrição antiga.
+export type PrecoPor = 'tabela' | 'cartao' | 'boletoParcelado' | 'boleto' | 'pix'
+const ROTULO_DO_PRECO: Record<PrecoPor, string> = {
+  tabela: 'Tabela do plano', cartao: 'Cartão', boletoParcelado: 'Boleto parcelado', boleto: 'Boleto à vista', pix: 'Pix à vista',
+}
+
+/** Preço do curso completo em cada forma ligada no plano (a tabela sempre entra). */
+export function precosDoPlano(p: PlanoDaOferta): Array<{ chave: PrecoPor; rotulo: string; totalCentavos: number }> {
+  const out: Array<{ chave: PrecoPor; rotulo: string; totalCentavos: number }> = [
+    { chave: 'tabela', rotulo: ROTULO_DO_PRECO.tabela, totalCentavos: Math.round(valorIntegral(p) * 100) },
+  ]
+  if (!p.regras.integral.ativo) return out
+  for (const forma of ['cartao', 'boletoParcelado', 'boleto', 'pix'] as const) {
+    if (!p.regras.integral[forma]?.ativo) continue
+    out.push({ chave: forma, rotulo: ROTULO_DO_PRECO[forma], totalCentavos: Math.round(baseDaForma(p, 'integral', forma) * 100) })
+  }
+  return out
+}
+
+/** O plano com as parcelas recalculadas para o total escolhido (matrícula, número e dia iguais). */
+export function precificar(p: PlanoDaOferta, totalCentavos: number): PlanoDaOferta {
+  if (p.numParcelas <= 0 || totalCentavos === Math.round(valorIntegral(p) * 100)) return p
+  return { ...p, valorParcelaCentavos: Math.round((totalCentavos - p.taxaMatriculaCentavos) / p.numParcelas) }
+}
+
+/** A forma em que o aluno fechou a inscrição antiga — o padrão da escolha. */
+function precoDaInscricaoAntiga(pp: Record<string, any>): PrecoPor {
+  const meio = String(pp?.meio ?? '')
+  if (meio === 'boleto') return Number(pp?.parcelas) > 1 ? 'boletoParcelado' : 'boleto'
+  if (meio === 'pix') return 'pix'
+  if (meio === 'credit_card' || meio === 'cartao') return 'cartao'
+  return 'tabela'
+}
 
 async function lerInscricao(id: number) {
   return prisma.enrollmentRegistration.findUnique({
@@ -263,12 +302,22 @@ export async function previaDaTransferencia(deId: number, alvo: Alvo) {
   avisos.push(...recebido.avisos)
   const escopo = (await prisma.enrollmentPortal.findUnique({ where: { id: alvo.portalId }, select: { paymentScope: true } }))?.paymentScope === 'curso' ? 'curso' as const : 'taxa' as const
   const planos = escopo === 'curso' ? (await planosDaOferta(oferta.id)).filter((p) => opcoesDoPlano(p).length > 0) : []
-  const plano = planos.find((p) => p.id === Number(alvo.planoId)) ?? planos[0] ?? null
+  const planoBase = planos.find((p) => p.id === Number(alvo.planoId)) ?? planos[0] ?? null
+  const precos = planoBase ? precosDoPlano(planoBase) : []
+  const precoPadrao = ((): PrecoPor => { const x = precoDaInscricaoAntiga((reg.paymentPlan ?? {}) as any); return precos.some((q) => q.chave === x) ? x : 'tabela' })()
+  const precoPor: PrecoPor = (precos.find((q) => q.chave === alvo.precoPor)?.chave) ?? precoPadrao
+  const plano = planoBase ? precificar(planoBase, precos.find((q) => q.chave === precoPor)!.totalCentavos) : null
   const taxaCentavos = escopo === 'taxa'
     ? Math.round(Number((await prisma.selectionProcess.findUnique({ where: { id: oferta.processoId }, select: { taxaInscricao: true } }))?.taxaInscricao ?? 0) * 100)
     : 0
   if (escopo === 'curso' && !plano && recebido.totalCentavos > 0) bloqueios.push('O curso novo não tem plano de pagamento cadastrado: cadastre o plano para o crédito poder ser aplicado.')
-  const dist = plano ? distribuirCredito(plano, recebido.totalCentavos)
+  // Mesma forma da inscrição antiga: a 1ª paga com desconto de pontualidade
+  // conta como parcela inteira (o desconto já foi concedido no boleto). Sem isso,
+  // ao manter o preço do boleto o aluno passaria a "dever" o desconto (12/11/2026).
+  const ppAntigo = (reg.paymentPlan ?? {}) as any
+  const pontualidadeCentavos = plano && reg.paymentStatus === 'paid' && precoPor === precoPadrao && precoPor !== 'tabela'
+    ? Math.max(0, Math.round(Number(ppAntigo.descontoPontualidade || 0) * 100)) : 0
+  const dist = plano ? distribuirCredito(plano, recebido.totalCentavos + pontualidadeCentavos)
     : escopo === 'taxa' && taxaCentavos > 0 ? distribuirCredito({ taxaMatriculaCentavos: taxaCentavos, valorParcelaCentavos: 0, numParcelas: 0 }, recebido.totalCentavos)
     : null
   if (!dist && recebido.totalCentavos > 0 && escopo === 'taxa') {
@@ -310,8 +359,9 @@ export async function previaDaTransferencia(deId: number, alvo: Alvo) {
       polo: polo ? { id: polo.id, nome: polo.nome } : null,
       plano: plano ? { id: plano.id, nome: plano.nome, matricula: plano.taxaMatriculaCentavos, parcela: plano.valorParcelaCentavos, numParcelas: plano.numParcelas, dia: plano.diaVencimento } : null,
       planos: planos.map((p) => ({ id: p.id, nome: p.nome })),
+      precos, precoPor, precoPadrao,
     },
-    financeiro: { recebido, distribuicao: dist, primeiraSeguinte },
+    financeiro: { recebido, distribuicao: dist, primeiraSeguinte, ...(pontualidadeCentavos ? { pontualidadeCentavos } : {}) },
     documentos: {
       levados: docs.levados.map((d) => ({ codigo: d.typeCode, nome: d.label, status: d.status })),
       faltam: faltam.map((e) => ({ codigo: e.documentType.code, nome: e.documentType.name, obrigatorio: e.required })),
@@ -320,7 +370,7 @@ export async function previaDaTransferencia(deId: number, alvo: Alvo) {
     },
     contrato: { antigo: assinado ? 'assinado' : aceito ? 'aceito' : envelopes.length ? 'pendente' : 'nenhum', pendentesParaCancelar: pendentes.length },
     // Para a confirmação recusar se algo mudou entre a prévia e o clique.
-    assinatura: `${recebido.totalCentavos}:${plano?.id ?? 0}:${docs.levados.length}`,
+    assinatura: `${recebido.totalCentavos}:${pontualidadeCentavos}:${plano?.id ?? 0}:${precoPor}:${docs.levados.length}`,
   }
 }
 
@@ -344,7 +394,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
 > {
   const motivo = String(body?.motivo ?? '').trim().slice(0, 500)
   if (motivo.length < 5) return { ok: false, status: 400, erro: 'Informe o motivo da transferência.' }
-  const alvo: Alvo = { portalId: Number(body?.portalId), offeringId: Number(body?.offeringId), campusId: body?.campusId ? Number(body.campusId) : null, planoId: body?.planoId ? Number(body.planoId) : null }
+  const alvo: Alvo = { portalId: Number(body?.portalId), offeringId: Number(body?.offeringId), campusId: body?.campusId ? Number(body.campusId) : null, planoId: body?.planoId ? Number(body.planoId) : null, precoPor: body?.precoPor ? String(body.precoPor) : null }
   const previa = await previaDaTransferencia(deId, alvo)
   if (!previa.ok) return { ok: false, status: previa.status, erro: previa.erro }
   if (previa.bloqueios.length) return { ok: false, status: 409, erro: previa.bloqueios[0]! }
@@ -354,7 +404,10 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
 
   const reg = (await lerInscricao(deId))!
   const dist = previa.financeiro.distribuicao
-  const plano = previa.para.plano ? (await planosDaOferta(previa.para.offeringId)).find((p) => p.id === previa.para.plano!.id)! : null
+  const planoBase = previa.para.plano ? (await planosDaOferta(previa.para.offeringId)).find((p) => p.id === previa.para.plano!.id)! : null
+  // O mesmo preço que a prévia mostrou (forma escolhida pela equipe).
+  const precoEscolhido = previa.para.precos.find((q) => q.chave === previa.para.precoPor)
+  const plano = planoBase && precoEscolhido ? precificar(planoBase, precoEscolhido.totalCentavos) : planoBase
   const credito = previa.financeiro.recebido.totalCentavos
   const agora = new Date()
   const { fechamentoDaVenda } = await import('./propostaDaInscricao.js')
@@ -362,6 +415,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
   const transferencia = {
     deId, deCodigo: reg.candidateCode, creditoCentavos: credito, em: agora.toISOString(), por: op.nome,
     valorCursoCentavos: plano ? Math.round(valorIntegral(plano) * 100) : 0,
+    ...(precoEscolhido ? { precoPor: previa.para.precoPor, precoRotulo: precoEscolhido.rotulo } : {}),
     ...(fech ? { fechamento: { data: fech.data.toISOString(), forma: fech.forma } } : {}),
   }
 
@@ -376,7 +430,7 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
       vencimentoEntrada: null,
       primeiraSeguinte: previa.financeiro.primeiraSeguinte,
       ...(plano.taxaMatriculaCentavos === 0 ? { entradaComoParcela: true } : {}),
-      tabela: { taxaMatriculaCentavos: plano.taxaMatriculaCentavos, valorParcelaCentavos: plano.valorParcelaCentavos, numParcelas: plano.numParcelas, diaVencimento: plano.diaVencimento },
+      tabela: { taxaMatriculaCentavos: planoBase!.taxaMatriculaCentavos, valorParcelaCentavos: planoBase!.valorParcelaCentavos, numParcelas: planoBase!.numParcelas, diaVencimento: planoBase!.diaVencimento },
       motivo: `Crédito de ${brl(credito)} da transferência de ${reg.candidateCode}`,
       porUserId: op.userId, porNome: op.nome, em: agora.toISOString(),
       transferencia,
