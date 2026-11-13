@@ -84,9 +84,13 @@ function movimentos(r: any, plano: Record<string, any>) {
   // Combinado: o plano diz "combinado"; o meio é o do título que é a 1ª cobrança.
   const tituloDaReg = ((r.titulos ?? []) as any[]).find((t) => t.externalId && t.externalId === r.paymentId)
   const meioDaReg = meioDe(plano.meio ?? r.paymentMethod) ?? meioDe(tituloDaReg?.pagoComo ?? tituloDaReg?.meio) ?? meioDe(r.paymentMethods?.[0]?.method)
-  const valorDaReg = r.paymentStatus === 'paid'
-    ? Number(r.paymentAmount ?? plano.valorCobrado ?? 0)
-    : Number(plano.valorCobrado ?? r.paymentAmount ?? 0)
+  // No combinado o paymentAmount é o TOTAL combinado; a 1ª cobrança vale só o
+  // título dela (Gabrielly 2PZE: 1.750 + título de 1.450 somava 3.200).
+  const valorDaReg = tituloDaReg
+    ? (tituloDaReg.status === 'paga' && tituloDaReg.valorPagoCentavos ? tituloDaReg.valorPagoCentavos : tituloDaReg.valorCentavos) / 100
+    : r.paymentStatus === 'paid'
+      ? Number(r.paymentAmount ?? plano.valorCobrado ?? 0)
+      : Number(plano.valorCobrado ?? r.paymentAmount ?? 0)
   const nParcelas = Number(plano.parcelas ?? 1) || 1
   const rotuloReg = nParcelas > 1 ? `Parcela 1 de ${nParcelas}` : (plano.rotulo ?? 'Cobrança')
   if (r.paymentStatus === 'paid' && r.paymentPaidAt) {
@@ -106,7 +110,7 @@ function movimentos(r: any, plano: Record<string, any>) {
   const totalTit = titulos.filter((t) => t.status !== 'cancelada' && t.status !== 'renegociada').length
   for (const t of titulos) {
     if (t.externalId && r.paymentId && t.externalId === r.paymentId) continue // é a 1ª cobrança
-    if (['cancelada', 'renegociada', 'estornada'].includes(t.status)) continue
+    if (['cancelada', 'renegociada', 'estornada', 'substituida'].includes(t.status)) continue // substituída: trocada por outra forma
     const rot = `${t.origem === 'acordo' ? 'Acordo' : 'Pagamento'} ${t.ordem}${totalTit > 1 ? ` de ${totalTit}` : ''}`
     const valor = (t.status === 'paga' && t.valorPagoCentavos ? t.valorPagoCentavos : t.valorCentavos) / 100
     if (t.status === 'paga' && t.paidAt) recebimentos.push({ dia: diaBr(t.paidAt)!, em: new Date(t.paidAt).toISOString(), valor, meio: meioDe(t.pagoComo ?? t.meio), origem: 'titulo', rotulo: rot })
