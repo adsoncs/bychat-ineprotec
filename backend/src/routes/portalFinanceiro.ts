@@ -87,6 +87,9 @@ function movimentos(r: any, plano: Record<string, any>) {
   // dobrava o recebido (Valdeci 2026-11: 173,90 no dia 10 e de novo no dia 11).
   // Mesma regra da Receita única.
   const transferida = r.status === 'transferred'
+  // Expirada: a inscrição não seguiu, então o que não foi pago não é dívida (decisão de 13/11/2026).
+  // O que ela pagou continua contando como recebido.
+  const expirada = r.status === 'expired'
   const vencimentos: Vencimento[] = []
   // Combinado: o plano diz "combinado"; o meio é o do título que é a 1ª cobrança.
   const tituloDaReg = ((r.titulos ?? []) as any[]).find((t) => t.externalId && t.externalId === r.paymentId)
@@ -103,7 +106,7 @@ function movimentos(r: any, plano: Record<string, any>) {
   if (r.paymentStatus === 'paid' && r.paymentPaidAt && !transferida) {
     recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })
   }
-  if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled' && r.status !== 'transferred') {
+  if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled' && r.status !== 'transferred' && !(expirada && r.paymentStatus !== 'paid')) {
     vencimentos.push({ dia: diaBr(r.paymentExpiresAt)!, valor: valorDaReg, paga: r.paymentStatus === 'paid', rotulo: rotuloReg })
   }
   for (const [n, g] of Object.entries((plano.parcelasPortal ?? {}) as Record<string, any>)) {
@@ -111,7 +114,7 @@ function movimentos(r: any, plano: Record<string, any>) {
     const rot = `Parcela ${n}${nParcelas > 1 ? ` de ${nParcelas}` : ''}`
     const valor = Number(g.valor ?? 0)
     if (g.situacao === 'paga' && g.pagaEm && !transferida) recebimentos.push({ dia: diaBr(g.pagaEm)!, em: String(g.pagaEm).length > 10 ? String(g.pagaEm) : null, valor, meio: 'boleto', origem: 'parcela', rotulo: rot })
-    if (g.vencimento) vencimentos.push({ dia: String(g.vencimento).slice(0, 10), valor, paga: g.situacao === 'paga', rotulo: rot })
+    if (g.vencimento && !(expirada && g.situacao !== 'paga')) vencimentos.push({ dia: String(g.vencimento).slice(0, 10), valor, paga: g.situacao === 'paga', rotulo: rot })
   }
   const titulos = (r.titulos ?? []) as any[]
   const totalTit = titulos.filter((t) => t.status !== 'cancelada' && t.status !== 'renegociada').length
@@ -121,7 +124,7 @@ function movimentos(r: any, plano: Record<string, any>) {
     const rot = `${t.origem === 'acordo' ? 'Acordo' : 'Pagamento'} ${t.ordem}${totalTit > 1 ? ` de ${totalTit}` : ''}`
     const valor = (t.status === 'paga' && t.valorPagoCentavos ? t.valorPagoCentavos : t.valorCentavos) / 100
     if (t.status === 'paga' && t.paidAt && !transferida) recebimentos.push({ dia: diaBr(t.paidAt)!, em: new Date(t.paidAt).toISOString(), valor, meio: meioDe(t.pagoComo ?? t.meio), origem: 'titulo', rotulo: rot })
-    if (t.vencimento) vencimentos.push({ dia: t.vencimento, valor, paga: t.status === 'paga', rotulo: rot })
+    if (t.vencimento && !(expirada && t.status !== 'paga')) vencimentos.push({ dia: t.vencimento, valor, paga: t.status === 'paga', rotulo: rot })
   }
   recebimentos.sort((a, b) => a.dia.localeCompare(b.dia))
   vencimentos.sort((a, b) => a.dia.localeCompare(b.dia))
