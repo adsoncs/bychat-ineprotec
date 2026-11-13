@@ -128,6 +128,18 @@ export const MODELOS_PADRAO: ModeloPadrao[] = [
     body: 'Use o link para criar uma nova senha: {{link}}',
     bodyHtml: caixa('Nova senha do portal', '<p>Olá, {{#nome}}{{nome}}{{/nome}}{{^nome}}tudo bem{{/nome}}! Use o link abaixo para criar uma nova senha:</p><p><a href="{{link}}">{{link}}</a></p><p style="font-size:13px;color:#5f6368">O link vale por {{validade}} horas, serve uma vez só e é de uso pessoal.</p>'),
   },
+  // Senha definida pela equipe (inscrição › Portal do candidato › Definir senha).
+  // Variáveis: {{nome}} {{usuario}} {{senha}} {{link}}
+  {
+    key: 'portal_senha_definida_wa', name: 'Portal — senha definida pela equipe (WhatsApp)', channel: 'whatsapp',
+    body: 'Olá, {{#nome}}{{nome}}{{/nome}}{{^nome}}tudo bem{{/nome}}! Sua senha do portal foi redefinida pela nossa equipe.\n\nEndereço: {{link}}\nUsuário: {{usuario}}\nSenha: {{senha}}\n\nPor segurança, troque a senha depois de entrar e não compartilhe estes dados.',
+  },
+  {
+    key: 'portal_senha_definida_email', name: 'Portal — senha definida pela equipe (e-mail)', channel: 'email',
+    subject: 'Seu acesso ao portal — {{marca}}',
+    body: 'Endereço: {{link}} · Usuário: {{usuario}} · Senha: {{senha}}',
+    bodyHtml: caixa('Seu acesso ao portal', '<p>Olá, {{#nome}}{{nome}}{{/nome}}{{^nome}}tudo bem{{/nome}}! Sua senha do portal foi redefinida pela nossa equipe.</p><p>Endereço: <a href="{{link}}">{{link}}</a><br>Usuário: <strong>{{usuario}}</strong><br>Senha: <strong>{{senha}}</strong></p><p style="font-size:13px;color:#5f6368">Por segurança, troque a senha depois de entrar e não compartilhe estes dados.</p>'),
+  },
   {
     key: 'aluno_acesso_wa', name: 'Portal do aluno — link para criar a senha (WhatsApp)', channel: 'whatsapp',
     body: 'Olá, {{#nome}}{{nome}}{{/nome}}{{^nome}}tudo bem{{/nome}}! Use o link abaixo para entrar no portal e criar sua senha:\n\n{{link}}\n\nO link vale por {{validade}} horas e é de uso pessoal.',

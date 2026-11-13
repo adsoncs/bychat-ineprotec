@@ -223,17 +223,23 @@ export async function criarLinkDeAcesso(
   await prisma.portalAccessLink.create({
     data: { accountId, tokenHash: hashToken(raw), finalidade, canal: canal ?? null, expiresAt },
   })
-  // O link abre no endereço do portal da inscrição mais recente — o domínio
-  // próprio da instituição, quando houver: a sessão é um cookie do endereço, e
-  // entrar pelo domínio do painel não valeria no da instituição.
+  const base = await enderecoDoPortal(accountId)
+  return { raw, url: `${base}/portal/entrar?c=${encodeURIComponent(raw)}`, expiresAt }
+}
+
+/**
+ * Endereço do portal desta conta: o da inscrição mais recente — o domínio
+ * próprio da instituição, quando houver. A sessão é um cookie do endereço, e
+ * entrar pelo domínio do painel não valeria no da instituição.
+ */
+export async function enderecoDoPortal(accountId: number): Promise<string> {
   const ultima = await prisma.enrollmentRegistration.findFirst({
     where: { status: { not: 'merged' }, lead: { portalAccount: { id: accountId } } },
     orderBy: { id: 'desc' },
     select: { portal: { select: { customDomain: true } } },
   }).catch(() => null)
   const { baseDoPortal } = await import('../lib/appUrl.js')
-  const base = baseDoPortal(ultima?.portal?.customDomain) ?? (process.env.APP_URL || '').replace(/\/$/, '')
-  return { raw, url: `${base}/portal/entrar?c=${encodeURIComponent(raw)}`, expiresAt }
+  return baseDoPortal(ultima?.portal?.customDomain) ?? (process.env.APP_URL || '').replace(/\/$/, '')
 }
 
 export type ResultadoLink =

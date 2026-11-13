@@ -16,10 +16,13 @@ import {
 import { authMiddleware } from '../lib/auth.js'
 import { verifyCandidateToken } from '../lib/candidateAuth.js'
 import {
-  acharConta, consumirLinkDeAcesso, criarLinkDeAcesso, definirSenha, garantirConta,
+  acharConta, consumirLinkDeAcesso, criarLinkDeAcesso, definirSenha, enderecoDoPortal, garantirConta,
   login, quemE, validarSenha,
   LINK_TTL_HORAS,
 } from '../services/portalAccount.js'
+import { guardTela } from '../lib/eduTelas.js'
+import { logEvent } from '../services/leadHistory.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
 import { avisos, esc } from '../lib/portalHtml.js'
@@ -57,38 +60,79 @@ export async function sessaoDaRequisicao(req: any): Promise<{ accountId: number 
   return r.ok ? { accountId: r.accountId } : null
 }
 
-async function enviarLink(leadId: number, url: string, finalidade: string): Promise<string | null> {
+type CanalDeEnvio = 'whatsapp' | 'email'
+
+/**
+ * Manda um modelo do sistema (`<base>_wa` / `<base>_email`) ao contato.
+ * `canais` é a ordem de tentativa: o primeiro que funcionar encerra. Devolve o
+ * canal usado (ou null) e o motivo de cada canal que falhou — a tela mostra,
+ * para a equipe saber que precisa entregar por outro caminho.
+ */
+async function enviarModeloAoContato(
+  leadId: number, base: string, vars: Record<string, any>, canais: CanalDeEnvio[] = ['whatsapp', 'email'],
+): Promise<{ canal: CanalDeEnvio | null; falhas: string[] }> {
+  const falhas: string[] = []
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { id: true, nome: true, whatsapp: true, email: true },
   })
-  if (!lead) return null
+  if (!lead) return { canal: null, falhas: ['Contato não encontrado.'] }
   const { renderizarModelo } = await import('../services/modelosDoSistema.js')
-  const base = finalidade === 'recuperacao' ? 'portal_recuperacao' : 'portal_acesso'
-  const vars = { nome: lead.nome ?? '', link: url, validade: LINK_TTL_HORAS }
+  const todas = { nome: lead.nome ?? '', ...vars }
 
-  if (lead.whatsapp) {
-    const msg = await renderizarModelo(`${base}_wa`, vars)
-    if (msg?.body.trim()) {
+  for (const canal of canais) {
+    if (canal === 'whatsapp') {
+      if (!lead.whatsapp) { falhas.push('WhatsApp: contato sem número.'); continue }
+      const msg = await renderizarModelo(`${base}_wa`, todas)
+      if (!msg?.body.trim()) { falhas.push('WhatsApp: modelo desligado em Modelos.'); continue }
       try {
         const { provider } = await getProviderForLeadOwner({ id: lead.id, whatsapp: lead.whatsapp })
         await provider.sendText(lead.whatsapp, msg.body)
-        return 'whatsapp'
-      } catch {
-        // Cai para o e-mail: WhatsApp fora do ar não pode deixar a pessoa sem acesso.
+        return { canal: 'whatsapp', falhas }
+      } catch (e: any) {
+        // Cai para o próximo canal: WhatsApp fora do ar não pode deixar a pessoa sem acesso.
+        falhas.push(`WhatsApp: ${String(e?.message || e).slice(0, 200)}`)
       }
-    }
-  }
-  if (lead.email) {
-    const em = await renderizarModelo(`${base}_email`, vars)
-    if (em?.body.trim()) {
+    } else {
+      if (!lead.email) { falhas.push('E-mail: contato sem e-mail.'); continue }
+      // O corpo do e-mail é HTML: senha com "<" ou "&" quebraria a mensagem.
+      const emHtml = Object.fromEntries(Object.entries(todas).map(([k, v]) => [k, typeof v === 'string' ? esc(v) : v]))
+      const em = await renderizarModelo(`${base}_email`, emHtml)
+      if (!em?.body.trim()) { falhas.push('E-mail: modelo desligado em Modelos.'); continue }
       try {
         const cfg = await getEmailConfig()
         await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
-        return 'email'
-      } catch { /* nada a fazer */ }
+        return { canal: 'email', falhas }
+      } catch (e: any) {
+        falhas.push(`E-mail: ${String(e?.message || e).slice(0, 200)}`)
+      }
     }
   }
+  return { canal: null, falhas }
+}
+
+async function enviarLink(leadId: number, url: string, finalidade: string, canais?: CanalDeEnvio[]): Promise<string | null> {
+  const base = finalidade === 'recuperacao' ? 'portal_recuperacao' : 'portal_acesso'
+  return (await enviarModeloAoContato(leadId, base, { link: url, validade: LINK_TTL_HORAS }, canais)).canal
+}
+
+/** Canais pedidos pela tela: 'whatsapp', 'email' ou o padrão (WhatsApp, senão e-mail). */
+function canaisPedidos(v: unknown): CanalDeEnvio[] {
+  return v === 'whatsapp' ? ['whatsapp'] : v === 'email' ? ['email'] : ['whatsapp', 'email']
+}
+
+/**
+ * Senha definida pela equipe: mais exigente que a do próprio aluno, porque
+ * vai trafegar numa mensagem. 10+ caracteres com maiúscula, minúscula,
+ * número e símbolo.
+ */
+export function validarSenhaForte(senha: string): string | null {
+  if (!senha || senha.length < 10) return 'A senha precisa ter ao menos 10 caracteres.'
+  if (senha.length > 72) return 'A senha pode ter no máximo 72 caracteres.'
+  if (/\s/.test(senha)) return 'A senha não pode ter espaços.'
+  if (!/[a-z]/.test(senha) || !/[A-Z]/.test(senha)) return 'Use letras maiúsculas e minúsculas.'
+  if (!/[0-9]/.test(senha)) return 'Use ao menos um número.'
+  if (!/[^A-Za-z0-9]/.test(senha)) return 'Use ao menos um símbolo (ex.: ! @ # $ %).'
   return null
 }
 
@@ -302,6 +346,89 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     })
     if (!conta) return reply.code(404).send({ error: 'Este contato não tem conta no portal.' })
     return { ok: true, sessoesEncerradas: await revogarTudo(conta.id) }
+  })
+
+  // ── Senha do portal pela equipe (inscrição › Portal do candidato) ──
+  // Credencial: tudo vai para a timeline do lead e para a auditoria, com quem
+  // fez. A senha em si nunca é gravada em log nem em evento.
+  const lerLeadId = (req: any) => Number(req.params?.leadId)
+  const autor = (req: any) => {
+    const a = auditActor(req)
+    return { userId: a.actorId ?? undefined, userName: a.actorName ?? undefined, a }
+  }
+
+  // GET — situação do acesso: tem senha? último login? bloqueado?
+  app.get('/api/admin/portal-accounts/:leadId/acesso', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const leadId = lerLeadId(req)
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, email: true, whatsapp: true, portalAccount: { select: { cpf: true, senhaHash: true, senhaDefinidaEm: true, ultimoLoginEm: true, bloqueadoAte: true, ativo: true } } },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Contato não encontrado' })
+    const c = lead.portalAccount
+    reply.header('cache-control', 'no-store')
+    return {
+      temConta: !!c, temSenha: !!c?.senhaHash, senhaDefinidaEm: c?.senhaDefinidaEm ?? null,
+      ultimoLoginEm: c?.ultimoLoginEm ?? null,
+      bloqueadoAte: c?.bloqueadoAte && c.bloqueadoAte > new Date() ? c.bloqueadoAte : null,
+      ativo: c?.ativo ?? true, usuario: c?.cpf ? 'cpf' : lead.email ? 'email' : null,
+      temWhatsapp: !!lead.whatsapp, temEmail: !!lead.email,
+    }
+  })
+
+  // POST — manda o link para a pessoa criar uma senha nova
+  app.post('/api/admin/portal-accounts/:leadId/enviar-nova-senha', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const leadId = lerLeadId(req)
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true } })
+    if (!lead) return reply.code(404).send({ error: 'Contato não encontrado' })
+    const conta = await garantirConta(leadId)
+    const link = await criarLinkDeAcesso(conta.id, 'recuperacao')
+    const r = await enviarModeloAoContato(leadId, 'portal_recuperacao', { link: link.url, validade: LINK_TTL_HORAS }, canaisPedidos((req.body as any)?.canal))
+    const { userId, userName, a } = autor(req)
+    logEvent({
+      leadId, type: 'magic_link_gerado', category: 'lifecycle', channel: 'portal', source: 'portal_senha_equipe',
+      title: r.canal ? `Link para nova senha do portal enviado por ${r.canal === 'whatsapp' ? 'WhatsApp' : 'e-mail'}` : 'Link para nova senha do portal NÃO foi enviado',
+      description: r.falhas.join(' · ') || undefined,
+      actorType: 'operator', userId, userName, metadata: { finalidade: 'recuperacao', enviadoPor: r.canal, falhas: r.falhas },
+    })
+    void logUserAudit({ action: 'portal.nova_senha_link', targetType: 'lead', targetLabel: String(leadId), changes: { enviadoPor: r.canal }, ...a })
+    reply.header('cache-control', 'no-store')
+    if (!r.canal) return reply.code(502).send({ error: `Não foi possível enviar. ${r.falhas.join(' · ')}`, url: link.url })
+    return { ok: true, enviadoPor: r.canal, falhas: r.falhas, ttlHoras: LINK_TTL_HORAS }
+  })
+
+  // POST — a equipe define a senha (forte) e, se pedir, manda à pessoa
+  app.post('/api/admin/portal-accounts/:leadId/senha', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const leadId = lerLeadId(req)
+    const b = (req.body as any) || {}
+    const senha = String(b.senha ?? '')
+    const erro = validarSenhaForte(senha)
+    if (erro) return reply.code(400).send({ error: erro })
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, email: true } })
+    if (!lead) return reply.code(404).send({ error: 'Contato não encontrado' })
+
+    const conta = await garantirConta(leadId)
+    const def = await definirSenha(conta.id, senha) // derruba as sessões abertas
+    if (!def.ok) return reply.code(400).send({ error: def.erro })
+    await prisma.portalAccount.update({ where: { id: conta.id }, data: { ativo: true } }).catch(() => {})
+
+    const cpf = (await prisma.portalAccount.findUnique({ where: { id: conta.id }, select: { cpf: true } }))?.cpf ?? null
+    const usuario = cpf ? cpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : (lead.email ?? '')
+    let envio: { canal: CanalDeEnvio | null; falhas: string[] } = { canal: null, falhas: [] }
+    if (b.enviar) {
+      const login = `${await enderecoDoPortal(conta.id)}/portal/login`
+      envio = await enviarModeloAoContato(leadId, 'portal_senha_definida', { usuario, senha, link: login }, canaisPedidos(b.canal))
+    }
+    const { userId, userName, a } = autor(req)
+    logEvent({
+      leadId, type: 'note_added', category: 'operator', channel: 'portal', source: 'portal_senha_equipe',
+      title: `Senha do portal definida pela equipe${b.enviar ? (envio.canal ? ` e enviada por ${envio.canal === 'whatsapp' ? 'WhatsApp' : 'e-mail'}` : ' (envio FALHOU)') : ' (não enviada)'}`,
+      description: envio.falhas.join(' · ') || undefined,
+      actorType: 'operator', userId, userName, metadata: { enviar: !!b.enviar, enviadoPor: envio.canal, falhas: envio.falhas },
+    })
+    void logUserAudit({ action: 'portal.senha_definida', targetType: 'lead', targetLabel: String(leadId), changes: { enviadoPor: envio.canal }, ...a })
+    reply.header('cache-control', 'no-store')
+    return { ok: true, usuario, enviadoPor: envio.canal, falhas: envio.falhas }
   })
 
 

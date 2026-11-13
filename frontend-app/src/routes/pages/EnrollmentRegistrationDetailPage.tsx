@@ -6,6 +6,7 @@ import { AbaFinanceiro } from './enrollmentPortal/matricula/AbaFinanceiro'
 import { AbaCadastro } from './enrollmentPortal/matricula/AbaCadastro'
 import { PedirAssinatura } from './enrollmentPortal/matricula/PedirAssinatura'
 import { BotaoDispensa, SeloDispensa, invalidarInscricao } from './enrollmentPortal/matricula/Dispensa'
+import { SenhaDoPortal } from './enrollmentPortal/matricula/SenhaDoPortal'
 import { chamarComoAgente } from './enrollmentPortal/matricula/sessao'
 import { AvisoDeTransferencia, BotaoTransferirCurso } from './enrollmentPortal/matricula/TransferirCurso'
 import { useRef, useState } from 'preact/hooks'
@@ -667,7 +668,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
   const slug = review.portal?.slug
   const code = review.registration.candidateCode
   const [resending, setResending] = useState(false)
-  const [linkGerado, setLinkGerado] = useState<{ url: string; ttlHoras: number } | null>(null)
+  const [linkGerado, setLinkGerado] = useState<{ url: string; ttlHoras: number; usado?: boolean } | null>(null)
   const resend = useResendMagicLink(slug ?? '')
   const gerar = useResendRegistrationLink()
 
@@ -702,6 +703,15 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
       onSuccess: (r) => setLinkGerado({ url: r.url, ttlHoras: r.ttlHoras ?? 48 }),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
+  }
+
+  /** Abre o portal do aluno já logado, numa aba nova. O link vale uma vez:
+   *  depois de usado aqui, não serve mais para mandar ao aluno. */
+  function acessar() {
+    if (!linkGerado) return
+    if (!confirm('Abrir o portal logado como o aluno? O link vale uma vez só: depois de abrir, ele não serve mais para mandar ao aluno.')) return
+    window.open(linkGerado.url, '_blank', 'noopener,noreferrer')
+    setLinkGerado({ ...linkGerado, usado: true })
   }
 
   function copiar(texto: string, label: string) {
@@ -760,15 +770,22 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
             <code class="flex-1 min-w-0 text-2xs text-fg-muted break-all bg-bg rounded px-2 py-1.5">
               {linkGerado.url}
             </code>
-            <Button variant="secondary" size="sm" onClick={() => copiar(linkGerado.url, 'Link de acesso')}>
+            <Button variant="secondary" size="sm" onClick={() => copiar(linkGerado.url, 'Link de acesso')} disabled={linkGerado.usado}>
               <Copy size={12} /> Copiar
+            </Button>
+            <Button variant="secondary" size="sm" onClick={acessar} disabled={linkGerado.usado}>
+              <ExternalLink size={12} /> Acessar
             </Button>
           </div>
           <div class="text-2xs text-warning mt-2">
-            Quem abrir este link entra no portal do aluno — mande só para ele e não abra para testar, ou o link deixa de valer.
+            {linkGerado.usado
+              ? 'Este link foi usado por você e não vale mais. Para mandar ao aluno, gere outro.'
+              : 'Quem abrir este link entra no portal do aluno — mande só para ele. "Acessar" usa o link: depois, gere outro para o aluno.'}
           </div>
         </div>
       )}
+
+      {review.lead?.id && <SenhaDoPortal leadId={review.lead.id} />}
     </Card>
   )
 }
