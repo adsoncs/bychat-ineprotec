@@ -1580,3 +1580,10 @@ body:has(input:focus, select:focus, textarea:focus) .a11y:not(:focus-within) { o
   :root[data-passos='numeros'] .trilha[data-muitas] .etapa.atual .rotulo { display: inline; }
   :root[data-passos='numeros'] .trilha[data-muitas] .etapa + .etapa::before { flex-basis: 14px; margin: 0 8px; }
 }
+/* Celular com 5+ passos: traços curtos e números menores, para os seis
+   caberem em 360px sem rolar (o último ficava cortado na borda). */
+@media (max-width: 560px) {
+  :root[data-passos='numeros'] .trilha[data-muitas] .etapa + .etapa::before { flex-basis: 6px; margin: 0 4px; }
+  :root[data-passos='numeros'] .trilha[data-muitas] .numero { width: 24px; height: 24px; font-size: 12px; }
+  :root[data-passos='numeros'] .trilha[data-muitas] .etapa { gap: 6px; }
+}
