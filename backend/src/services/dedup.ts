@@ -444,6 +444,44 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
+/** Pagou ou virou matrícula (mesma regra de inscricaoDuplicada.ts). */
+const inscricaoPaga = (r: { status: string; paymentStatus: string | null }) =>
+  r.paymentStatus === 'paid' || ['paid', 'enrolled'].includes(r.status)
+
+/**
+ * Inscrição do portal é UMA por processo (processRegistrationId @unique). Se as
+ * duas fichas têm inscrição no mesmo curso, mover a da absorvida para o processo
+ * do principal estoura a unicidade (Leonildo, ineprotec 13/11). Fica a paga — ou
+ * a do principal, se nenhuma (ou as duas) pagou; a outra vira "mesclada" nela,
+ * como em mesclarInscricoes, e sai do processo.
+ */
+async function juntarInscricoesDoMesmoProcesso(tx: Tx, prMerge: number, prKeep: number): Promise<void> {
+  const sel = { id: true, status: true, paymentStatus: true, candidateCode: true } as const
+  const daAbsorvida = await tx.enrollmentRegistration.findMany({ where: { processRegistrationId: prMerge }, select: sel })
+  if (!daAbsorvida.length) return
+  const doPrincipal = await tx.enrollmentRegistration.findFirst({ where: { processRegistrationId: prKeep }, select: sel })
+  if (!doPrincipal) {
+    await tx.enrollmentRegistration.updateMany({ where: { processRegistrationId: prMerge }, data: { processRegistrationId: prKeep } })
+    return
+  }
+  const absorvida = daAbsorvida[0]
+  const pagaA = inscricaoPaga(absorvida), pagaP = inscricaoPaga(doPrincipal)
+  if (pagaA && pagaP) {
+    throw new Error(`As duas fichas têm inscrição PAGA no mesmo curso (${doPrincipal.candidateCode} e ${absorvida.candidateCode}). Resolva uma delas (transferência ou cancelamento) antes de juntar.`)
+  }
+  const [fica, sai] = pagaA && !pagaP ? [absorvida, doPrincipal] : [doPrincipal, absorvida]
+  await tx.enrollmentRegistration.update({
+    where: { id: sai.id },
+    data: {
+      processRegistrationId: null,
+      ...(sai.status === 'merged' ? {} : { status: 'merged', statusAntesDaMescla: sai.status, mergedIntoId: fica.id }),
+    },
+  })
+  if (fica.id === absorvida.id) {
+    await tx.enrollmentRegistration.update({ where: { id: fica.id }, data: { processRegistrationId: prKeep } })
+  }
+}
+
 /**
  * Move para `keepId` tudo o que aponta para `mergeId`.
  *
@@ -495,7 +533,7 @@ export async function transferirRelacoesDoLead(tx: Tx, mergeId: number, keepId: 
     }
     // Mesmo curso nos dois: tudo passa a apontar para a do principal. Notas,
     // ensalamento e extras guardam só o id (sem FK) — sem isto ficariam órfãos.
-    await tx.enrollmentRegistration.updateMany({ where: { processRegistrationId: pr.id }, data: { processRegistrationId: doPrincipal } })
+    await juntarInscricoesDoMesmoProcesso(tx, pr.id, doPrincipal)
     const notasKeep = new Set((await tx.acaProcessoNota.findMany({ where: { processRegistrationId: doPrincipal }, select: { componenteId: true } })).map((n) => n.componenteId))
     await tx.acaProcessoNota.updateMany({ where: { processRegistrationId: pr.id, componenteId: { notIn: [...notasKeep, -1] } }, data: { processRegistrationId: doPrincipal } })
     if (!(await tx.acaProcessoEnsalamento.findUnique({ where: { processRegistrationId: doPrincipal }, select: { id: true } }))) {
