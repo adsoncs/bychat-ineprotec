@@ -44,7 +44,7 @@ const PADRAO: LoginDoPortal = {
   formTitulo: 'Acesse sua inscrição', formSubtitulo: 'Entre para acompanhar sua inscrição e sua vida acadêmica.',
   modoEmail: true, modoCodigo: true,
   esqueciTexto: 'Esqueceu a senha?', recuperarTitulo: 'Recuperar acesso',
-  recuperarTexto: 'Informe o e-mail do cadastro. Mandamos um link pelo WhatsApp ou e-mail — ele vale 48 horas e serve uma vez.',
+  recuperarTexto: 'Informe o e-mail, o CPF ou o código da inscrição. Mandamos um link pelo WhatsApp ou e-mail — ele vale 48 horas e serve uma vez.',
   linkHoras: 48, prefixoCodigo: 'MAT',
 }
 
@@ -161,7 +161,7 @@ export function Entrar() {
       body: JSON.stringify({ identificador: recuperar }),
     }).then((x) => x.json()).catch(() => null)
     setEnviando(false); setErro(null)
-    setLinkEnviado(r?.mensagem || 'Se houver cadastro com esse e-mail, enviamos um link de acesso pelo WhatsApp ou e-mail.')
+    setLinkEnviado(r?.mensagem || 'Se houver cadastro com esse dado, enviamos um link de acesso pelo WhatsApp ou e-mail.')
   }
 
   const logo = marca && (marca.brandLogoUrl

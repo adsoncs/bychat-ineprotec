@@ -91,7 +91,7 @@ export const PADROES_LOGIN = {
   formSubtitulo: 'Entre para acompanhar sua inscrição e sua vida acadêmica.',
   esqueciTexto: 'Esqueceu a senha?',
   recuperarTitulo: 'Recuperar acesso',
-  recuperarTexto: 'Informe o e-mail do cadastro. Mandamos um link pelo WhatsApp ou e-mail — ele vale {horas} horas e serve uma vez.',
+  recuperarTexto: 'Informe o e-mail, o CPF ou o código da inscrição. Mandamos um link pelo WhatsApp ou e-mail — ele vale {horas} horas e serve uma vez.',
 }
 
 const VAZIO: EduGeral = {
