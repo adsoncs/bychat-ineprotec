@@ -203,7 +203,6 @@ export function Entrar() {
                 <label for="ent-usuario">Usuário</label>
                 <input id="ent-usuario" value={usuario} required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck={false}
                   placeholder="E-mail, CPF ou código da inscrição" onInput={(e: any) => setUsuario(e.currentTarget.value)} />
-                <span class="ajuda">O código está na confirmação da inscrição (começa com {login.prefixoCodigo}-).</span>
               </div>
               <div class="campo">
                 <label for="ent-senha">Senha</label>
