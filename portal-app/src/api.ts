@@ -801,8 +801,9 @@ export const salvarDados = (code: string, token: string, etapa: string, valores:
   })
 
 /** Portal logado: etapas na ordem do painel + token da inscrição para as ações. */
-export const carregarJornadaDoPortal = () =>
-  pedir<Jornada & { inscricao: { id: number; candidateCode: string }; token: string }>('/api/public/portal/jornada')
+export const carregarJornadaDoPortal = (codigo?: string | null) =>
+  pedir<Jornada & { inscricao: { id: number; candidateCode: string }; token: string }>(
+    '/api/public/portal/jornada' + (codigo ? `?codigo=${encodeURIComponent(codigo)}` : ''))
 
 export interface ContratoDaInscricao {
   titulo: string

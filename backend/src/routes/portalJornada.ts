@@ -11,6 +11,7 @@ import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
+import { inscricaoDoPortal } from '../services/portalAccount.js'
 import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, emitirParecer, responderParecer, etapaDeAnalise, CHAVES, type ChaveEtapa, type EtapaDaInscricao } from '../services/portalJornada.js'
 import {
   dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
@@ -103,10 +104,9 @@ function sessaoDoCandidato(req: any, code: string): { enrollmentId: number; cand
 async function inscricaoDaConta(req: any) {
   const conta = await contaDaRequisicao(req)
   if (!conta) return null
-  return prisma.enrollmentRegistration.findFirst({
-    // Mesclada em outra (duplicidade) não é a inscrição da pessoa.
-    where: { leadId: conta.leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
-  })
+  // Mesclada não conta; a ativa vem antes da cancelada; ?codigo= escolhe outra da mesma pessoa.
+  const codigo = String((req.query as any)?.codigo || '').trim() || null
+  return inscricaoDoPortal(conta.leadId, codigo)
 }
 
 const ipDe = (req: any) => (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip

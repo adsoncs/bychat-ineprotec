@@ -20,7 +20,7 @@ import { t as tx } from './textos'
 interface Eu {
   nome: string; email: string | null; whatsapp: string | null; temSenha: boolean
   aluno: { id: number; ra: string | null } | null
-  inscricoes: Array<{ id: number; candidateCode: string; status: string }>
+  inscricoes: Array<{ id: number; candidateCode: string; status: string; curso?: string | null }>
 }
 
 const STATUS: Record<string, string> = {
@@ -75,8 +75,18 @@ export function Portal() {
           .catch(() => setPainel(null))
       })
       .catch(() => setFalha(tx('portal.falha', 'Não foi possível abrir o seu portal. Verifique a conexão e tente de novo.')))
-    carregarJornadaDoPortal().then(setJornada).catch(() => {})
+    carregarJornadaDoPortal(q.get('inscricao')).then(setJornada).catch(() => {})
   }, [])
+
+  // Trocar de inscrição (quem tem mais de uma): a escolhida fica na URL para o recarregar manter.
+  function abrirInscricao(codigo: string) {
+    setEditando(false)
+    setJornada(null)
+    const u = new URL(location.href); u.searchParams.set('inscricao', codigo); history.replaceState(null, '', u)
+    carregarJornadaDoPortal(codigo).then(setJornada)
+      .catch(() => setFalha(tx('portal.falha', 'Não foi possível abrir o seu portal. Verifique a conexão e tente de novo.')))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   const ativas = (eu?.inscricoes ?? []).filter((i) => i.status !== 'merged')
   const outras = ativas.filter((i) => i.candidateCode !== jornada?.inscricao.candidateCode)
@@ -114,7 +124,7 @@ export function Portal() {
               </div>
             )}
             {jornada ? (
-              <ResumoDoCandidato codigo={jornada.inscricao.candidateCode} token={jornada.token}
+              <ResumoDoCandidato key={jornada.inscricao.candidateCode} codigo={jornada.inscricao.candidateCode} token={jornada.token}
                 podeEditar portalSlug={jornada.portal?.slug} nomeCompleto={eu.nome}
                 editando={editando} aoMudarEdicao={setEditando}
                 aoSalvar={(novo) => setEu({ ...eu, ...(novo as Eu) })} />
@@ -128,7 +138,13 @@ export function Portal() {
               <div class="cartao">
                 <h2 style="font-size:17px">{tx('portal.outrasInscricoes', 'Outras inscrições')}</h2>
                 {outras.map((i) => (
-                  <div class="item-conta" key={i.id}><span><b>{i.candidateCode}</b></span><span class={`rc-situacao ${tomDaSituacao(i.status)}`}>{STATUS[i.status] ?? i.status}</span></div>
+                  <div class="item-conta" key={i.id}>
+                    <span>{i.curso && <>{i.curso}<br /></>}<b>{i.candidateCode}</b></span>
+                    <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+                      <span class={`rc-situacao ${tomDaSituacao(i.status)}`}>{STATUS[i.status] ?? i.status}</span>
+                      <button type="button" class="botao-contorno" onClick={() => abrirInscricao(i.candidateCode)}>{tx('portal.abrirInscricao', 'Abrir')}</button>
+                    </span>
+                  </div>
                 ))}
               </div>
             )}
@@ -141,7 +157,7 @@ export function Portal() {
               : jornada && (
                 <div class="cartao">
                   {jornada.etapas.length
-                    ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} portalSlug={jornada.portal?.slug} />
+                    ? <Jornada key={jornada.inscricao.candidateCode} codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} portalSlug={jornada.portal?.slug} />
                     : <p class="sub" style="margin:0">{tx('portal.nadaPendente', 'Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.')}</p>}
                 </div>
               )}

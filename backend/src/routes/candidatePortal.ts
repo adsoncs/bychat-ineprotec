@@ -12,7 +12,7 @@ import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
 import { signCandidateToken, verifyCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao, emitirSessao, gravarCookie, ipDaRequisicao } from '../lib/portalSession.js'
-import { garantirConta } from '../services/portalAccount.js'
+import { garantirConta, inscricaoDoPortal } from '../services/portalAccount.js'
 import { portalAppDisponivel } from '../lib/portalApp.js'
 import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
@@ -43,11 +43,7 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
       })
       if (doToken) return { ...session, onde: ondeDoToken(session) }
     }
-    const reg = await prisma.enrollmentRegistration.findFirst({
-      where: { leadId: conta.leadId, status: { not: 'merged' } },
-      orderBy: { id: 'desc' },
-      select: { id: true, candidateCode: true },
-    })
+    const reg = await inscricaoDoPortal(conta.leadId)
     // Logado: vale a sequência do portal logado — salvo quando o token da tela
     // de inscrição desta mesma inscrição veio junto (a pessoa está lá).
     if (reg) return { enrollmentId: reg.id, candidateCode: reg.candidateCode, onde: session?.enrollmentId === reg.id ? ondeDoToken(session) : 'painel' }

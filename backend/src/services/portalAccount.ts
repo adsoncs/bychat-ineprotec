@@ -259,6 +259,24 @@ export async function consumirLinkDeAcesso(
 }
 
 /** Quem é o dono da sessão: contato, e aluno quando já houver matrícula. */
+/** Inscrição que não está mais valendo: só aparece se a pessoa escolher. */
+export const INSCRICAO_ENCERRADA = ['cancelled', 'transferred', 'expired']
+
+/**
+ * Qual inscrição o portal logado abre: a do código pedido (se for da pessoa);
+ * senão a mais recente que ainda vale; só sem nenhuma, a mais recente.
+ * Antes abria sempre a mais recente — inclusive cancelada — e a ativa ficava
+ * sem acesso (fabad, Fabricio: Pós cancelada por cima do Bacharel pago).
+ */
+export async function inscricaoDoPortal(leadId: number, codigo?: string | null) {
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' },
+    select: { id: true, candidateCode: true, status: true },
+  })
+  const pedida = codigo ? regs.find((r) => r.candidateCode === codigo) : undefined
+  return pedida ?? regs.find((r) => !INSCRICAO_ENCERRADA.includes(r.status)) ?? regs[0] ?? null
+}
+
 export async function quemE(accountId: number) {
   const conta = await prisma.portalAccount.findUnique({
     where: { id: accountId },
@@ -275,7 +293,11 @@ export async function quemE(accountId: number) {
   const inscricoes = await prisma.enrollmentRegistration.findMany({
     where: { leadId: conta.leadId },
     orderBy: { id: 'desc' },
-    select: { id: true, candidateCode: true, status: true },
+    select: {
+      id: true, candidateCode: true, status: true,
+      portal: { select: { nome: true } },
+      processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } } } },
+    },
   })
   return {
     accountId: conta.id,
@@ -285,6 +307,9 @@ export async function quemE(accountId: number) {
     email: conta.lead.email,
     whatsapp: conta.lead.whatsapp,
     aluno,
-    inscricoes,
+    inscricoes: inscricoes.map((i) => ({
+      id: i.id, candidateCode: i.candidateCode, status: i.status,
+      curso: i.processRegistration?.offering?.course?.nome || i.processRegistration?.offering?.nome || i.portal?.nome || null,
+    })),
   }
 }

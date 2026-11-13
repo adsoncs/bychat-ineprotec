@@ -126,6 +126,7 @@ export const CATALOGO_TEXTOS: GrupoDeTextos[] = [
     textos: [
       { chave: 'portal.candidato', rotulo: 'Quem ainda não é aluno', padrao: 'Candidato' },
       { chave: 'portal.outrasInscricoes', rotulo: 'Título de outras inscrições', padrao: 'Outras inscrições' },
+      { chave: 'portal.abrirInscricao', rotulo: 'Botão para abrir outra inscrição', padrao: 'Abrir' },
       { chave: 'portal.nadaPendente', rotulo: 'Sem etapas pendentes', padrao: 'Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.', longo: true },
       { chave: 'portal.falha', rotulo: 'Erro ao abrir o portal', padrao: 'Não foi possível abrir o seu portal. Verifique a conexão e tente de novo.', longo: true },
       { chave: 'portal.menuEditar', rotulo: 'Menu: editar dados', padrao: 'Editar meus dados' },
