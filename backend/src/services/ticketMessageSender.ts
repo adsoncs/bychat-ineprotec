@@ -373,7 +373,14 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
         // Grupo: o destino é o JID "<id>@g.us" (não há telefone).
         // Contato puro-LID: jidDoWaLid garante o sufixo "@lid" mesmo quando a
         // coluna só tem os dígitos — sem ele o envio ia para "<dígitos>@s.whatsapp.net".
-        const destinatario: string = (lead as any).groupJid || jidDoWaLid((lead as any).waLid) || lead.whatsapp
+        // API Oficial: SEMPRE o telefone. O LID só existe na linha não oficial
+        // (Evolution); a Meta aceita "<lid>@lid" e depois devolve 131026
+        // "Message undeliverable" — caso real: severiano, 25 de 25 envios ao
+        // LID falharam (contatos que antes falavam pela Evolution).
+        const lidDoContato = jidDoWaLid((lead as any).waLid)
+        const destinatario: string = provider.providerName === 'cloud_api'
+          ? (lead.whatsapp || lidDoContato || '')
+          : ((lead as any).groupJid || lidDoContato || lead.whatsapp)
 
         if (mType === 'template') {
           if (provider.providerName !== 'cloud_api') {
