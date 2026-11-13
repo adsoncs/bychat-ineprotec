@@ -3,7 +3,7 @@ import type { ComponentChildren, JSX } from 'preact'
 import {
   continuarPorToken,
   carregarPortal, enviarInscricao, enviarInteresse, lerRascunho, marcarConversao, rotulo, salvarRascunho,
-  type DadosPortal, type Oferta, type Passo,
+  type DadosPortal, type EtapaDaJornada, type Oferta, type Passo,
 } from './api'
 import { criarSenhaInicial, enviarDocumento } from './api'
 import { emAtendimento, definirInscricaoDoAtendimento } from './atendimento'
@@ -231,7 +231,6 @@ export function App() {
   // Modo simplificado (Educacional › Dados por etapa): a inscrição é uma página
   // só — o servidor já junta os passos — e sem tela de revisão: preencheu, enviou.
   const simplificado = !!dados?.portal.formConfig?._simplificado
-  const totalPassos = passosVisiveis.length + (simplificado ? 0 : 1) // +1 = revisão
   const naRevisao = !simplificado && passo >= passosVisiveis.length
   const ultimoPasso = passo >= passosVisiveis.length - 1
   // Simplificado = formulário limpo: só os campos e o botão, feito para embutir
@@ -388,6 +387,12 @@ export function App() {
     </div>
   )
   const ofertaEscolhida = offerings.find((o) => String(o.id) === String(valores.offeringId)) ?? null
+  // Trilha da matrícula inteira: os passos do formulário e, depois deles, as
+  // etapas que o portal pede após o envio (pagamento, documentos, contrato…).
+  const nomesDoForm = [...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')])]
+  const previstas = (portal.etapasPrevistas ?? []).map((e) => tx(`etapas.nome.${e.chave}`, e.titulo))
+  const trilhaCompleta = [...nomesDoForm, ...previstas]
+  const nomeDaPessoa = String(valores.nome ?? valores.name ?? valores.nomeCompleto ?? '').trim()
 
   if (concluido) {
     const fim = conclusaoDoPortal(portal)
@@ -402,7 +407,9 @@ export function App() {
         aoAbrirSenha={() => setAbrirSenha(true)}
         aoFecharSenha={() => setAbrirSenha(false)}
         aoCriarSenha={() => setTemSenha(true)}
-        passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')]), 'Conclusão']}
+        passos={nomesDoForm}
+        previstas={previstas}
+        nome={nomeDaPessoa}
         limpo={limpo}
         aviso={avisoDocs}
       />
@@ -468,9 +475,9 @@ export function App() {
         <BarraTopo
           portal={portal}
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
-          passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')])]}
+          passos={trilhaCompleta}
           atual={passo}
-          total={totalPassos}
+          total={trilhaCompleta.length}
         />
       ) : (
         <Cabecalho
@@ -478,9 +485,9 @@ export function App() {
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
           trilha={
             <Trilha
-              passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')])]}
+              passos={trilhaCompleta}
               atual={passo}
-              total={totalPassos}
+              total={trilhaCompleta.length}
             />
           }
         />
@@ -507,7 +514,7 @@ export function App() {
         ) : (
           <>
             <h2>{passoAtual?.name}</h2>
-            {totalPassos > 1 && <p class="sub">Etapa {passo + 1} de {totalPassos}</p>}
+            {trilhaCompleta.length > 1 && <Progresso atual={passo} total={trilhaCompleta.length} />}
             {/* Link de um curso: no celular o resumo fica lá embaixo, e a pessoa
                 preencheria os dados sem ver para qual curso. */}
             {dados?.cursoDoLink && ofertaEscolhida && !naRevisao && (
@@ -641,12 +648,28 @@ function AcessoNoTopo(props: {
   return <a class="acesso-topo" href={destino}>Entrar</a>
 }
 
-/** Passos da inscrição. Em barras (padrão) ou em círculos numerados. */
-function Trilha({ passos, atual, total }: { passos: string[]; atual: number; total: number }) {
+/** "Passo X de N" e a barra que enche: a pessoa vê quanto falta da matrícula inteira. */
+function Progresso({ atual, total }: { atual: number; total: number }) {
+  const n = Math.min(atual + 1, total)
   return (
-    <div class="trilha" role="list" aria-label={`Etapa ${atual + 1} de ${total}`}>
+    <div class="progresso-geral">
+      <span class="sub">{tx('trilha.passoDe', 'Passo')} {n} {tx('trilha.de', 'de')} {total}</span>
+      <div class="progresso-barra" role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={n}>
+        <span style={{ width: `${Math.round((n / total) * 100)}%` }} />
+      </div>
+    </div>
+  )
+}
+
+/** Passos da inscrição. Em barras (padrão) ou em círculos numerados. */
+function Trilha({ passos, atual, total, feitas }: { passos: string[]; atual: number; total: number; feitas?: number[] }) {
+  // `feitas`: depois do envio as etapas podem terminar fora de ordem (ex.:
+  // documentos enviados antes do pagamento) — aí cada uma diz se está feita.
+  const feita = (i: number) => (feitas ? feitas.includes(i) : i < atual)
+  return (
+    <div class="trilha" role="list" aria-label={`Etapa ${Math.min(atual + 1, total)} de ${total}`} data-muitas={passos.length > 4 ? '' : undefined}>
       {passos.map((nome, i) => (
-        <div class={`etapa ${i === atual ? 'atual' : i < atual ? 'feita' : ''}`} role="listitem" key={nome + i}>
+        <div class={`etapa ${i === atual ? 'atual' : feita(i) ? 'feita' : ''}`} role="listitem" key={nome + i} title={nome}>
           <div class="barra" />
           <span class="numero" aria-hidden="true">{i + 1}</span>
           <span class="rotulo">{nome}</span>
@@ -662,6 +685,7 @@ function BarraTopo(props: {
   passos: string[]
   atual: number
   total: number
+  feitas?: number[]
   acesso?: ComponentChildren
 }) {
   // A faixa é fixa, então a página precisa saber quanto ela ocupa para começar
@@ -685,7 +709,7 @@ function BarraTopo(props: {
           <Logo portal={props.portal} />
           {props.acesso}
         </div>
-        <Trilha passos={props.passos} atual={props.atual} total={props.total} />
+        <Trilha passos={props.passos} atual={props.atual} total={props.total} feitas={props.feitas} />
         {props.portal.brandSecurityNote && (
           <span class="selo">
             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -991,6 +1015,7 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
           Não é este curso? <a href={verTodos}>Ver todos os cursos</a>
         </p>
       )}
+      <AjudaNoResumo portal={portal} />
     </div>
   )
 }
@@ -1061,14 +1086,19 @@ function Concluido(props: {
   /** Desistir do painel: some sem criar nada e o convite volta ao cartão. */
   aoFecharSenha: () => void
   aoCriarSenha: () => void
-  /** A trilha acompanha até aqui: a última etapa é o pagamento. */
+  /** Passos do formulário (já feitos); as etapas depois do envio vêm da jornada. */
   passos: string[]
+  /** Etapas previstas pelo portal, para a trilha antes da jornada carregar. */
+  previstas?: string[]
+  /** Nome de quem se inscreveu (a tela final chama pelo primeiro nome). */
+  nome?: string
   /** Formulário limpo (embutido): só a confirmação e os próximos passos. */
   limpo?: boolean
   /** Arquivo do formulário que não subiu (será pedido na etapa Documentos). */
   aviso?: string | null
 }) {
   const [pago, setPago] = useState(false)
+  const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(null)
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
@@ -1147,6 +1177,21 @@ function Concluido(props: {
     )
   }
 
+  // Trilha: os passos do formulário (todos feitos) e as etapas da jornada, com
+  // a da vez destacada. Sem etapas, termina em "Conclusão", como antes.
+  const nomesEtapas = etapas ? etapas.map((e) => tx(`etapas.nome.${e.chave}`, e.titulo)) : (props.previstas ?? [])
+  const passosTrilha = nomesEtapas.length ? [...props.passos, ...nomesEtapas] : [...props.passos, tx('conc.trilhaConclusao', 'Conclusão')]
+  const nForm = props.passos.length
+  const daVez = etapas ? etapas.findIndex((e) => e.situacao === 'pendente' && !e.bloqueada) : (nomesEtapas.length ? 0 : -1)
+  const atualTrilha = daVez >= 0 ? nForm + daVez : passosTrilha.length
+  const feitasTrilha = [
+    ...props.passos.map((_, i) => i),
+    ...(etapas ? etapas.flatMap((e, i) => (e.situacao !== 'pendente' ? [nForm + i] : [])) : []),
+    ...(!nomesEtapas.length ? [nForm] : []),
+  ]
+  // Tudo feito ou entregue (o que falta é da instituição): vira a tela final.
+  const tudoEntregue = !!etapas?.length && etapas.every((e) => e.situacao !== 'pendente')
+
   const acesso = (
     <AcessoNoTopo
       temSenha={props.temSenha || pronto}
@@ -1164,9 +1209,10 @@ function Concluido(props: {
           <BarraTopo
             portal={props.portal}
             acesso={acesso}
-            passos={props.passos}
-            atual={props.passos.length - 1}
-            total={props.passos.length}
+            passos={passosTrilha}
+            atual={atualTrilha}
+            total={passosTrilha.length}
+            feitas={feitasTrilha}
           />
           <Capa portal={props.portal} />
         </>
@@ -1176,13 +1222,18 @@ function Concluido(props: {
           acesso={acesso}
           trilha={
             <Trilha
-              passos={props.passos}
-              atual={props.passos.length - 1}
-              total={props.passos.length}
+              passos={passosTrilha}
+              atual={atualTrilha}
+              total={passosTrilha.length}
+              feitas={feitasTrilha}
             />
           }
         />
       )}
+      <div class="coluna-conclusao">
+      {tudoEntregue && etapas ? (
+        <FinalDaMatricula portal={props.portal} nome={props.nome} codigo={props.codigo} etapas={etapas} mensagem={props.mensagem} />
+      ) : (
       <div class="cartao fim">
         <div class="marca" aria-hidden="true">✓</div>
         <h2>{tx('conc.titulo', 'Inscrição recebida')}</h2>
@@ -1217,13 +1268,14 @@ function Concluido(props: {
           </p>
         )}
       </div>
+      )}
 
       {/* Etapas depois da inscrição, na ordem que o portal escolheu
           (pagamento, documentos, contrato, redação). Sem nenhuma aplicável,
           não aparece nada — a tela fica como antes. */}
       {props.token && !props.pagamentoUrl && (
-        <div class="cartao" style="margin-top:14px;text-align:left">
-          <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} />
+        <div class="cartao" style={`margin-top:14px;text-align:left${tudoEntregue ? ';display:none' : ''}`}>
+          <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} aoCarregar={setEtapas} />
         </div>
       )}
 
@@ -1269,7 +1321,98 @@ function Concluido(props: {
           <a href="/portal"><button class="principal">{tx('conc.irPortal', 'Ir para meu portal')}</button></a>
         </div>
       )}
+      </div>
+      <ResumoDaConclusao portal={props.portal} oferta={props.oferta} codigo={props.codigo} etapas={etapas} />
       <Rodape portal={props.portal} />
+    </div>
+  )
+}
+
+/** Link do WhatsApp de ajuda do portal (o mesmo do botão flutuante), ou null. */
+function linkDeAjuda(portal: DadosPortal['portal']): string | null {
+  if (portal.ctaBehavior !== 'whatsapp' || !portal.ctaTarget) return null
+  return `https://wa.me/${String(portal.ctaTarget).replace(/\D/g, '')}?text=${encodeURIComponent(portal.ctaMessage || tx('conc.ajudaMensagem', 'Olá! Preciso de ajuda com a inscrição.'))}`
+}
+
+/** "Ficou com dúvida?" no resumo: o canal de ajuda do portal, à vista o tempo todo. */
+function AjudaNoResumo({ portal }: { portal: DadosPortal['portal'] }) {
+  const url = linkDeAjuda(portal)
+  if (!url) return null
+  return (
+    <div class="ajuda-resumo">
+      <b>{tx('resumo.duvidaTitulo', 'Ficou com dúvida?')}</b>
+      <a href={url} target="_blank" rel="noopener">{tx('resumo.duvidaLink', 'Fale com a gente no WhatsApp')}</a>
+    </div>
+  )
+}
+
+const MARCA_ETAPA = (e: EtapaDaJornada) => (e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? '◷' : '')
+
+/** Resumo lateral da conclusão: o curso, o status de cada etapa e a ajuda. */
+function ResumoDaConclusao(props: { portal: DadosPortal['portal']; oferta: Oferta | null; codigo: string; etapas: EtapaDaJornada[] | null }) {
+  return (
+    <aside class="resumo resumo-conclusao">
+      <h3>{tx('resumo.conclusaoTitulo', 'Sua matrícula')}</h3>
+      {props.oferta && <div class="curso-escolhido">{props.oferta.nome}</div>}
+      <div class="linha"><span>{tx('resumo.codigo', 'Inscrição')}</span><b>{props.codigo}</b></div>
+      <div class="status-matricula">
+        <div class="status-titulo">{tx('resumo.statusTitulo', 'Status da sua matrícula')}</div>
+        <ul>
+          <li class="feito"><span class="ponto" aria-hidden="true">✓</span>{tx('resumo.inscricaoEnviada', 'Inscrição enviada')}</li>
+          {(props.etapas ?? []).map((e) => (
+            <li key={e.chave} class={e.situacao}>
+              <span class="ponto" aria-hidden="true">{MARCA_ETAPA(e)}</span>
+              <span>{tx(`etapas.nome.${e.chave}`, e.titulo)}{e.situacao === 'aguardando' && <small> · {tx('etapas.aguardando', 'Em análise')}</small>}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <AjudaNoResumo portal={props.portal} />
+    </aside>
+  )
+}
+
+/**
+ * Tela final: tudo o que dependia da pessoa foi feito. Linha do tempo do que
+ * aconteceu (e do que está com a instituição) e para onde ir agora.
+ */
+function FinalDaMatricula(props: { portal: DadosPortal['portal']; nome?: string; codigo: string; etapas: EtapaDaJornada[]; mensagem?: string }) {
+  const primeiro = (props.nome || '').split(/\s+/)[0] || ''
+  const tudoFeito = props.etapas.every((e) => e.situacao === 'feito')
+  const ajuda = linkDeAjuda(props.portal)
+  const titulo = tudoFeito
+    ? tx('fim.tituloConcluida', 'Matrícula concluída{{nome}}!')
+    : tx('fim.tituloEnviada', 'Tudo enviado{{nome}}!')
+  return (
+    <div class="cartao fim fim-matricula">
+      <div class="marca" aria-hidden="true">✓</div>
+      <h2>{titulo.replace('{{nome}}', primeiro ? `, ${primeiro}` : '')}</h2>
+      <p class="sub">
+        {tudoFeito
+          ? tx('fim.textoConcluida', 'Está tudo certo com a sua matrícula. Veja abaixo o que aconteceu.')
+          : tx('fim.textoEnviada', 'Você fez a sua parte. Agora é com a gente: avisamos pelo WhatsApp a cada novidade.')}
+      </p>
+      {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
+      <ol class="linha-do-tempo">
+        <li class="feito">
+          <span class="ponto" aria-hidden="true">✓</span>
+          <div><b>{tx('resumo.inscricaoEnviada', 'Inscrição enviada')}</b><span class="sub">{props.codigo}</span></div>
+        </li>
+        {props.etapas.map((e) => (
+          <li key={e.chave} class={e.situacao}>
+            <span class="ponto" aria-hidden="true">{MARCA_ETAPA(e)}</span>
+            <div><b>{tx(`etapas.nome.${e.chave}`, e.titulo)}</b><span class="sub">{e.detalhe}</span></div>
+          </li>
+        ))}
+        <li class="proximo">
+          <span class="ponto" aria-hidden="true" />
+          <div><b>{tx('fim.proximoTitulo', 'Acompanhe pelo seu portal')}</b><span class="sub">{tx('fim.proximoTexto', 'Novidades da sua matrícula aparecem lá e chegam pelo WhatsApp.')}</span></div>
+        </li>
+      </ol>
+      <div class="acoes-fim">
+        <a href="/portal"><button class="principal">{tx('fim.irPortal', 'Ir para o meu portal')}</button></a>
+        {ajuda && <a href={ajuda} target="_blank" rel="noopener"><button class="secundario">{tx('fim.whatsapp', 'Falar no WhatsApp')}</button></a>}
+      </div>
     </div>
   )
 }

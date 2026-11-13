@@ -4,7 +4,7 @@
 //   · inscricao: uma etapa por vez, logo depois do envio do formulário. Etapa
 //     não obrigatória pode ficar para depois; a pessoa segue para a próxima.
 //   · painel: no portal logado, a mesma lista em cartões; o que falta abre ali.
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { carregarJornada, responderParecer, type EtapaDaJornada } from './api'
 import { Pagamento } from './Pagamento'
 import { Documentos } from './Documentos'
@@ -40,6 +40,8 @@ export function Jornada(props: {
   /** Slug do portal (link "escolher outra forma de ingresso" da análise indeferida). */
   portalSlug?: string | null
   aoConcluirTudo?: () => void
+  /** Avisa as etapas a cada carga (a conclusão monta a trilha e o resumo com elas). */
+  aoCarregar?: (etapas: EtapaDaJornada[]) => void
 }) {
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(props.etapas ?? null)
   const [slug, setSlug] = useState<string | null>(props.portalSlug ?? null)
@@ -68,6 +70,22 @@ export function Jornada(props: {
   useEffect(() => { if (!props.etapas) void recarregar() }, [props.codigo, props.token])
   const tudoPronto = !!etapas?.length && etapas.every((e) => e.situacao !== 'pendente')
   useEffect(() => { if (tudoPronto) props.aoConcluirTudo?.() }, [tudoPronto])
+
+  // Faixa de confirmação: a etapa que acabou de sair de "pendente" nesta visita
+  // ("✓ Pagamento confirmado!"), como nos checkouts — a pessoa vê que deu certo
+  // antes de seguir para a próxima.
+  const anteriores = useRef<Record<string, string> | null>(null)
+  const [confirmacao, setConfirmacao] = useState<string | null>(null)
+  useEffect(() => {
+    if (!etapas) return
+    const antes = anteriores.current
+    if (antes) {
+      const mudou = etapas.find((e) => antes[e.chave] === 'pendente' && e.situacao !== 'pendente')
+      if (mudou) setConfirmacao(textoDeConfirmacao(mudou))
+    }
+    anteriores.current = Object.fromEntries(etapas.map((e) => [e.chave, e.situacao]))
+    props.aoCarregar?.(etapas)
+  }, [etapas])
 
   if (falha) return <div class="aviso erro">{falha}</div>
   if (!etapas) return <div class="esqueleto" style="height:160px" />
@@ -104,8 +122,25 @@ export function Jornada(props: {
     return <Redacao token={props.token} aoMudar={recarregar} />
   }
 
+  const proxima = etapas.find((e) => e.situacao === 'pendente' && !e.bloqueada)
   return (
     <div class={`jornada jornada-${props.contexto}`} id="jornada">
+      {confirmacao && (
+        <div class="faixa-ok" role="status">
+          <span class="faixa-ok-icone" aria-hidden="true">✓</span>
+          <span><b>{confirmacao}</b>{proxima ? ` ${tx('etapas.agora', 'Agora:')} ${tx(`etapas.nome.${proxima.chave}`, proxima.titulo)}.` : ''}</span>
+        </div>
+      )}
+      {props.contexto === 'inscricao' && etapas.length > 1 && (
+        <div class="selos-etapas">
+          {etapas.map((e) => (
+            <span key={e.chave} class={`selo-etapa ${e.situacao}`}>
+              {e.situacao === 'feito' ? '✓ ' : e.situacao === 'aguardando' ? '◷ ' : ''}
+              {e.situacao === 'pendente' ? `${tx('etapas.falta', 'Falta:')} ` : ''}{tx(`etapas.nome.${e.chave}`, e.titulo)}
+            </span>
+          ))}
+        </div>
+      )}
       <div class="jornada-topo">
         <h2>{props.contexto === 'inscricao' ? tx('etapas.tituloInscricao', 'Próximos passos') : tx('etapas.tituloPainel', 'O que falta na sua inscrição')}</h2>
         <span class="sub">{concluidas} de {etapas.length} concluída(s)</span>
@@ -156,6 +191,20 @@ export function Jornada(props: {
       {tudoFeito && <div class="aviso info" style="color:var(--ok);border-color:var(--ok)"><b>{tx('etapas.tudoCerto', 'Tudo certo por aqui.')}</b> {tx('etapas.tudoCertoTexto', 'Acompanhe o andamento pelo seu portal.')}</div>}
     </div>
   )
+}
+
+/** Frase da faixa verde quando a etapa sai de "pendente". */
+function textoDeConfirmacao(e: EtapaDaJornada): string {
+  if (e.situacao === 'aguardando') {
+    return e.chave === 'pagamento'
+      ? tx('etapas.confirmado.pagamentoAguardando', 'Pagamento gerado — aguardando a confirmação.')
+      : `${tx(`etapas.nome.${e.chave}`, e.titulo)}: ${tx('etapas.confirmado.emAnalise', 'recebido, em análise.')}`
+  }
+  const padrao: Record<string, string> = {
+    pagamento: 'Pagamento confirmado!', documentos: 'Documentos enviados!', contrato: 'Contrato assinado!',
+    prova: 'Redação enviada!', cadastro: 'Dados salvos!', analise: 'Análise concluída!',
+  }
+  return tx(`etapas.confirmado.${e.chave}`, padrao[e.chave] ?? 'Etapa concluída!')
 }
 
 /**

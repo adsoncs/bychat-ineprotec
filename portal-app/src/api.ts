@@ -100,6 +100,8 @@ export interface Portal {
   brandButtonUppercase?: boolean | null
   brandSecurityNote?: string | null
   brandSummaryAlways?: boolean | null
+  /** Etapas certas depois do envio, na ordem do portal (só os nomes): a trilha mostra a matrícula inteira. */
+  etapasPrevistas?: Array<{ chave: string; titulo: string }>
   brandSecondaryColor?: string | null
   brandTypeScale?: string | null
   brandContentWidth?: string | null

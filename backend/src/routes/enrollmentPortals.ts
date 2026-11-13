@@ -2179,6 +2179,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { dadosEfetivos, formConfigEfetivo } = await import('../services/dadosCadastro.js')
     const { jornadaEtapas, continuationPortal, ...publico } = portal
     const formConfig = formConfigEfetivo(portal.formConfig, await dadosEfetivos({ jornadaEtapas }))
+    // Só os NOMES das etapas certas depois do envio (pagamento, documentos,
+    // contrato, redação), na ordem do portal: a trilha mostra a matrícula
+    // inteira desde o 1º passo. Cadastro e análise dependem da inscrição e
+    // entram só depois do envio, com as etapas reais.
+    const { lerJornada, ROTULO: ROTULO_ETAPA } = await import('../services/portalJornada.js')
+    const etapasPrevistas = lerJornada(jornadaEtapas).inscricao
+      .filter((e) => e.ativo && ['pagamento', 'documentos', 'contrato', 'prova'].includes(e.chave))
+      .filter((e) => e.chave !== 'pagamento' || portal.requirePayment)
+      .map((e) => ({ chave: e.chave, titulo: ROTULO_ETAPA[e.chave] }))
 
     // Curso escolhido pelo link (/portal/<portal>/<curso>): só vale se for um
     // curso DESTE portal — de outro nível, ou inexistente, o portal abre com a
@@ -2199,7 +2208,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return {
       // Configurações Gerais completam a marca onde o portal deixou vazio.
       portal: vestirMarca({
-        ...publico, formConfig,
+        ...publico, formConfig, etapasPrevistas,
         continuationPortal: continuationPortal ? { slug: continuationPortal.slug, nome: continuationPortal.nome } : null,
       }, await lerEduGeral()),
       offerings: doLink ? [doLink] : offerings,

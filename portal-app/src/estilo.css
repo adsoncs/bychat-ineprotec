@@ -1489,3 +1489,94 @@ body:has(input:focus, select:focus, textarea:focus) .a11y:not(:focus-within) { o
   border: 1.5px solid var(--marca); color: var(--marca); background: var(--papel); border-radius: 999px;
 }
 @media print { .a11y { display: none; } }
+
+/* ── Checkout em passos (13/11) ─────────────────────────────────────────────
+   Barra de progresso da matrícula inteira, faixa de confirmação, selos das
+   etapas, resumo da conclusão e tela final com linha do tempo. Só cores e
+   raios do tema: a identidade continua sendo de cada instituição. */
+
+.progresso-geral { margin: 2px 0 18px; }
+.progresso-geral .sub { display: block; margin: 0 0 6px; font-size: 13.5px; }
+.progresso-barra { height: 6px; border-radius: 999px; background: var(--linha); overflow: hidden; }
+.progresso-barra span { display: block; height: 100%; border-radius: 999px; background: var(--marca); transition: width .3s ease; }
+@media (prefers-reduced-motion: reduce) { .progresso-barra span { transition: none; } }
+
+.faixa-ok {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; padding: 12px 14px;
+  border-radius: var(--raio); background: color-mix(in srgb, var(--ok) 10%, var(--papel));
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); color: var(--tinta); font-size: 14.5px;
+}
+.faixa-ok b { color: var(--ok); margin-right: 4px; }
+.faixa-ok-icone {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 999px; background: var(--ok); color: #fff; font-size: 13px; font-weight: 700;
+}
+
+.selos-etapas { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.selo-etapa {
+  display: inline-flex; align-items: center; padding: 5px 11px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; background: var(--fundo); color: var(--tinta-2);
+}
+.selo-etapa.feito { background: color-mix(in srgb, var(--ok) 12%, var(--papel)); color: var(--ok); }
+.selo-etapa.aguardando { background: var(--marca-suave); color: var(--marca); }
+.selo-etapa.pendente { background: color-mix(in srgb, var(--pendente) 10%, var(--papel)); color: var(--pendente); }
+
+/* Resumo: "Ficou com dúvida?" e o status da matrícula. */
+.ajuda-resumo { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linha); font-size: 14px; display: flex; flex-direction: column; gap: 2px; }
+.ajuda-resumo a { font-weight: 600; }
+.status-matricula { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--linha); }
+.status-titulo { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.status-matricula ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.status-matricula li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--tinta-2); }
+.status-matricula li.feito { color: var(--tinta); }
+.status-matricula li small { color: var(--tinta-3); }
+.status-matricula .ponto, .linha-do-tempo .ponto {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 999px; font-size: 12px; font-weight: 700; box-sizing: border-box; border: 2px solid var(--linha);
+}
+.status-matricula li.feito .ponto, .linha-do-tempo li.feito .ponto { background: color-mix(in srgb, var(--ok) 14%, var(--papel)); border-color: transparent; color: var(--ok); }
+.status-matricula li.aguardando .ponto, .linha-do-tempo li.aguardando .ponto { border-color: var(--marca); color: var(--marca); }
+.resumo-conclusao .curso-escolhido { margin-bottom: 6px; }
+.pagina-conclusao .resumo-conclusao { margin-top: 14px; }
+
+/* Tela final: linha do tempo vertical. */
+.fim-matricula { text-align: left; }
+.fim-matricula > .marca {
+  display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ok) 14%, var(--papel)); color: var(--ok); font-size: 28px; margin-bottom: 10px;
+}
+.fim-matricula h2 { font-size: 24px; }
+.linha-do-tempo { list-style: none; margin: 18px 0 6px; padding: 0; }
+.linha-do-tempo li { position: relative; display: flex; gap: 14px; padding-bottom: 18px; }
+.linha-do-tempo li:not(:last-child)::before {
+  content: ''; position: absolute; left: 10px; top: 24px; bottom: 2px; width: 2px; background: var(--linha);
+}
+.linha-do-tempo li .ponto { width: 22px; height: 22px; position: relative; z-index: 1; background: var(--papel); }
+.linha-do-tempo li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.linha-do-tempo li .sub { margin: 0; font-size: 13.5px; }
+.linha-do-tempo li.proximo .ponto { border-style: dashed; }
+.acoes-fim { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.acoes-fim a { flex: 1 1 200px; text-decoration: none; }
+.acoes-fim button { width: 100%; }
+
+/* Conclusão em duas colunas (≥900px no template duas-colunas): cartões à
+   esquerda e o resumo à direita, como no formulário. */
+@media (min-width: 900px) {
+  [data-template='duas-colunas'] .pagina.pagina-conclusao:has(.resumo-conclusao) {
+    display: grid; max-width: 1060px; gap: 0 26px;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas: 'topo topo' 'capa capa' 'trilha trilha' 'form resumo' 'rodape rodape';
+    align-items: start;
+  }
+  [data-template='duas-colunas'] .pagina-conclusao .coluna-conclusao { grid-area: form; min-width: 0; }
+  [data-template='duas-colunas'] .pagina-conclusao .resumo-conclusao { grid-area: resumo; margin-top: 0; }
+}
+
+/* Trilha da matrícula inteira (5+ passos): no topo não cabem todos os nomes.
+   Só o passo atual diz o nome; os outros ficam como números (o nome aparece
+   ao passar o mouse). O que importa é onde a pessoa está e quanto falta. */
+@media (max-width: 1439px) {
+  :root[data-passos='numeros'] .trilha[data-muitas] .rotulo { display: none; }
+  :root[data-passos='numeros'] .trilha[data-muitas] .etapa.atual .rotulo { display: inline; }
+  :root[data-passos='numeros'] .trilha[data-muitas] .etapa + .etapa::before { flex-basis: 14px; margin: 0 8px; }
+}
