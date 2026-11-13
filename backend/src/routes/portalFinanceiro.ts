@@ -30,8 +30,10 @@ function situacaoDe(r: { paymentStatus: string | null; paymentExpiresAt: Date | 
   return r.paymentId ? 'pendente' : 'sem_cobranca'
 }
 
-const meioDe = (m: string | null | undefined): 'pix' | 'boleto' | 'cartao' | 'link' | 'manual' | null => {
+const meioDe = (m: string | null | undefined): 'pix' | 'boleto' | 'cartao' | 'link' | 'manual' | 'credito' | null => {
   const s = String(m || '').toUpperCase()
+  // Crédito de transferência de curso: não é dinheiro novo nem cartão (contém "CREDIT").
+  if (s === 'CREDITO') return 'credito'
   if (s.includes('PIX')) return 'pix'
   if (s.includes('BOLETO') || s.includes('BANK_SLIP')) return 'boleto'
   if (s.includes('CARD') || s.includes('CREDIT')) return 'cartao'
@@ -80,6 +82,11 @@ export interface Recebimento { dia: string; em: string | null; valor: number; me
 export interface Vencimento { dia: string; valor: number; paga: boolean; rotulo: string }
 function movimentos(r: any, plano: Record<string, any>) {
   const recebimentos: Recebimento[] = []
+  // Transferida (troca de curso, pela ferramenta ou à mão): o que ela recebeu
+  // virou crédito na inscrição nova, que já conta como pago. Contar aqui também
+  // dobrava o recebido (Valdeci 2026-11: 173,90 no dia 10 e de novo no dia 11).
+  // Mesma regra da Receita única.
+  const transferida = r.status === 'transferred'
   const vencimentos: Vencimento[] = []
   // Combinado: o plano diz "combinado"; o meio é o do título que é a 1ª cobrança.
   const tituloDaReg = ((r.titulos ?? []) as any[]).find((t) => t.externalId && t.externalId === r.paymentId)
@@ -93,7 +100,7 @@ function movimentos(r: any, plano: Record<string, any>) {
       : Number(plano.valorCobrado ?? r.paymentAmount ?? 0)
   const nParcelas = Number(plano.parcelas ?? 1) || 1
   const rotuloReg = nParcelas > 1 ? `Parcela 1 de ${nParcelas}` : (plano.rotulo ?? 'Cobrança')
-  if (r.paymentStatus === 'paid' && r.paymentPaidAt) {
+  if (r.paymentStatus === 'paid' && r.paymentPaidAt && !transferida) {
     recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })
   }
   if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled' && r.status !== 'transferred') {
@@ -103,7 +110,7 @@ function movimentos(r: any, plano: Record<string, any>) {
     if (!g || g.situacao === 'renegociada' || g.situacao === 'cancelada') continue
     const rot = `Parcela ${n}${nParcelas > 1 ? ` de ${nParcelas}` : ''}`
     const valor = Number(g.valor ?? 0)
-    if (g.situacao === 'paga' && g.pagaEm) recebimentos.push({ dia: diaBr(g.pagaEm)!, em: String(g.pagaEm).length > 10 ? String(g.pagaEm) : null, valor, meio: 'boleto', origem: 'parcela', rotulo: rot })
+    if (g.situacao === 'paga' && g.pagaEm && !transferida) recebimentos.push({ dia: diaBr(g.pagaEm)!, em: String(g.pagaEm).length > 10 ? String(g.pagaEm) : null, valor, meio: 'boleto', origem: 'parcela', rotulo: rot })
     if (g.vencimento) vencimentos.push({ dia: String(g.vencimento).slice(0, 10), valor, paga: g.situacao === 'paga', rotulo: rot })
   }
   const titulos = (r.titulos ?? []) as any[]
@@ -113,7 +120,7 @@ function movimentos(r: any, plano: Record<string, any>) {
     if (['cancelada', 'renegociada', 'estornada', 'substituida'].includes(t.status)) continue // substituída: trocada por outra forma
     const rot = `${t.origem === 'acordo' ? 'Acordo' : 'Pagamento'} ${t.ordem}${totalTit > 1 ? ` de ${totalTit}` : ''}`
     const valor = (t.status === 'paga' && t.valorPagoCentavos ? t.valorPagoCentavos : t.valorCentavos) / 100
-    if (t.status === 'paga' && t.paidAt) recebimentos.push({ dia: diaBr(t.paidAt)!, em: new Date(t.paidAt).toISOString(), valor, meio: meioDe(t.pagoComo ?? t.meio), origem: 'titulo', rotulo: rot })
+    if (t.status === 'paga' && t.paidAt && !transferida) recebimentos.push({ dia: diaBr(t.paidAt)!, em: new Date(t.paidAt).toISOString(), valor, meio: meioDe(t.pagoComo ?? t.meio), origem: 'titulo', rotulo: rot })
     if (t.vencimento) vencimentos.push({ dia: t.vencimento, valor, paga: t.status === 'paga', rotulo: rot })
   }
   recebimentos.sort((a, b) => a.dia.localeCompare(b.dia))
