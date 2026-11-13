@@ -505,10 +505,13 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 @media (min-width: 720px) {
   .barra-conteudo { flex-wrap: nowrap; }
   .barra-conteudo .topo { display: contents; }
-  .barra-conteudo .topo > :not(.acesso-topo) { order: 1; flex-shrink: 0; }
+  .barra-conteudo .topo > :not(.acesso-topo):not(.menu-conta) { order: 1; flex-shrink: 0; }
   .barra-topo .trilha { order: 2; }
   .barra-topo .selo { order: 3; }
-  .barra-conteudo .acesso-topo { order: 4; }
+  .barra-conteudo .acesso-topo, .barra-conteudo .menu-conta { order: 4; }
+  /* Portal logado (sem trilha): selo e menu da conta juntos à direita. Antes o
+     menu ficava preso ao logo e o espaçamento o jogava para o meio do topo. */
+  .barra-conteudo:not(:has(.trilha)) .selo { margin-left: auto; }
 }
 
 /* ── Botão em cápsula e em caixa alta ────────────────────────── */
