@@ -4,10 +4,12 @@
 // Branding, ou a imagem da capa quando houver); à direita o formulário. No
 // celular o painel some e fica só o formulário com o logo.
 //
-// Duas formas de entrar, na mesma tela e para o mesmo portal (/portal):
-// e-mail + senha, ou código da inscrição + CPF (era a tela /candidato, que agora
-// redireciona para cá com ?codigo=). Código + CPF vale enquanto a pessoa não
-// criou senha própria — a mesma regra do CPF como senha padrão.
+// Um formulário só (13/11/2026 — as abas "E-mail e senha" / "Código e CPF"
+// confundiam os candidatos): Usuário = e-mail, CPF ou código da inscrição;
+// Senha = a senha própria ou, enquanto não criou uma, o CPF. A tela descobre o
+// caminho: código + CPF vai à rota do código (cria a conta se faltar); o resto
+// vai ao login. CPF nos DOIS campos continua recusado (o CPF circula demais).
+// /candidato redireciona para cá com ?codigo=, que já vem no campo Usuário.
 //
 // "Esqueceu a senha?" não fica mais aberto embaixo: troca o formulário pelo de
 // recuperação, com volta para o login.
@@ -15,12 +17,6 @@ import { useEffect, useState } from 'preact/hooks'
 import { carregarAcesso, type LoginDoPortal, type MarcaDoPortal } from './marca'
 
 const q = new URLSearchParams(location.search)
-
-/** 000.000.000-00 enquanto digita. */
-function mascaraCpf(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 11)
-  return d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2')
-}
 
 const Icone = {
   olho: (aberto: boolean) => (
@@ -79,15 +75,12 @@ function PainelDaMarca({ marca, login }: { marca: MarcaDoPortal | null; login: L
 export function Entrar() {
   const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
   const [login, setLogin] = useState<LoginDoPortal>(PADRAO)
-  const [usuario, setUsuario] = useState('')
+  const [usuario, setUsuario] = useState((q.get('codigo') || '').trim().toUpperCase())
   const [senha, setSenha] = useState('')
   const [verSenha, setVerSenha] = useState(false)
   const [erro, setErro] = useState<string | null>(q.get('erro'))
   const [aviso, setAviso] = useState<string | null>(q.get('aviso'))
   const [enviando, setEnviando] = useState(false)
-  const [modo, setModo] = useState<'email' | 'codigo'>(q.get('codigo') || q.get('modo') === 'codigo' ? 'codigo' : 'email')
-  const [codigo, setCodigo] = useState((q.get('codigo') || '').trim().toUpperCase())
-  const [cpf, setCpf] = useState('')
   // Recuperação: escondida até a pessoa pedir.
   const [recuperando, setRecuperando] = useState(false)
   const [recuperar, setRecuperar] = useState('')
@@ -96,17 +89,10 @@ export function Entrar() {
   useEffect(() => {
     void carregarAcesso(q.get('portal') ?? undefined).then((r) => {
       setMarca(r.marca)
-      if (r.login) {
-        setLogin(r.login)
-        // Só uma forma de entrar ligada: a tela abre nela.
-        if (!r.login.modoCodigo) setModo('email')
-        else if (!r.login.modoEmail) setModo('codigo')
-      }
+      if (r.login) setLogin(r.login)
     })
   }, [])
   useEffect(() => { document.documentElement.classList.add('tela-login'); return () => document.documentElement.classList.remove('tela-login') }, [])
-
-  function trocarModo(m: 'email' | 'codigo') { setModo(m); setErro(null) }
 
   function abrirRecuperacao() {
     setRecuperando(true); setErro(null); setAviso(null); setLinkEnviado(null)
@@ -114,34 +100,52 @@ export function Entrar() {
     if (!recuperar && usuario) setRecuperar(usuario)
   }
 
+  // Código da inscrição (MAT-26-000004-LKGW) e senha que é um CPF.
+  const ehCodigo = (v: string) => /^[A-Za-z]{2,5}-\d{2}-\d{3,}-[A-Za-z0-9]{3,}$/.test(v.trim())
+  const ehCpf = (v: string) => /^[\d.\-\s]+$/.test(v.trim()) && v.replace(/\D/g, '').length === 11
+
   async function entrar(e: Event) {
     e.preventDefault()
+    const u = usuario.trim()
+    if (!u || !senha) { setErro('Preencha o usuário e a senha.'); return }
+    if (ehCpf(u) && ehCpf(senha) && u.replace(/\D/g, '') === senha.replace(/\D/g, '')) {
+      setErro('Por segurança, o CPF não serve como usuário e senha ao mesmo tempo. No usuário, use o seu e-mail ou o código da inscrição.')
+      return
+    }
+    if (ehCodigo(u) && ehCpf(senha)) return entrarPorCodigo(u, senha)
     setEnviando(true); setErro(null); setAviso(null)
     try {
       const r = await fetch('/api/public/portal/login', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ identificador: usuario, senha }),
+        body: JSON.stringify({ identificador: u, senha }),
       })
       const j = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(j.error || 'Não foi possível entrar.')
+      if (!r.ok) {
+        // Senha digitada é um CPF e não serviu: quase sempre é quem já criou a
+        // própria senha e tentou o CPF (o servidor não diz qual erro foi).
+        const dica = ehCpf(senha) && /incorret/i.test(j.error || '')
+          ? ' Se você já criou uma senha, use ela no lugar do CPF.' : ''
+        throw new Error((j.error || 'Não foi possível entrar.') + dica)
+      }
       const destino = /^\/(portal|candidato)(\/|$|\?|#)/.test(q.get('destino') || '') ? q.get('destino')! : '/portal'
       location.href = j.senhaPadrao ? `/portal/senha?primeiro=1&depois=${encodeURIComponent(destino)}` : destino
     } catch (e: any) { setErro(e.message); setEnviando(false) }
   }
 
-  async function entrarPorCodigo(e: Event) {
-    e.preventDefault()
-    if (!codigo.trim() || cpf.replace(/\D/g, '').length !== 11) { setErro('Informe o código da inscrição e o CPF.'); return }
+  async function entrarPorCodigo(codigo: string, cpf: string) {
     setEnviando(true); setErro(null); setAviso(null)
     try {
       const r = await fetch('/api/public/portal/entrar-codigo', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ codigo: codigo.trim().toUpperCase(), cpf }),
+        body: JSON.stringify({ codigo: codigo.toUpperCase(), cpf }),
       })
       const j = await r.json().catch(() => ({}))
-      if (r.status === 409 && j.temSenha) { setModo('email'); throw new Error(j.error) }
+      if (r.status === 409 && j.temSenha) {
+        setSenha('')
+        throw new Error('Você já criou uma senha. Digite a sua senha no lugar do CPF — ou use "Esqueceu a senha?".')
+      }
       if (!r.ok) throw new Error(j.error || 'Não foi possível entrar.')
       location.href = j.senhaPadrao ? `/portal/senha?primeiro=1&depois=${encodeURIComponent('/portal')}` : '/portal'
     } catch (e: any) { setErro(e.message); setEnviando(false) }
@@ -179,9 +183,9 @@ export function Entrar() {
                 <div class="aviso info">{linkEnviado}</div>
               ) : (<>
                 <div class="campo">
-                  <label for="ent-rec">E-mail</label>
-                  <input id="ent-rec" type="email" inputMode="email" value={recuperar} required autoFocus autocomplete="username"
-                    placeholder="seu@email.com" onInput={(e: any) => setRecuperar(e.currentTarget.value)} />
+                  <label for="ent-rec">E-mail, CPF ou código da inscrição</label>
+                  <input id="ent-rec" value={recuperar} required autoFocus autocomplete="username" autocapitalize="off"
+                    placeholder="E-mail, CPF ou código" onInput={(e: any) => setRecuperar(e.currentTarget.value)} />
                 </div>
                 <button class="principal largo" type="submit" disabled={enviando}>{enviando ? 'Enviando…' : 'Receber link de acesso'}</button>
               </>)}
@@ -190,48 +194,30 @@ export function Entrar() {
               </button>
             </form>
           ) : (
-            <form onSubmit={modo === 'email' ? entrar : entrarPorCodigo}>
+            <form onSubmit={entrar}>
               <h2 class="login-titulo">{login.formTitulo}</h2>
               {login.formSubtitulo && <p class="login-sub">{login.formSubtitulo}</p>}
-              {login.modoEmail && login.modoCodigo && (
-                <div class="modo-entrar" role="tablist">
-                  <button type="button" role="tab" aria-selected={modo === 'email'} class={modo === 'email' ? 'ativo' : ''} onClick={() => trocarModo('email')}>E-mail e senha</button>
-                  <button type="button" role="tab" aria-selected={modo === 'codigo'} class={modo === 'codigo' ? 'ativo' : ''} onClick={() => trocarModo('codigo')}>Código e CPF</button>
-                </div>
-              )}
               {erro && <div class="aviso erro">{erro}</div>}
               {aviso && <div class="aviso info">{aviso}</div>}
-              {modo === 'codigo' ? (<>
-                <div class="campo">
-                  <label for="ent-codigo">Código da inscrição</label>
-                  <input id="ent-codigo" value={codigo} required autocomplete="off" autocapitalize="characters" placeholder={`${login.prefixoCodigo}-26-000001-ABCD`}
-                    onInput={(e: any) => setCodigo(e.currentTarget.value.toUpperCase())} />
-                  <span class="ajuda">Está na confirmação da inscrição (começa com {login.prefixoCodigo}-).</span>
+              <div class="campo">
+                <label for="ent-usuario">Usuário</label>
+                <input id="ent-usuario" value={usuario} required autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck={false}
+                  placeholder="E-mail, CPF ou código da inscrição" onInput={(e: any) => setUsuario(e.currentTarget.value)} />
+                <span class="ajuda">O código está na confirmação da inscrição (começa com {login.prefixoCodigo}-).</span>
+              </div>
+              <div class="campo">
+                <label for="ent-senha">Senha</label>
+                <div class="campo-senha">
+                  <input id="ent-senha" type={verSenha ? 'text' : 'password'} value={senha} required autocomplete="current-password"
+                    onInput={(e: any) => setSenha(e.currentTarget.value)} />
+                  <button type="button" class="ver-senha" aria-label={verSenha ? 'Esconder senha' : 'Mostrar senha'} aria-pressed={verSenha}
+                    onClick={() => setVerSenha(!verSenha)}>{Icone.olho(!verSenha)}</button>
                 </div>
-                <div class="campo">
-                  <label for="ent-cpf">CPF</label>
-                  <input id="ent-cpf" value={cpf} required inputMode="numeric" autocomplete="off" placeholder="000.000.000-00"
-                    onInput={(e: any) => setCpf(mascaraCpf(e.currentTarget.value))} />
-                </div>
-              </>) : (<>
-                <div class="campo">
-                  <label for="ent-usuario">E-mail</label>
-                  <input id="ent-usuario" type="email" inputMode="email" value={usuario} required autocomplete="username" autocapitalize="off" autocorrect="off"
-                    placeholder="seu@email.com" onInput={(e: any) => setUsuario(e.currentTarget.value)} />
-                </div>
-                <div class="campo">
-                  <label for="ent-senha">Senha</label>
-                  <div class="campo-senha">
-                    <input id="ent-senha" type={verSenha ? 'text' : 'password'} value={senha} required autocomplete="current-password"
-                      onInput={(e: any) => setSenha(e.currentTarget.value)} />
-                    <button type="button" class="ver-senha" aria-label={verSenha ? 'Esconder senha' : 'Mostrar senha'} aria-pressed={verSenha}
-                      onClick={() => setVerSenha(!verSenha)}>{Icone.olho(!verSenha)}</button>
-                  </div>
-                </div>
-              </>)}
+                <span class="ajuda">Ainda não criou uma senha? Use o seu CPF.</span>
+              </div>
               <button class="principal largo" type="submit" disabled={enviando}>{enviando ? 'Entrando…' : 'Entrar'}</button>
               <button type="button" class="login-esqueci" onClick={abrirRecuperacao}>
-                {modo === 'email' ? login.esqueciTexto : 'Não tem o código? Receber link de acesso'}
+                {login.esqueciTexto}
               </button>
             </form>
           )}
