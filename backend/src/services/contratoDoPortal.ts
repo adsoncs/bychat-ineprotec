@@ -249,7 +249,10 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   const { precosDeTabelaDoPlano } = await import('./planoFinanceiro.js')
   const precos = doPlano ? precosDeTabelaDoPlano(doPlano.plano) : { aVista: '', cartao: '', boleto: '' }
 
-  const header = await getDocHeader()
+  const { unidadeDoPortal, identidadeDaUnidade } = await import('../lib/identidadeDaUnidade.js')
+  const unidade = await unidadeDoPortal(reg.portalId)
+  const header = await getDocHeader(unidade)
+  const empresa = await identidadeDaUnidade(unidade)
   const end = [
     [v.logradouro, v.numero, v.complemento].filter(Boolean).join(', '),
     v.bairro, [v.municipio, v.uf].filter(Boolean).join('/'), v.cep ? `CEP ${v.cep}` : '',
@@ -288,6 +291,11 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
     preco_cartao: precos.cartao,
     preco_boleto: precos.boleto,
     instituicao: header.instituicao, cnpj: header.cnpj ? formatarDoc(header.cnpj) : '',
+    // Empresa da unidade do portal (vazio quando a unidade não tem identidade).
+    // Só entram quando preenchidas: modelo antigo que cite uma delas continua acusando a falta.
+    ...(empresa?.marca ? { marca: empresa.marca } : {}),
+    ...(empresa?.endereco ? { endereco_instituicao: empresa.endereco } : {}),
+    ...(empresa?.site ? { site_instituicao: empresa.site } : {}),
     data: dataExtenso(), data_curta: new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
     codigo_inscricao: reg.candidateCode, ra: '',
   })

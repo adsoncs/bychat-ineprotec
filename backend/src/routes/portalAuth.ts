@@ -7,7 +7,7 @@
 // Rotas core (não overlay): quem tem Portal de Matrículas ganha conta de
 // verdade mesmo sem o ERP acadêmico instalado.
 
-import { FastifyInstance } from 'fastify'
+import { FastifyInstance, FastifyRequest } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import {
   cookieDaRequisicao, emitirSessao, gravarCookie, ipDaRequisicao, limparCookie,
@@ -25,6 +25,7 @@ import { logEvent } from '../services/leadHistory.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
+import { cfgComIdentidade, identidadeDoLead, varsDaIdentidade } from '../lib/identidadeDaUnidade.js'
 import { avisos, esc } from '../lib/portalHtml.js'
 import { etapasDaInscricao } from '../services/portalJornada.js'
 import { paginaComMarca, marcaDoAcesso } from '../lib/portalMarca.js'
@@ -60,6 +61,21 @@ export async function sessaoDaRequisicao(req: any): Promise<{ accountId: number 
   return r.ok ? { accountId: r.accountId } : null
 }
 
+/**
+ * Unidade (empresa) do portal por onde a pessoa está entrando: o `portal` do
+ * corpo ou, sem ele, o que a tela de entrar lembrou (cookie da marca). Serve
+ * para escolher a conta certa de quem tem cadastro nas duas empresas.
+ */
+async function unidadeDoAcesso(req: FastifyRequest): Promise<number | null> {
+  const pedido = (req.body as any)?.portal
+  const slug = typeof pedido === 'string' && /^[a-z0-9-]{1,120}$/.test(pedido)
+    ? pedido
+    : (await marcaDoAcesso(req).catch(() => null))?.slug
+  if (!slug) return null
+  const p = await prisma.enrollmentPortal.findFirst({ where: { slug, active: true }, select: { unitId: true } })
+  return p?.unitId ?? null
+}
+
 type CanalDeEnvio = 'whatsapp' | 'email'
 
 /**
@@ -78,7 +94,9 @@ async function enviarModeloAoContato(
   })
   if (!lead) return { canal: null, falhas: ['Contato não encontrado.'] }
   const { renderizarModelo } = await import('../services/modelosDoSistema.js')
-  const todas = { nome: lead.nome ?? '', ...vars }
+  // Empresa da pessoa (unidade do portal): marca e remetente dela, não os do ambiente.
+  const identidade = await identidadeDoLead(lead.id)
+  const todas = { ...varsDaIdentidade(identidade), nome: lead.nome ?? '', ...vars }
 
   for (const canal of canais) {
     if (canal === 'whatsapp') {
@@ -100,7 +118,7 @@ async function enviarModeloAoContato(
       const em = await renderizarModelo(`${base}_email`, emHtml)
       if (!em?.body.trim()) { falhas.push('E-mail: modelo desligado em Modelos.'); continue }
       try {
-        const cfg = await getEmailConfig()
+        const cfg = cfgComIdentidade(await getEmailConfig(), identidade)
         await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
         return { canal: 'email', falhas }
       } catch (e: any) {
@@ -186,6 +204,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const b = (req.body as any) || {}
     const r = await login(String(b.identificador || ''), String(b.senha || ''), {
       userAgent: req.headers['user-agent'] as string, ip: ipDaRequisicao(req),
+      unitId: await unidadeDoAcesso(req),
     })
     const querHtml = String(req.headers.accept || '').includes('text/html')
     if (!r.ok) {
@@ -316,7 +335,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const querHtml = String(req.headers.accept || '').includes('text/html')
     const resposta = 'Se houver cadastro com esse dado, enviamos um link de acesso pelo WhatsApp ou e-mail.'
 
-    const conta = await acharConta(String(b.identificador || ''))
+    const conta = await acharConta(String(b.identificador || ''), await unidadeDoAcesso(req))
     if (conta) {
       const link = await criarLinkDeAcesso(conta.id, 'recuperacao')
       await enviarLink(conta.leadId, link.url, 'recuperacao').catch(() => null)

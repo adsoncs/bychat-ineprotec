@@ -27,7 +27,7 @@ function valueMatches(actual: unknown, expected: unknown): boolean {
   return String(actual) === String(expected)
 }
 
-function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
+export function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
   if (!triggerConfig) return true // sem filtro = aceita tudo
 
   const cfg = typeof triggerConfig === 'string' ? JSON.parse(triggerConfig) : triggerConfig
@@ -65,6 +65,16 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
 
     if (key === 'channel') {
       if (!valueMatches(event.payload?.channel, expected)) return false
+      continue
+    }
+
+    // Empresa (unidade): só eventos de pessoas desta(s) unidade(s). A unidade é
+    // resolvida antes (unidadeDoEvento) e chega em `__unitId`; sem unidade
+    // (lead sem inscrição e sem número de empresa) o filtro não casa.
+    if (key === 'unitIds') {
+      const lista = (Array.isArray(expected) ? expected : [expected]).map(Number).filter((n) => n > 0)
+      if (!lista.length) continue
+      if (!lista.includes(Number((event as any).__unitId))) return false
       continue
     }
 
@@ -122,6 +132,30 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
   return true
 }
 
+function temFiltroDeUnidade(triggerConfig: any): boolean {
+  try {
+    const cfg = typeof triggerConfig === 'string' ? JSON.parse(triggerConfig) : triggerConfig
+    const v = cfg?.unitIds
+    return Array.isArray(v) ? v.length > 0 : v != null && v !== ''
+  } catch { return false }
+}
+
+/**
+ * Unidade (empresa) de um evento: a que veio no payload, a do portal da
+ * inscrição citada nele ou, sem inscrição, a da pessoa (lib/identidadeDaUnidade).
+ */
+export async function unidadeDoEvento(event: DomainEvent): Promise<number | null> {
+  const p = event.payload || {}
+  if (Number(p.unitId) > 0) return Number(p.unitId)
+  const regId = Number(p.enrollmentId ?? p.registrationId ?? p.metadata?.registrationId)
+  if (regId > 0) {
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: regId }, select: { portal: { select: { unitId: true } } } })
+    if (reg?.portal?.unitId) return reg.portal.unitId
+  }
+  const { unidadeDoLead } = await import('../lib/identidadeDaUnidade.js')
+  return unidadeDoLead(event.leadId)
+}
+
 // ─── Trava de disparo por (fluxo, lead) ─────────────────
 //
 // A política de reentrada é "consulta se há execução rodando → cria". Dois
@@ -155,6 +189,11 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
       },
       include: { steps: { orderBy: { position: 'asc' } } },
     })
+
+    // Algum fluxo filtra por empresa (unidade): descobre a do evento uma vez só.
+    if (workflows.some((w) => temFiltroDeUnidade(w.triggerConfig))) {
+      (event as any).__unitId = await unidadeDoEvento(event).catch(() => null)
+    }
 
     for (const workflow of workflows) {
       // Verificar filtro do trigger

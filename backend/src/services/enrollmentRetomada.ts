@@ -100,7 +100,7 @@ export async function varrerRascunhosAbandonados(opts: { simular?: boolean } = {
 }
 
 async function convidar(
-  d: { id: number; sessionId: string; formData: unknown; email: string | null; whatsapp: string | null; portal: { slug: string; nome: string } | null },
+  d: { id: number; sessionId: string; formData: unknown; email: string | null; whatsapp: string | null; portal: { id: number; slug: string; nome: string } | null },
   horas: number,
   simular: boolean,
 ): Promise<string | null> {
@@ -109,7 +109,9 @@ async function convidar(
   // O rascunho é recuperado pelo sessionId que a própria página guardou; o link
   // só reabre o formulário, não expõe dado de ninguém.
   const url = `${base}/portal/${d.portal?.slug ?? ''}`
-  const vars = { nome, portal: d.portal?.nome ?? '', link: url }
+  const { identidadeDoPortal, varsDaIdentidade, cfgComIdentidade } = await import('../lib/identidadeDaUnidade.js')
+  const identidade = await identidadeDoPortal(d.portal?.id)
+  const vars = { ...varsDaIdentidade(identidade), nome, portal: d.portal?.nome ?? '', link: url }
 
   const tel = d.whatsapp || (d.formData as any)?.whatsapp
   if (simular) return tel ? 'whatsapp (simulado)' : d.email ? 'email (simulado)' : null
@@ -128,7 +130,7 @@ async function convidar(
   if (d.email) {
     const em = await renderizarModelo('inscricao_retomada_email', vars)
     if (em?.body.trim()) try {
-      const cfg = await getEmailConfig()
+      const cfg = cfgComIdentidade(await getEmailConfig(), identidade)
       await sendEmailGeneric({ from: getFromAddress(cfg), to: d.email, subject: em.subject, html: em.body })
       return 'email'
     } catch { /* nada mais a tentar */ }

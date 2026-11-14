@@ -69,6 +69,21 @@
   var trackingActive = consentStatus === 'granted';
   var bannerShown = false;
 
+  // "Saiba mais" do aviso: a política de privacidade DO SITE onde o script roda.
+  // Ordem: data-privacy="URL" na tag do script → window.BT_PRIVACY_URL → link da
+  // página que fale de privacidade → página /privacidade do próprio Attrae.
+  function privacyUrl() {
+    var u = (scriptEl && scriptEl.getAttribute('data-privacy')) || window.BT_PRIVACY_URL;
+    if (u) return u;
+    var links = doc.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      var h = links[i].getAttribute('href') || '';
+      if (/privacidade|privacy/i.test(h) && !/^(javascript:|#)/i.test(h) && links[i].id !== 'bt-consent-details') return links[i].href;
+    }
+    return API_BASE + '/privacidade';
+  }
+  function escAttr(v) { return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
   function showConsentBanner() {
     if (bannerShown || consentStatus) return;
     bannerShown = true;
@@ -85,9 +100,9 @@
     var textDiv = doc.createElement('div');
     textDiv.style.cssText = 'flex:1;min-width:280px;';
     textDiv.innerHTML = '<strong>Privacidade e Cookies</strong><br>' +
-      'Utilizamos cookies e tecnologias semelhantes para melhorar sua experiencia, ' +
-      'analisar o trafego e personalizar conteudo. Ao clicar em "Aceitar", voce concorda com o uso dessas tecnologias. ' +
-      '<a href="javascript:void(0)" id="bt-consent-details" style="color:#4361ee;text-decoration:underline;">Saiba mais</a>';
+      'Utilizamos cookies e tecnologias semelhantes para melhorar sua experiência, ' +
+      'analisar o tráfego e personalizar conteúdo. Ao clicar em "Aceitar", você concorda com o uso dessas tecnologias. ' +
+      '<a href="' + escAttr(privacyUrl()) + '" target="_blank" rel="noopener" id="bt-consent-details" style="color:#4361ee;text-decoration:underline;">Saiba mais</a>';
 
     var btnWrap = doc.createElement('div');
     btnWrap.style.cssText = 'display:flex;gap:8px;flex-shrink:0;';

@@ -1590,3 +1590,48 @@ body:has(input:focus, select:focus, textarea:focus) .a11y:not(:focus-within) { o
   :root[data-passos='numeros'] .trilha[data-muitas] .numero { width: 24px; height: 24px; font-size: 12px; }
   :root[data-passos='numeros'] .trilha[data-muitas] .etapa { gap: 6px; }
 }
+
+/* ── Passos da matrícula em bloco próprio, abaixo do topo (13/11) ───────────
+   Antes ficavam espremidos na faixa do topo. Agora: título, "Passo X de N",
+   barra que enche e a fila de passos — mais limpo e mais visual. */
+.passos-matricula { margin: 0 0 22px; }
+.pm-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.pm-titulo { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.01em; color: var(--tinta); }
+.pm-contador { font-size: 14px; color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+.pm-atual { display: none; }
+.pm-barra { height: 8px; border-radius: 999px; background: var(--linha); overflow: hidden; }
+.pm-barra span { display: block; height: 100%; border-radius: 999px; background: var(--marca); transition: width .3s ease; }
+@media (prefers-reduced-motion: reduce) { .pm-barra span { transition: none; } }
+.pm-lista {
+  list-style: none; margin: 12px 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(var(--pm-n, 4), minmax(0, 1fr)); gap: 8px;
+}
+.pm-lista li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0; }
+.pm-ponto {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  background: color-mix(in srgb, var(--tinta) 8%, var(--papel)); color: var(--tinta-2);
+}
+.pm-lista li.atual .pm-ponto { background: var(--marca); color: #fff; }
+.pm-lista li.feita .pm-ponto { background: color-mix(in srgb, var(--ok) 15%, var(--papel)); color: var(--ok); }
+.pm-rotulo { font-size: 14px; color: var(--tinta-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pm-lista li.atual .pm-rotulo { color: var(--tinta); font-weight: 600; }
+.pm-lista li.feita .pm-rotulo { color: var(--tinta); }
+
+/* Celular: só as bolinhas na fila; o nome do passo atual vai para o contador. */
+@media (max-width: 719px) {
+  .passos-matricula { margin-bottom: 16px; }
+  .pm-titulo { font-size: 20px; }
+  .pm-atual { display: inline; }
+  .pm-rotulo { display: none; }
+  .pm-lista { gap: 4px; }
+  .pm-lista li { justify-content: center; }
+}
+
+/* No arranjo em duas colunas, o bloco ocupa a faixa inteira acima do
+   formulário e do resumo (a área 'trilha' do grid). */
+@media (min-width: 900px) {
+  [data-template='duas-colunas'] .passos-matricula { grid-area: trilha; }
+}
+/* Sem o contador no cartão, o título do passo encostava no primeiro campo. */
+.cartao > h2 + .campos, .cartao > h2 + .curso-do-link { margin-top: 16px; }

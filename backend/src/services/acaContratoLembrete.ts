@@ -105,7 +105,12 @@ async function cobrar(
   const link = s.linkAssinatura || ''
   if (simular) return s.telefone ? 'whatsapp (simulado)' : s.email ? 'email (simulado)' : null
   const { renderizarModelo } = await import('./modelosDoSistema.js')
-  const vars = { nome: s.nome, contrato: env.titulo, dias: diasParado, link }
+  const leadDoAluno = env.alunoId
+    ? (await prisma.aluno.findUnique({ where: { id: env.alunoId }, select: { leadId: true } }))?.leadId ?? null
+    : null
+  const { identidadeDoLead, varsDaIdentidade, cfgComIdentidade } = await import('../lib/identidadeDaUnidade.js')
+  const identidade = await identidadeDoLead(leadDoAluno)
+  const vars = { ...varsDaIdentidade(identidade), nome: s.nome, contrato: env.titulo, dias: diasParado, link }
 
   if (s.telefone) {
     const msg = await renderizarModelo('contrato_lembrete_wa', vars)
@@ -127,7 +132,7 @@ async function cobrar(
     const esc = (t: string) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
     const em = await renderizarModelo('contrato_lembrete_email', { ...vars, nome: esc(s.nome), contrato: esc(env.titulo) })
     if (em?.body.trim()) try {
-      const cfg = await getEmailConfig()
+      const cfg = cfgComIdentidade(await getEmailConfig(), identidade)
       await sendEmailGeneric({ from: getFromAddress(cfg), to: s.email, subject: em.subject, html: em.body })
       return 'email'
     } catch { /* nada mais a tentar */ }

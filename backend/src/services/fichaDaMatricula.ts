@@ -48,6 +48,8 @@ async function cpfsDa(leadId: number, formData: unknown): Promise<Set<string>> {
 export async function fichaParaMatricula(
   dados: DadosDigitados,
   quem: { userId: number; role: string },
+  /** Portal da matrícula: só serve ficha da mesma empresa (unidade) dele. */
+  portalId?: number | null,
 ): Promise<FichaDaMatricula> {
   const pk = phoneKey(dados.whatsapp ?? '')
   const cpf = normalizeCpf(String(dados.cpf ?? ''))
@@ -72,6 +74,9 @@ export async function fichaParaMatricula(
     por = 'email'
     achadas = await prisma.lead.findMany({ where: { email, isGroup: false }, select: SELECT, orderBy: { id: 'asc' }, take: 5 })
   }
+  // Duas empresas no mesmo ambiente: a ficha de outra empresa não recebe esta
+  // matrícula (cada empresa tem a sua conversa, o seu número e o seu funil).
+  if (achadas.length && portalId) achadas = await daMesmaEmpresa(achadas, portalId)
   if (!achadas.length) return { tipo: 'nenhuma' }
 
   // Travas fixas: quem claramente é outra pessoa sai da lista.
@@ -94,6 +99,27 @@ export async function fichaParaMatricula(
   if (compativeis.length > 1) return { tipo: 'varias', leads: compativeis.map((l) => ({ id: l.id, nome: l.nome })) }
   if (barrada) return { tipo: 'outra_pessoa', lead: { id: barrada.id, nome: barrada.nome }, motivo: barrada.motivo }
   return { tipo: 'nenhuma' }
+}
+
+/**
+ * Fichas que pertencem à empresa (unidade) do portal: a unidade da ficha é a do
+ * portal da última inscrição ou a do número da conversa (lib/identidadeDaUnidade).
+ * Ficha sem unidade só serve a unidade sem número próprio — a empresa "padrão"
+ * do ambiente. Num ambiente de uma empresa só, nada é filtrado.
+ */
+async function daMesmaEmpresa<T extends { id: number }>(fichas: T[], portalId: number): Promise<T[]> {
+  const { unidadeDoPortal, unidadeDoLead, identidadeDaUnidade } = await import('../lib/identidadeDaUnidade.js')
+  const alvo = await unidadeDoPortal(portalId)
+  if (!alvo) return fichas
+  const outras = await prisma.educationalUnit.count({ where: { id: { not: alvo } } })
+  if (!outras) return fichas
+  const alvoTemNumero = !!(await identidadeDaUnidade(alvo))?.whatsappConexaoId
+  const out: T[] = []
+  for (const f of fichas) {
+    const u = await unidadeDoLead(f.id)
+    if (u === alvo || (u == null && !alvoTemNumero)) out.push(f)
+  }
+  return out
 }
 
 export const ROTULO_DO_CRITERIO: Record<'whatsapp' | 'cpf' | 'email', string> = {

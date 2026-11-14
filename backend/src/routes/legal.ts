@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { identidadeDaUnidade } from '../lib/identidadeDaUnidade.js'
 
 /**
  * Páginas legais (LGPD) servidas via SSR: /privacidade, /termos, /cookies, /exclusao-de-dados.
@@ -224,16 +225,28 @@ function cookiesTemplate(v: LegalVars): string {
   <p>Dúvidas: <a href="mailto:${esc(v.dpoEmail)}">${esc(v.dpoEmail)}</a>.</p>`
 }
 
+/** Empresa dona do domínio: o portal com este customDomain diz a unidade. */
+async function identidadeDoHost(host: string) {
+  const h = host.replace(/:.*$/, '').toLowerCase()
+  if (!h) return null
+  try {
+    const portal = await prisma.enrollmentPortal.findFirst({ where: { customDomain: h }, select: { unitId: true } })
+    return portal?.unitId ? await identidadeDaUnidade(portal.unitId) : null
+  } catch { return null }
+}
+
 export async function legalRoutes(app: FastifyInstance) {
   async function resolveVars(req: any): Promise<LegalVars> {
-    const s = await getSettings(['legal.company_name', 'legal.brand_name', 'legal.cnpj', 'legal.dpo_email', 'legal.version'])
+    const s = await getSettings(['legal.company_name', 'legal.brand_name', 'legal.cnpj', 'legal.dpo_email', 'legal.version', 'business.company_name', 'appearance.admin_brand_name'])
     const host = String(req.headers?.host || 'este site')
     const dpo = (s['legal.dpo_email'] as string) || `dpo@${host.replace(/:.*$/, '')}`
-    const company = (s['legal.company_name'] as string) || '[Razão Social — configurar em Configurações]'
+    // Domínio de uma empresa do ambiente (portal com customDomain): a política é DELA.
+    const idt = await identidadeDoHost(host)
+    const company = idt?.razaoSocial || (s['legal.company_name'] as string) || (s['business.company_name'] as string) || '[Razão Social — configurar em Configurações]'
     return {
       company,
-      brand: (s['legal.brand_name'] as string) || company,
-      cnpj: (s['legal.cnpj'] as string) || '',
+      brand: idt?.marca || (s['legal.brand_name'] as string) || (idt?.razaoSocial ? '' : String(s['appearance.admin_brand_name'] || '').replace(/^"+|"+$/g, '')) || company,
+      cnpj: idt?.cnpj || (s['legal.cnpj'] as string) || '',
       dpoEmail: dpo,
       host,
       version: (s['legal.version'] as string) || POLICY_VERSION_DEFAULT,

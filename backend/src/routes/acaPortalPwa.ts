@@ -14,6 +14,8 @@ import { FastifyInstance } from 'fastify'
 import { portalAppDisponivel } from '../lib/portalApp.js'
 import { getDocHeader } from '../services/acaDocRender.js'
 import { lerEduGeral } from '../lib/eduGeral.js'
+import { prisma } from '../lib/prisma.js'
+import { identidadeDaUnidade } from '../lib/identidadeDaUnidade.js'
 
 /** Ícone gerado a partir da inicial da instituição — evita depender de upload. */
 function iconeSvg(nome: string, tamanho = 512, cor = '#111827'): string {
@@ -25,42 +27,60 @@ function iconeSvg(nome: string, tamanho = 512, cor = '#111827'): string {
 </svg>`
 }
 
+/**
+ * Empresa do portal do endereço (`?portal=slug`): quando a unidade dele tem
+ * identidade, o app instalado leva a marca e a cor desse portal — duas empresas
+ * no mesmo ambiente não instalam o app uma da outra. null = cadastro geral.
+ */
+async function marcaDoPortal(q: unknown): Promise<{ slug: string; nome: string; cor: string | null } | null> {
+  const slug = typeof (q as any)?.portal === 'string' ? String((q as any).portal).slice(0, 100) : ''
+  if (!slug) return null
+  const p = await prisma.enrollmentPortal.findFirst({ where: { slug, active: true }, select: { slug: true, unitId: true, brandPrimaryColor: true } })
+  if (!p) return null
+  const id = await identidadeDaUnidade(p.unitId)
+  if (!id?.marca) return null
+  return { slug: p.slug, nome: id.marca, cor: p.brandPrimaryColor || null }
+}
+
 export async function acaPortalPwaRoutes(app: FastifyInstance) {
-  app.get('/portal/aca/manifest.webmanifest', async (_req, reply) => {
+  app.get('/portal/aca/manifest.webmanifest', async (req, reply) => {
     const h = await getDocHeader()
     // Configurações Gerais › Identidade/Aparência: nome e cor da instituição no
     // app instalado. Sem nada salvo, fica como era (nome do cadastro, cinza).
     const g = await lerEduGeral().catch(() => null)
-    const nome = g?.identidade.nome || h.instituicao
+    const empresa = await marcaDoPortal(req.query)
+    const nome = empresa?.nome || g?.identidade.nome || h.instituicao
+    const sufixo = empresa ? `?portal=${encodeURIComponent(empresa.slug)}` : ''
     const manifest = {
       name: `${nome} — Portal`,
       short_name: 'Portal',
       description: 'Boletim, frequência, financeiro e documentos.',
       // Abre no painel novo onde ele existe; onde não existe, no portal antigo,
       // que continua servindo os links de aviso já enviados.
-      start_url: portalAppDisponivel() ? '/portal' : '/portal/aca/aluno',
+      start_url: portalAppDisponivel() ? `/portal${sufixo}` : '/portal/aca/aluno',
       // Escopo do portal inteiro: o atalho instalado passeia entre o painel, os
       // documentos e o login sem sair do aplicativo.
       scope: '/portal/',
       display: 'standalone',
       orientation: 'portrait',
       background_color: '#f7f8fa',
-      theme_color: g?.aparencia.corPrincipal || '#111827',
+      theme_color: empresa?.cor || g?.aparencia.corPrincipal || '#111827',
       icons: [
-        { src: '/portal/aca/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-        { src: '/portal/aca/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+        { src: `/portal/aca/icon.svg${sufixo}`, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+        { src: `/portal/aca/icon.svg${sufixo}`, sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
       ],
     }
     return reply.header('content-type', 'application/manifest+json; charset=utf-8').send(JSON.stringify(manifest))
   })
 
-  app.get('/portal/aca/icon.svg', async (_req, reply) => {
+  app.get('/portal/aca/icon.svg', async (req, reply) => {
     const h = await getDocHeader()
     const g = await lerEduGeral().catch(() => null)
+    const empresa = await marcaDoPortal(req.query)
     return reply
       .header('content-type', 'image/svg+xml; charset=utf-8')
       .header('cache-control', 'public, max-age=86400')
-      .send(iconeSvg(g?.identidade.nome || h.instituicao, 512, g?.aparencia.corPrincipal || undefined))
+      .send(iconeSvg(empresa?.nome || g?.identidade.nome || h.instituicao, 512, empresa?.cor || g?.aparencia.corPrincipal || undefined))
   })
 
   app.get('/portal/aca/offline', async (_req, reply) => {

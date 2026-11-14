@@ -541,7 +541,7 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
       const htmlBody = meta.bodyHtml || activity.messageBody || ''
       const subject = activity.messageSubject || activity.title
 
-      result = await sendEmailActivity(email, subject, htmlBody, activity.attachmentUrl, activity.attachmentName)
+      result = await sendEmailActivity(email, subject, htmlBody, activity.attachmentUrl, activity.attachmentName, activity.leadId)
 
     } else if (activity.type === 'sms') {
       // Antes isto só marcava a atividade como "enviada" sem mandar nada.
@@ -592,8 +592,10 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
 }
 
 // ── Email: com suporte a HTML e anexos ──
-async function sendEmailActivity(to: string, subject: string, html: string, attachmentUrl?: string | null, attachmentName?: string | null): Promise<string> {
-  const cfg = await getEmailConfig()
+async function sendEmailActivity(to: string, subject: string, html: string, attachmentUrl?: string | null, attachmentName?: string | null, leadId?: number | null): Promise<string> {
+  // Remetente da empresa do lead (identidade da unidade), quando ela tem uma.
+  const { cfgComIdentidade, identidadeDoLead } = await import('../lib/identidadeDaUnidade.js')
+  const cfg = cfgComIdentidade(await getEmailConfig(), await identidadeDoLead(leadId))
   const brand = await getBranding()
   const provider = cfg['email.provider'] || 'resend'
 

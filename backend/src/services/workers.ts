@@ -469,7 +469,10 @@ function createEmailWorker() {
     // Importar dinamicamente para evitar dependencia circular
     const { getEmailConfig, getFromAddress, getReplyTo } = await import('./notify.js')
     const { motivoDeBloqueio, extrasDoEnvio } = await import('./emailEventos.js')
-    const cfg = await getEmailConfig()
+    // E-mail ao lead sai com o remetente da empresa dele (identidade da unidade);
+    // aviso interno, com o do ambiente.
+    const { cfgComIdentidade, identidadeDoLead } = await import('../lib/identidadeDaUnidade.js')
+    const cfg = interno ? await getEmailConfig() : cfgComIdentidade(await getEmailConfig(), await identidadeDoLead(leadId))
     const provider = cfg['email.provider'] || 'resend'
     // Bounce/spam: não adianta tentar de novo — falha definitiva do passo.
     const bloqueio = await motivoDeBloqueio(email, true)

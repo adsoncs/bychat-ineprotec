@@ -3766,6 +3766,10 @@ model EducationalUnit {
   tipoUnidade        String?            @db.VarChar(40)
   codigoEmecEndereco String?            @db.VarChar(20)
   enderecoJson       Json?              @db.Json
+  /// Identidade da empresa desta unidade para o candidato (marca, razão social,
+  /// CNPJ, remetente do e-mail, número de WhatsApp). Vazio = cadastro geral do
+  /// ambiente. Ver lib/identidadeDaUnidade.ts.
+  identidade         Json?              @db.Json
 
   @@map("bychat_edu_units")
 }

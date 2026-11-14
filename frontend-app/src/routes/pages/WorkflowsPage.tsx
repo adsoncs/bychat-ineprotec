@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
+import { useEducationalUnits } from '@/hooks/useEducational'
 import { useLocation } from 'wouter-preact'
 import { Workflow as WorkflowIcon, Plus, HelpCircle } from '@/components/ui/icon-set'
 import {
@@ -538,7 +539,45 @@ function FunnelScopeSelect({ value, onChange }: { value: number | null; onChange
   )
 }
 
-function TriggerFiltersEditor({
+/**
+ * Filtros do gatilho: o da empresa (só com 2+ unidades no ambiente — duas
+ * empresas dividindo o sistema) por cima dos filtros próprios do evento.
+ */
+function TriggerFiltersEditor(props: {
+  triggerEvent: string
+  value: WorkflowTriggerConfig
+  onChange: (v: WorkflowTriggerConfig) => void
+  funnelId: number | null
+}) {
+  const { data } = useEducationalUnits()
+  const unidades = (data?.units ?? []).filter((u) => u.active !== false)
+  const marcadas = props.value.unitIds ?? []
+  const alternar = (id: number) => {
+    const next = marcadas.includes(id) ? marcadas.filter((x) => x !== id) : [...marcadas, id]
+    props.onChange({ ...props.value, unitIds: next.length ? next : undefined })
+  }
+  return (
+    <div class="space-y-3">
+      {unidades.length > 1 && (
+        <div>
+          <span class="text-xs font-medium text-fg">Empresa (unidade)</span>
+          <div class="flex flex-wrap gap-3 mt-1">
+            {unidades.map((u) => (
+              <label key={u.id} class="flex items-center gap-1.5 text-xs text-fg-muted">
+                <input type="checkbox" checked={marcadas.includes(u.id)} onChange={() => alternar(u.id)} />
+                {u.identidade?.marca || u.nome}
+              </label>
+            ))}
+          </div>
+          <p class="text-2xs text-fg-muted mt-1">Nenhuma marcada = todas. Vale pela unidade do portal da inscrição da pessoa.</p>
+        </div>
+      )}
+      <TriggerFiltersEditorDoEvento {...props} />
+    </div>
+  )
+}
+
+function TriggerFiltersEditorDoEvento({
   triggerEvent, value, onChange, funnelId,
 }: {
   triggerEvent: string

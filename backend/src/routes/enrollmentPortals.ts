@@ -1,6 +1,7 @@
 // src/routes/enrollmentPortals.ts
 // Portal de Matrículas — CRUD admin + endpoint público de registro.
 
+import { canalDaUnidade, unidadeDoPortal } from '../lib/identidadeDaUnidade.js'
 import { lerIdentidadePainel } from '../lib/identidadePainel.js'
 import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
@@ -2496,7 +2497,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const agente = await prisma.user.findUnique({ where: { id: atendente.userId }, select: { role: true } }).catch(() => null)
       if (agente) {
         const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
-        const f = await fichaParaMatricula({ nome, whatsapp, email, cpf }, { userId: atendente.userId, role: String(agente.role) }).catch(() => null)
+        const f = await fichaParaMatricula({ nome, whatsapp, email, cpf }, { userId: atendente.userId, role: String(agente.role) }, portal.id).catch(() => null)
         if (f?.tipo === 'ficha') {
           lead = await prisma.lead.findUnique({ where: { id: f.lead.id } })
           if (lead) {
@@ -2577,6 +2578,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           teamId: routedTeamId,
           ...(rota?.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
           funnelId: resolvedFunnelId,
+          // Empresa com número próprio (identidade da unidade): a conversa já
+          // nasce nele, e não no número padrão do ambiente.
+          ...(await canalDaUnidade(portal.unitId)),
           trackingVisitorId,
           utmSource: fd.utm_source || null,
           utmMedium: fd.utm_medium || null,
@@ -4330,6 +4334,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           teamId: routedTeamId,
           ...(rota?.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
           funnelId: resolvedFunnelId,
+          ...(await canalDaUnidade(await unidadeDoPortal(portal.id))),
           trackingVisitorId,
           utmSource: fd.utm_source || null,
           utmMedium: fd.utm_medium || null,
@@ -4804,6 +4809,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           source: 'portal_chat',
           originType: 'enrollment_portal',
           teamId: teamIdResolved,
+          ...(await canalDaUnidade(await unidadeDoPortal(portal.id))),
           lastActivityAt: new Date(),
         },
       })

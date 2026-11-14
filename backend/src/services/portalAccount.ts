@@ -77,7 +77,7 @@ export async function definirSenha(accountId: number, senha: string, opts: { rev
  * cadastro tem gente com ponto e traço e gente sem, e exigir do aluno o formato
  * exato do banco é uma armadilha.
  */
-export async function acharConta(identificador: string) {
+export async function acharConta(identificador: string, unitId?: number | null) {
   const bruto = String(identificador || '').trim()
   if (!bruto) return null
 
@@ -85,18 +85,21 @@ export async function acharConta(identificador: string) {
     // O lead QUE TEM conta no portal: o mesmo e-mail pode estar em outros leads
     // do CRM (duplicatas, importação) e, sem este filtro, o primeiro achado
     // podia ser um deles — e o login falhava para quem tem a conta.
-    const lead = await prisma.lead.findFirst({
+    const leads = await prisma.lead.findMany({
       where: { email: bruto.toLowerCase(), portalAccount: { isNot: null } },
-      select: { id: true, portalAccount: { select: { id: true } } },
+      select: { id: true, portalAccount: { select: { id: true } } }, orderBy: { id: 'asc' }, take: 20,
     })
-    if (lead?.portalAccount) return contaPorId(lead.portalAccount.id)
+    const contas = leads.flatMap((l) => (l.portalAccount ? [{ id: l.portalAccount.id, leadId: l.id }] : []))
+    const escolhida = await daMesmaEmpresa(contas, unitId)
+    if (escolhida) return contaPorId(escolhida)
   }
 
   const digitos = soDigitos(bruto)
   if (digitos.length >= 11) {
     // O CPF da conta cobre candidato e aluno — é gravado já na inscrição.
-    const porConta = await prisma.portalAccount.findFirst({ where: { cpf: digitos }, select: { id: true } })
-    if (porConta) return contaPorId(porConta.id)
+    const porCpf = await prisma.portalAccount.findMany({ where: { cpf: digitos }, select: { id: true, leadId: true }, orderBy: { id: 'asc' }, take: 20 })
+    const escolhida = await daMesmaEmpresa(porCpf, unitId)
+    if (escolhida) return contaPorId(escolhida)
 
     // Cadastro antigo: o CPF pode estar só no Aluno, com pontuação. Poucos
     // registros, e o MySQL não tem substituição por regex portátil no WHERE.
@@ -124,6 +127,22 @@ export async function acharConta(identificador: string) {
     if (c) return contaPorId(c.id)
   }
   return null
+}
+
+/**
+ * Duas empresas no mesmo ambiente: a mesma pessoa pode ter uma conta em cada
+ * (um lead por empresa). Entre as contas achadas, vale a que tem inscrição num
+ * portal da unidade de onde a pessoa está entrando; sem unidade, ou sem nenhuma
+ * dela, a primeira — o comportamento de antes.
+ */
+async function daMesmaEmpresa(contas: Array<{ id: number; leadId: number }>, unitId?: number | null): Promise<number | null> {
+  if (!contas.length) return null
+  if (contas.length === 1 || !unitId) return contas[0].id
+  const comInscricao = await prisma.enrollmentRegistration.findFirst({
+    where: { leadId: { in: contas.map((c) => c.leadId) }, portal: { unitId } },
+    orderBy: { id: 'desc' }, select: { leadId: true },
+  })
+  return contas.find((c) => c.leadId === comInscricao?.leadId)?.id ?? contas[0].id
 }
 
 async function contaPorId(id: number) {
@@ -161,9 +180,9 @@ async function cpfDaConta(conta: { leadId: number; cpf: string | null }): Promis
 export async function login(
   identificador: string,
   senha: string,
-  ctx: { userAgent?: string | null; ip?: string | null } = {},
+  ctx: { userAgent?: string | null; ip?: string | null; unitId?: number | null } = {},
 ): Promise<ResultadoLogin> {
-  const conta = await acharConta(identificador)
+  const conta = await acharConta(identificador, ctx.unitId)
   // Mesma mensagem para "não existe" e "senha errada": diferenciar as duas
   // transformaria o login em consulta de quem estuda aqui.
   const generico = { ok: false, erro: 'Usuário ou senha incorretos.' }

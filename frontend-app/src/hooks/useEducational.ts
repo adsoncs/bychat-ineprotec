@@ -142,12 +142,36 @@ export interface EducationalUnit {
   createdAt: string
   updatedAt: string
   _count?: { campuses: number; courses: number; offerings: number }
+  /** Identidade da empresa para o candidato (backend lib/identidadeDaUnidade). */
+  identidade?: IdentidadeDaUnidade | null
+}
+
+/** Marca, dados jurídicos, remetente e WhatsApp de uma empresa. Vazio = cadastro geral. */
+export interface IdentidadeDaUnidade {
+  marca?: string
+  razaoSocial?: string
+  cnpj?: string
+  endereco?: string
+  site?: string
+  emailNome?: string
+  emailCaixa?: string
+  whatsappConexaoId?: number | null
+  capiDesligado?: boolean
+  /** Pixel (conjunto de dados) da Meta da empresa. */
+  capiPixelId?: string
+  /** Só na gravação: token da API de Conversões digitado (vazio = mantém o salvo). */
+  capiToken?: string
+  /** Só na gravação: apaga o token salvo. */
+  capiTokenLimpar?: boolean
+  /** Só na leitura: existe um token salvo (ele nunca volta para a tela). */
+  capiTokenSalvo?: boolean
 }
 
 export interface EducationalUnitInput {
   nome: string
   codigo?: string | null | undefined
   descricao?: string | null | undefined
+  identidade?: IdentidadeDaUnidade | null | undefined
   active?: boolean | undefined
 }
 

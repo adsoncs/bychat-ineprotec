@@ -118,7 +118,7 @@ export function Entrar() {
       const r = await fetch('/api/public/portal/login', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ identificador: u, senha }),
+        body: JSON.stringify({ identificador: u, senha, portal: marca?.slug || undefined }),
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) {
@@ -158,7 +158,7 @@ export function Entrar() {
     const r = await fetch('/api/public/portal/recuperar', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ identificador: recuperar }),
+      body: JSON.stringify({ identificador: recuperar, portal: marca?.slug || undefined }),
     }).then((x) => x.json()).catch(() => null)
     setEnviando(false); setErro(null)
     setLinkEnviado(r?.mensagem || 'Se houver cadastro com esse dado, enviamos um link de acesso pelo WhatsApp ou e-mail.')

@@ -76,7 +76,18 @@ export async function getStageEventMappings(): Promise<Record<string, string>> {
 // ── Envio de Evento ──────────────────────────────
 
 export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boolean; eventId: string; error?: string }> {
-  const config = await getCapiConfig()
+  // Duas empresas no mesmo ambiente (identidade da unidade): a conversão vai
+  // para o pixel da empresa da pessoa; empresa sem pixel próprio e marcada
+  // "não enviar" não manda nada; sem identidade, o pixel geral de sempre.
+  const { capiDoLead } = await import('../lib/identidadeDaUnidade.js')
+  const daEmpresa = await capiDoLead(data.leadId).catch(() => null)
+  if (daEmpresa?.desligado) {
+    return { success: false, eventId: '', error: 'Empresa da pessoa não envia conversões a este pixel (identidade da unidade)' }
+  }
+  const geral = await getCapiConfig()
+  const config = daEmpresa
+    ? { pixelId: daEmpresa.pixelId, accessToken: daEmpresa.accessToken, testEventCode: undefined as string | undefined }
+    : geral
   if (!config) {
     return { success: false, eventId: '', error: 'CAPI não configurado (pixel_id ou access_token ausente)' }
   }

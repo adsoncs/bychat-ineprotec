@@ -17,9 +17,16 @@ import {
 } from './paymentIugu.js'
 import { appUrl } from '../lib/appUrl.js'
 
-/** Config do Asaas a partir da conexão ativa (apiKey decifrada). null se não houver. */
+/**
+ * Config do Asaas da secretaria (apiKey decifrada). null se não houver.
+ *
+ * É a conta ativa cadastrada PRIMEIRO. Antes era a mais recente — e cadastrar
+ * a conta de uma segunda empresa no mesmo ambiente (cada portal aponta a sua
+ * em `paymentConnectionId`) desviava para ela as mensalidades da secretaria
+ * da primeira. Conta nova serve aos portais que a escolhem, não à secretaria.
+ */
 export async function getAsaasConfig(): Promise<AsaasConfig | null> {
-  const conn = await prisma.paymentProviderConnection.findFirst({ where: { provider: 'asaas', active: true }, orderBy: { id: 'desc' } })
+  const conn = await prisma.paymentProviderConnection.findFirst({ where: { provider: 'asaas', active: true }, orderBy: { id: 'asc' } })
   return abrirConexao(conn)
 }
 
@@ -82,7 +89,7 @@ type ConexaoDoErp = {
 /**
  * A conexão que cobra esta parcela — mesma regra de `contaDaParcela`, agora
  * para qualquer gateway do ERP: quem recebeu a entrada no portal recebe as
- * mensalidades; sem portal, vale a conexão ativa mais recente.
+ * mensalidades; sem portal, vale a conexão ativa cadastrada primeiro.
  */
 export async function conexaoDaParcela(parcelaId: number): Promise<ConexaoDoErp | null> {
   const parcela = await prisma.acaParcela.findUnique({
@@ -103,9 +110,10 @@ export async function conexaoDaParcela(parcelaId: number): Promise<ConexaoDoErp 
       if (conn) return conn
     }
   }
+  // Sem portal: a conta da secretaria, a primeira cadastrada (ver getAsaasConfig).
   return prisma.paymentProviderConnection.findFirst({
     where: { provider: { in: [...GATEWAYS_DO_ERP] }, active: true },
-    orderBy: { id: 'desc' },
+    orderBy: { id: 'asc' },
   })
 }
 

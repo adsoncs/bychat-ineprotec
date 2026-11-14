@@ -128,7 +128,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     let fichaUsada: { id: number; nome: string | null; por: string } | null = null
     if (leadId == null && !fichaSeparada) {
       const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
-      const f = await fichaParaMatricula({ nome: b0.nome, whatsapp: b0.whatsapp, email: b0.email, cpf: b0.cpf }, { userId: u.userId, role: String(u.role) })
+      const f = await fichaParaMatricula({ nome: b0.nome, whatsapp: b0.whatsapp, email: b0.email, cpf: b0.cpf }, { userId: u.userId, role: String(u.role) }, portalId)
       if (f.tipo === 'ficha') { leadId = f.lead.id; fichaUsada = { id: f.lead.id, nome: f.lead.nome, por: f.por } }
     }
     const barrado = await barrar(req, portalId, leadId)
@@ -189,7 +189,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     if (b) return reply.code(b.status).send({ error: b.erro })
     const { fichaParaMatricula } = await import('../services/fichaDaMatricula.js')
     reply.header('cache-control', 'no-store')
-    return fichaParaMatricula({ nome: q.nome, whatsapp: q.whatsapp, email: q.email, cpf: q.cpf }, { userId: u.userId, role: String(u.role) })
+    return fichaParaMatricula({ nome: q.nome, whatsapp: q.whatsapp, email: q.email, cpf: q.cpf }, { userId: u.userId, role: String(u.role) }, portalId)
   })
 
   // Sessão da tela: os tokens que as abas usam nas rotas públicas. Curta, só em memória.

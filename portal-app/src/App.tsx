@@ -475,24 +475,15 @@ export function App() {
         <BarraTopo
           portal={portal}
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
-          passos={trilhaCompleta}
-          atual={passo}
-          total={trilhaCompleta.length}
         />
       ) : (
         <Cabecalho
           portal={portal}
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
-          trilha={
-            <Trilha
-              passos={trilhaCompleta}
-              atual={passo}
-              total={trilhaCompleta.length}
-            />
-          }
         />
       )}
       {portal.brandHeaderStyle === 'barra' && <Capa portal={portal} />}
+      {trilhaCompleta.length > 1 && <PassosDaMatricula passos={trilhaCompleta} atual={passo} />}
 
       {retomado && !naRevisao && !atendimento && (
         <div class="aviso info">
@@ -514,7 +505,6 @@ export function App() {
         ) : (
           <>
             <h2>{passoAtual?.name}</h2>
-            {trilhaCompleta.length > 1 && <Progresso atual={passo} total={trilhaCompleta.length} />}
             {/* Link de um curso: no celular o resumo fica lá embaixo, e a pessoa
                 preencheria os dados sem ver para qual curso. */}
             {dados?.cursoDoLink && ofertaEscolhida && !naRevisao && (
@@ -588,8 +578,6 @@ function Capa({ portal }: { portal: DadosPortal['portal'] }) {
 function Cabecalho(props: {
   portal: DadosPortal['portal']
   acesso?: ComponentChildren
-  /** Trilha de passos: acompanha a pessoa até o pagamento, não só o formulário. */
-  trilha?: ComponentChildren
 }) {
   return (
     <>
@@ -597,7 +585,6 @@ function Cabecalho(props: {
         <Logo portal={props.portal} />
         {props.acesso}
       </div>
-      {props.trilha}
       <Capa portal={props.portal} />
     </>
   )
@@ -648,44 +635,48 @@ function AcessoNoTopo(props: {
   return <a class="acesso-topo" href={destino}>Entrar</a>
 }
 
-/** "Passo X de N" e a barra que enche: a pessoa vê quanto falta da matrícula inteira. */
-function Progresso({ atual, total }: { atual: number; total: number }) {
-  const n = Math.min(atual + 1, total)
-  return (
-    <div class="progresso-geral">
-      <span class="sub">{tx('trilha.passoDe', 'Passo')} {n} {tx('trilha.de', 'de')} {total}</span>
-      <div class="progresso-barra" role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={n}>
-        <span style={{ width: `${Math.round((n / total) * 100)}%` }} />
-      </div>
-    </div>
-  )
-}
-
-/** Passos da inscrição. Em barras (padrão) ou em círculos numerados. */
-function Trilha({ passos, atual, total, feitas }: { passos: string[]; atual: number; total: number; feitas?: number[] }) {
-  // `feitas`: depois do envio as etapas podem terminar fora de ordem (ex.:
-  // documentos enviados antes do pagamento) — aí cada uma diz se está feita.
+/**
+ * Passos da matrícula num bloco próprio, logo abaixo do topo (não mais dentro
+ * da faixa): "Sua matrícula em N passos", "Passo X de N", a barra que enche e
+ * a fila de passos. `feitas`: depois do envio as etapas podem terminar fora de
+ * ordem (ex.: documentos antes do pagamento) — cada uma diz se está feita.
+ */
+function PassosDaMatricula({ passos, atual, feitas }: { passos: string[]; atual: number; feitas?: number[] }) {
+  const total = passos.length
   const feita = (i: number) => (feitas ? feitas.includes(i) : i < atual)
+  const concluiu = atual >= total
+  const n = Math.min(atual + 1, total)
+  const pct = concluiu ? 100 : Math.round((n / total) * 100)
   return (
-    <div class="trilha" role="list" aria-label={`Etapa ${Math.min(atual + 1, total)} de ${total}`} data-muitas={passos.length > 4 ? '' : undefined}>
-      {passos.map((nome, i) => (
-        <div class={`etapa ${i === atual ? 'atual' : feita(i) ? 'feita' : ''}`} role="listitem" key={nome + i} title={nome}>
-          <div class="barra" />
-          <span class="numero" aria-hidden="true">{i + 1}</span>
-          <span class="rotulo">{nome}</span>
-        </div>
-      ))}
-    </div>
+    <section class="passos-matricula" aria-label={tx('trilha.rotulo', 'Passos da sua matrícula')}>
+      <div class="pm-topo">
+        <h1 class="pm-titulo">{tx('trilha.titulo', 'Sua matrícula em {n} passos').replace('{n}', String(total))}</h1>
+        <span class="pm-contador">
+          {concluiu ? tx('trilha.concluida', 'Tudo feito') : `${tx('trilha.passoDe', 'Passo')} ${n} ${tx('trilha.de', 'de')} ${total}`}
+          {!concluiu && <span class="pm-atual"> · {passos[atual]}</span>}
+        </span>
+      </div>
+      <div class="pm-barra" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <ol class="pm-lista" style={{ '--pm-n': String(total) } as any}>
+        {passos.map((nome, i) => {
+          const estado = i === atual ? 'atual' : feita(i) ? 'feita' : ''
+          return (
+            <li key={nome + i} class={estado} aria-current={i === atual ? 'step' : undefined} title={nome}>
+              <span class="pm-ponto" aria-hidden="true">{estado === 'feita' ? '✓' : i + 1}</span>
+              <span class="pm-rotulo">{nome}</span>
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }
 
 /** Faixa fixa do topo: logo, passos e o selo de segurança. */
 function BarraTopo(props: {
   portal: DadosPortal['portal']
-  passos: string[]
-  atual: number
-  total: number
-  feitas?: number[]
   acesso?: ComponentChildren
 }) {
   // A faixa é fixa, então a página precisa saber quanto ela ocupa para começar
@@ -709,7 +700,6 @@ function BarraTopo(props: {
           <Logo portal={props.portal} />
           {props.acesso}
         </div>
-        <Trilha passos={props.passos} atual={props.atual} total={props.total} feitas={props.feitas} />
         {props.portal.brandSecurityNote && (
           <span class="selo">
             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -1206,30 +1196,13 @@ function Concluido(props: {
           — e sobrava o espaço reservado para a faixa que não estava ali. */}
       {props.portal.brandHeaderStyle === 'barra' ? (
         <>
-          <BarraTopo
-            portal={props.portal}
-            acesso={acesso}
-            passos={passosTrilha}
-            atual={atualTrilha}
-            total={passosTrilha.length}
-            feitas={feitasTrilha}
-          />
+          <BarraTopo portal={props.portal} acesso={acesso} />
           <Capa portal={props.portal} />
         </>
       ) : (
-        <Cabecalho
-          portal={props.portal}
-          acesso={acesso}
-          trilha={
-            <Trilha
-              passos={passosTrilha}
-              atual={atualTrilha}
-              total={passosTrilha.length}
-              feitas={feitasTrilha}
-            />
-          }
-        />
+        <Cabecalho portal={props.portal} acesso={acesso} />
       )}
+      <PassosDaMatricula passos={passosTrilha} atual={atualTrilha} feitas={feitasTrilha} />
       <div class="coluna-conclusao">
       {tudoEntregue && etapas ? (
         <FinalDaMatricula portal={props.portal} nome={props.nome} codigo={props.codigo} etapas={etapas} mensagem={props.mensagem} />

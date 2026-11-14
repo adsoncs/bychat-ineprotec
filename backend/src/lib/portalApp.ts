@@ -87,7 +87,8 @@ export function paginaDoPortal(p: CabecalhoPortal, appUrl: string): string {
     p.brandPrimaryColor ? `<meta name="theme-color" content="${esc(p.brandPrimaryColor)}">` : '',
     `<link rel="canonical" href="${esc(url)}">`,
     // Instalável no celular: o manifesto e o service worker já existem no ERP.
-    `<link rel="manifest" href="/portal/aca/manifest.webmanifest">`,
+    // Com o portal no endereço, o app instalado leva o nome e a cor da empresa dele.
+    `<link rel="manifest" href="/portal/aca/manifest.webmanifest${p.slug ? `?portal=${encodeURIComponent(p.slug)}` : ''}">`,
     `<meta name="apple-mobile-web-app-capable" content="yes">`,
     // A cor entra já no HTML para a primeira pintura não piscar no tom errado.
     p.brandPrimaryColor ? `<style>:root{--marca:${esc(p.brandPrimaryColor)}}</style>` : '',

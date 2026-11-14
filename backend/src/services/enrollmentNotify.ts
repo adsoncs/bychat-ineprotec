@@ -45,8 +45,11 @@ async function buildEnrollmentPayload(enrollmentId: number) {
     payload: {
       enrollmentId: e.id,
       candidateCode: e.candidateCode,
+      portalId: e.portal?.id ?? null,
       portalNome: e.portal?.nome || '',
       portalUnit: e.portal?.unit?.nome || '',
+      // Empresa do portal: o filtro "Empresa (unidade)" dos fluxos lê daqui.
+      unitId: e.portalId ? (await prisma.enrollmentPortal.findUnique({ where: { id: e.portalId }, select: { unitId: true } }))?.unitId ?? null : null,
       courseName,
       paymentUrl: e.paymentUrl || '',
       paymentAmount: amount,

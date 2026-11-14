@@ -3,6 +3,7 @@
 // CRUD das entidades (levels, modalities, units, campuses, courses, offerings,
 // selection-processes, registrations) será adicionado na Fase 2.
 
+import { esquecerIdentidade, identidadeParaGravar, identidadeParaTela } from '../lib/identidadeDaUnidade.js'
 import { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { guardTela } from '../lib/eduTelas.js'
@@ -417,7 +418,8 @@ export async function educationalRoutes(app: FastifyInstance) {
         _count: { select: { campuses: true, courses: true, offerings: true } },
       },
     })
-    return { units }
+    // O token da API de Conversões não sai daqui, nem cifrado.
+    return { units: units.map((u) => ({ ...u, identidade: identidadeParaTela(u.identidade) })) }
   })
 
   app.post('/api/admin/educacional/units', { preHandler: eduAdmin }, async (req, reply) => {
@@ -429,15 +431,20 @@ export async function educationalRoutes(app: FastifyInstance) {
         codigo: body.codigo || null,
         descricao: body.descricao || null,
         active: body.active !== false,
+        ...(body.identidade !== undefined && { identidade: ((await identidadeParaGravar(body.identidade, null)) ?? Prisma.DbNull) as any }),
       },
     })
-    return { ok: true, unit }
+    esquecerIdentidade(unit.id)
+    return { ok: true, unit: { ...unit, identidade: identidadeParaTela(unit.identidade) } }
   })
 
   app.put('/api/admin/educacional/units/:id', { preHandler: eduAdmin }, async (req, reply) => {
     const { id } = req.params as any
     const body = req.body as any
     try {
+      const atual = body.identidade !== undefined
+        ? (await prisma.educationalUnit.findUnique({ where: { id: parseInt(id) }, select: { identidade: true } }))?.identidade
+        : null
       const unit = await prisma.educationalUnit.update({
         where: { id: parseInt(id) },
         data: {
@@ -445,9 +452,13 @@ export async function educationalRoutes(app: FastifyInstance) {
           ...(body.codigo !== undefined && { codigo: body.codigo || null }),
           ...(body.descricao !== undefined && { descricao: body.descricao || null }),
           ...(body.active !== undefined && { active: !!body.active }),
+          // Identidade da empresa (marca, razão social, remetente, WhatsApp):
+          // vazia volta ao cadastro geral do ambiente. lib/identidadeDaUnidade.
+          ...(body.identidade !== undefined && { identidade: ((await identidadeParaGravar(body.identidade, atual)) ?? Prisma.DbNull) as any }),
         },
       })
-      return { ok: true, unit }
+      esquecerIdentidade(unit.id)
+      return { ok: true, unit: { ...unit, identidade: identidadeParaTela(unit.identidade) } }
     } catch (err: any) {
       return reply.code(404).send({ error: err.message })
     }

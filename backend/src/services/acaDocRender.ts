@@ -4,7 +4,19 @@
 import { prisma } from '../lib/prisma.js'
 import { pdfHistorico, pdfDeclaracao, pdfAta, pdfRecibo, pdfCertificado, pdfQuitacaoAnual, pdfCarteirinha, pdfInformeIR, pdfCertificadoQualificacao, type DocHeader } from './acaPdf.js'
 
-export async function getDocHeader(): Promise<DocHeader> {
+/**
+ * Cabeçalho dos documentos: razão social e CNPJ. Com `unitId`, a identidade da
+ * unidade (empresa) vence o cadastro geral — duas empresas no mesmo ambiente.
+ */
+export async function getDocHeader(unitId?: number | null): Promise<DocHeader> {
+  if (unitId) {
+    const { identidadeDaUnidade } = await import('../lib/identidadeDaUnidade.js')
+    const id = await identidadeDaUnidade(unitId)
+    if (id?.razaoSocial || id?.cnpj) {
+      const geral = await getDocHeader()
+      return { instituicao: id.razaoSocial || id.marca || geral.instituicao, cnpj: id.cnpj || null }
+    }
+  }
   const rows = await prisma.setting.findMany({ where: { key: { in: ['legal.company_name', 'legal.cnpj', 'business.company_name'] } } })
   const v = (k: string) => { const r = rows.find((x) => x.key === k); const raw = r ? r.value : null; return typeof raw === 'string' ? raw.replace(/^"|"$/g, '') : raw }
   const instituicao = (v('legal.company_name') as string) || (v('business.company_name') as string) || 'Instituição'

@@ -7,14 +7,16 @@ import {
   useDeleteEducationalUnit,
   type EducationalUnit,
   type EducationalUnitInput,
+  type IdentidadeDaUnidade,
 } from '@/hooks/useEducational'
+import { useCloudApiConnections } from '@/hooks/useCloudApi'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
-import { Input, Textarea } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EduListHero, EduCountPill } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
@@ -190,6 +192,7 @@ function UnitFormModal({ unit, onClose }: { unit: EducationalUnit | null; onClos
   const [codigoTouched, setCodigoTouched] = useState(!!unit?.codigo)
   const [descricao, setDescricao] = useState(unit?.descricao ?? '')
   const [active, setActive] = useState(unit?.active ?? true)
+  const [identidade, setIdentidade] = useState<IdentidadeDaUnidade>(unit?.identidade ?? {})
   const create = useCreateEducationalUnit()
   const update = useUpdateEducationalUnit()
   const isEdit = !!unit
@@ -212,6 +215,7 @@ function UnitFormModal({ unit, onClose }: { unit: EducationalUnit | null; onClos
       codigo: codigo.trim() || null,
       descricao: descricao.trim() || null,
       active,
+      identidade,
     }
     if (isEdit) {
       update.mutate({ id: unit.id, ...payload }, {
@@ -263,8 +267,70 @@ function UnitFormModal({ unit, onClose }: { unit: EducationalUnit | null; onClos
           <input type="checkbox" checked={active} onChange={(e) => setActive((e.target as HTMLInputElement).checked)} />
           Unidade ativa
         </label>
+        <IdentidadeDaEmpresa valor={identidade} onChange={setIdentidade} />
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Identidade da empresa desta unidade. Serve para duas empresas no mesmo
+ * ambiente: os portais da unidade falam com o candidato com esta marca, este
+ * remetente e este número. Campo vazio = o cadastro geral (Configurações).
+ */
+function IdentidadeDaEmpresa({ valor, onChange }: { valor: IdentidadeDaUnidade; onChange: (v: IdentidadeDaUnidade) => void }) {
+  const { data } = useCloudApiConnections()
+  const conexoes = data?.connections ?? []
+  const set = (k: keyof IdentidadeDaUnidade, v: unknown) => onChange({ ...valor, [k]: v })
+  const txt = (k: 'marca' | 'razaoSocial' | 'cnpj' | 'endereco' | 'site' | 'emailNome' | 'emailCaixa') =>
+    (e: Event) => set(k, (e.target as HTMLInputElement).value)
+  return (
+    <details class="rounded-md border border-border bg-surface-2 p-3" open={!!valor.marca}>
+      <summary class="cursor-pointer text-sm font-medium text-fg">Identidade da empresa (opcional)</summary>
+      <p class="text-2xs text-fg-muted mt-2">
+        Use quando esta unidade é <strong>outra empresa</strong> no mesmo ambiente. Os portais dela passam a
+        usar estes dados no e-mail, nos modelos ({'{{marca}}'}), no contrato e no WhatsApp. Campo vazio usa o
+        cadastro geral.
+      </p>
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 mt-3">
+        <Input label="Nome da marca" value={valor.marca ?? ''} onInput={txt('marca')} placeholder="Ex.: Matrícula EAD" />
+        <Input label="Razão social" value={valor.razaoSocial ?? ''} onInput={txt('razaoSocial')} hint="{{instituicao}} no contrato" />
+        <Input label="CNPJ" value={valor.cnpj ?? ''} onInput={txt('cnpj')} />
+        <Input label="Site" value={valor.site ?? ''} onInput={txt('site')} hint="{{site_instituicao}}" />
+        <div class="sm:col-span-2">
+          <Input label="Endereço da sede" value={valor.endereco ?? ''} onInput={txt('endereco')} hint="{{endereco_instituicao}}" />
+        </div>
+        <Input label="Remetente do e-mail (nome)" value={valor.emailNome ?? ''} onInput={txt('emailNome')} hint="Vazio = nome da marca" />
+        <Input label="Caixa do remetente" value={valor.emailCaixa ?? ''} onInput={txt('emailCaixa')} placeholder="matriculaead" hint="Antes do @ do domínio de envio" />
+        <Select
+          label="WhatsApp da empresa"
+          value={valor.whatsappConexaoId ? String(valor.whatsappConexaoId) : ''}
+          onChange={(e) => set('whatsappConexaoId', Number((e.target as HTMLSelectElement).value) || null)}
+          hint="Fichas novas dos portais desta unidade conversam por este número"
+        >
+          <option value="">Número padrão do ambiente</option>
+          {conexoes.map((c) => <option key={c.id} value={c.id}>{c.displayName || c.displayPhone} · {c.displayPhone}</option>)}
+        </Select>
+        <Input
+          label="Pixel da Meta (ID do conjunto de dados)"
+          value={valor.capiPixelId ?? ''}
+          onInput={(e) => set('capiPixelId', (e.target as HTMLInputElement).value)}
+          hint="As conversões das pessoas desta empresa vão para este pixel"
+        />
+        <Input
+          label="Token da API de Conversões"
+          type="password"
+          value={valor.capiToken ?? ''}
+          onInput={(e) => set('capiToken', (e.target as HTMLInputElement).value)}
+          placeholder={valor.capiTokenSalvo ? 'Token salvo — deixe vazio para manter' : 'Cole o token gerado no Gerenciador de Eventos'}
+          hint={valor.capiTokenSalvo ? 'Já existe um token salvo (não é exibido).' : 'Gerenciador de Eventos › Configurações › API de Conversões'}
+        />
+        <label class="flex items-start gap-2 text-xs text-fg-muted sm:col-span-2">
+          <input type="checkbox" checked={!!valor.capiDesligado} onChange={(e) => set('capiDesligado', (e.target as HTMLInputElement).checked)} />
+          <span>Sem pixel próprio: não enviar as vendas desta empresa ao pixel da Meta do ambiente</span>
+        </label>
+      </div>
+    </details>
   )
 }
 

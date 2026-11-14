@@ -32,6 +32,8 @@ export interface WorkflowTriggerConfig {
   hoursBefore?: number | undefined
   /** meeting.*: só para este(s) tipo(s) de reunião. */
   meetingTypeId?: number | number[] | undefined
+  /** Só pessoas desta(s) empresa(s) — unidade do portal da inscrição (ou do número). */
+  unitIds?: number[] | undefined
 }
 
 export interface Workflow {

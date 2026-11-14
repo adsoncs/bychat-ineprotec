@@ -13,6 +13,7 @@ import { prisma } from '../lib/prisma.js'
 import { mintPortalToken } from '../lib/acaPortalToken.js'
 import { getProviderForLeadOwner } from './whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from './notify.js'
+import { cfgComIdentidade, identidadeDoLead, varsDaIdentidade } from '../lib/identidadeDaUnidade.js'
 
 const MAX_TENTATIVAS = 5
 const BLOQUEIO_MINUTOS = 15
@@ -239,7 +240,8 @@ export async function enviarLinkAcesso(identificador: string, baseUrl: string): 
   const token = mintPortalToken('aca-aluno', aluno.id, 1)
   const url = `${baseUrl.replace(/\/$/, '')}/portal/aca/senha?t=${encodeURIComponent(token)}`
   const { renderizarModelo } = await import('./modelosDoSistema.js')
-  const vars = { nome: lead.nome ?? '', link: url, validade: 24 }
+  const identidade = await identidadeDoLead(lead.id)
+  const vars = { ...varsDaIdentidade(identidade), nome: lead.nome ?? '', link: url, validade: 24 }
 
   if (lead.whatsapp) {
     const msg = await renderizarModelo('aluno_acesso_wa', vars)
@@ -257,7 +259,7 @@ export async function enviarLinkAcesso(identificador: string, baseUrl: string): 
     const em = await renderizarModelo('aluno_acesso_email', vars)
     if (em?.body.trim()) {
       try {
-        const cfg = await getEmailConfig()
+        const cfg = cfgComIdentidade(await getEmailConfig(), identidade)
         await sendEmailGeneric({ from: getFromAddress(cfg), to: lead.email, subject: em.subject, html: em.body })
         return { enviado: true, canal: 'email' }
       } catch { /* nada a fazer */ }
