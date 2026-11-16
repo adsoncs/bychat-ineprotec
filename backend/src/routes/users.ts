@@ -398,9 +398,19 @@ export async function usersRoutes(app: FastifyInstance) {
         id: true, email: true, name: true, role: true, active: true, isAgent: true,
         lastLoginAt: true, lastSeenAt: true, createdAt: true,
         workStatus: true, workStatusUpdatedAt: true, capacity: true, notifyWhatsapp: true,
+        // Coluna "Equipe" da tela de Usuários: só nome e liderança.
+        teams: {
+          select: { isLeader: true, team: { select: { id: true, name: true, active: true, color: true } } },
+          orderBy: { team: { name: 'asc' } },
+        },
       }
     })
-    return { users }
+    return {
+      users: users.map(({ teams, ...u }) => ({
+        ...u,
+        equipes: teams.map((t) => ({ id: t.team.id, nome: t.team.name, cor: t.team.color, lider: t.isLeader, ativa: t.team.active })),
+      })),
+    }
   })
 
   // ── POST /api/admin/users — Criar usuário (admin only) ──

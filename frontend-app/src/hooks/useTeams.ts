@@ -195,6 +195,7 @@ export function useAddTeamMember(teamId: number) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['teams'] })
       void qc.invalidateQueries({ queryKey: ['team-members'] })
+      void qc.invalidateQueries({ queryKey: ['admin-users'] })
     },
   })
 }
@@ -204,7 +205,8 @@ export function useUpdateTeamMember(teamId: number) {
   return useMutation({
     mutationFn: ({ userId, ...dados }: { userId: number; isLeader?: boolean; podeTransferir?: boolean | null; podePegarDeOutros?: boolean | null; participaRodizio?: boolean }) =>
       api.put<{ ok: true }>(`/admin/teams/${teamId}/members/${userId}`, dados),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['team-members'] }) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['team-members'] })
+      void qc.invalidateQueries({ queryKey: ['admin-users'] }) },
   })
 }
 
@@ -216,6 +218,7 @@ export function useRemoveTeamMember(teamId: number) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['teams'] })
       void qc.invalidateQueries({ queryKey: ['team-members'] })
+      void qc.invalidateQueries({ queryKey: ['admin-users'] })
     },
   })
 }

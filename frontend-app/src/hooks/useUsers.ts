@@ -19,6 +19,8 @@ export interface AdminUser {
   workStatusUpdatedAt?: string | null
   capacity?: number
   notifyWhatsapp?: string | null
+  /** Equipes de que a pessoa participa (coluna "Equipe" da tela de Usuários). */
+  equipes?: { id: number; nome: string; cor: string | null; lider: boolean; ativa: boolean }[]
 }
 
 export interface UserCreateInput {

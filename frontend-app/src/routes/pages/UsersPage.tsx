@@ -1,3 +1,4 @@
+import type { JSX } from 'preact'
 import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock, KeyRound } from '@/components/ui/icon-set'
@@ -72,6 +73,23 @@ function PresenceDot({ lastSeenAt }: { lastSeenAt: string | null }) {
   )
 }
 
+
+/** Etiqueta da coluna Equipe na cor cadastrada da equipe (Configurações ›
+ *  Equipes), no mesmo estilo suave dos outros badges: fundo levemente tingido,
+ *  borda fina e texto na cor da equipe misturada com a cor de texto do tema —
+ *  fica legível no claro e no escuro, sem texto preto sobre cor forte.
+ *  Cor inválida → fica o tom padrão. */
+function corDaEquipe(cor: string | null | undefined): JSX.CSSProperties | undefined {
+  const m = /^#?([0-9a-f]{6})$/i.exec((cor ?? '').trim())
+  if (!m) return undefined
+  const c = `#${m[1]}`
+  return {
+    background: `color-mix(in srgb, ${c} 16%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${c} 45%, transparent)`,
+    color: `color-mix(in srgb, ${c} 70%, var(--color-fg))`,
+  }
+}
+
 export function UsersPage() {
   const { data, isLoading } = useUsers()
   const { user: me } = useAuth()
@@ -131,6 +149,7 @@ export function UsersPage() {
                 <tr>
                   <th class="text-left px-4 py-2 font-medium">Usuário</th>
                   <th class="text-left px-4 py-2 font-medium">Perfil</th>
+                  <th class="text-left px-4 py-2 font-medium">Equipe</th>
                   <th class="text-left px-4 py-2 font-medium">Status</th>
                   <th class="text-left px-4 py-2 font-medium">Último login</th>
                   <th class="text-left px-4 py-2 font-medium">Criado em</th>
@@ -147,6 +166,24 @@ export function UsersPage() {
                     </td>
                     <td class="px-4 py-2">
                       <Badge tone={ROLE_TONES[u.role]}>{ROLE_LABELS[u.role]}</Badge>
+                    </td>
+                    <td class="px-4 py-2">
+                      {u.equipes && u.equipes.length > 0 ? (
+                        <div class="flex flex-wrap gap-1">
+                          {u.equipes.map((e) => (
+                            <Badge
+                              key={e.id}
+                              tone={e.ativa ? 'info' : 'neutral'}
+                              style={e.ativa ? corDaEquipe(e.cor) : undefined}
+                              title={[e.lider ? 'Líder da equipe' : 'Membro', e.ativa ? '' : 'equipe inativa'].filter(Boolean).join(' · ')}
+                            >
+                              {e.nome}{e.lider ? ' ★' : ''}{e.ativa ? '' : ' (inativa)'}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span class="text-xs text-fg-muted">Sem equipe</span>
+                      )}
                     </td>
                     <td class="px-4 py-2">
                       <span class="inline-flex items-center gap-1.5 text-xs">
