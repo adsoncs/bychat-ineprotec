@@ -23,7 +23,16 @@ export interface MetaAdsReportCampaign {
   id: string
   name: string
   leads: number
+  /** Leads do CRM por tipo: formulário da Meta, WhatsApp (anúncio de mensagem) e site/outros. */
+  leadsForm: number
+  leadsWhatsapp: number
+  leadsSite: number
+  /** Formulários que a Meta informa (sem o evento Lead do pixel). */
   metaLeads: number
+  /** Conversas iniciadas que a Meta informa (anúncio de mensagem). */
+  metaConversations: number
+  /** Gasto ÷ conversas da Meta. */
+  costPerConversation: number
   sales: number
   won: number
   lost: number
@@ -55,6 +64,16 @@ export interface MetaAdsReportAdsetFlat {
   campaignId: string
   campaignName: string
   leads: number
+  /** Leads do CRM por tipo: formulário da Meta, WhatsApp (anúncio de mensagem) e site/outros. */
+  leadsForm: number
+  leadsWhatsapp: number
+  leadsSite: number
+  /** Formulários que a Meta informa (sem o evento Lead do pixel). */
+  metaLeads: number
+  /** Conversas iniciadas que a Meta informa (anúncio de mensagem). */
+  metaConversations: number
+  /** Gasto ÷ conversas da Meta. */
+  costPerConversation: number
   sales: number
   revenue: number
   won: number
@@ -80,6 +99,12 @@ export interface MetaAdsReportAdFlat extends MetaAdsReportAdsetFlat {
 export interface MetaAdsReportSummary {
   totalLeads: number
   totalMetaLeads: number
+  totalMetaConversations: number
+  totalLeadsForm: number
+  totalLeadsWhatsapp: number
+  totalLeadsSite: number
+  /** Formulários recebidos da Meta no período (null quando filtrado por campanha). */
+  metaFormsReceived: number | null
   totalSales: number
   totalWon: number
   totalLost: number

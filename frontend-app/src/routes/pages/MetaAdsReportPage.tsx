@@ -4,7 +4,7 @@ import {
   TrendingUp, DollarSign, Users, MousePointerClick, RefreshCw,
   Eye, Megaphone, Radar, Activity, AlertCircle,
   Target, Coins, ShoppingBag, XCircle, Percent, Filter as FilterIcon,
-  FileDown, HelpCircle, Settings2,
+  FileDown, HelpCircle, Settings2, MessageCircle,
 } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -242,9 +242,20 @@ export function MetaAdsReportPage() {
           value={summary?.totalLeads ?? '—'}
           loading={isLoading}
           icon={<Users size={16} />}
-          hint={summary && summary.leadsDivergence > 0 ? `Meta reporta +${intf.format(summary.leadsDivergence)} (verifique webhook)` : undefined}
+          hint={summary
+            ? summary.leadsDivergence > 0
+              ? `Meta reporta +${intf.format(summary.leadsDivergence)} formulários não recebidos (verifique webhook)`
+              : `${intf.format(summary.totalLeadsForm ?? 0)} form. · ${intf.format(summary.totalLeadsWhatsapp ?? 0)} WhatsApp · ${intf.format(summary.totalLeadsSite ?? 0)} site`
+            : undefined}
           sparkline={sparklines.leads}
           sparklineColor="#3b82f6"
+        />
+        <KpiCard
+          label="Conversas WhatsApp"
+          value={summary ? intf.format(summary.totalMetaConversations ?? 0) : '—'}
+          loading={isLoading}
+          icon={<MessageCircle size={16} />}
+          hint={summary ? `Meta · ${intf.format(summary.totalLeadsWhatsapp ?? 0)} leads de WhatsApp no CRM` : undefined}
         />
         <KpiCard
           label="Vendas"
@@ -1158,6 +1169,34 @@ function WeeklyHeatmapTable({ weekly }: { weekly: MetaAdsReportWeekly[] }) {
 
 // ───────────────────────── Tabelas Camp/Adset/Ad ─────────────────────────
 
+// Leads do CRM separados como o Gerenciador separa os resultados. Somados numa
+// coluna só, a campanha de WhatsApp nunca batia com a Meta.
+function LeadsPorTipo({ r }: { r: { leadsForm?: number; leadsWhatsapp?: number; leadsSite?: number } }) {
+  const partes: string[] = []
+  if (r.leadsForm) partes.push(`${r.leadsForm} form.`)
+  if (r.leadsWhatsapp) partes.push(`${r.leadsWhatsapp} WhatsApp`)
+  if (r.leadsSite) partes.push(`${r.leadsSite} site`)
+  if (partes.length === 0) return null
+  return <div class="text-3xs text-fg-muted whitespace-nowrap" title="Leads no CRM: formulário da Meta · anúncio de WhatsApp · site/outros (a pessoa conta uma vez, na campanha que a trouxe primeiro)">{partes.join(' · ')}</div>
+}
+
+function ResultadosDaMeta({ r }: { r: { metaLeads?: number; metaConversations?: number; costPerConversation?: number } }) {
+  const form = r.metaLeads || 0
+  const conv = r.metaConversations || 0
+  if (!form && !conv) return <span class="text-fg-muted">–</span>
+  return (
+    <div class="flex flex-col items-center leading-tight whitespace-nowrap">
+      {form > 0 && <span class="text-fg text-xs" title="Formulários da Meta (sem o evento Lead do pixel)">{intf.format(form)} form.</span>}
+      {conv > 0 && (
+        <span class="text-fg text-xs" title="Conversas iniciadas no WhatsApp, segundo a Meta">
+          {intf.format(conv)} conversas
+          {r.costPerConversation ? <span class="text-3xs text-fg-muted"> · {brl.format(r.costPerConversation)}</span> : null}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
   if (rows.length === 0) return <EmptyState title="Nenhuma campanha no período selecionado" />
   const totals = useMemo(() => {
@@ -1169,7 +1208,9 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
       lost: acc.lost + r.lost,
       clicks: acc.clicks + r.clicks,
       impressions: acc.impressions + r.impressions,
-    }), { spend: 0, leads: 0, sales: 0, revenue: 0, lost: 0, clicks: 0, impressions: 0 })
+      metaLeads: acc.metaLeads + (r.metaLeads || 0),
+      metaConversations: acc.metaConversations + (r.metaConversations || 0),
+    }), { spend: 0, leads: 0, sales: 0, revenue: 0, lost: 0, clicks: 0, impressions: 0, metaLeads: 0, metaConversations: 0 })
     const roi = t.spend > 0 ? ((t.revenue - t.spend) / t.spend) * 100 : 0
     const roas = t.spend > 0 ? t.revenue / t.spend : 0
     const cpl = t.leads > 0 && t.spend > 0 ? t.spend / t.leads : 0
@@ -1184,6 +1225,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
             <th class="text-left px-3 py-2 font-medium">Campanha</th>
             <th class="text-right px-3 py-2 font-medium">Invest.</th>
             <th class="text-center px-3 py-2 font-medium">Leads</th>
+            <th class="text-center px-3 py-2 font-medium" title="O que a Meta informa no Gerenciador: formulários (sem o Lead do pixel) e conversas iniciadas no WhatsApp">Meta</th>
             <th class="text-center px-3 py-2 font-medium">Vendas</th>
             <th class="text-right px-3 py-2 font-medium">Receita</th>
             <th class="text-right px-3 py-2 font-medium">ROI</th>
@@ -1209,12 +1251,9 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
                 </td>
                 <td class="px-3 py-2 text-center tabular-nums">
                   <span class="text-info text-base font-bold">{c.leads}</span>
-                  {c.metaLeads > c.leads && (
-                    <div class="text-3xs text-fg-muted" title={`Meta reporta ${c.metaLeads} leads`}>
-                      {c.metaLeads} Meta
-                    </div>
-                  )}
+                  <LeadsPorTipo r={c} />
                 </td>
+                <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={c} /></td>
                 <td class="px-3 py-2 text-center tabular-nums">
                   {c.sales > 0 ? <span class="text-success font-semibold">{c.sales}</span> : <span class="text-fg-muted">–</span>}
                   {c.conversionRate > 0 && (
@@ -1254,6 +1293,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
             <td class="px-3 py-2">Total geral</td>
             <td class="px-3 py-2 text-right tabular-nums">{totals.spend > 0 ? brl.format(totals.spend) : '–'}</td>
             <td class="px-3 py-2 text-center tabular-nums text-info">{intf.format(totals.leads)}</td>
+            <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={{ metaLeads: totals.metaLeads, metaConversations: totals.metaConversations, costPerConversation: 0 }} /></td>
             <td class="px-3 py-2 text-center tabular-nums text-success">{intf.format(totals.sales)}</td>
             <td class="px-3 py-2 text-right tabular-nums text-success">{totals.revenue > 0 ? brl.format(totals.revenue) : '–'}</td>
             <td class="px-3 py-2 text-right tabular-nums">
@@ -1283,7 +1323,9 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
     revenue: acc.revenue + r.revenue,
     lost: acc.lost + r.lost,
     spend: acc.spend + (r.spendKind === 'real' ? r.spend : 0),
-  }), { leads: 0, sales: 0, revenue: 0, lost: 0, spend: 0 }), [rows])
+    metaLeads: acc.metaLeads + (r.metaLeads || 0),
+    metaConversations: acc.metaConversations + (r.metaConversations || 0),
+  }), { leads: 0, sales: 0, revenue: 0, lost: 0, spend: 0, metaLeads: 0, metaConversations: 0 }), [rows])
   const conv = totals.leads > 0 ? (totals.sales / totals.leads) * 100 : 0
   const totalRoi = totals.spend > 0 ? ((totals.revenue - totals.spend) / totals.spend) * 100 : 0
   const totalCpl = totals.spend > 0 && totals.leads > 0 ? totals.spend / totals.leads : 0
@@ -1297,6 +1339,7 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
             <th class="text-left px-3 py-2 font-medium">Campanha</th>
             <th class="text-right px-3 py-2 font-medium">Invest.</th>
             <th class="text-center px-3 py-2 font-medium">Leads</th>
+            <th class="text-center px-3 py-2 font-medium" title="O que a Meta informa no Gerenciador: formulários (sem o Lead do pixel) e conversas iniciadas no WhatsApp">Meta</th>
             <th class="text-center px-3 py-2 font-medium">Vendas</th>
             <th class="text-right px-3 py-2 font-medium">Receita</th>
             <th class="text-right px-3 py-2 font-medium">ROI</th>
@@ -1323,7 +1366,9 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
                 <span class="text-info font-semibold">{a.leads}</span>
+                <LeadsPorTipo r={a} />
               </td>
+              <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={a} /></td>
               <td class="px-3 py-2 text-center tabular-nums">
                 {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-muted">–</span>}
               </td>
@@ -1354,6 +1399,7 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
             <td class="px-3 py-2" colSpan={2}>Total geral</td>
             <td class="px-3 py-2 text-right tabular-nums">{totals.spend > 0 ? brl.format(totals.spend) : '–'}</td>
             <td class="px-3 py-2 text-center tabular-nums text-info">{intf.format(totals.leads)}</td>
+            <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={{ metaLeads: totals.metaLeads, metaConversations: totals.metaConversations, costPerConversation: 0 }} /></td>
             <td class="px-3 py-2 text-center tabular-nums text-success">{intf.format(totals.sales)}</td>
             <td class="px-3 py-2 text-right tabular-nums text-success">{totals.revenue > 0 ? brl.format(totals.revenue) : '–'}</td>
             <td class="px-3 py-2 text-right tabular-nums">
@@ -1376,7 +1422,9 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
     revenue: acc.revenue + r.revenue,
     lost: acc.lost + r.lost,
     spend: acc.spend + (r.spendKind === 'real' ? r.spend : 0),
-  }), { leads: 0, sales: 0, revenue: 0, lost: 0, spend: 0 }), [rows])
+    metaLeads: acc.metaLeads + (r.metaLeads || 0),
+    metaConversations: acc.metaConversations + (r.metaConversations || 0),
+  }), { leads: 0, sales: 0, revenue: 0, lost: 0, spend: 0, metaLeads: 0, metaConversations: 0 }), [rows])
   const conv = totals.leads > 0 ? (totals.sales / totals.leads) * 100 : 0
   const totalRoi = totals.spend > 0 ? ((totals.revenue - totals.spend) / totals.spend) * 100 : 0
   const totalCpl = totals.spend > 0 && totals.leads > 0 ? totals.spend / totals.leads : 0
@@ -1391,6 +1439,7 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
             <th class="text-left px-3 py-2 font-medium">Campanha</th>
             <th class="text-right px-3 py-2 font-medium">Invest.</th>
             <th class="text-center px-3 py-2 font-medium">Leads</th>
+            <th class="text-center px-3 py-2 font-medium" title="O que a Meta informa no Gerenciador: formulários (sem o Lead do pixel) e conversas iniciadas no WhatsApp">Meta</th>
             <th class="text-center px-3 py-2 font-medium">Vendas</th>
             <th class="text-right px-3 py-2 font-medium">Receita</th>
             <th class="text-right px-3 py-2 font-medium">ROI</th>
@@ -1418,7 +1467,9 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
                 <span class="text-info font-semibold">{a.leads}</span>
+                <LeadsPorTipo r={a} />
               </td>
+              <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={a} /></td>
               <td class="px-3 py-2 text-center tabular-nums">
                 {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-muted">–</span>}
               </td>
@@ -1449,6 +1500,7 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
             <td class="px-3 py-2" colSpan={3}>Total geral</td>
             <td class="px-3 py-2 text-right tabular-nums">{totals.spend > 0 ? brl.format(totals.spend) : '–'}</td>
             <td class="px-3 py-2 text-center tabular-nums text-info">{intf.format(totals.leads)}</td>
+            <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={{ metaLeads: totals.metaLeads, metaConversations: totals.metaConversations, costPerConversation: 0 }} /></td>
             <td class="px-3 py-2 text-center tabular-nums text-success">{intf.format(totals.sales)}</td>
             <td class="px-3 py-2 text-right tabular-nums text-success">{totals.revenue > 0 ? brl.format(totals.revenue) : '–'}</td>
             <td class="px-3 py-2 text-right tabular-nums">

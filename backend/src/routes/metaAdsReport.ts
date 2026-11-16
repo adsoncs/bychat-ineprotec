@@ -130,6 +130,25 @@ function toBrazilDay(d: Date): string {
 
 // Gera a chave única usada por CampaignCost. Suporta 3 níveis sem ambiguidade
 // de NULL em UNIQUE composto (MySQL permite múltiplos NULLs em UNIQUE).
+/**
+ * Resultados da Meta lidos do `actions` do sync, separados como o Gerenciador
+ * mostra. `lead` cru NÃO serve: soma o formulário do Facebook com o evento Lead
+ * do pixel do site — o mesmo cadastro contado duas vezes.
+ */
+function numeroDaAcao(actions: unknown, chave: string): number {
+  if (!actions || typeof actions !== 'object') return 0
+  const v = Number((actions as Record<string, unknown>)[chave])
+  return Number.isFinite(v) ? v : 0
+}
+function formulariosDaMeta(actions: unknown): number {
+  const agrupado = numeroDaAcao(actions, 'onsite_conversion.lead_grouped') || numeroDaAcao(actions, 'leadgen_grouped')
+  if (agrupado) return agrupado
+  return Math.max(0, numeroDaAcao(actions, 'lead') - numeroDaAcao(actions, 'offsite_conversion.fb_pixel_lead'))
+}
+function conversasDaMeta(actions: unknown): number {
+  return numeroDaAcao(actions, 'onsite_conversion.messaging_conversation_started_7d')
+}
+
 function costKeyFor(
   level: 'campaign' | 'adset' | 'ad',
   campaignId: string,
@@ -244,6 +263,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/meta-ads-report/dashboard — Dados completos do dashboard de ROI ──
   app.get('/api/admin/meta-ads-report/dashboard', { preHandler: authMiddleware }, async (req) => {
+    // Cada lead entra numa das três caixas que o Gerenciador de Anúncios mostra
+    // separadas. Somar tudo numa coluna "Leads" era o que fazia a campanha de
+    // WhatsApp não bater com a Meta (fabad, 16/11).
+    const tipoDoLead = (o: string | null | undefined): 'form' | 'whatsapp' | 'site' =>
+      o === 'meta_lead_ads' ? 'form' : o === 'meta_ctwa' ? 'whatsapp' : 'site'
     const q = req.query as any
     // Janelas com timezone Brasil explícito (-03:00). Sem isso, "01/05" interpretado
     // como UTC midnight some no fuso local; "23:59:59" sem TZ depende do fuso do
@@ -280,7 +304,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       select: {
         id: true, campaignId: true, campaignName: true,
         adsetId: true, adsetName: true, adId: true, adName: true,
-        status: true, funnelId: true, createdAt: true, source: true,
+        status: true, funnelId: true, createdAt: true, source: true, originType: true,
         saleDetected: true, saleValue: true,
         outcome: true, outcomeAt: true, lostReasonId: true,
       }
@@ -293,26 +317,31 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // Custos por adset/ad no período (alimentam flat-lists com CPL real).
     const adsetCosts = await prisma.campaignCost.findMany({
       where: { ...costWhereBase, level: 'adset' },
-      select: { adsetId: true, spend: true, impressions: true, clicks: true },
+      select: { adsetId: true, adsetName: true, campaignId: true, campaignName: true, spend: true, impressions: true, clicks: true, actions: true },
     })
     const adCosts = await prisma.campaignCost.findMany({
       where: { ...costWhereBase, level: 'ad' },
-      select: { adId: true, spend: true, impressions: true, clicks: true },
+      select: { adId: true, adName: true, adsetId: true, campaignId: true, campaignName: true, spend: true, impressions: true, clicks: true, actions: true },
     })
-    const spendByAdset: Record<string, { spend: number; impressions: number; clicks: number }> = {}
+    type CustoNivel = { spend: number; impressions: number; clicks: number; metaConversations: number; metaFormLeads: number }
+    const spendByAdset: Record<string, CustoNivel> = {}
     for (const a of adsetCosts) {
       if (!a.adsetId) continue
       const key = a.adsetId
-      if (!spendByAdset[key]) spendByAdset[key] = { spend: 0, impressions: 0, clicks: 0 }
+      if (!spendByAdset[key]) spendByAdset[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0 }
+      spendByAdset[key].metaConversations += conversasDaMeta(a.actions)
+      spendByAdset[key].metaFormLeads += formulariosDaMeta(a.actions)
       spendByAdset[key].spend += Number(a.spend)
       spendByAdset[key].impressions += a.impressions || 0
       spendByAdset[key].clicks += a.clicks || 0
     }
-    const spendByAd: Record<string, { spend: number; impressions: number; clicks: number }> = {}
+    const spendByAd: Record<string, CustoNivel> = {}
     for (const a of adCosts) {
       if (!a.adId) continue
       const key = a.adId
-      if (!spendByAd[key]) spendByAd[key] = { spend: 0, impressions: 0, clicks: 0 }
+      if (!spendByAd[key]) spendByAd[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0 }
+      spendByAd[key].metaConversations += conversasDaMeta(a.actions)
+      spendByAd[key].metaFormLeads += formulariosDaMeta(a.actions)
       spendByAd[key].spend += Number(a.spend)
       spendByAd[key].impressions += a.impressions || 0
       spendByAd[key].clicks += a.clicks || 0
@@ -333,6 +362,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     interface AdAgg {
       name: string
       leads: number
+      leadsForm: number
+      leadsWhatsapp: number
+      leadsSite: number
       sales: number
       revenue: number
       won: number
@@ -341,6 +373,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     interface AdsetAgg {
       name: string
       leads: number
+      leadsForm: number
+      leadsWhatsapp: number
+      leadsSite: number
       sales: number
       revenue: number
       won: number
@@ -351,6 +386,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       id: string
       name: string
       leads: number
+      leadsForm: number
+      leadsWhatsapp: number
+      leadsSite: number
       sales: number
       revenue: number
       won: number
@@ -368,10 +406,13 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     for (const lead of leads) {
       const cid = lead.campaignId || '_unknown'
       if (!campaignMap[cid]) {
-        campaignMap[cid] = { id: cid, name: lead.campaignName || 'Sem campanha', leads: 0, sales: 0, revenue: 0, won: 0, lost: 0, spend: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, adsets: {} }
+        campaignMap[cid] = { id: cid, name: lead.campaignName || 'Sem campanha', leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0, sales: 0, revenue: 0, won: 0, lost: 0, spend: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, adsets: {} }
       }
       const c = campaignMap[cid]
+      const tipo = tipoDoLead(lead.originType)
+      const campoTipo = tipo === 'form' ? 'leadsForm' : tipo === 'whatsapp' ? 'leadsWhatsapp' : 'leadsSite'
       c.leads++
+      c[campoTipo]++
       if (lead.saleDetected) {
         c.sales++
         c.revenue += Number(lead.saleValue ?? 0)
@@ -382,10 +423,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       // Adset breakdown
       const asid = lead.adsetId || '_none'
       if (!c.adsets[asid]) {
-        c.adsets[asid] = { name: lead.adsetName || 'Sem adset', leads: 0, sales: 0, revenue: 0, won: 0, lost: 0, ads: {} }
+        c.adsets[asid] = { name: lead.adsetName || 'Sem adset', leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0, sales: 0, revenue: 0, won: 0, lost: 0, ads: {} }
       }
       const as = c.adsets[asid]
       as.leads++
+      as[campoTipo]++
       if (lead.saleDetected) {
         as.sales++
         as.revenue += Number(lead.saleValue ?? 0)
@@ -396,10 +438,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       // Ad breakdown
       const adid = lead.adId || '_none'
       if (!as.ads[adid]) {
-        as.ads[adid] = { name: lead.adName || 'Sem anuncio', leads: 0, sales: 0, revenue: 0, won: 0, lost: 0 }
+        as.ads[adid] = { name: lead.adName || 'Sem anuncio', leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0, sales: 0, revenue: 0, won: 0, lost: 0 }
       }
       const ad = as.ads[adid]
       ad.leads++
+      ad[campoTipo]++
       if (lead.saleDetected) {
         ad.sales++
         ad.revenue += Number(lead.saleValue ?? 0)
@@ -410,10 +453,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
 
     // Agregar custos e leads da Meta API (actions.lead)
     const metaLeadsCount: Record<string, number> = {}
+    const metaConversationsCount: Record<string, number> = {}
     for (const cost of costs) {
       const cid = cost.campaignId
       if (!campaignMap[cid]) {
-        campaignMap[cid] = { id: cid, name: cost.campaignName, leads: 0, sales: 0, revenue: 0, won: 0, lost: 0, spend: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, adsets: {} }
+        campaignMap[cid] = { id: cid, name: cost.campaignName, leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0, sales: 0, revenue: 0, won: 0, lost: 0, spend: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, adsets: {} }
       }
       campaignMap[cid].spend += Number(cost.spend)
       campaignMap[cid].impressions += cost.impressions || 0
@@ -425,10 +469,12 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       // a chamada Meta falhar.
       campaignMap[cid].reach = Math.max(campaignMap[cid].reach || 0, cost.reach || 0)
 
-      const actions = cost.actions as Record<string, number> | null
-      if (actions?.lead) {
-        metaLeadsCount[cid] = (metaLeadsCount[cid] || 0) + actions.lead
-      }
+      // Só o formulário da Meta. O `lead` cru soma também o evento Lead do pixel
+      // do site — o mesmo cadastro contado duas vezes (fabad nov: 454 = 237 + 217).
+      const form = formulariosDaMeta(cost.actions)
+      if (form) metaLeadsCount[cid] = (metaLeadsCount[cid] || 0) + form
+      const conv = conversasDaMeta(cost.actions)
+      if (conv) metaConversationsCount[cid] = (metaConversationsCount[cid] || 0) + conv
     }
 
     // ── Reach da janela (Fix Fase 21.10): Meta API call extra ──
@@ -454,7 +500,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
 
     // Filter: only campaigns that have data (leads, spend, impressions, or clicks) in the period
     const rawCampaigns = Object.values(campaignMap)
-      .filter(c => c.leads > 0 || c.spend > 0 || c.impressions > 0 || c.clicks > 0 || (metaLeadsCount[c.id] || 0) > 0)
+      .filter(c => c.leads > 0 || c.spend > 0 || c.impressions > 0 || c.clicks > 0 || (metaLeadsCount[c.id] || 0) > 0 || (metaConversationsCount[c.id] || 0) > 0)
       .sort((a, b) => b.spend - a.spend || b.leads - a.leads)
 
     // Build final campaigns — TODOS os valores são do período. CPL usa leads reais
@@ -463,6 +509,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     const campaigns = rawCampaigns.map(c => {
       const totalSpend = totalSpendByCampaign[c.id] ?? 0
       const metaLeads = metaLeadsCount[c.id] || 0
+      const metaConversations = metaConversationsCount[c.id] || 0
       const cpl = c.leads > 0 && c.spend > 0 ? c.spend / c.leads : 0
       const cpc = c.clicks > 0 && c.spend > 0 ? c.spend / c.clicks : 0
       const cpv = c.sales > 0 && c.spend > 0 ? c.spend / c.sales : 0
@@ -474,7 +521,15 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         id: c.id,
         name: c.name,
         leads: c.leads,
+        leadsForm: c.leadsForm,
+        leadsWhatsapp: c.leadsWhatsapp,
+        leadsSite: c.leadsSite,
         metaLeads,
+        metaConversations,
+        // Custo por conversa iniciada, como o Gerenciador mostra. Numa campanha que
+        // mistura formulário e WhatsApp o gasto é do conjunto todo: aí vale olhar
+        // por conjunto/anúncio.
+        costPerConversation: metaConversations > 0 && c.spend > 0 ? Number((c.spend / metaConversations).toFixed(2)) : 0,
         sales: c.sales,
         won: c.won,
         lost: c.lost,
@@ -496,6 +551,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         adsets: Object.values(c.adsets).map(as => ({
           name: as.name,
           leads: as.leads,
+          leadsForm: as.leadsForm,
+          leadsWhatsapp: as.leadsWhatsapp,
+          leadsSite: as.leadsSite,
           sales: as.sales,
           revenue: Number(as.revenue.toFixed(2)),
           won: as.won,
@@ -503,6 +561,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
           ads: Object.values(as.ads).map(ad => ({
             name: ad.name,
             leads: ad.leads,
+            leadsForm: ad.leadsForm,
+            leadsWhatsapp: ad.leadsWhatsapp,
+            leadsSite: ad.leadsSite,
             sales: ad.sales,
             revenue: Number(ad.revenue.toFixed(2)),
             won: ad.won,
@@ -537,6 +598,12 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
           campaignId: c.id,
           campaignName: c.name,
           leads: as.leads,
+          leadsForm: as.leadsForm,
+          leadsWhatsapp: as.leadsWhatsapp,
+          leadsSite: as.leadsSite,
+          metaLeads: realAdset?.metaFormLeads ?? 0,
+          metaConversations: realAdset?.metaConversations ?? 0,
+          costPerConversation: realAdset && realAdset.metaConversations > 0 && realAdset.spend > 0 ? Number((realAdset.spend / realAdset.metaConversations).toFixed(2)) : 0,
           sales: as.sales,
           revenue: Number(as.revenue.toFixed(2)),
           won: as.won,
@@ -570,6 +637,12 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
             campaignId: c.id,
             campaignName: c.name,
             leads: ad.leads,
+            leadsForm: ad.leadsForm,
+            leadsWhatsapp: ad.leadsWhatsapp,
+            leadsSite: ad.leadsSite,
+            metaLeads: realAd?.metaFormLeads ?? 0,
+            metaConversations: realAd?.metaConversations ?? 0,
+            costPerConversation: realAd && realAd.metaConversations > 0 && realAd.spend > 0 ? Number((realAd.spend / realAd.metaConversations).toFixed(2)) : 0,
             sales: ad.sales,
             revenue: Number(ad.revenue.toFixed(2)),
             won: ad.won,
@@ -586,12 +659,56 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         }
       }
     }
+    // Conjuntos/anúncios com gasto ou conversas na Meta e nenhum lead no CRM no
+    // período: antes sumiam da lista, e era justamente o que não batia.
+    const adsetsListados = new Set(adsetsFlat.map(a => a.id).filter(Boolean))
+    const adsListados = new Set(adsFlat.map(a => a.id).filter(Boolean))
+    const nomesDeConjunto: Record<string, { name: string; campaignId: string; campaignName: string }> = {}
+    for (const a of adsetCosts) if (a.adsetId) nomesDeConjunto[a.adsetId] = { name: a.adsetName || a.adsetId, campaignId: a.campaignId, campaignName: a.campaignName }
+    for (const [asid, v] of Object.entries(spendByAdset)) {
+      if (adsetsListados.has(asid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0)) continue
+      const n = nomesDeConjunto[asid]
+      adsetsFlat.push({
+        id: asid, name: n?.name ?? asid, campaignId: n?.campaignId ?? '', campaignName: n?.campaignName ?? '',
+        leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0,
+        metaLeads: v.metaFormLeads, metaConversations: v.metaConversations,
+        costPerConversation: v.metaConversations > 0 && v.spend > 0 ? Number((v.spend / v.metaConversations).toFixed(2)) : 0,
+        sales: 0, revenue: 0, won: 0, lost: 0, spend: Number(v.spend.toFixed(2)), spendKind: v.spend > 0 ? 'real' : 'none',
+        impressions: v.impressions, clicks: v.clicks, cpl: 0, roas: 0, roi: v.spend > 0 ? -100 : 0, conversionRate: 0,
+      })
+    }
+    const nomesDeAnuncio: Record<string, { name: string; adsetId: string | null; campaignId: string; campaignName: string }> = {}
+    for (const a of adCosts) if (a.adId) nomesDeAnuncio[a.adId] = { name: a.adName || a.adId, adsetId: a.adsetId, campaignId: a.campaignId, campaignName: a.campaignName }
+    for (const [adid, v] of Object.entries(spendByAd)) {
+      if (adsListados.has(adid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0)) continue
+      const n = nomesDeAnuncio[adid]
+      adsFlat.push({
+        id: adid, name: n?.name ?? adid, adsetId: n?.adsetId ?? null,
+        adsetName: (n?.adsetId && nomesDeConjunto[n.adsetId]?.name) || '', campaignId: n?.campaignId ?? '', campaignName: n?.campaignName ?? '',
+        leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0,
+        metaLeads: v.metaFormLeads, metaConversations: v.metaConversations,
+        costPerConversation: v.metaConversations > 0 && v.spend > 0 ? Number((v.spend / v.metaConversations).toFixed(2)) : 0,
+        sales: 0, revenue: 0, won: 0, lost: 0, spend: Number(v.spend.toFixed(2)), spendKind: v.spend > 0 ? 'real' : 'none',
+        impressions: v.impressions, clicks: v.clicks, cpl: 0, roas: 0, roi: v.spend > 0 ? -100 : 0, conversionRate: 0,
+      })
+    }
     adsetsFlat.sort((a, b) => b.leads - a.leads || b.revenue - a.revenue)
     adsFlat.sort((a, b) => b.leads - a.leads || b.revenue - a.revenue)
 
     // Summary uses the same resolved values as the table
     const totalRealLeads = campaigns.reduce((s, c) => s + c.leads, 0)
     const totalMetaLeads = campaigns.reduce((s, c) => s + c.metaLeads, 0)
+    const totalMetaConversations = campaigns.reduce((s, c) => s + c.metaConversations, 0)
+    const totalLeadsForm = campaigns.reduce((s, c) => s + c.leadsForm, 0)
+    const totalLeadsWhatsapp = campaigns.reduce((s, c) => s + c.leadsWhatsapp, 0)
+    const totalLeadsSite = campaigns.reduce((s, c) => s + c.leadsSite, 0)
+    // Formulários que a Meta mandou e o sistema recebeu, no período. É contra isso
+    // que se compara o número da Meta: o lead pode ter sido unido a uma ficha que
+    // já existia (e continua na campanha que o trouxe primeiro), mas foi recebido.
+    const metaFormsReceived = campaignId ? null : await prisma.metaLeadLog.count({
+      // errorMessage NULL precisa entrar explícito: NOT LIKE descarta NULL no SQL.
+      where: { createdAt: { gte: dateFrom, lte: dateTo }, OR: [{ errorMessage: null }, { NOT: { errorMessage: { startsWith: '[baseline' } } }] },
+    }).catch(() => null)
     const totalSales = campaigns.reduce((s, c) => s + c.sales, 0)
     const totalWon = campaigns.reduce((s, c) => s + c.won, 0)
     const totalLost = campaigns.reduce((s, c) => s + c.lost, 0)
@@ -788,6 +905,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       summary: {
         totalLeads: totalRealLeads,
         totalMetaLeads,
+        totalMetaConversations,
+        totalLeadsForm,
+        totalLeadsWhatsapp,
+        totalLeadsSite,
+        metaFormsReceived,
         totalSales,
         totalWon,
         totalLost,
@@ -807,7 +929,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         avgCTR: Number(avgCTR.toFixed(2)),
         avgLinkCTR: Number(avgLinkCTR.toFixed(2)),
         // Aviso quando Meta reporta mais leads que o DB recebeu (webhook off, pull pendente)
-        leadsDivergence: totalMetaLeads > totalRealLeads ? totalMetaLeads - totalRealLeads : 0,
+        // Formulários da Meta que não chegaram (webhook off, pull pendente). Antes
+        // comparava com o total de leads do CRM, que mistura WhatsApp e site.
+        leadsDivergence: metaFormsReceived !== null && totalMetaLeads > metaFormsReceived ? totalMetaLeads - metaFormsReceived : 0,
       },
       campaigns,
       adsets: adsetsFlat,
