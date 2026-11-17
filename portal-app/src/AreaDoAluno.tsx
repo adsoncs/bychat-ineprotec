@@ -74,6 +74,8 @@ const dia = (v: string | null) => {
 
 const abaDoEndereco = (): Aba => {
   const h = location.hash.replace('#', '')
+  // Link "assinar o contrato" que a equipe manda (…#etapa-contrato) abre na aba Contratos.
+  if (h === 'etapa-contrato') return 'contratos'
   return (ABAS.some((a) => a.id === h) ? h : 'inicio') as Aba
 }
 
@@ -106,6 +108,10 @@ export function AreaDoAluno(props: {
   const docs = resumoDosDocumentos(cand)
   const etapasAbertas = props.jornada && props.jornada.inscricao.candidateCode === area.inscricao.codigo
     ? props.jornada.etapas.filter((e) => e.situacao !== 'feito') : []
+  // Aceite no portal: o documento só nasce quando o aluno aceita. Até lá, o
+  // contrato pendente é a etapa da jornada — e precisa aparecer no cartão e na aba.
+  const etapaContrato = etapasAbertas.find((e) => e.chave === 'contrato') ?? null
+  const contratoPendente = !!etapaContrato && !area.contratos.some((c) => c.situacao === 'assinado')
   const primeiro = props.nome.trim().split(/\s+/)[0] || ''
   const alertas = { financeiro: area.financeiro.vencidas > 0, documentos: docs.recusados > 0 || docs.faltam > 0 }
 
@@ -154,10 +160,10 @@ export function AreaDoAluno(props: {
               valor={docs.total ? `${docs.aprovados} de ${docs.total}` : '—'}
               legenda={docs.recusados ? `${docs.recusados} recusado(s) — reenvie` : docs.faltam ? `${docs.faltam} a enviar` : docs.emAnalise ? `${docs.emAnalise} em análise` : docs.total ? 'Todos aprovados' : 'Nenhum exigido'}
               acao="Ver documentos" aoClicar={() => ir('documentos')} />
-            <CartaoResumo icone="contratos" titulo="Contrato" tom={area.contratos.some((c) => c.situacao === 'assinado') ? 'ok' : area.contratos.length ? 'pendente' : 'neutro'}
-              valor={area.contratos.some((c) => c.situacao === 'assinado') ? 'Assinado' : area.contratos.length ? 'Aguardando' : '—'}
-              legenda={(() => { const c = area.contratos.find((x) => x.situacao === 'assinado'); return c ? `em ${dia(c.assinadoEm)}` : area.contratos.length ? 'Falta a sua assinatura' : 'Ainda não emitido' })()}
-              acao="Ver contrato" aoClicar={() => ir('contratos')} />
+            <CartaoResumo icone="contratos" titulo="Contrato" tom={area.contratos.some((c) => c.situacao === 'assinado') ? 'ok' : (area.contratos.length || contratoPendente) ? 'pendente' : 'neutro'}
+              valor={area.contratos.some((c) => c.situacao === 'assinado') ? 'Assinado' : (area.contratos.length || contratoPendente) ? 'Aguardando' : '—'}
+              legenda={(() => { const c = area.contratos.find((x) => x.situacao === 'assinado'); return c ? `em ${dia(c.assinadoEm)}` : (area.contratos.length || contratoPendente) ? 'Falta a sua assinatura' : 'Ainda não emitido' })()}
+              acao={contratoPendente ? 'Assinar contrato' : 'Ver contrato'} aoClicar={() => ir('contratos')} />
             <CartaoResumo icone="ava" titulo="AVA" tom="neutro" valor={area.ava.disponivel ? 'Disponível' : area.ava.suspenso ? 'Suspenso' : 'Em breve'}
               legenda={area.ava.disponivel ? 'Suas aulas e materiais' : 'Acesso às aulas por aqui'}
               acao={area.ava.disponivel && area.ava.url ? 'Acessar meu curso' : 'Saiba mais'}
@@ -220,7 +226,11 @@ export function AreaDoAluno(props: {
         <section class="ada-secao" aria-label="Contratos e termos">
           <div class="cartao">
             <h2 class="ada-titulo">Contratos e termos</h2>
-            {area.contratos.length === 0
+            {contratoPendente && props.jornada && (
+              <Jornada codigo={props.jornada.inscricao.candidateCode} token={props.jornada.token} contexto="painel" etapas={[etapaContrato!]} portalSlug={props.jornada.portal?.slug}
+                aoConcluirTudo={props.aoRecarregar} />
+            )}
+            {contratoPendente ? null : area.contratos.length === 0
               ? <p class="ada-vazio">O contrato aparece aqui assim que for emitido para você.</p>
               : area.contratos.map((c) => <LinhaDeContrato key={c.id} c={c} codigo={area.inscricao.codigo} token={area.token} />)}
           </div>
