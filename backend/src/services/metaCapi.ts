@@ -196,7 +196,7 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
 
   // Enviar para Meta
   try {
-    const url = `https://graph.facebook.com/v19.0/${config.pixelId}/events?access_token=${config.accessToken}`
+    const url = `https://graph.facebook.com/v24.0/${config.pixelId}/events?access_token=${config.accessToken}`
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -289,7 +289,7 @@ export async function fireCapiLeadNoLead(input: CapiClickLeadInput): Promise<{ s
   if (input.testEventCode) payload.test_event_code = input.testEventCode
 
   try {
-    const url = `https://graph.facebook.com/v19.0/${input.pixelId}/events?access_token=${encodeURIComponent(input.accessToken)}`
+    const url = `https://graph.facebook.com/v24.0/${input.pixelId}/events?access_token=${encodeURIComponent(input.accessToken)}`
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

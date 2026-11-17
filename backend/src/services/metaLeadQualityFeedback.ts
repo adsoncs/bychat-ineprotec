@@ -8,7 +8,7 @@
 // quem converteu (CONVERTED), excluir perfis parecidos com quem foi marcado
 // como inválido (INVALID), etc.
 //
-// API:  POST https://graph.facebook.com/v19.0/{lead_id}?access_token=PAGE_TOKEN
+// API:  POST https://graph.facebook.com/v24.0/{lead_id}?access_token=PAGE_TOKEN
 //       body: { leadgen_lead_quality: 'INVALID' | 'NOT_INTERESTED' | 'INTERESTED' | 'CONVERTED' }
 //
 // Pré-requisitos:

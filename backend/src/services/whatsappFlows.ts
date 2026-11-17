@@ -27,7 +27,7 @@ import { scaleRange, scaleValueLabel } from './formFlow.js'
 // Versão do Flow JSON. Se a Meta rejeitar na publicação, ajuste aqui (o erro de
 // validação é exibido ao admin, pois a publicação é acionada por ele).
 const FLOW_JSON_VERSION = '7.0'
-const GRAPH_URL = 'https://graph.facebook.com/v22.0'
+const GRAPH_URL = 'https://graph.facebook.com/v24.0'
 
 // Tipos de campo de form que viram input no Flow (os demais são ignorados).
 const SKIP_TYPES = new Set(['statement', 'scheduling', 'hidden'])

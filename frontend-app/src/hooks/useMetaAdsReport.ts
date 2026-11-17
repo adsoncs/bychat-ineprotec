@@ -19,6 +19,8 @@ export interface MetaAdsReportAdset {
   ads: MetaAdsReportAd[]
 }
 
+export type MetaResultType = 'lead' | 'conversa' | 'pixel' | 'outro'
+
 export interface MetaAdsReportCampaign {
   id: string
   name: string
@@ -33,6 +35,11 @@ export interface MetaAdsReportCampaign {
   metaConversations: number
   /** Gasto ÷ conversas da Meta. */
   costPerConversation: number
+  /** "Resultados" do Gerenciador: a ação que a campanha persegue (lead, conversa ou evento do site). */
+  resultType: MetaResultType | null
+  results: number
+  /** Gasto ÷ resultados (o "custo por resultado" do Gerenciador). */
+  costPerResult: number
   sales: number
   won: number
   lost: number
@@ -74,6 +81,11 @@ export interface MetaAdsReportAdsetFlat {
   metaConversations: number
   /** Gasto ÷ conversas da Meta. */
   costPerConversation: number
+  /** "Resultados" do Gerenciador: a ação que a campanha persegue (lead, conversa ou evento do site). */
+  resultType: MetaResultType | null
+  results: number
+  /** Gasto ÷ resultados (o "custo por resultado" do Gerenciador). */
+  costPerResult: number
   sales: number
   revenue: number
   won: number
@@ -126,6 +138,13 @@ export interface MetaAdsReportSummary {
   /** CTR do link (paridade com Meta UI). */
   avgLinkCTR: number
   leadsDivergence: number
+  /** Resultados da Meta no período (sem sobreposição de tipos de ação). */
+  totalResults: number
+  resultsByType: Record<MetaResultType, number>
+  costPerResult: number
+  objetivosAtualizadosEm: string | null
+  /** Período anterior do mesmo tamanho. */
+  previous: { from: string; to: string; spend: number; results: number; leads: number; costPerResult: number; impressions: number; linkClicks: number }
 }
 
 export interface MetaAdsReportDaily {
@@ -138,6 +157,7 @@ export interface MetaAdsReportDaily {
   spend: number
   impressions: number
   clicks: number
+  results?: number
 }
 
 export interface MetaAdsReportWeekly extends Omit<MetaAdsReportDaily, 'date'> {
@@ -179,7 +199,7 @@ export interface MetaAdsReportDashboardResponse {
   weekly: MetaAdsReportWeekly[]
   funnel: MetaAdsReportFunnel | null
   statusBreakdown: Record<string, number>
-  dateRange: { from: string; to: string }
+  dateRange: { from: string; to: string; ateOntem?: boolean }
 }
 
 export interface MetaAdsReportFilters {
@@ -319,5 +339,28 @@ export function useBulkCosts() {
     mutationFn: (input: BulkCostInput) =>
       api.post<{ ok: true; days: number; perDay: number }>('/admin/meta-ads-report/costs/bulk', input),
     onSuccess: () => invalidateMetaAdsReport(qc),
+  })
+}
+
+export interface MetaAdsSaldoConta {
+  id: string
+  nome: string
+  moeda: string
+  status: number
+  prePaga: boolean
+  formaPagamento: string | null
+  saldoDisponivel: number | null
+  /** Conta no cartão/boleto: o que já acumulou para a próxima cobrança. */
+  aCobrar: number | null
+  limiteDeGastos: number | null
+  gastoTotal: number
+}
+
+export function useMetaAdsSaldo() {
+  return useQuery({
+    queryKey: ['meta-ads-saldo'],
+    queryFn: () => api.get<{ contas: MetaAdsSaldoConta[]; erros?: string[]; consultadoEm: string }>('/admin/meta-ads-report/saldo'),
+    staleTime: 5 * 60_000,
+    retry: false,
   })
 }

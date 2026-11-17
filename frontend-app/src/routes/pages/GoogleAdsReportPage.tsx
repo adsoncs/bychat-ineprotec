@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'preact/hooks'
 import {
   DollarSign, Users, MousePointerClick, RefreshCw, Eye, Target,
-  Coins, ShoppingBag, Percent, TrendingUp, AlertCircle, HelpCircle,
+  Coins, ShoppingBag, Percent, TrendingUp, AlertCircle, HelpCircle, Wallet, Activity,
 } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useGoogleAdsReportDashboard,
   useGoogleAdsReportCampaigns,
   useSyncGoogleAdsInsights,
+  useGoogleAdsSaldo,
   type GoogleAdsReportFilters,
 } from '@/hooks/useGoogleAdsReport'
 import { useGoogleAdsConfig } from '@/hooks/useGoogleAds'
@@ -98,6 +99,16 @@ export function GoogleAdsReportPage() {
   }
 
   const kpis = dashboardQ.data?.kpis
+  const ant = dashboardQ.data?.previous
+  const saldoQ = useGoogleAdsSaldo(filters.customerId)
+  const saldos = saldoQ.data?.contas ?? []
+  // Variação contra o período anterior do MESMO tamanho.
+  const variacao = (atual: number, anterior: number | undefined) =>
+    anterior && anterior > 0 ? { value: Number((((atual - anterior) / anterior) * 100).toFixed(1)), label: 'vs. período anterior' } : undefined
+  const fmtDia = (d: string) => d.split('-').reverse().join('/')
+  const STATUS: Record<string, { t: string; c: string }> = {
+    ACTIVE: { t: 'Ativa', c: 'text-success' }, PAUSED: { t: 'Pausada', c: 'text-warning' }, REMOVED: { t: 'Removida', c: 'text-fg-muted' },
+  }
   const breakdown = useMemo(() => {
     if (!dashboardQ.data) return []
     if (view === 'campaigns') return dashboardQ.data.campaigns
@@ -241,17 +252,38 @@ export function GoogleAdsReportPage() {
         </div>
       </Card>
 
+      {dashboardQ.data?.dateRange && (
+        <p class="text-xs text-fg-muted mt-3">
+          Período {fmtDia(dashboardQ.data.dateRange.from)} a {fmtDia(dashboardQ.data.dateRange.to)}
+          {dashboardQ.data.dateRange.ateOntem ? ' (até ontem: o dia de hoje ainda muda no Google e não entra)' : ''}
+          {ant ? ` · comparado com ${fmtDia(ant.from)} a ${fmtDia(ant.to)}` : ''}
+          {dashboardQ.data.ultimaSincronizacao ? ` · dados do Google atualizados em ${new Date(dashboardQ.data.ultimaSincronizacao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} (sincroniza sozinho toda madrugada)` : ' · ainda sem sincronização'}
+        </p>
+      )}
+
       {/* KPIs */}
       <section class="grid gap-3 grid-cols-2 lg:grid-cols-4 mt-3">
         {dashboardQ.isLoading || !kpis ? (
           Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} class="h-20 w-full" />)
         ) : (
           <>
-            <KpiCard label="Investido" value={brl.format(kpis.totalSpend)} icon={<DollarSign size={16} />} />
-            <KpiCard label="Impressões" value={intf.format(kpis.totalImpressions)} icon={<Eye size={16} />} />
-            <KpiCard label="Cliques" value={intf.format(kpis.totalClicks)} icon={<MousePointerClick size={16} />} hint={kpis.cpc > 0 ? `CPC ${brl.format(kpis.cpc)}` : ''} />
-            <KpiCard label="Conversões (Google)" value={intf.format(Math.round(kpis.totalConversions))} icon={<Target size={16} />} />
-            <KpiCard label="Leads (GCLID)" value={intf.format(kpis.totalLeads)} icon={<Users size={16} />} hint={kpis.cpl > 0 ? `CPL ${brl.format(kpis.cpl)}` : ''} />
+            <KpiCard label="Investido" value={brl.format(kpis.totalSpend)} icon={<DollarSign size={16} />} trend={variacao(kpis.totalSpend, ant?.spend)} menorEhMelhor hint={ant ? `antes: ${brl.format(ant.spend)}` : undefined} />
+            <KpiCard label="Conversões (Google)" value={intf.format(Math.round(kpis.totalConversions))} icon={<Target size={16} />} trend={variacao(kpis.totalConversions, ant?.conversions)} hint={kpis.conversionRate > 0 ? `${kpis.conversionRate.toFixed(1)}% dos cliques` : undefined} />
+            <KpiCard label="Custo por conversão" value={kpis.costPerConversion > 0 ? brl.format(kpis.costPerConversion) : '—'} icon={<TrendingUp size={16} />} trend={kpis.costPerConversion > 0 ? variacao(kpis.costPerConversion, ant?.costPerConversion) : undefined} menorEhMelhor hint={ant && ant.costPerConversion > 0 ? `antes: ${brl.format(ant.costPerConversion)}` : 'investido ÷ conversões'} />
+            <KpiCard
+              label="Saldo da conta"
+              value={saldos.length === 0 ? (saldoQ.isLoading ? '…' : '—') : saldos.every(c => c.ilimitado) ? 'Sem limite' : brl.format(saldos.reduce((t, c) => t + (c.saldoDisponivel ?? 0), 0))}
+              icon={<Wallet size={16} />}
+              hint={saldos.length === 0
+                ? (saldoQ.data?.erros?.[0] ? 'não foi possível consultar o Google' : undefined)
+                : saldos.every(c => c.ilimitado)
+                  ? `pagamento automático · ${brl.format(saldos.reduce((t, c) => t + c.gastoNoOrcamento, 0))} gastos na conta`
+                  : `limite ${brl.format(saldos.reduce((t, c) => t + (c.limiteDeGastos ?? 0), 0))} · gasto ${brl.format(saldos.reduce((t, c) => t + c.gastoNoOrcamento, 0))}`}
+            />
+            <KpiCard label="Cliques" value={intf.format(kpis.totalClicks)} icon={<MousePointerClick size={16} />} trend={variacao(kpis.totalClicks, ant?.clicks)} hint={kpis.cpc > 0 ? `CPC ${brl.format(kpis.cpc)}` : ''} />
+            <KpiCard label="Impressões" value={intf.format(kpis.totalImpressions)} icon={<Eye size={16} />} trend={variacao(kpis.totalImpressions, ant?.impressions)} />
+            <KpiCard label="CTR" value={`${kpis.ctr.toFixed(2)}%`} icon={<Activity size={16} />} hint="cliques ÷ impressões" />
+            <KpiCard label="Leads no CRM (GCLID)" value={intf.format(kpis.totalLeads)} icon={<Users size={16} />} trend={variacao(kpis.totalLeads, ant?.leads)} hint={kpis.cpl > 0 ? `CPL CRM ${brl.format(kpis.cpl)}` : ''} />
             <KpiCard label="Vendas" value={intf.format(kpis.totalSales)} icon={<ShoppingBag size={16} />} />
             <KpiCard label="Receita" value={brl.format(kpis.totalRevenue)} icon={<Coins size={16} />} />
             <KpiCard
@@ -333,9 +365,14 @@ export function GoogleAdsReportPage() {
               <thead class="text-fg-muted bg-surface-2">
                 <tr>
                   <th class="text-left px-3 py-2">Nome</th>
+                  {view === 'campaigns' && <th class="text-left px-3 py-2">Status</th>}
+                  <th class="text-right px-3 py-2">Impr.</th>
                   <th class="text-right px-3 py-2">Cliques</th>
+                  <th class="text-right px-3 py-2">CTR</th>
                   <th class="text-right px-3 py-2">Investido</th>
-                  <th class="text-right px-3 py-2">Leads</th>
+                  <th class="text-right px-3 py-2" title="Conversões do Google (o resultado do painel do Google)">Conv.</th>
+                  <th class="text-right px-3 py-2">Custo/conv.</th>
+                  <th class="text-right px-3 py-2" title="Leads novos no CRM atribuídos pelo GCLID">Leads CRM</th>
                   <th class="text-right px-3 py-2">Vendas</th>
                   <th class="text-right px-3 py-2">Receita</th>
                   <th class="text-right px-3 py-2">ROAS</th>
@@ -352,8 +389,15 @@ export function GoogleAdsReportPage() {
                   return (
                     <tr key={r.key} class="hover:bg-surface-2">
                       <td class="px-3 py-2 text-fg truncate max-w-[24rem]" title={label}>{label}</td>
+                      {view === 'campaigns' && (
+                        <td class={`px-3 py-2 whitespace-nowrap ${STATUS[r.status || '']?.c ?? 'text-fg-muted'}`}>{STATUS[r.status || '']?.t ?? (r.status || '—')}</td>
+                      )}
+                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.impressions)}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.clicks)}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{r.impressions > 0 ? `${((r.clicks / r.impressions) * 100).toFixed(2)}%` : '—'}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.spend)}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg font-semibold">{r.conversions > 0 ? intf.format(Math.round(r.conversions * 10) / 10) : '—'}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{r.conversions > 0 && r.spend > 0 ? brl.format(r.spend / r.conversions) : '—'}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg">{intf.format(r.leads ?? 0)}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.sales ?? 0)}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.revenue ?? 0)}</td>

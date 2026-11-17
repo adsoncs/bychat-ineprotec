@@ -3,7 +3,7 @@
 
 import { prisma } from './prisma.js'
 
-const META_GRAPH_URL = 'https://graph.facebook.com/v21.0'
+const META_GRAPH_URL = 'https://graph.facebook.com/v24.0'
 
 export { META_GRAPH_URL }
 

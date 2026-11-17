@@ -10,7 +10,7 @@ import { getAuthenticatedClient } from '../lib/google.js'
 
 import { GOOGLE_ADS_API_BASE } from '../lib/googleAdsApi.js'
 
-async function getDeveloperToken(): Promise<string | null> {
+export async function getDeveloperToken(): Promise<string | null> {
   const row = await prisma.setting.findUnique({ where: { key: 'google.ads.developer_token' }, select: { value: true } }).catch(() => null)
   if (!row?.value) return null
   const v = row.value as any
@@ -18,7 +18,7 @@ async function getDeveloperToken(): Promise<string | null> {
   return String(raw).trim() || null
 }
 
-async function getLoginCustomerId(): Promise<string | null> {
+export async function getLoginCustomerId(): Promise<string | null> {
   const row = await prisma.setting.findUnique({ where: { key: 'google.ads.login_customer_id' }, select: { value: true } }).catch(() => null)
   if (!row?.value) return null
   const v = row.value as any
@@ -38,7 +38,7 @@ function costKey(level: string, customerId: string, campaignId: string, adGroupI
   return `ad:${customerId}:${campaignId}:${adGroupId}:${adId}:${date}`
 }
 
-async function callSearchStream(
+export async function callSearchStream(
   customerId: string,
   accessToken: string,
   developerToken: string,
@@ -102,11 +102,12 @@ interface SyncSummary {
 
 // Janela default: 30 dias atrás → ontem (Google só consolida ontem em diante)
 function defaultDateRange(): { from: string; to: string } {
-  const today = new Date()
-  const to = new Date(today.getTime() - 24 * 60 * 60 * 1000) // ontem
-  const from = new Date(to.getTime() - 29 * 24 * 60 * 60 * 1000) // 30 dias atrás
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
-  return { from: fmt(from), to: fmt(to) }
+  // Até ONTEM no fuso de Brasília (o dia corrente ainda muda); 30 dias para
+  // trás, para as correções retroativas do Google entrarem sozinhas.
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+  const base = Date.parse(hoje + 'T12:00:00Z')
+  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+  return { from: fmt(base - 30 * 86400000), to: fmt(base - 86400000) }
 }
 
 const METRIC_FIELDS = [
@@ -125,11 +126,12 @@ const QUERIES = {
     SELECT
       campaign.id,
       campaign.name,
+      campaign.status,
+      campaign.advertising_channel_type,
       segments.date,
       ${METRIC_FIELDS}
     FROM campaign
     WHERE segments.date BETWEEN '${from}' AND '${to}'
-      AND campaign.status != 'REMOVED'
   `,
   ad_group: (from: string, to: string) => `
     SELECT
@@ -141,7 +143,6 @@ const QUERIES = {
       ${METRIC_FIELDS}
     FROM ad_group
     WHERE segments.date BETWEEN '${from}' AND '${to}'
-      AND ad_group.status != 'REMOVED'
   `,
   ad: (from: string, to: string) => `
     SELECT
@@ -155,7 +156,6 @@ const QUERIES = {
       ${METRIC_FIELDS}
     FROM ad_group_ad
     WHERE segments.date BETWEEN '${from}' AND '${to}'
-      AND ad_group_ad.status != 'REMOVED'
   `,
   keyword: (from: string, to: string) => `
     SELECT
@@ -277,7 +277,8 @@ export async function syncGoogleAdsInsights(
             level === 'ad' ? String(adGroupAd.id || '') : null,
             level === 'ad' ? (adGroupAd.name || null) : null,
             date,
-            metrics,
+            // Status/tipo da campanha vão junto no `raw` (o relatório mostra o atual).
+            level === 'campaign' ? { ...metrics, campaignStatus: campaign.status || null, channelType: campaign.advertisingChannelType || null } : metrics,
             level === 'keyword' ? String(agc.criterionId || '') : null,
             level === 'keyword' ? (agc.keyword?.text || null) : null,
           )

@@ -3,7 +3,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, createHmac, timingSafeEqual } from 'crypto'
 
-const GRAPH_URL = 'https://graph.facebook.com/v22.0'
+const GRAPH_URL = 'https://graph.facebook.com/v24.0'
 
 // ─── Token Encryption (AES-256-GCM) ─────────────────────
 

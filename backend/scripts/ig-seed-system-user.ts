@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { prisma } from '../src/lib/prisma.js'
 import { getMetaAppId, getMetaAppSecret } from '../src/lib/meta.js'
 
-const GRAPH = 'https://graph.facebook.com/v23.0'
+const GRAPH = 'https://graph.facebook.com/v24.0'
 const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i >= 0 ? process.argv[i + 1] : undefined }
 const aplicar = process.argv.includes('--aplicar')
 const pageId = arg('page')

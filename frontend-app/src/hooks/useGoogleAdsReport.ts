@@ -20,6 +20,11 @@ export interface GoogleAdsKpis {
   roi: number
   cpl: number
   cpc: number
+  /** Investimento ÷ conversões do Google. */
+  costPerConversion: number
+  ctr: number
+  /** Conversões ÷ cliques × 100. */
+  conversionRate: number
 }
 
 export interface GoogleAdsBreakdownRow {
@@ -45,6 +50,12 @@ export interface GoogleAdsBreakdownRow {
   roas?: number
   roi?: number
   cpl?: number
+  costPerConversion?: number
+  ctr?: number
+  cpc?: number
+  /** Status atual da campanha (ACTIVE, PAUSED, REMOVED). */
+  status?: string | null
+  channelType?: string | null
 }
 
 export interface GoogleAdsKeywordRow {
@@ -72,7 +83,10 @@ export interface GoogleAdsDailyPoint {
 }
 
 export interface GoogleAdsDashboardResponse {
-  dateRange: { from: string; to: string }
+  dateRange: { from: string; to: string; ateOntem?: boolean }
+  /** Período anterior do mesmo tamanho. */
+  previous?: { from: string; to: string; spend: number; conversions: number; clicks: number; impressions: number; leads: number; costPerConversion: number; cpc: number; cpl: number }
+  ultimaSincronizacao?: string | null
   kpis: GoogleAdsKpis
   campaigns: GoogleAdsBreakdownRow[]
   adGroups: GoogleAdsBreakdownRow[]
@@ -137,5 +151,25 @@ export function useSyncGoogleAdsInsights() {
       void qc.invalidateQueries({ queryKey: ['google-ads-report'] })
       void qc.invalidateQueries({ queryKey: ['google-ads-report-campaigns'] })
     },
+  })
+}
+
+export interface GoogleAdsSaldoConta {
+  customerId: string
+  nome: string
+  moeda: string
+  ilimitado: boolean
+  limiteDeGastos: number | null
+  gastoNoOrcamento: number
+  saldoDisponivel: number | null
+  fimDoOrcamento: string | null
+}
+
+export function useGoogleAdsSaldo(customerId?: string) {
+  return useQuery({
+    queryKey: ['google-ads-saldo', customerId || ''],
+    queryFn: () => api.get<{ contas: GoogleAdsSaldoConta[]; erros?: string[]; consultadoEm: string }>(`/admin/google-ads-report/saldo${customerId ? `?customerId=${encodeURIComponent(customerId)}` : ''}`),
+    staleTime: 5 * 60_000,
+    retry: false,
   })
 }

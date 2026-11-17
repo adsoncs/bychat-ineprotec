@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { lerObjetivos, resultadoDaMeta, ontemNoBrasil } from '../services/metaResultados.js'
 import { authMiddleware } from '../lib/auth.js'
 import { getBranding } from '../lib/branding.js'
 
@@ -97,8 +98,27 @@ export async function reportsRoutes(app: FastifyInstance) {
     const since = q.dateFrom ? new Date(q.dateFrom + 'T00:00:00-03:00') : (() => {
       const d = new Date(); d.setDate(d.getDate() - days); return d
     })()
-    const until = q.dateTo ? new Date(q.dateTo + 'T23:59:59.999-03:00') : new Date()
+    // Sempre até ONTEM: o dia corrente ainda muda na Meta (mesma regra do painel).
+    const ontemPdf = ontemNoBrasil()
+    const ateDia = q.dateTo && String(q.dateTo).slice(0, 10) < ontemPdf ? String(q.dateTo).slice(0, 10) : ontemPdf
+    const until = new Date(ateDia + 'T23:59:59.999-03:00')
     const funnelId = q.funnelId ? parseInt(q.funnelId, 10) : null
+    // Gasto vem do nível CAMPANHA (a tabela tem campanha, conjunto e anúncio:
+    // somar tudo triplicava o investimento) e o dia do gasto é dia-calendário.
+    const custoDe = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(since) + 'T00:00:00.000Z')
+    const custoAte = new Date(ateDia + 'T23:59:59.999Z')
+    const objetivosPdf = await lerObjetivos()
+    const custosCampanha = await prisma.campaignCost.findMany({
+      where: { level: 'campaign', date: { gte: custoDe, lte: custoAte } },
+      select: { campaignId: true, campaignName: true, spend: true, actions: true },
+    })
+    const resultadosPorCampanha: Record<string, { name: string; spend: number; results: number }> = {}
+    for (const c of custosCampanha) {
+      const r = (resultadosPorCampanha[c.campaignId] ||= { name: c.campaignName, spend: 0, results: 0 })
+      r.spend += Number(c.spend)
+      r.results += resultadoDaMeta(c.actions, objetivosPdf.campanhas[c.campaignId]).valor
+    }
+    const totalResults = Object.values(resultadosPorCampanha).reduce((s, r) => s + r.results, 0)
 
     const branding = await getBranding()
     const brandName = branding.brandName || ''
@@ -116,7 +136,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       ` as Promise<any[]>,
       prisma.$queryRaw`
         SELECT SUM(spend) as totalSpend, SUM(impressions) as totalImpressions,
-          SUM(clicks) as totalClicks FROM bychat_campaign_costs WHERE date >= ${since} AND date <= ${until}
+          SUM(clicks) as totalClicks FROM bychat_campaign_costs WHERE level = 'campaign' AND date >= ${custoDe} AND date <= ${custoAte}
       ` as Promise<any[]>,
       prisma.lead.count({ where: { createdAt: { gte: since, lte: until } } }),
       prisma.lead.count({ where: { saleDetected: true, saleDetectedAt: { gte: since, lte: until } } }),
@@ -140,7 +160,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     const totalRevenue = Number(leadsByOrigin?.reduce((s: number, r: any) => s + Number(r.revenue), 0) || 0)
     const roas = totalSpend > 0 ? (totalRevenue / totalSpend).toFixed(2) : 'N/A'
     const roi = totalSpend > 0 ? (((totalRevenue - totalSpend) / totalSpend) * 100).toFixed(0) : 'N/A'
-    const cpl = totalLeads > 0 && totalSpend > 0 ? (totalSpend / totalLeads).toFixed(2) : 'N/A'
+    const custoPorResultado = totalResults > 0 && totalSpend > 0 ? (totalSpend / totalResults).toFixed(2) : 'N/A'
     const cpv = totalSales > 0 && totalSpend > 0 ? (totalSpend / totalSales).toFixed(2) : 'N/A'
     const convRate = totalLeads > 0 ? ((totalSales / totalLeads) * 100).toFixed(1) : '0'
     const winRate = (totalWon + totalLost) > 0 ? ((totalWon / (totalWon + totalLost)) * 100).toFixed(1) : '0'
@@ -156,18 +176,15 @@ export async function reportsRoutes(app: FastifyInstance) {
       if (lead.outcome === 'lost') c.lost++
     }
     // Spend por campanha no período
-    const spendByCampaign = await prisma.campaignCost.groupBy({
-      by: ['campaignId'],
-      where: { date: { gte: since, lte: until } },
-      _sum: { spend: true },
-    })
-    for (const s of spendByCampaign) {
-      if (campaignAgg[s.campaignId]) {
-        campaignAgg[s.campaignId].spend = Number(s._sum.spend || 0)
-      }
+    // Campanhas com gasto entram mesmo sem lead no CRM (é o que o Gerenciador mostra).
+    for (const [cid, r] of Object.entries(resultadosPorCampanha)) {
+      if (!campaignAgg[cid]) campaignAgg[cid] = { id: cid, name: r.name, leads: 0, sales: 0, revenue: 0, lost: 0, spend: 0 }
+      campaignAgg[cid].spend = r.spend
     }
     const topCampaigns = Object.values(campaignAgg)
-      .sort((a, b) => b.leads - a.leads || b.revenue - a.revenue)
+      .map((c) => ({ ...c, results: resultadosPorCampanha[c.id]?.results ?? 0 }))
+      .filter((c) => c.spend > 0 || c.leads > 0)
+      .sort((a, b) => b.spend - a.spend || b.results - a.results)
       .slice(0, 10)
 
     // Funil — etapas do funil escolhido
@@ -260,15 +277,15 @@ export async function reportsRoutes(app: FastifyInstance) {
     }
 
     drawKPI(col1, y1, 'Investimento', `R$ ${totalSpend.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`)
-    drawKPI(col2, y1, 'Leads Gerados', String(totalLeads))
-    drawKPI(col3, y1, 'Vendas Detectadas', String(totalSales))
+    drawKPI(col2, y1, 'Resultados (Meta)', String(totalResults))
+    drawKPI(col3, y1, 'Custo por resultado', custoPorResultado === 'N/A' ? 'N/A' : `R$ ${Number(custoPorResultado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`)
     drawKPI(col4, y1, 'Faturamento', `R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`)
 
     doc.moveDown(5)
     const y2 = doc.y
     drawKPI(col1, y2, 'ROI', roi === 'N/A' ? 'N/A' : `${roi}%`)
     drawKPI(col2, y2, 'ROAS', `${roas}x`)
-    drawKPI(col3, y2, 'CPL (Custo/Lead)', cpl === 'N/A' ? 'N/A' : `R$ ${cpl}`)
+    drawKPI(col3, y2, 'Leads no CRM (anúncios)', String(leadsAds.length))
     drawKPI(col4, y2, 'Taxa de Conversão', `${convRate}%`)
 
     doc.moveDown(5)
@@ -328,11 +345,11 @@ export async function reportsRoutes(app: FastifyInstance) {
       doc.rect(50, cy, 495, 20).fill('#4361ee')
       doc.text('Campanha', 55, cy + 6, { width: 175 })
       doc.text('Invest.', 230, cy + 6, { width: 60, align: 'right' })
-      doc.text('Leads', 295, cy + 6, { width: 38, align: 'right' })
-      doc.text('Vendas', 335, cy + 6, { width: 40, align: 'right' })
-      doc.text('Receita', 380, cy + 6, { width: 70, align: 'right' })
-      doc.text('ROI', 455, cy + 6, { width: 40, align: 'right' })
-      doc.text('Perdas', 495, cy + 6, { width: 45, align: 'right' })
+      doc.text('Result.', 295, cy + 6, { width: 38, align: 'right' })
+      doc.text('Custo/res.', 335, cy + 6, { width: 50, align: 'right' })
+      doc.text('Leads CRM', 388, cy + 6, { width: 45, align: 'right' })
+      doc.text('Receita', 435, cy + 6, { width: 60, align: 'right' })
+      doc.text('ROI', 497, cy + 6, { width: 43, align: 'right' })
       cy += 22
 
       topCampaigns.forEach((c, idx) => {
@@ -344,13 +361,12 @@ export async function reportsRoutes(app: FastifyInstance) {
         doc.font('Helvetica').fontSize(8).fillColor('#333')
         doc.text(c.name.length > 38 ? c.name.slice(0, 35) + '…' : c.name, 55, cy + 5, { width: 175 })
         doc.text(c.spend > 0 ? `R$ ${c.spend.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '–', 230, cy + 5, { width: 60, align: 'right' })
-        doc.text(String(c.leads), 295, cy + 5, { width: 38, align: 'right' })
-        doc.text(c.sales > 0 ? String(c.sales) : '–', 335, cy + 5, { width: 40, align: 'right' })
-        doc.text(c.revenue > 0 ? `R$ ${c.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '–', 380, cy + 5, { width: 70, align: 'right' })
+        doc.text(c.results > 0 ? String(c.results) : '–', 295, cy + 5, { width: 38, align: 'right' })
+        doc.text(c.results > 0 && c.spend > 0 ? `R$ ${(c.spend / c.results).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '–', 335, cy + 5, { width: 50, align: 'right' })
+        doc.text(c.leads > 0 ? String(c.leads) : '–', 388, cy + 5, { width: 45, align: 'right' })
+        doc.text(c.revenue > 0 ? `R$ ${c.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '–', 435, cy + 5, { width: 60, align: 'right' })
         doc.fillColor(roiC === '–' ? '#999' : (Number(roiC) >= 0 ? '#10b981' : '#f59e0b')).font('Helvetica-Bold')
-          .text(roiC === '–' ? '–' : `${Number(roiC) >= 0 ? '+' : ''}${roiC}%`, 455, cy + 5, { width: 40, align: 'right' })
-        doc.fillColor(c.lost > 0 ? '#dc2626' : '#999').font('Helvetica')
-          .text(c.lost > 0 ? String(c.lost) : '–', 495, cy + 5, { width: 45, align: 'right' })
+          .text(roiC === '–' ? '–' : `${Number(roiC) >= 0 ? '+' : ''}${roiC}%`, 497, cy + 5, { width: 43, align: 'right' })
         cy += 18
       })
       doc.y = cy

@@ -1,7 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
-import { metaFetch, getMetaAppId, getMetaAppSecret } from '../lib/meta.js'
+import { metaFetch, metaFetchAll, getMetaAppId, getMetaAppSecret } from '../lib/meta.js'
+import { CAMPOS_DO_CONJUNTO, gravarObjetivos, lerObjetivos, resultadoDaMeta, ontemNoBrasil, type TipoResultado } from '../services/metaResultados.js'
 import { getNotificationTargets, getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
 
 // ── Cache de "window reach" (Fase 21.10 fix) ────────────────────
@@ -195,6 +196,8 @@ function brazilIsoWeek(dayStr: string): { weekKey: string; weekStart: string; we
   return { weekKey: `${isoYear}-${ww}`, weekStart: fmt(monday), weekEnd: fmt(sunday) }
 }
 
+let saldoCache: { expira: number; valor: any } | null = null
+
 export async function metaAdsReportRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/meta-ads-report/ad-accounts — lista contas de anúncio
@@ -273,8 +276,16 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // como UTC midnight some no fuso local; "23:59:59" sem TZ depende do fuso do
     // servidor. Ambos efeitos enviesavam a janela em até 3h em cada ponta.
     const dateFrom = q.dateFrom ? parseBrazilDate(q.dateFrom, 'start') : new Date(Date.now() - 30 * 86400000)
-    const dateTo = q.dateTo ? parseBrazilDate(q.dateTo, 'end') : new Date()
+    // O dia corrente ainda muda na Meta: a janela vai sempre até ONTEM.
+    const ontem = ontemNoBrasil()
+    const ateRaw = String(q.dateTo || '').slice(0, 10) || ontem
+    const ateAjustado = ateRaw > ontem
+    const dateTo = parseBrazilDate(ateAjustado ? ontem : ateRaw, 'end')
     const campaignId = q.campaignId || null
+    // Resultado de cada campanha/conjunto (lido na coleta): o que o Gerenciador chama de "Resultados".
+    const objetivos = await lerObjetivos()
+    const objDoConjunto = (adsetId: string | null | undefined, campaignId: string) =>
+      (adsetId && objetivos.conjuntos[adsetId]) || objetivos.campanhas[campaignId] || null
     const funnelId = q.funnelId ? parseInt(q.funnelId, 10) : null
 
     // Filtro de leads: aceitar qualquer source desde que tenha campaignId atribuído.
@@ -323,12 +334,15 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       where: { ...costWhereBase, level: 'ad' },
       select: { adId: true, adName: true, adsetId: true, campaignId: true, campaignName: true, spend: true, impressions: true, clicks: true, actions: true },
     })
-    type CustoNivel = { spend: number; impressions: number; clicks: number; metaConversations: number; metaFormLeads: number }
+    type CustoNivel = { spend: number; impressions: number; clicks: number; metaConversations: number; metaFormLeads: number; results: number; resultType: TipoResultado | null }
     const spendByAdset: Record<string, CustoNivel> = {}
     for (const a of adsetCosts) {
       if (!a.adsetId) continue
       const key = a.adsetId
-      if (!spendByAdset[key]) spendByAdset[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0 }
+      if (!spendByAdset[key]) spendByAdset[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0, results: 0, resultType: null }
+      const rAs = resultadoDaMeta(a.actions, objDoConjunto(a.adsetId, a.campaignId))
+      spendByAdset[key].results += rAs.valor
+      spendByAdset[key].resultType = rAs.tipo
       spendByAdset[key].metaConversations += conversasDaMeta(a.actions)
       spendByAdset[key].metaFormLeads += formulariosDaMeta(a.actions)
       spendByAdset[key].spend += Number(a.spend)
@@ -339,7 +353,10 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     for (const a of adCosts) {
       if (!a.adId) continue
       const key = a.adId
-      if (!spendByAd[key]) spendByAd[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0 }
+      if (!spendByAd[key]) spendByAd[key] = { spend: 0, impressions: 0, clicks: 0, metaConversations: 0, metaFormLeads: 0, results: 0, resultType: null }
+      const rAd = resultadoDaMeta(a.actions, objDoConjunto(a.adsetId, a.campaignId))
+      spendByAd[key].results += rAd.valor
+      spendByAd[key].resultType = rAd.tipo
       spendByAd[key].metaConversations += conversasDaMeta(a.actions)
       spendByAd[key].metaFormLeads += formulariosDaMeta(a.actions)
       spendByAd[key].spend += Number(a.spend)
@@ -454,7 +471,17 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // Agregar custos e leads da Meta API (actions.lead)
     const metaLeadsCount: Record<string, number> = {}
     const metaConversationsCount: Record<string, number> = {}
+    const metaResultsCount: Record<string, number> = {}
+    const metaResultType: Record<string, TipoResultado> = {}
+    const resultsByDay: Record<string, number> = {}
+    const resultsByType: Record<TipoResultado, number> = { lead: 0, conversa: 0, pixel: 0, outro: 0 }
     for (const cost of costs) {
+      const rC = resultadoDaMeta(cost.actions, objetivos.campanhas[cost.campaignId])
+      metaResultsCount[cost.campaignId] = (metaResultsCount[cost.campaignId] || 0) + rC.valor
+      metaResultType[cost.campaignId] = rC.tipo
+      resultsByType[rC.tipo] += rC.valor
+      const diaR = cost.date.toISOString().slice(0, 10)
+      resultsByDay[diaR] = (resultsByDay[diaR] || 0) + rC.valor
       const cid = cost.campaignId
       if (!campaignMap[cid]) {
         campaignMap[cid] = { id: cid, name: cost.campaignName, leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0, sales: 0, revenue: 0, won: 0, lost: 0, spend: 0, impressions: 0, clicks: 0, linkClicks: 0, reach: 0, adsets: {} }
@@ -510,6 +537,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       const totalSpend = totalSpendByCampaign[c.id] ?? 0
       const metaLeads = metaLeadsCount[c.id] || 0
       const metaConversations = metaConversationsCount[c.id] || 0
+      const results = metaResultsCount[c.id] || 0
       const cpl = c.leads > 0 && c.spend > 0 ? c.spend / c.leads : 0
       const cpc = c.clicks > 0 && c.spend > 0 ? c.spend / c.clicks : 0
       const cpv = c.sales > 0 && c.spend > 0 ? c.spend / c.sales : 0
@@ -526,6 +554,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         leadsSite: c.leadsSite,
         metaLeads,
         metaConversations,
+        // "Resultados" do Gerenciador: a ação que a campanha persegue (lead,
+        // conversa ou evento do site), contada sem sobreposição.
+        resultType: metaResultType[c.id] ?? objetivos.campanhas[c.id]?.tipo ?? null,
+        results,
+        costPerResult: results > 0 && c.spend > 0 ? Number((c.spend / results).toFixed(2)) : 0,
         // Custo por conversa iniciada, como o Gerenciador mostra. Numa campanha que
         // mistura formulário e WhatsApp o gasto é do conjunto todo: aí vale olhar
         // por conjunto/anúncio.
@@ -603,6 +636,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
           leadsSite: as.leadsSite,
           metaLeads: realAdset?.metaFormLeads ?? 0,
           metaConversations: realAdset?.metaConversations ?? 0,
+          resultType: realAdset?.resultType ?? null,
+          results: realAdset?.results ?? 0,
+          costPerResult: realAdset && realAdset.results > 0 && realAdset.spend > 0 ? Number((realAdset.spend / realAdset.results).toFixed(2)) : 0,
           costPerConversation: realAdset && realAdset.metaConversations > 0 && realAdset.spend > 0 ? Number((realAdset.spend / realAdset.metaConversations).toFixed(2)) : 0,
           sales: as.sales,
           revenue: Number(as.revenue.toFixed(2)),
@@ -642,6 +678,9 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
             leadsSite: ad.leadsSite,
             metaLeads: realAd?.metaFormLeads ?? 0,
             metaConversations: realAd?.metaConversations ?? 0,
+            resultType: realAd?.resultType ?? null,
+            results: realAd?.results ?? 0,
+            costPerResult: realAd && realAd.results > 0 && realAd.spend > 0 ? Number((realAd.spend / realAd.results).toFixed(2)) : 0,
             costPerConversation: realAd && realAd.metaConversations > 0 && realAd.spend > 0 ? Number((realAd.spend / realAd.metaConversations).toFixed(2)) : 0,
             sales: ad.sales,
             revenue: Number(ad.revenue.toFixed(2)),
@@ -666,12 +705,13 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     const nomesDeConjunto: Record<string, { name: string; campaignId: string; campaignName: string }> = {}
     for (const a of adsetCosts) if (a.adsetId) nomesDeConjunto[a.adsetId] = { name: a.adsetName || a.adsetId, campaignId: a.campaignId, campaignName: a.campaignName }
     for (const [asid, v] of Object.entries(spendByAdset)) {
-      if (adsetsListados.has(asid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0)) continue
+      if (adsetsListados.has(asid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0 && v.results <= 0)) continue
       const n = nomesDeConjunto[asid]
       adsetsFlat.push({
         id: asid, name: n?.name ?? asid, campaignId: n?.campaignId ?? '', campaignName: n?.campaignName ?? '',
         leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0,
         metaLeads: v.metaFormLeads, metaConversations: v.metaConversations,
+        resultType: v.resultType, results: v.results, costPerResult: v.results > 0 && v.spend > 0 ? Number((v.spend / v.results).toFixed(2)) : 0,
         costPerConversation: v.metaConversations > 0 && v.spend > 0 ? Number((v.spend / v.metaConversations).toFixed(2)) : 0,
         sales: 0, revenue: 0, won: 0, lost: 0, spend: Number(v.spend.toFixed(2)), spendKind: v.spend > 0 ? 'real' : 'none',
         impressions: v.impressions, clicks: v.clicks, cpl: 0, roas: 0, roi: v.spend > 0 ? -100 : 0, conversionRate: 0,
@@ -680,13 +720,14 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     const nomesDeAnuncio: Record<string, { name: string; adsetId: string | null; campaignId: string; campaignName: string }> = {}
     for (const a of adCosts) if (a.adId) nomesDeAnuncio[a.adId] = { name: a.adName || a.adId, adsetId: a.adsetId, campaignId: a.campaignId, campaignName: a.campaignName }
     for (const [adid, v] of Object.entries(spendByAd)) {
-      if (adsListados.has(adid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0)) continue
+      if (adsListados.has(adid) || (v.spend <= 0 && v.metaConversations <= 0 && v.metaFormLeads <= 0 && v.results <= 0)) continue
       const n = nomesDeAnuncio[adid]
       adsFlat.push({
         id: adid, name: n?.name ?? adid, adsetId: n?.adsetId ?? null,
         adsetName: (n?.adsetId && nomesDeConjunto[n.adsetId]?.name) || '', campaignId: n?.campaignId ?? '', campaignName: n?.campaignName ?? '',
         leads: 0, leadsForm: 0, leadsWhatsapp: 0, leadsSite: 0,
         metaLeads: v.metaFormLeads, metaConversations: v.metaConversations,
+        resultType: v.resultType, results: v.results, costPerResult: v.results > 0 && v.spend > 0 ? Number((v.spend / v.results).toFixed(2)) : 0,
         costPerConversation: v.metaConversations > 0 && v.spend > 0 ? Number((v.spend / v.metaConversations).toFixed(2)) : 0,
         sales: 0, revenue: 0, won: 0, lost: 0, spend: Number(v.spend.toFixed(2)), spendKind: v.spend > 0 ? 'real' : 'none',
         impressions: v.impressions, clicks: v.clicks, cpl: 0, roas: 0, roi: v.spend > 0 ? -100 : 0, conversionRate: 0,
@@ -699,6 +740,25 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     const totalRealLeads = campaigns.reduce((s, c) => s + c.leads, 0)
     const totalMetaLeads = campaigns.reduce((s, c) => s + c.metaLeads, 0)
     const totalMetaConversations = campaigns.reduce((s, c) => s + c.metaConversations, 0)
+    const totalResults = campaigns.reduce((s, c) => s + c.results, 0)
+
+    // Período anterior do MESMO tamanho (len = ate − de + 1; anterior = de−len … de−1),
+    // só com o que vem da Meta (gasto e resultados) e os leads do CRM.
+    const diaDe = toBrazilDay(dateFrom), diaAte = toBrazilDay(dateTo)
+    const msDia = 86400000
+    const len = Math.max(1, Math.round((Date.parse(diaAte + 'T00:00:00Z') - Date.parse(diaDe + 'T00:00:00Z')) / msDia) + 1)
+    const antAte = new Date(Date.parse(diaDe + 'T00:00:00Z') - msDia).toISOString().slice(0, 10)
+    const antDe = new Date(Date.parse(diaDe + 'T00:00:00Z') - len * msDia).toISOString().slice(0, 10)
+    const custosAnt = await prisma.campaignCost.findMany({
+      where: { level: 'campaign', date: { gte: new Date(antDe + 'T00:00:00.000Z'), lte: new Date(antAte + 'T23:59:59.999Z') }, ...(campaignId ? { campaignId } : {}) },
+      select: { campaignId: true, spend: true, actions: true, impressions: true, inlineLinkClicks: true },
+    })
+    let antSpend = 0, antResults = 0, antImpr = 0, antLink = 0
+    for (const c of custosAnt) {
+      antSpend += Number(c.spend); antImpr += c.impressions || 0; antLink += c.inlineLinkClicks || 0
+      antResults += resultadoDaMeta(c.actions, objetivos.campanhas[c.campaignId]).valor
+    }
+    const antLeads = await prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: parseBrazilDate(antDe, 'start'), lte: parseBrazilDate(antAte, 'end') } } })
     const totalLeadsForm = campaigns.reduce((s, c) => s + c.leadsForm, 0)
     const totalLeadsWhatsapp = campaigns.reduce((s, c) => s + c.leadsWhatsapp, 0)
     const totalLeadsSite = campaigns.reduce((s, c) => s + c.leadsSite, 0)
@@ -931,17 +991,67 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         // Aviso quando Meta reporta mais leads que o DB recebeu (webhook off, pull pendente)
         // Formulários da Meta que não chegaram (webhook off, pull pendente). Antes
         // comparava com o total de leads do CRM, que mistura WhatsApp e site.
+        // "Resultados" como o Gerenciador mostra (Meta, sem sobreposição de ações).
+        totalResults,
+        resultsByType,
+        costPerResult: totalResults > 0 && totalSpend > 0 ? Number((totalSpend / totalResults).toFixed(2)) : 0,
+        objetivosAtualizadosEm: objetivos.atualizadoEm,
+        previous: {
+          from: antDe, to: antAte,
+          spend: Number(antSpend.toFixed(2)), results: antResults, leads: antLeads,
+          costPerResult: antResults > 0 && antSpend > 0 ? Number((antSpend / antResults).toFixed(2)) : 0,
+          impressions: antImpr, linkClicks: antLink,
+        },
         leadsDivergence: metaFormsReceived !== null && totalMetaLeads > metaFormsReceived ? totalMetaLeads - metaFormsReceived : 0,
       },
       campaigns,
       adsets: adsetsFlat,
       ads: adsFlat,
-      daily: Object.entries(dailyTotal).sort((a, b) => a[0].localeCompare(b[0])).map(([date, d]) => ({ date, ...d })),
+      daily: Object.entries(dailyTotal).sort((a, b) => a[0].localeCompare(b[0])).map(([date, d]) => ({ date, ...d, results: resultsByDay[date] || 0 })),
       weekly: Object.values(weeklyMap).sort((a, b) => a.weekKey.localeCompare(b.weekKey)),
       funnel: funnelOut,
       statusBreakdown: statusCount,
-      dateRange: { from: toBrazilDay(dateFrom), to: toBrazilDay(dateTo) }
+      dateRange: { from: toBrazilDay(dateFrom), to: toBrazilDay(dateTo), ateOntem: ateAjustado }
     }
+  })
+
+  // ── GET /api/admin/meta-ads-report/saldo — saldo/forma de pagamento das contas ──
+  // Valor do momento (não vai para a tabela diária). Conta pré-paga: saldo
+  // disponível; conta no cartão/boleto: o que já acumulou para a próxima
+  // cobrança. Valores da Meta em centavos da moeda da conta. Cache 10 min.
+  app.get('/api/admin/meta-ads-report/saldo', { preHandler: authMiddleware }, async () => {
+    if (saldoCache && saldoCache.expira > Date.now()) return saldoCache.valor
+    const contas: any[] = []
+    const erros: string[] = []
+    for (const integ of await prisma.metaIntegration.findMany({ where: { active: true } })) {
+      const token = (integ as any).userAccessToken || (integ as any).pageAccessToken
+      if (!token) continue
+      let ids: string[] = []
+      try { ids = await resolveAdAccountIds(integ, token) } catch (e: any) { erros.push(`${integ.pageName}: ${e.message}`); continue }
+      for (const id of ids) {
+        try {
+          const r: any = await metaFetch(`/${id}?fields=name,currency,account_status,balance,amount_spent,spend_cap,is_prepay_account,funding_source_details`, token)
+          const cent = (v: any) => (v == null || v === '' ? null : Number(v) / 100)
+          const fonte = r.funding_source_details?.display_string || null
+          // Pré-paga: "Saldo disponível (R$1.234,56 BRL)" vem no texto da forma de pagamento.
+          const doTexto = fonte && /saldo/i.test(fonte) ? Number((fonte.match(/([\d.]+,\d{2})/)?.[1] || '').replace(/\./g, '').replace(',', '.')) : NaN
+          const limite = cent(r.spend_cap) || null
+          const gasto = cent(r.amount_spent) ?? 0
+          contas.push({
+            id, nome: r.name, moeda: r.currency, status: r.account_status,
+            prePaga: !!r.is_prepay_account,
+            formaPagamento: fonte,
+            saldoDisponivel: r.is_prepay_account ? (Number.isFinite(doTexto) ? doTexto : (limite ? Math.max(0, limite - gasto) : null)) : null,
+            aCobrar: r.is_prepay_account ? null : cent(r.balance),
+            limiteDeGastos: limite,
+            gastoTotal: gasto,
+          })
+        } catch (e: any) { erros.push(`${id}: ${e.message}`) }
+      }
+    }
+    const valor = { contas, erros: erros.length ? erros : undefined, consultadoEm: new Date().toISOString() }
+    saldoCache = { expira: Date.now() + 10 * 60_000, valor }
+    return valor
   })
 
   // ── GET /api/admin/meta-ads-report/campaigns — Lista de campanhas únicas (leads + custos) ──
@@ -1088,6 +1198,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // 100% bem-sucedida — evita deletar dados válidos quando token expirou ou
     // rede falhou em uma das integrações.
     let anyIntegrationFullySynced = false
+    const conjuntosLidos: any[] = []
 
     // Helper: persiste um row de insights da Meta no nível indicado.
     async function upsertInsightRow(
@@ -1255,6 +1366,15 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         // Fetch insights at all 3 levels per ad account.
         // 3 requests por account (com paginação se >500 linhas/nível).
         for (const actId of adAccountIds) {
+          // Objetivo de cada conjunto (destino, otimização, conversão do site):
+          // é ele que diz qual ação é o "resultado" da campanha no Gerenciador.
+          // Inclui pausados/arquivados para o histórico continuar certo.
+          try {
+            const status = encodeURIComponent(JSON.stringify(['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ARCHIVED', 'IN_PROCESS', 'WITH_ISSUES']))
+            conjuntosLidos.push(...await metaFetchAll(`/${actId}/adsets?fields=${CAMPOS_DO_CONJUNTO}&effective_status=${status}&limit=500`, token))
+          } catch (e: any) {
+            errors.push(`${integ.pageName}/${actId}: conjuntos (objetivo do resultado): ${e.message}`)
+          }
           try {
             await fetchInsightsByLevel(actId, 'campaign', token)
             await fetchInsightsByLevel(actId, 'adset', token)
@@ -1272,6 +1392,11 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       }
     }
 
+    let objetivos = 0
+    if (conjuntosLidos.length) {
+      try { objetivos = await gravarObjetivos(conjuntosLidos) } catch (e: any) { errors.push(`objetivos: ${e.message}`) }
+    }
+
     // Cleanup: só roda quando AO MENOS uma integração foi 100% bem-sucedida.
     // Deleta por costKey (cobre os 3 níveis).
     let cleaned = 0
@@ -1286,6 +1411,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       ok: true,
       synced: totalSynced,
       campaigns: syncedCampaignIds.size,
+      objetivos,
       cleaned,
       cleanupSkipped: !anyIntegrationFullySynced && integrations.length > 0,
       errors: errors.length > 0 ? errors : undefined,

@@ -35,7 +35,7 @@ import {
  *
  * Esta implementação cobre o lado backend "depois do app review":
  *   - Salvar pageAccessToken + igUserId
- *   - Receber webhooks de DMs (Graph API v21.0)
+ *   - Receber webhooks de DMs (Graph API v24.0)
  *   - Enviar resposta via /me/messages
  *
  * O OAuth/Embedded Signup do Instagram NÃO está implementado aqui (depende do
@@ -44,7 +44,7 @@ import {
  * Cloud API embedded signup (se a página estiver linkada).
  */
 
-const META_GRAPH = 'https://graph.facebook.com/v21.0'
+const META_GRAPH = 'https://graph.facebook.com/v24.0'
 const SETTING_KEY = 'instagram.connection'
 const SETTING_KEY_V2 = 'instagram.connection_v2'
 const WEBHOOK_SECRET_KEY = 'instagram.webhook_secret'

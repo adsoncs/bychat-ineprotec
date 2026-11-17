@@ -122,7 +122,7 @@ export async function conversionsRoutes(app: FastifyInstance) {
     }
 
     try {
-      const url = `https://graph.facebook.com/v19.0/${config.pixelId}/events?access_token=${config.accessToken}`
+      const url = `https://graph.facebook.com/v24.0/${config.pixelId}/events?access_token=${config.accessToken}`
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

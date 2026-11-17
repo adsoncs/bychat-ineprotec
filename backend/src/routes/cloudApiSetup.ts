@@ -1431,7 +1431,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       const mimeType = data.mimetype
 
       // Step 1: Criar sessão de upload
-      const sessionResp = await fetch(`https://graph.facebook.com/v22.0/${conn.wabaId}/uploads`, {
+      const sessionResp = await fetch(`https://graph.facebook.com/v24.0/${conn.wabaId}/uploads`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1449,7 +1449,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       }
 
       // Step 2: Upload do arquivo
-      const uploadResp = await fetch(`https://graph.facebook.com/v22.0/${session.id}`, {
+      const uploadResp = await fetch(`https://graph.facebook.com/v24.0/${session.id}`, {
         method: 'POST',
         headers: {
           'Authorization': `OAuth ${token}`,

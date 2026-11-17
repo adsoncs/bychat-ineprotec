@@ -239,7 +239,7 @@ export async function requestSync(
   token: string,
   syncType: 'history' | 'smb_app_state_sync',
 ): Promise<{ requestId: string | null }> {
-  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/smb_app_data`, {
+  const res = await fetch(`https://graph.facebook.com/v24.0/${phoneNumberId}/smb_app_data`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', sync_type: syncType }),

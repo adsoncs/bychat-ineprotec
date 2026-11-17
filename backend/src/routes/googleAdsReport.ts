@@ -7,7 +7,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly } from '../lib/auth.js'
-import { syncGoogleAdsInsights } from '../services/googleAdsInsightsSync.js'
+import { syncGoogleAdsInsights, callSearchStream, getDeveloperToken, getLoginCustomerId } from '../services/googleAdsInsightsSync.js'
+import { getAuthenticatedClient } from '../lib/google.js'
 
 interface DashboardFilters {
   dateFrom?: string
@@ -16,18 +17,36 @@ interface DashboardFilters {
   campaignId?: string
 }
 
-function parseDateRange(q: any): { from: Date; to: Date; fromStr: string; toStr: string } {
-  const today = new Date()
-  const dEnd = q?.dateTo ? new Date(q.dateTo) : today
-  const dStart = q?.dateFrom ? new Date(q.dateFrom) : new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000)
-  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+const DIA = 86400000
+const isoDia = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+function ontemNoBrasil(): string {
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+  return isoDia(Date.parse(hoje + 'T12:00:00Z') - DIA)
+}
+
+/**
+ * Janela do relatório: sempre até ONTEM (o dia corrente ainda muda no Google) e
+ * o período anterior do MESMO tamanho (len = até − de + 1; anterior = de−len … de−1).
+ */
+function parseDateRange(q: any) {
+  const ontem = ontemNoBrasil()
+  const pedidoAte = String(q?.dateTo || '').slice(0, 10) || ontem
+  const toStr = pedidoAte > ontem ? ontem : pedidoAte
+  const fromStr = String(q?.dateFrom || '').slice(0, 10) || isoDia(Date.parse(toStr + 'T12:00:00Z') - 29 * DIA)
+  const len = Math.max(1, Math.round((Date.parse(toStr + 'T12:00:00Z') - Date.parse(fromStr + 'T12:00:00Z')) / DIA) + 1)
+  const antToStr = isoDia(Date.parse(fromStr + 'T12:00:00Z') - DIA)
+  const antFromStr = isoDia(Date.parse(fromStr + 'T12:00:00Z') - len * DIA)
   return {
-    from: new Date(`${fmt(dStart)}T00:00:00.000Z`),
-    to: new Date(`${fmt(dEnd)}T23:59:59.999Z`),
-    fromStr: fmt(dStart),
-    toStr: fmt(dEnd),
+    from: new Date(`${fromStr}T00:00:00.000Z`),
+    to: new Date(`${toStr}T23:59:59.999Z`),
+    fromStr, toStr, ateOntem: pedidoAte > ontem,
+    // Leads do CRM: dia-calendário em Brasília.
+    leadFrom: new Date(`${fromStr}T00:00:00.000-03:00`), leadTo: new Date(`${toStr}T23:59:59.999-03:00`),
+    ant: { fromStr: antFromStr, toStr: antToStr, from: new Date(`${antFromStr}T00:00:00.000Z`), to: new Date(`${antToStr}T23:59:59.999Z`), leadFrom: new Date(`${antFromStr}T00:00:00.000-03:00`), leadTo: new Date(`${antToStr}T23:59:59.999-03:00`) },
   }
 }
+
+let saldoCache: { chave: string; expira: number; valor: any } | null = null
 
 function num(v: any): number {
   if (v == null) return 0
@@ -41,7 +60,7 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
   // ── GET /api/admin/google-ads-report/dashboard ────────────────
   app.get('/api/admin/google-ads-report/dashboard', { preHandler: adminOnly }, async (req) => {
     const q = (req.query as DashboardFilters) || {}
-    const { from, to, fromStr, toStr } = parseDateRange(q)
+    const { from, to, fromStr, toStr, ateOntem, leadFrom, leadTo, ant } = parseDateRange(q)
 
     const baseWhere: any = { date: { gte: from, lte: to } }
     if (q.customerId) baseWhere.customerId = q.customerId
@@ -127,7 +146,7 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
     // ── ATRIBUIÇÃO DE LEADS DO CRM (Google) — o que identifica os leads por campanha ──
     // Espelha o Meta: cruza pelos campos google* do lead (preenchidos por ValueTrack +
     // enriquecimento por gclid), somando vendas/receita via saleDetected/saleValue.
-    const leadWhere: any = { originType: 'google_ads', createdAt: { gte: from, lte: to } }
+    const leadWhere: any = { originType: 'google_ads', createdAt: { gte: leadFrom, lte: leadTo } }
     if (q.campaignId) leadWhere.googleCampaignId = q.campaignId
     const leads = await prisma.lead.findMany({
       where: leadWhere,
@@ -161,6 +180,10 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
       row.roas = row.spend > 0 ? row.revenue / row.spend : 0
       row.roi = row.spend > 0 ? (row.revenue - row.spend) / row.spend : 0
       row.cpl = row.leads > 0 && row.spend > 0 ? row.spend / row.leads : 0
+      // Conversões do Google (o "resultado" do painel do Google) e o custo de cada uma.
+      row.costPerConversion = row.conversions > 0 && row.spend > 0 ? row.spend / row.conversions : 0
+      row.ctr = row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0
+      row.cpc = row.clicks > 0 ? row.spend / row.clicks : 0
     }
     const mergeLeads = (rows: any[], map: Map<string, any>, keyOf: (r: any) => string, labelOf: (a: any) => any) => {
       const seen = new Set<string>()
@@ -197,6 +220,14 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
     const keywords = Array.from(kwMap.values()).map(e => { finalize(e); return e })
       .sort((a, b) => b.revenue - a.revenue || b.leads - a.leads || b.spend - a.spend)
 
+    // Status/tipo atuais da campanha: o da linha mais recente sincronizada.
+    const ultimoStatus = new Map<string, { status: string | null; tipo: string | null }>()
+    for (const r of campaignRows) {
+      const raw: any = r.raw || {}
+      if (raw.campaignStatus) ultimoStatus.set(r.campaignId, { status: raw.campaignStatus === 'ENABLED' ? 'ACTIVE' : raw.campaignStatus, tipo: raw.channelType || null })
+    }
+    for (const c of campaigns) { const st = ultimoStatus.get(c.campaignId); c.status = st?.status ?? null; c.channelType = st?.tipo ?? null }
+
     const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0)
     const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0)
     const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0)
@@ -208,6 +239,28 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
     const roi = totalSpend > 0 ? (totalRevenue - totalSpend) / totalSpend : 0
     const cpl = totalLeads > 0 && totalSpend > 0 ? totalSpend / totalLeads : 0
     const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0
+    const costPerConversion = totalConversions > 0 && totalSpend > 0 ? totalSpend / totalConversions : 0
+    const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0
+    const conversionRate = totalClicks > 0 ? (totalConversions / totalClicks) * 100 : 0
+
+    // Período anterior do mesmo tamanho (só nível campanha + leads do CRM).
+    const antWhere: any = { level: 'campaign', date: { gte: ant.from, lte: ant.to } }
+    if (q.customerId) antWhere.customerId = q.customerId
+    if (q.campaignId) antWhere.campaignId = q.campaignId
+    const antRows = await prisma.googleAdsCampaignCost.findMany({ where: antWhere, select: { spend: true, clicks: true, impressions: true, conversions: true } })
+    const antSpend = antRows.reduce((s, r) => s + num(r.spend), 0)
+    const antConv = antRows.reduce((s, r) => s + num(r.conversions), 0)
+    const antClicks = antRows.reduce((s, r) => s + num(r.clicks), 0)
+    const antImpr = antRows.reduce((s, r) => s + num(r.impressions), 0)
+    const antLeads = await prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: ant.leadFrom, lte: ant.leadTo } } })
+    const previous = {
+      from: ant.fromStr, to: ant.toStr,
+      spend: antSpend, conversions: antConv, clicks: antClicks, impressions: antImpr, leads: antLeads,
+      costPerConversion: antConv > 0 && antSpend > 0 ? antSpend / antConv : 0,
+      cpc: antClicks > 0 ? antSpend / antClicks : 0,
+      cpl: antLeads > 0 && antSpend > 0 ? antSpend / antLeads : 0,
+    }
+    const ultimaSync = await prisma.googleAdsCampaignCost.findFirst({ where: { level: 'campaign', ...(q.customerId ? { customerId: q.customerId } : {}) }, orderBy: { updatedAt: 'desc' }, select: { updatedAt: true } }).catch(() => null)
 
     // Daily breakdown (todas as linhas campaign)
     const dailyMap = new Map<string, { date: string; spend: number; clicks: number; impressions: number; conversions: number }>()
@@ -223,8 +276,13 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
     const daily = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date))
 
     return {
-      dateRange: { from: fromStr, to: toStr },
+      dateRange: { from: fromStr, to: toStr, ateOntem },
+      previous,
+      ultimaSincronizacao: ultimaSync?.updatedAt ?? null,
       kpis: {
+        costPerConversion,
+        ctr,
+        conversionRate,
         totalSpend,
         totalClicks,
         totalImpressions,
@@ -243,6 +301,45 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
       keywords,
       daily,
     }
+  })
+
+  // ── GET /api/admin/google-ads-report/saldo — orçamento da conta (account_budget) ──
+  // Com limite de gastos: saldo = limite aprovado − valor já veiculado. Sem limite
+  // (pagamento automático): não há saldo pré-pago, só o total gasto. Cache 10 min.
+  app.get('/api/admin/google-ads-report/saldo', { preHandler: adminOnly }, async (req) => {
+    const q = (req.query as any) || {}
+    const configs = await prisma.googleAdsConfig.findMany({ where: { active: true, ...(q.customerId ? { customerId: String(q.customerId) } : {}) } })
+    const chave = configs.map((c) => c.customerId).join(',')
+    if (saldoCache && saldoCache.chave === chave && saldoCache.expira > Date.now()) return saldoCache.valor
+    const dev = await getDeveloperToken()
+    const login = await getLoginCustomerId()
+    const contas: any[] = []
+    const erros: string[] = []
+    for (const c of configs) {
+      try {
+        if (!dev) throw new Error('Developer Token não configurado')
+        const at = (await (await getAuthenticatedClient(c.connectionId)).getAccessToken()).token
+        if (!at) throw new Error('OAuth sem access token')
+        const [cli] = await callSearchStream(c.customerId, at, dev, login, 'SELECT customer.descriptive_name, customer.currency_code FROM customer')
+        const orc = await callSearchStream(c.customerId, at, dev, login,
+          "SELECT account_budget.status, account_budget.approved_spending_limit_micros, account_budget.approved_spending_limit_type, account_budget.amount_served_micros, account_budget.approved_end_date_time FROM account_budget WHERE account_budget.status = 'APPROVED'")
+        const m = (v: any) => (v == null ? null : Number(v) / 1_000_000)
+        // Orçamento vigente: o aprovado sem data de fim ou com fim mais distante.
+        const b = orc.map((r: any) => r.accountBudget).sort((x: any, y: any) => String(y?.approvedEndDateTime || '9999').localeCompare(String(x?.approvedEndDateTime || '9999')))[0]
+        const ilimitado = !b || b.approvedSpendingLimitType === 'INFINITE'
+        const limite = ilimitado ? null : m(b.approvedSpendingLimitMicros)
+        const gasto = m(b?.amountServedMicros) ?? 0
+        contas.push({
+          customerId: c.customerId, nome: cli?.customer?.descriptiveName || c.customerId, moeda: cli?.customer?.currencyCode || 'BRL',
+          ilimitado, limiteDeGastos: limite, gastoNoOrcamento: gasto,
+          saldoDisponivel: limite != null ? Math.max(0, limite - gasto) : null,
+          fimDoOrcamento: b?.approvedEndDateTime || null,
+        })
+      } catch (e: any) { erros.push(`${c.customerId}: ${e?.message || e}`) }
+    }
+    const valor = { contas, erros: erros.length ? erros : undefined, consultadoEm: new Date().toISOString() }
+    saldoCache = { chave, expira: Date.now() + 10 * 60_000, valor }
+    return valor
   })
 
   // ── GET /api/admin/google-ads-report/campaigns — lista campanhas únicas

@@ -23,7 +23,7 @@ import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
 import mysql from 'mysql2/promise'
 
-const GRAPH = 'https://graph.facebook.com/v21.0'
+const GRAPH = 'https://graph.facebook.com/v24.0'
 
 const env = fs.readFileSync(new URL('../.env', import.meta.url), 'utf8')
 const getEnv = (k) => (env.match(new RegExp('^' + k + '=(.+)$', 'm')) || [])[1]?.trim().replace(/^"|"$/g, '')

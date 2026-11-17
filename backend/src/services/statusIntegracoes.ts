@@ -65,7 +65,7 @@ const ESTADO_KEY = 'status_integracoes.estado'
 
 const PADRAO_ITEM: ConfigItem = { mostrar: true, avisoFixo: true }
 
-const GRAPH = 'https://graph.facebook.com/v23.0'
+const GRAPH = 'https://graph.facebook.com/v24.0'
 
 // ── utilidades ──────────────────────────────────────────────────────────────
 
