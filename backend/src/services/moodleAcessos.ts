@@ -22,6 +22,8 @@
 import { prisma } from '../lib/prisma.js'
 import * as moodle from '../lib/moodleClient.js'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
+import { eventBus } from '../lib/eventBus.js'
+import { buildEnrollmentPayload } from './enrollmentNotify.js'
 
 const INATIVAS = new Set(['cancelled', 'transferred', 'expired', 'rejected', 'merged'])
 const ESPERAS_MIN = [5, 15, 60, 180, 360] // nova tentativa após erro
@@ -217,12 +219,62 @@ async function liberarNoMoodle(registrationId: number, ator: Ator, opts: { forca
       userId: ator.userId ?? null, userName: ator.userName ?? null,
       dados: { curso: apt.cursoNome, courseId: apt.courseId, usuario: u.username, usuarioCriado: u.criado, forcado: !!(opts.forcar && !apt.apta) },
     })
+    // Só na 1ª liberação desta inscrição: reativar ou confirmar não repete o aviso.
+    if (!atual.liberadoEm) await anunciarNoMoodle(registrationId, cfg).catch((e) => console.warn(`[moodle] gatilho ava_liberado #${registrationId}:`, e?.message || e))
     return { ok: true }
   } catch (e: any) {
     const msg = e?.message || String(e)
     await falhou(registrationId, msg, atual.tentativas)
     return { ok: false, erro: msg }
   }
+}
+
+// ── Gatilho "AVA liberado" ──────────────────────────────────────────────────
+
+/**
+ * `enrollment.ava_liberado` para os fluxos (Automação › Fluxos): nada é enviado
+ * daqui, quem decide canal e texto é o fluxo da escola. Variáveis: {{avaUsuario}},
+ * {{avaSenha}}, {{avaLoginUrl}}, {{avaUrl}}, {{avaCurso}}, {{avaNome}} e as da
+ * inscrição ({{candidateCode}}, {{portalLoginUrl}}…). {{avaSenha}} só vem quando
+ * a integração criou o usuário e ele nunca entrou no AVA (senha inicial); os
+ * demais continuam com a senha deles, e o modelo usa {{^avaSenha}}…{{/avaSenha}}.
+ * Público para o reenvio pontual (script de quem já estava liberado).
+ */
+export async function anunciarAvaLiberado(registrationId: number): Promise<boolean> {
+  return naInstanciaDa(registrationId, async () => anunciarNoMoodle(registrationId, await moodle.getMoodleConfig()))
+}
+
+async function anunciarNoMoodle(registrationId: number, cfg: moodle.MoodleConfig): Promise<boolean> {
+  const a = await prisma.moodleAcesso.findUnique({ where: { registrationId } })
+  if (!a || a.status !== 'LIBERADO' || !a.username) return false
+  const ctx = await buildEnrollmentPayload(registrationId)
+  if (!ctx) return false
+  const base = String(cfg.baseUrl || '').replace(/\/+$/, '')
+  // Senha inicial só para quem a integração criou E nunca entrou no AVA: quem já
+  // entrou pode ter trocado (até 12/11 a troca era obrigatória no 1º acesso).
+  let senha = ''
+  if (a.usuarioCriado && cfg.senha && a.moodleUserId) {
+    const u = (await moodle.usuariosPorCampo('id', String(a.moodleUserId)).catch(() => []))[0]
+    if (u && !u.firstaccess) senha = cfg.senha
+  }
+  const inst = moodle.instanciaAtual()
+  const avaNome = (await moodle.listarInstancias()).find((i) => i.id === inst)?.nome || 'AVA'
+  eventBus.emitDomain({
+    type: 'enrollment.ava_liberado',
+    leadId: ctx.lead.id,
+    payload: {
+      ...ctx.payload,
+      registrationId,
+      avaNome,
+      avaUrl: base,
+      avaLoginUrl: base ? `${base}/login/index.php` : '',
+      avaUsuario: a.username,
+      avaSenha: senha,
+      avaCurso: a.cursoNome || ctx.payload.courseName,
+    },
+    timestamp: new Date(),
+  })
+  return true
 }
 
 // ── Ações do agente ─────────────────────────────────────────────────────────

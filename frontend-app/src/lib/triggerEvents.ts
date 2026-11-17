@@ -64,7 +64,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'loss_reason.spike',             label: '📈 Pico em motivos de perda',      category: 'system' },
 
   // ── Portal de Matrículas (requer módulo `enrollment_portals`) ──
-  { value: 'enrollment.submitted',                label: '🎓 Inscrição recebida',                category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.submitted',                label: '🎓 Inscrição recebida', description: 'Traz {{candidateCode}}, {{courseName}}, {{portalLoginUrl}} (login do Meu Portal com a marca do portal) e {{portalSlug}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.submitted_by_team',        label: '🧑‍💼 Inscrição feita pela equipe (painel)', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.cancelled',                label: '🚫 Inscrição cancelada',               category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.interest_submitted',       label: '🌱 Interesse capturado (magic link)',  category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
@@ -74,6 +74,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'enrollment.document_rejected',        label: '📄 Documento rejeitado',               category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.document_stale',           label: '⏳ Documento parado sem análise (mais de 1 dia)', description: 'Documento enviado pelo aluno e ainda não analisado depois de 1 dia. Uma vez por documento.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.matricula_completa',       label: '✅ Matrícula completa (paga, assinada e documentos aprovados)', description: 'Uma vez por matrícula. Traz {{escola}} (polo/escola certificadora).', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
+  { value: 'enrollment.ava_liberado',             label: '🖥️ Acesso ao AVA (Moodle) liberado', description: 'Uma vez por inscrição, na 1ª liberação. Traz {{avaUsuario}}, {{avaSenha}} (só quando o usuário foi criado agora), {{avaLoginUrl}}, {{avaCurso}}, {{avaNome}} e {{portalLoginUrl}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.curso_concluido',          label: '🎓 Curso concluído no AVA (Moodle)', description: 'Quando o Moodle marca o curso como concluído (critérios de conclusão cumpridos). Uma vez por inscrição. Traz {{curso}} e {{concluidoEm}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'enrollment.transferencia_curso',      label: '🔁 Transferência de curso feita', description: 'Traz {{deCodigo}}, {{paraCodigo}}, {{credito}} e {{sobra}}.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },
   { value: 'financeiro.parcela_vencida',          label: '💸 Parcela vencida (3 dias, 15 dias ou acordo)', description: 'Filtro "marco": 3d, 15d ou acordo_quebrado. Uma vez por parcela e marco.', category: 'enrollment_portal', requiresModule: 'enrollment_portals' },

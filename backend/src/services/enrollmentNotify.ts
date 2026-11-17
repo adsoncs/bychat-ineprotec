@@ -23,7 +23,7 @@ export interface EnrollmentConfirmationInput {
 }
 
 // ── Carrega payload comum a partir do enrollment ──
-async function buildEnrollmentPayload(enrollmentId: number) {
+export async function buildEnrollmentPayload(enrollmentId: number) {
   const e = await prisma.enrollmentRegistration.findUnique({
     where: { id: enrollmentId },
     include: {
@@ -38,6 +38,9 @@ async function buildEnrollmentPayload(enrollmentId: number) {
   const deadline = e.paymentExpiresAt ? new Date(e.paymentExpiresAt).toLocaleString('pt-BR') : ''
   // No endereço em que a pessoa se inscreveu (domínio próprio do portal, se houver).
   const candidateUrl = `${baseDoPortal(e.portal?.customDomain) ?? getAppUrl()}/candidato/${e.candidateCode}`
+  // Login do Meu Portal já com a marca do portal (sem `?portal=` a tela abre
+  // com a marca do portal principal — a da outra empresa, no domínio próprio).
+  const portalLoginUrl = `${baseDoPortal(e.portal?.customDomain) ?? getAppUrl()}/portal/login${e.portal?.slug ? `?portal=${encodeURIComponent(e.portal.slug)}` : ''}`
   return {
     enrollment: e,
     lead: e.lead,
@@ -58,6 +61,8 @@ async function buildEnrollmentPayload(enrollmentId: number) {
       value: e.paymentAmount != null ? Number(e.paymentAmount) : null,
       paymentDeadline: deadline,
       candidateUrl,
+      portalSlug: e.portal?.slug || '',
+      portalLoginUrl,
       ctaMessage: e.portal?.ctaMessage || '',
       // Matrícula interna: de onde veio e quem atendeu (variáveis dos fluxos).
       origem: e.origem || '',

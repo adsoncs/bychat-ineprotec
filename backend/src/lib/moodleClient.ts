@@ -229,13 +229,13 @@ export async function listarCursos(semCache = false): Promise<MoodleCurso[]> {
   return lista
 }
 
-export interface MoodleUsuario { id: number; username: string; email: string; fullname: string; suspended: boolean; auth: string }
+export interface MoodleUsuario { id: number; username: string; email: string; fullname: string; suspended: boolean; auth: string; firstaccess: number }
 
 /** Busca por username/email/id. Ausente = [] (o Moodle lança dml_missing_record). */
 export async function usuariosPorCampo(campo: 'username' | 'email' | 'id', valor: string): Promise<MoodleUsuario[]> {
   try {
     const r = await chamar<any[]>('core_user_get_users_by_field', { field: campo, values: [valor] })
-    return (r || []).map((u: any) => ({ id: Number(u.id), username: String(u.username || ''), email: String(u.email || ''), fullname: String(u.fullname || ''), suspended: !!u.suspended, auth: String(u.auth || '') }))
+    return (r || []).map((u: any) => ({ id: Number(u.id), username: String(u.username || ''), email: String(u.email || ''), fullname: String(u.fullname || ''), suspended: !!u.suspended, auth: String(u.auth || ''), firstaccess: Number(u.firstaccess || 0) }))
   } catch (e) {
     if (e instanceof MoodleError && (e.codigo === 'invalidrecordunknown' || e.codigo === 'invalidrecord')) return []
     throw e
