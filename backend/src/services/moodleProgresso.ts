@@ -23,7 +23,7 @@ import { prisma } from '../lib/prisma.js'
 import * as moodle from '../lib/moodleClient.js'
 import { eventBus } from '../lib/eventBus.js'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
-import { aptidao, soDigitos } from './moodleAcessos.js'
+import { aptidao, soDigitos, naInstanciaDa } from './moodleAcessos.js'
 
 const CACHE_CURSO_MS = 3 * 60 * 60_000
 const CACHE_ALUNO_MS = 10 * 60_000
@@ -43,10 +43,12 @@ interface Estrutura {
   /** Nota mínima de aprovação por cmid (é do questionário, igual para todos). */
   notaMinima: Map<number, number | null>
 }
-const estruturas = new Map<number, Estrutura>()
+// Chave com o Moodle da vez: o curso 120 de um Moodle não é o 120 do outro.
+const estruturas = new Map<string, Estrutura>()
 
 async function estruturaDoCurso(courseId: number, forcar = false): Promise<Estrutura> {
-  const c = estruturas.get(courseId)
+  const chave = `${moodle.instanciaAtual()}:${courseId}`
+  const c = estruturas.get(chave)
   if (c && !forcar && Date.now() - c.em < CACHE_CURSO_MS) return c
   const [secoes, qz] = await Promise.all([
     moodle.chamar<any[]>('core_course_get_contents', { courseid: courseId }),
@@ -54,7 +56,7 @@ async function estruturaDoCurso(courseId: number, forcar = false): Promise<Estru
   ])
   const quizzes = new Map<number, any>((qz?.quizzes ?? []).map((q: any) => [Number(q.coursemodule), q]))
   const e = { em: Date.now(), secoes: Array.isArray(secoes) ? secoes : [], quizzes, notaMinima: new Map<number, number | null>() }
-  estruturas.set(courseId, e)
+  estruturas.set(chave, e)
   return e
 }
 
@@ -135,7 +137,7 @@ function cmidDoCriterio(html: unknown): number | null {
 }
 
 export async function progressoDoAluno(moodleUserId: number, courseId: number, opts: { forcar?: boolean } = {}): Promise<ProgressoAva> {
-  const chave = `${moodleUserId}:${courseId}`
+  const chave = `${moodle.instanciaAtual()}:${moodleUserId}:${courseId}`
   const c = progressos.get(chave)
   if (c && !opts.forcar && Date.now() - c.em < CACHE_ALUNO_MS) return c.p
 
@@ -250,6 +252,10 @@ export async function progressoDoAluno(moodleUserId: number, courseId: number, o
 // ── Por inscrição (Meu Portal e ficha) ──────────────────────────────────────
 
 export async function progressoDaInscricao(registrationId: number, opts: { forcar?: boolean } = {}): Promise<ProgressoAva | null> {
+  return naInstanciaDa(registrationId, () => progressoNoMoodle(registrationId, opts))
+}
+
+async function progressoNoMoodle(registrationId: number, opts: { forcar?: boolean }): Promise<ProgressoAva | null> {
   const a = await prisma.moodleAcesso.findUnique({ where: { registrationId } })
   if (!a?.moodleUserId || !a.moodleCourseId || (a.status !== 'LIBERADO' && a.status !== 'SUSPENSO')) return null
   const p = await progressoDoAluno(a.moodleUserId, a.moodleCourseId, opts)
@@ -280,9 +286,25 @@ async function registrarConclusao(registrationId: number, leadId: number | null,
 
 /** Varre os acessos liberados ainda sem conclusão registrada (1 chamada por aluno). */
 export async function varrerConclusoes(): Promise<{ conferidos: number; concluidos: number }> {
+  const todos = await prisma.moodleAcesso.findMany({ where: { status: 'LIBERADO', moodleUserId: { not: null }, moodleCourseId: { not: null } } })
+  // Cada acesso é conferido no Moodle do portal da inscrição.
+  const regs = await prisma.enrollmentRegistration.findMany({ where: { id: { in: todos.map((a) => a.registrationId) } }, select: { id: true, portalId: true } })
+  const instDoPortal = new Map<number, string>()
+  for (const pid of new Set(regs.map((r) => r.portalId))) instDoPortal.set(pid, await moodle.instanciaDoPortal(pid))
+  const instDaReg = new Map(regs.map((r) => [r.id, instDoPortal.get(r.portalId) ?? moodle.PRINCIPAL]))
+  const total = { conferidos: 0, concluidos: 0 }
+  for (const i of await moodle.listarInstancias()) {
+    const doMoodle = todos.filter((a) => (instDaReg.get(a.registrationId) ?? moodle.PRINCIPAL) === i.id)
+    if (!doMoodle.length) continue
+    const r = await moodle.comInstancia(i.id, () => conclusoesDoMoodle(doMoodle))
+    total.conferidos += r.conferidos; total.concluidos += r.concluidos
+  }
+  return total
+}
+
+async function conclusoesDoMoodle(acessos: Awaited<ReturnType<typeof prisma.moodleAcesso.findMany>>): Promise<{ conferidos: number; concluidos: number }> {
   const cfg = await moodle.getMoodleConfig(true)
   if (!cfg.baseUrl || !cfg.token) return { conferidos: 0, concluidos: 0 }
-  const acessos = await prisma.moodleAcesso.findMany({ where: { status: 'LIBERADO', moodleUserId: { not: null }, moodleCourseId: { not: null } } })
   const feitos = new Set((await prisma.enrollmentRegistrationEvent.findMany({
     where: { acao: 'moodle_curso_concluido', registrationId: { in: acessos.map((a) => a.registrationId) } }, select: { registrationId: true },
   })).map((e) => e.registrationId))

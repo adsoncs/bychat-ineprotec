@@ -15,6 +15,9 @@
 // Aluno no Moodle: usuário = CPF só com números (o padrão da casa); quem já
 // existe (pelo CPF ou pelo e-mail) é reaproveitado. O aluno novo nasce com a
 // senha padrão da configuração (sem troca obrigatória no 1º acesso desde 12/11).
+//
+// Vários Moodles no tenant (17/11): cada função que recebe uma inscrição abre o
+// Moodle do portal dela (naInstanciaDa) antes de qualquer chamada.
 
 import { prisma } from '../lib/prisma.js'
 import * as moodle from '../lib/moodleClient.js'
@@ -32,6 +35,12 @@ const SELECT_REG = {
 } as const
 
 type Reg = NonNullable<Awaited<ReturnType<typeof lerInscricao>>>
+
+/** Roda `fn` no Moodle do portal da inscrição. */
+export async function naInstanciaDa<T>(registrationId: number, fn: () => Promise<T>): Promise<T> {
+  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portalId: true } })
+  return moodle.comInstancia(await moodle.instanciaDoPortal(r?.portalId), fn)
+}
 
 async function lerInscricao(registrationId: number) {
   return prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: SELECT_REG })
@@ -99,6 +108,11 @@ export interface Aptidao {
 }
 
 export async function aptidao(registrationId: number, cfgDada?: moodle.MoodleConfig): Promise<Aptidao> {
+  if (!cfgDada) return naInstanciaDa(registrationId, () => aptidaoNoMoodle(registrationId, undefined))
+  return aptidaoNoMoodle(registrationId, cfgDada)
+}
+
+async function aptidaoNoMoodle(registrationId: number, cfgDada?: moodle.MoodleConfig): Promise<Aptidao> {
   const cfg = cfgDada ?? (await moodle.getMoodleConfig())
   const reg = await lerInscricao(registrationId)
   if (!reg) throw new Error('Inscrição não encontrada')
@@ -158,6 +172,10 @@ async function falhou(registrationId: number, erro: string, tentativas: number) 
  * `forcar`: o agente libera sem a regra pagamento + contrato (fica no histórico).
  */
 export async function liberar(registrationId: number, ator: Ator, opts: { forcar?: boolean } = {}): Promise<{ ok: boolean; erro?: string }> {
+  return naInstanciaDa(registrationId, () => liberarNoMoodle(registrationId, ator, opts))
+}
+
+async function liberarNoMoodle(registrationId: number, ator: Ator, opts: { forcar?: boolean } = {}): Promise<{ ok: boolean; erro?: string }> {
   const cfg = await moodle.getMoodleConfig()
   const reg = await lerInscricao(registrationId)
   if (!reg) return { ok: false, erro: 'Inscrição não encontrada' }
@@ -235,12 +253,23 @@ async function exigirInscricaoAtiva(registrationId: number) {
 /** Outra inscrição ATIVA do mesmo aluno usa este curso no Moodle? (aí não se suspende o curso.) */
 async function cursoEmUsoPorOutra(a: { registrationId: number; moodleUserId: number | null; moodleCourseId: number | null }) {
   if (!a.moodleUserId || !a.moodleCourseId) return false
-  return (await prisma.moodleAcesso.count({
+  const outras = await prisma.moodleAcesso.findMany({
     where: { registrationId: { not: a.registrationId }, moodleUserId: a.moodleUserId, moodleCourseId: a.moodleCourseId, status: 'LIBERADO' },
-  })) > 0
+    select: { registrationId: true },
+  })
+  if (!outras.length) return false
+  // Mesmo id de usuário/curso em OUTRO Moodle é outra pessoa/outro curso.
+  const inst = moodle.instanciaAtual()
+  const regs = await prisma.enrollmentRegistration.findMany({ where: { id: { in: outras.map((o) => o.registrationId) } }, select: { portalId: true } })
+  for (const r of regs) if ((await moodle.instanciaDoPortal(r.portalId)) === inst) return true
+  return false
 }
 
 export async function suspender(registrationId: number, ator: Ator) {
+  return naInstanciaDa(registrationId, () => suspenderNoMoodle(registrationId, ator))
+}
+
+async function suspenderNoMoodle(registrationId: number, ator: Ator) {
   const a = await acessoLiberado(registrationId)
   // Mesmo usuário e mesmo curso liberados por outra inscrição: só registra aqui,
   // sem tirar o aluno do curso que ele usa pela outra.
@@ -250,6 +279,10 @@ export async function suspender(registrationId: number, ator: Ator) {
 }
 
 export async function reativar(registrationId: number, ator: Ator) {
+  return naInstanciaDa(registrationId, () => reativarNoMoodle(registrationId, ator))
+}
+
+async function reativarNoMoodle(registrationId: number, ator: Ator) {
   await exigirInscricaoAtiva(registrationId)
   const a = await acessoLiberado(registrationId)
   await moodle.inscrever(a.moodleUserId!, a.moodleCourseId!, { suspenso: false })
@@ -262,6 +295,10 @@ export async function reativar(registrationId: number, ator: Ator) {
  * novo e SUSPENDE o antigo (o token não tem unenrol; suspenso some para o aluno).
  */
 export async function trocarCurso(registrationId: number, courseId: number, ator: Ator) {
+  return naInstanciaDa(registrationId, () => trocarCursoNoMoodle(registrationId, courseId, ator))
+}
+
+async function trocarCursoNoMoodle(registrationId: number, courseId: number, ator: Ator) {
   const curso = (await moodle.listarCursos()).find((c) => c.id === courseId)
   if (!curso) throw new Error('Curso não encontrado no Moodle.')
   await exigirInscricaoAtiva(registrationId)
@@ -295,10 +332,25 @@ export async function trocarCurso(registrationId: number, courseId: number, ator
 
 let rodando = false
 
-export async function varrer(limite = 20): Promise<{ avaliadas: number; liberadas: number; erros: number }> {
+/** Varre um Moodle (`inst`) ou todos. */
+export async function varrer(limite = 20, inst?: string): Promise<{ avaliadas: number; liberadas: number; erros: number }> {
   if (rodando) return { avaliadas: 0, liberadas: 0, erros: 0 }
   rodando = true
   try {
+    const total = { avaliadas: 0, liberadas: 0, erros: 0 }
+    const alvos = inst !== undefined ? [inst] : (await moodle.listarInstancias()).map((i) => i.id)
+    for (const i of alvos) {
+      const r = await moodle.comInstancia(i, () => varrerUm(limite))
+      total.avaliadas += r.avaliadas; total.liberadas += r.liberadas; total.erros += r.erros
+    }
+    return total
+  } finally {
+    rodando = false
+  }
+}
+
+async function varrerUm(limite: number): Promise<{ avaliadas: number; liberadas: number; erros: number }> {
+  {
     const cfg = await moodle.getMoodleConfig(true)
     if (!cfg.enabled || !cfg.baseUrl || !cfg.token || cfg.portais.length === 0) return { avaliadas: 0, liberadas: 0, erros: 0 }
     const desde = cfg.desde ? new Date(cfg.desde) : null
@@ -329,13 +381,11 @@ export async function varrer(limite = 20): Promise<{ avaliadas: number; liberada
     }).slice(0, limite)
     let liberadas = 0, erros = 0
     for (const id of fila) {
-      const r = await liberar(id, { origem: 'automatico' })
+      const r = await liberarNoMoodle(id, { origem: 'automatico' })
       if (r.ok) liberadas++
       else if (porReg.get(id)?.status !== 'SEM_CURSO') erros++
     }
     return { avaliadas: fila.length, liberadas, erros }
-  } finally {
-    rodando = false
   }
 }
 
@@ -351,6 +401,10 @@ export function iniciarAgendadorMoodle() {
 // ── Leitura para as telas ──────────────────────────────────────────────────
 
 export async function estadoDaInscricao(registrationId: number) {
+  return naInstanciaDa(registrationId, () => estadoDaInscricaoNoMoodle(registrationId))
+}
+
+async function estadoDaInscricaoNoMoodle(registrationId: number) {
   const cfg = await moodle.getMoodleConfig()
   const reg = await lerInscricao(registrationId)
   const habilitada = !!(cfg.baseUrl && cfg.token && reg && cfg.portais.includes(reg.portalId))
@@ -363,7 +417,7 @@ export async function quadroDepara() {
   const cfg = await moodle.getMoodleConfig()
   const portais = await prisma.enrollmentPortal.findMany({
     where: { id: { in: cfg.portais.length ? cfg.portais : [-1] } },
-    select: { id: true, nome: true, allowedLevelIds: true, allowedCourseIds: true },
+    select: { id: true, nome: true, unitId: true, allowedLevelIds: true, allowedCourseIds: true },
     orderBy: { id: 'asc' },
   })
   let cursos: moodle.MoodleCurso[] = []
@@ -377,7 +431,8 @@ export async function quadroDepara() {
     const ofertas = await prisma.courseOffering.findMany({
       where: {
         OR: [
-          { active: true, ...(niveis.length ? { levelId: { in: niveis } } : {}), ...(cursosPermitidos.length ? { courseId: { in: cursosPermitidos } } : {}) },
+          // Só ofertas da empresa (unidade) dona do portal: duas empresas dividem os níveis.
+          { active: true, unitId: p.unitId, ...(niveis.length ? { levelId: { in: niveis } } : {}), ...(cursosPermitidos.length ? { courseId: { in: cursosPermitidos } } : {}) },
           { id: { in: idsUsados.length ? idsUsados : [-1] } },
         ],
       },
@@ -399,15 +454,18 @@ export async function quadroDepara() {
 
 // Sugestão por nome: mesmo curso + categoria que combina com o tipo do portal.
 const norm = (s: string) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
-const PALAVRAS_VAZIAS = /\b(tecnico|tecnica|em|de|da|do|e|curso|especializacao|tec|aplicada|ao|pos|graduacao|ineprotec|consultoria|competencia|20\d\d|itecc|ensa|dlt|nobre|niobre|emhur)\b/g
+const PALAVRAS_VAZIAS = /\b(tecnico|tecnica|em|de|da|do|e|curso|especializacao|esp|tec|aplicada|ao|pos|graduacao|ineprotec|consultoria|competencia|certificacao|por|tradicional|20\d\d|itecc|ensa|dlt|nobre|niobre|emhur|sematec)\b/g
 const nucleo = (s: string) => norm(s).replace(/[^a-z0-9 ]/g, ' ').replace(PALAVRAS_VAZIAS, ' ').replace(/\s+/g, ' ').trim()
 
 export function sugerir(portalNome: string, ofertaNome: string, cursos: moodle.MoodleCurso[]): { courseId: number; nome: string; categoria: string } | null {
   const alvo = nucleo(ofertaNome)
   if (!alvo) return null
   const pn = norm(portalNome)
+  const competencia = norm(ofertaNome).includes('competencia')
   const quer = pn.includes('eja') || pn.includes('supletivo') ? 'educacao de jovens'
     : pn.includes('consultoria') && pn.includes('especializ') ? 'especializac'
+    : pn.includes('matricula ead') && pn.includes('especializ') ? 'especializac'
+    : pn.includes('matricula ead') && pn.includes('tecnico') ? (competencia ? 'tecnico por competencia' : 'curso - tecnico ead')
     : pn.includes('consultoria') ? 'curso - tecnico ead'
     : pn.includes('especializ') ? 'especializac'
     : pn.includes('pos') ? 'pos-graduac'
@@ -433,6 +491,10 @@ export function sugerir(portalNome: string, ofertaNome: string, cursos: moodle.M
 
 /** Meu Portal: o acesso da inscrição, para a aba AVA. */
 export async function avaDaInscricao(registrationId: number): Promise<{ disponivel: boolean; url: string | null; usuario: string | null; curso: string | null; suspenso: boolean }> {
+  return naInstanciaDa(registrationId, () => avaDaInscricaoNoMoodle(registrationId))
+}
+
+async function avaDaInscricaoNoMoodle(registrationId: number): Promise<{ disponivel: boolean; url: string | null; usuario: string | null; curso: string | null; suspenso: boolean }> {
   const cfg = await moodle.getMoodleConfig()
   const a = await prisma.moodleAcesso.findUnique({ where: { registrationId } })
   if (!cfg.baseUrl || !a || (a.status !== 'LIBERADO' && a.status !== 'SUSPENSO') || !a.moodleCourseId) {
@@ -447,6 +509,10 @@ export async function avaDaInscricao(registrationId: number): Promise<{ disponiv
 
 /** Para onde o "Acessar meu curso" leva: link de uso único (SSO) ou o curso. */
 export async function destinoDeEntrada(registrationId: number): Promise<string | null> {
+  return naInstanciaDa(registrationId, () => destinoDeEntradaNoMoodle(registrationId))
+}
+
+async function destinoDeEntradaNoMoodle(registrationId: number): Promise<string | null> {
   const cfg = await moodle.getMoodleConfig()
   const a = await prisma.moodleAcesso.findUnique({ where: { registrationId } })
   if (!cfg.baseUrl || !a || a.status !== 'LIBERADO' || !a.moodleCourseId || !a.username) return null

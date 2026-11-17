@@ -16,7 +16,17 @@
 //
 // O Moodle responde 200 mesmo com erro: o erro vem no corpo como
 // { exception, errorcode, message }. Aqui ele vira MoodleError.
+//
+// VÁRIOS MOODLES NO MESMO TENANT (17/11/2026 — Ineprotec + Matrícula EAD): o
+// Moodle "principal" usa as chaves acima; cada Moodle a mais tem um id (ex.:
+// "m2") e as MESMAS chaves com o id no meio: moodle.m2.base_url, moodle.m2.token…
+// A lista dos extras fica em moodle.instancias = [{ id, nome }].
+// Cada portal pertence a UM Moodle (o que tem o portal em .portais); sem
+// nenhum, é o principal. O Moodle da vez vem do contexto (comInstancia), que
+// os serviços abrem a partir do portal da inscrição — assim todas as chamadas
+// daquela operação vão para o mesmo Moodle.
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { prisma } from './prisma.js'
 import { isEncrypted, decryptSettingValue } from './secretSettings.js'
 
@@ -32,6 +42,53 @@ export const MOODLE_KEYS = {
   desde: 'moodle.desde',
 } as const
 
+export const MOODLE_INSTANCIAS_KEY = 'moodle.instancias'
+export const MOODLE_NOME_KEY = 'moodle.nome'
+export const PRINCIPAL = ''
+
+const contexto = new AsyncLocalStorage<string>()
+
+/** Moodle da operação em andamento ('' = principal). */
+export function instanciaAtual(): string {
+  return contexto.getStore() ?? PRINCIPAL
+}
+
+/** Roda `fn` falando com o Moodle `inst` (todas as chamadas dentro dela). */
+export function comInstancia<T>(inst: string, fn: () => Promise<T>): Promise<T> {
+  return contexto.run(inst || PRINCIPAL, fn)
+}
+
+export function instanciaValida(inst: string): boolean {
+  return inst === PRINCIPAL || /^m\d{1,3}$/.test(inst)
+}
+
+/** Chave da setting no Moodle `inst` (principal = a chave original). */
+export function chaveDa(base: string, inst: string = instanciaAtual()): string {
+  return inst ? base.replace(/^moodle\./, `moodle.${inst}.`) : base
+}
+
+export interface MoodleInstancia { id: string; nome: string }
+
+/** Principal primeiro, depois os extras (moodle.instancias). */
+export async function listarInstancias(): Promise<MoodleInstancia[]> {
+  const rows = await prisma.setting.findMany({ where: { key: { in: [MOODLE_INSTANCIAS_KEY, MOODLE_NOME_KEY] } }, select: { key: true, value: true } })
+  const m = new Map(rows.map((r) => [r.key, r.value as unknown]))
+  const extras = json<unknown[]>(m.get(MOODLE_INSTANCIAS_KEY), [])
+    .map((x: any) => ({ id: String(x?.id ?? ''), nome: String(x?.nome ?? '').trim() }))
+    .filter((x) => x.id && x.id !== PRINCIPAL && instanciaValida(x.id))
+  return [{ id: PRINCIPAL, nome: texto(m.get(MOODLE_NOME_KEY)) || 'Moodle principal' }, ...extras.map((x) => ({ id: x.id, nome: x.nome || `Moodle ${x.id}` }))]
+}
+
+/** De qual Moodle é o portal: o extra que o tem em .portais; senão, o principal. */
+export async function instanciaDoPortal(portalId: number | null | undefined): Promise<string> {
+  if (!portalId) return PRINCIPAL
+  for (const i of await listarInstancias()) {
+    if (i.id === PRINCIPAL) continue
+    if ((await getMoodleConfig(false, i.id)).portais.includes(portalId)) return i.id
+  }
+  return PRINCIPAL
+}
+
 export interface MoodleConfig {
   baseUrl: string
   token: string
@@ -46,7 +103,7 @@ export interface MoodleConfig {
 
 const TIMEOUT_MS = 30_000
 const CACHE_MS = 30_000
-let cache: { em: number; cfg: MoodleConfig } | null = null
+const cache = new Map<string, { em: number; cfg: MoodleConfig }>()
 
 function bruto(v: unknown): unknown {
   return isEncrypted(v) ? decryptSettingValue(v) : v
@@ -63,30 +120,32 @@ function json<T>(v: unknown, padrao: T): T {
   return (x ?? padrao) as T
 }
 
-export async function getMoodleConfig(semCache = false): Promise<MoodleConfig> {
-  if (!semCache && cache && Date.now() - cache.em < CACHE_MS) return cache.cfg
-  const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(MOODLE_KEYS) } }, select: { key: true, value: true } })
+export async function getMoodleConfig(semCache = false, inst: string = instanciaAtual()): Promise<MoodleConfig> {
+  const c = cache.get(inst)
+  if (!semCache && c && Date.now() - c.em < CACHE_MS) return c.cfg
+  const k = (base: string) => chaveDa(base, inst)
+  const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(MOODLE_KEYS).map(k) } }, select: { key: true, value: true } })
   const m = new Map(rows.map((r) => [r.key, r.value as unknown]))
-  const depara = json<Record<string, unknown>>(m.get(MOODLE_KEYS.depara), {})
+  const depara = json<Record<string, unknown>>(m.get(k(MOODLE_KEYS.depara)), {})
   const cfg: MoodleConfig = {
-    baseUrl: texto(m.get(MOODLE_KEYS.baseUrl)).replace(/\/+$/, ''),
-    token: texto(m.get(MOODLE_KEYS.token)),
-    senha: texto(m.get(MOODLE_KEYS.senha)),
-    enabled: texto(m.get(MOODLE_KEYS.enabled)) === 'true',
-    sso: texto(m.get(MOODLE_KEYS.sso)) === 'true',
-    papelId: Number(texto(m.get(MOODLE_KEYS.papelId))) || 5,
-    portais: json<unknown[]>(m.get(MOODLE_KEYS.portais), []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
+    baseUrl: texto(m.get(k(MOODLE_KEYS.baseUrl))).replace(/\/+$/, ''),
+    token: texto(m.get(k(MOODLE_KEYS.token))),
+    senha: texto(m.get(k(MOODLE_KEYS.senha))),
+    enabled: texto(m.get(k(MOODLE_KEYS.enabled))) === 'true',
+    sso: texto(m.get(k(MOODLE_KEYS.sso))) === 'true',
+    papelId: Number(texto(m.get(k(MOODLE_KEYS.papelId)))) || 5,
+    portais: json<unknown[]>(m.get(k(MOODLE_KEYS.portais)), []).map(Number).filter((n) => Number.isInteger(n) && n > 0),
     depara: Object.fromEntries(Object.entries(depara && typeof depara === 'object' ? depara : {})
       .map(([k, v]) => [k, Number(v)]).filter(([, v]) => Number.isInteger(v) && (v as number) > 0)) as Record<string, number>,
-    desde: texto(m.get(MOODLE_KEYS.desde)) || null,
+    desde: texto(m.get(k(MOODLE_KEYS.desde))) || null,
   }
-  cache = { em: Date.now(), cfg }
+  cache.set(inst, { em: Date.now(), cfg })
   return cfg
 }
 
 export function resetMoodleCache() {
-  cache = null
-  cursosCache = null
+  cache.clear()
+  cursosCache.clear()
 }
 
 export class MoodleError extends Error {
@@ -145,10 +204,12 @@ export async function chamar<T = any>(funcao: string, params: Record<string, unk
 // ── Funções ─────────────────────────────────────────────────────────────────
 
 export interface MoodleCurso { id: number; nome: string; categoria: string; visivel: boolean }
-let cursosCache: { em: number; lista: MoodleCurso[] } | null = null
+const cursosCache = new Map<string, { em: number; lista: MoodleCurso[] }>()
 
 export async function listarCursos(semCache = false): Promise<MoodleCurso[]> {
-  if (!semCache && cursosCache && Date.now() - cursosCache.em < 10 * 60_000) return cursosCache.lista
+  const inst = instanciaAtual()
+  const c = cursosCache.get(inst)
+  if (!semCache && c && Date.now() - c.em < 10 * 60_000) return c.lista
   const [cursos, cats] = await Promise.all([
     chamar<any[]>('core_course_get_courses'),
     chamar<any[]>('core_course_get_categories'),
@@ -164,7 +225,7 @@ export async function listarCursos(semCache = false): Promise<MoodleCurso[]> {
     .filter((c: any) => Number(c.id) !== 1) // o "curso" 1 é a página inicial do site
     .map((c: any) => ({ id: Number(c.id), nome: String(c.fullname || '').trim(), categoria: caminho(Number(c.categoryid)), visivel: !!c.visible }))
     .sort((a, b) => (a.categoria + a.nome).localeCompare(b.categoria + b.nome, 'pt-BR'))
-  cursosCache = { em: Date.now(), lista }
+  cursosCache.set(inst, { em: Date.now(), lista })
   return lista
 }
 

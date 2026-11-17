@@ -4,6 +4,8 @@
 // CONTRATO aceito/assinado. Suspender é sempre manual (cartão da inscrição).
 //
 // Abas: Conexão · De-para (oferta do portal → curso do Moodle) · Acessos.
+// Vários Moodles no mesmo tenant (17/11/2026): a barra do topo escolhe qual
+// se configura; cada portal libera em UM Moodle.
 // Backend: routes/moodleIntegration.ts, services/moodleAcessos.ts.
 
 import { useState, useEffect, useCallback, useMemo } from 'preact/hooks'
@@ -23,8 +25,12 @@ import { ProgressoAvaPainel, ResumoDoProgresso, useProgressoAva } from '@/compon
 interface Config {
   baseUrl: string; tokenConfigurado: boolean; senhaConfigurada: boolean; enabled: boolean; sso: boolean
   papelId: number; portais: number[]; desde: string | null
-  todosPortais: { id: number; nome: string; active: boolean }[]; totais: Record<string, number>
+  todosPortais: { id: number; nome: string; active: boolean; outroMoodle: string | null }[]; totais: Record<string, number>
 }
+interface Instancia { id: string; nome: string }
+
+/** Acrescenta ?instancia= (vazio = Moodle principal). */
+const comInst = (path: string, inst: string) => (inst ? `${path}${path.includes('?') ? '&' : '?'}instancia=${encodeURIComponent(inst)}` : path)
 interface Curso { id: number; nome: string; categoria: string; visivel: boolean }
 interface LinhaDepara {
   chave: string; portalId: number; portalNome: string; offeringId: number; ofertaNome: string
@@ -47,24 +53,55 @@ const TOM: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'neutral'>
 
 export function MoodleIntegration() {
   const [aba, setAba] = useState<'conexao' | 'depara' | 'acessos'>('conexao')
+  const [instancias, setInstancias] = useState<Instancia[]>([])
+  const [inst, setInst] = useState('')
+  const carregarInstancias = useCallback(async () => {
+    try { setInstancias((await api.get<{ instancias: Instancia[] }>('/admin/moodle/instancias')).instancias) } catch { setInstancias([]) }
+  }, [])
+  useEffect(() => { carregarInstancias() }, [carregarInstancias])
+  async function novoMoodle() {
+    const nome = window.prompt('Nome do outro Moodle (ex.: o nome da empresa):', '')?.trim()
+    if (!nome) return
+    try {
+      const r = await api.post<{ id: string }>('/admin/moodle/instancias', { nome })
+      await carregarInstancias(); setInst(r.id); setAba('conexao')
+      toast('Moodle adicionado: preencha a conexão e escolha os portais dele.', 'success')
+    } catch (e) { toast(msg(e), 'danger') }
+  }
+  async function renomear(i: Instancia) {
+    const nome = window.prompt('Novo nome deste Moodle:', i.nome)?.trim()
+    if (!nome || nome === i.nome) return
+    try { await api.put(`/admin/moodle/instancias/${i.id || 'principal'}`, { nome }); await carregarInstancias() } catch (e) { toast(msg(e), 'danger') }
+  }
+  const atual = instancias.find((i) => i.id === inst)
   return (
     <div class="space-y-4">
+      <Card class="p-3 flex flex-wrap items-center gap-2">
+        <span class="text-xs font-semibold text-fg-muted">Moodle:</span>
+        {instancias.map((i) => (
+          <button type="button" key={i.id || 'principal'} onClick={() => setInst(i.id)}
+            class={`rounded-md border px-3 py-1.5 text-sm ${inst === i.id ? 'border-accent bg-accent/10 text-fg font-semibold' : 'border-border text-fg-muted hover:text-fg'}`}>{i.nome}</button>
+        ))}
+        {atual && <Button variant="ghost" size="sm" onClick={() => renomear(atual)}>Renomear</Button>}
+        <Button variant="secondary" size="sm" onClick={novoMoodle}>+ Outro Moodle</Button>
+        <span class="text-xs text-fg-muted w-full">Cada empresa pode ter o seu Moodle. Um portal libera em um Moodle só: o que estiver marcado na Conexão dele.</span>
+      </Card>
       <div class="flex gap-1 border-b border-border">
         {([['conexao', 'Conexão'], ['depara', 'De-para de cursos'], ['acessos', 'Acessos']] as const).map(([k, r]) => (
           <button type="button" key={k} onClick={() => setAba(k)}
             class={`px-3 py-2 text-sm -mb-px border-b-2 ${aba === k ? 'border-accent text-fg font-semibold' : 'border-transparent text-fg-muted hover:text-fg'}`}>{r}</button>
         ))}
       </div>
-      {aba === 'conexao' && <AbaConexao />}
-      {aba === 'depara' && <AbaDepara />}
-      {aba === 'acessos' && <AbaAcessos />}
+      {aba === 'conexao' && <AbaConexao key={`c${inst}`} inst={inst} />}
+      {aba === 'depara' && <AbaDepara key={`d${inst}`} inst={inst} />}
+      {aba === 'acessos' && <AbaAcessos key={`a${inst}`} inst={inst} />}
     </div>
   )
 }
 
 // ── Conexão ─────────────────────────────────────────────────────────────────
 
-function AbaConexao() {
+function AbaConexao({ inst }: { inst: string }) {
   const [cfg, setCfg] = useState<Config | null>(null)
   const [token, setToken] = useState('')
   const [senha, setSenha] = useState('')
@@ -73,8 +110,8 @@ function AbaConexao() {
   const [teste, setTeste] = useState<{ ok: boolean; texto: string } | null>(null)
 
   const carregar = useCallback(async () => {
-    try { setCfg(await api.get<Config>('/admin/moodle/config')) } catch (e) { toast(msg(e), 'danger') }
-  }, [])
+    try { setCfg(await api.get<Config>(comInst('/admin/moodle/config', inst))) } catch (e) { toast(msg(e), 'danger') }
+  }, [inst])
   useEffect(() => { carregar() }, [carregar])
   if (!cfg) return <div class="flex items-center gap-2 text-sm text-fg-muted"><Loader2 size={14} class="animate-spin" /> Carregando…</div>
   const set = (p: Partial<Config>) => setCfg({ ...cfg, ...p })
@@ -83,7 +120,7 @@ function AbaConexao() {
     setSalvando(true)
     try {
       await api.post('/admin/moodle/config', {
-        baseUrl: cfg!.baseUrl, sso: cfg!.sso, papelId: cfg!.papelId, portais: cfg!.portais, enabled: cfg!.enabled,
+        instancia: inst, baseUrl: cfg!.baseUrl, sso: cfg!.sso, papelId: cfg!.papelId, portais: cfg!.portais, enabled: cfg!.enabled,
         ...(token ? { token } : {}), ...(senha ? { senha } : {}),
       })
       setToken(''); setSenha('')
@@ -94,7 +131,7 @@ function AbaConexao() {
   async function testar() {
     setTestando(true); setTeste(null)
     try {
-      const r = await api.post<{ site: string | null; versao: string | null; cursos: number }>('/admin/moodle/testar', {})
+      const r = await api.post<{ site: string | null; versao: string | null; cursos: number }>('/admin/moodle/testar', { instancia: inst })
       setTeste({ ok: true, texto: `Conectado${r.site ? ` a "${r.site}"` : ''}${r.versao ? ` (Moodle ${r.versao})` : ''} · ${r.cursos} cursos encontrados.` })
     } catch (e) { setTeste({ ok: false, texto: msg(e) }) } finally { setTestando(false) }
   }
@@ -118,8 +155,9 @@ function AbaConexao() {
         <div class="space-y-2">
           <div class="text-xs font-semibold text-fg-muted">Portais cujas inscrições liberam acesso</div>
           {cfg.todosPortais.map((p) => (
-            <Checkbox key={p.id} checked={cfg.portais.includes(p.id)} onChange={(e) => alternarPortal(p.id, (e.target as HTMLInputElement).checked)}
-              label={`${p.nome}${p.active ? '' : ' (inativo)'}`} />
+            <Checkbox key={p.id} checked={cfg.portais.includes(p.id)} disabled={!!p.outroMoodle && !cfg.portais.includes(p.id)}
+              onChange={(e) => alternarPortal(p.id, (e.target as HTMLInputElement).checked)}
+              label={`${p.nome}${p.active ? '' : ' (inativo)'}${p.outroMoodle ? ` — ligado ao ${p.outroMoodle}` : ''}`} />
           ))}
         </div>
         <Switch checked={cfg.enabled} onChange={(v) => set({ enabled: v })} label="Liberação automática"
@@ -141,7 +179,7 @@ function AbaConexao() {
           <div key={s} class="flex items-center justify-between text-sm"><Badge tone={TOM[s]}>{ROTULO[s]}</Badge><span class="text-fg font-semibold">{t[s] ?? 0}</span></div>
         ))}
       </Card>
-      <VincularAlunosCard aoVincular={carregar} />
+      <VincularAlunosCard inst={inst} aoVincular={carregar} />
     </div>
   )
 }
@@ -162,7 +200,7 @@ const SITUACAO_VINCULO: Record<CandidatoVinculo['situacao'], { rotulo: string; t
   erro: { rotulo: 'Erro ao consultar', tom: 'danger' },
 }
 
-function VincularAlunosCard({ aoVincular }: { aoVincular: () => void }) {
+function VincularAlunosCard({ inst, aoVincular }: { inst: string; aoVincular: () => void }) {
   const [aberto, setAberto] = useState(false)
   const [lista, setLista] = useState<CandidatoVinculo[] | null>(null)
   const [marcadas, setMarcadas] = useState<number[]>([])
@@ -173,7 +211,7 @@ function VincularAlunosCard({ aoVincular }: { aoVincular: () => void }) {
   async function procurar() {
     setAberto(true); setCarregando(true); setLista(null)
     try {
-      const r = await api.get<{ candidatos: CandidatoVinculo[] }>('/admin/moodle/vincular')
+      const r = await api.get<{ candidatos: CandidatoVinculo[] }>(comInst('/admin/moodle/vincular', inst))
       setLista(r.candidatos)
       setMarcadas(r.candidatos.filter((c) => c.situacao === 'vinculavel').map((c) => c.registrationId))
     } catch (e) { toast(msg(e), 'danger'); setAberto(false) } finally { setCarregando(false) }
@@ -181,7 +219,7 @@ function VincularAlunosCard({ aoVincular }: { aoVincular: () => void }) {
   async function vincularMarcadas() {
     setGravando(true)
     try {
-      const r = await api.post<{ vinculadas: number; ignoradas: number }>('/admin/moodle/vincular', { ids: marcadas })
+      const r = await api.post<{ vinculadas: number; ignoradas: number }>('/admin/moodle/vincular', { ids: marcadas, instancia: inst })
       toast(`${r.vinculadas} aluno(s) vinculado(s)${r.ignoradas ? ` · ${r.ignoradas} ignorado(s)` : ''}`, 'success')
       setAberto(false); aoVincular()
     } catch (e) { toast(msg(e), 'danger') } finally { setGravando(false) }
@@ -265,7 +303,7 @@ function SeletorCurso({ cursos, valor: v, onChange, filtro }: { cursos: Curso[];
   )
 }
 
-function AbaDepara() {
+function AbaDepara({ inst }: { inst: string }) {
   const [linhas, setLinhas] = useState<LinhaDepara[] | null>(null)
   const [cursos, setCursos] = useState<Curso[]>([])
   const [mudou, setMudou] = useState<Record<string, number | null>>({})
@@ -275,12 +313,12 @@ function AbaDepara() {
   const carregar = useCallback(async (atualizar = false) => {
     try {
       const [d, c] = await Promise.all([
-        api.get<{ linhas: LinhaDepara[] }>('/admin/moodle/depara'),
-        api.get<{ cursos: Curso[] }>(`/admin/moodle/cursos${atualizar ? '?atualizar=1' : ''}`),
+        api.get<{ linhas: LinhaDepara[] }>(comInst('/admin/moodle/depara', inst)),
+        api.get<{ cursos: Curso[] }>(comInst(`/admin/moodle/cursos${atualizar ? '?atualizar=1' : ''}`, inst)),
       ])
       setLinhas(d.linhas); setCursos(c.cursos); setMudou({})
     } catch (e) { toast(msg(e), 'danger'); setLinhas([]) }
-  }, [])
+  }, [inst])
   useEffect(() => { carregar() }, [carregar])
   if (!linhas) return <div class="flex items-center gap-2 text-sm text-fg-muted"><Loader2 size={14} class="animate-spin" /> Carregando ofertas e cursos…</div>
   if (!linhas.length) return <Card class="p-4 text-sm text-fg-muted">Marque os portais na aba Conexão para aparecerem as ofertas aqui.</Card>
@@ -296,7 +334,7 @@ function AbaDepara() {
   async function salvar() {
     setSalvando(true)
     try {
-      await api.put('/admin/moodle/depara', { itens: mudou })
+      await api.put('/admin/moodle/depara', { itens: mudou, instancia: inst })
       toast('De-para salvo', 'success')
       await carregar()
     } catch (e) { toast(msg(e), 'danger') } finally { setSalvando(false) }
@@ -340,18 +378,18 @@ function AbaDepara() {
 
 // ── Acessos ─────────────────────────────────────────────────────────────────
 
-function AbaAcessos() {
+function AbaAcessos({ inst }: { inst: string }) {
   const [status, setStatus] = useState('')
   const [lista, setLista] = useState<Acesso[] | null>(null)
   const [rodando, setRodando] = useState(false)
   const carregar = useCallback(async () => {
-    try { setLista((await api.get<{ acessos: Acesso[] }>(`/admin/moodle/acessos${status ? `?status=${status}` : ''}`)).acessos) } catch (e) { toast(msg(e), 'danger'); setLista([]) }
-  }, [status])
+    try { setLista((await api.get<{ acessos: Acesso[] }>(comInst(`/admin/moodle/acessos${status ? `?status=${status}` : ''}`, inst))).acessos) } catch (e) { toast(msg(e), 'danger'); setLista([]) }
+  }, [status, inst])
   useEffect(() => { carregar() }, [carregar])
   async function varrerAgora() {
     setRodando(true)
     try {
-      const r = await api.post<{ avaliadas: number; liberadas: number; erros: number }>('/admin/moodle/varrer', {})
+      const r = await api.post<{ avaliadas: number; liberadas: number; erros: number }>('/admin/moodle/varrer', { instancia: inst })
       toast(`${r.avaliadas} avaliada(s) · ${r.liberadas} liberada(s) · ${r.erros} com erro`, r.erros ? 'warning' : 'success')
       await carregar()
     } catch (e) { toast(msg(e), 'danger') } finally { setRodando(false) }
@@ -432,7 +470,7 @@ export function MoodleInscricaoCard({ registrationId }: { registrationId: number
   }
   async function abrirTroca() {
     setVendo('curso'); setNovoCurso(a?.moodleCourseId ?? apt?.courseId ?? null)
-    try { setCursos((await api.get<{ cursos: Curso[] }>('/admin/moodle/cursos')).cursos) } catch (e) { toast(msg(e), 'danger') }
+    try { setCursos((await api.get<{ cursos: Curso[] }>(`/admin/moodle/cursos?registro=${registrationId}`)).cursos) } catch (e) { toast(msg(e), 'danger') }
   }
   function liberarAgora() {
     if (apt && !apt.apta) {
