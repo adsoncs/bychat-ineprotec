@@ -6,7 +6,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { descreverCombinado, situacaoDoParcelamento, situacaoDoTitulo, validarCombinado } from '../src/services/pagamentoCombinado.js'
+import { descreverCombinado, semSubstituidasOrfas, situacaoDoParcelamento, situacaoDoTitulo, validarCombinado } from '../src/services/pagamentoCombinado.js'
 import { avisosDeCriacaoLigados } from '../src/services/paymentAsaas.js'
 import { prazoDaTroca, tituloElegivel } from '../src/services/trocaPagamento.js'
 import { calcularAcordo, parcelasEmAbertoDoBoleto } from '../src/services/inadimplencia.js'
@@ -131,4 +131,19 @@ describe('prazo da troca para cartão', () => {
     assert.equal(tituloElegivel({ status: 'aguardando', valorPagoCentavos: 0 }), false)
   })
   test('uma linha só é aceita na troca', () => assert.equal((validarCombinado({ total: 100, motivo: 'abc', linhas: [{ meio: 'credit_card', valor: 100, vencimento: HOJE, parcelas: 5 }] }, HOJE, { minLinhas: 1 }) as any).erro, undefined))
+})
+
+describe('semSubstituidasOrfas', () => {
+  test('troca desfeita: as substituídas somem (caso MAT-26-000002-M8KK)', () => {
+    // A troca 2 substituiu 2 boletos; o combinado foi desfeito (nova forma cancelada, fora da lista) e recriado.
+    const titulos = [
+      { id: 1, status: 'substituida', trocaId: 2 }, { id: 2, status: 'substituida', trocaId: 2 },
+      { id: 3, status: 'aberta', trocaId: null }, { id: 4, status: 'aberta', trocaId: null },
+    ]
+    assert.deepEqual(semSubstituidasOrfas(titulos).map((t) => t.id), [3, 4])
+  })
+  test('troca valendo: a substituída continua, com a nova forma', () => {
+    const titulos = [{ id: 1, status: 'paga', trocaId: null }, { id: 2, status: 'substituida', trocaId: 5 }, { id: 3, status: 'aberta', trocaId: 5 }]
+    assert.deepEqual(semSubstituidasOrfas(titulos).map((t) => t.id), [1, 2, 3])
+  })
 })

@@ -116,6 +116,15 @@ async function criarTrocaSemTrava(registrationId: number, body: any, op: Operado
   if ('erro' in v) return { ok: false, status: 400, erro: v.erro }
   const cartoes = v.titulos.filter((t) => t.meio === 'credit_card')
   if (cartoes.length > 1) return { ok: false, status: 400, erro: 'Use um cartão só por troca: é ele que confirma a mudança.' }
+  // Troca que não muda nada (mesma forma, valores, datas e desconto) só
+  // cancelaria as cobranças e geraria um lote igual no Asaas — em dobro na tela.
+  const chaveDaTroca = (ts: Array<{ meio: string; parcelasCartao: number; valorCentavos: number; vencimento: string; descontoPct: number | null }>) =>
+    ts.map((t) => `${t.meio}|${t.parcelasCartao}|${t.valorCentavos}|${t.vencimento}|${t.meio === 'boleto' ? Number(t.descontoPct ?? 0) : 0}`).sort().join(';')
+  const novosComDesconto = v.titulos.map((t) => ({ ...t, descontoPct: v.descontoPct }))
+  const antigosComDesconto = antigos.map((t) => ({ ...t, descontoPct: t.descontoPct != null ? Number(t.descontoPct) : null }))
+  if (chaveDaTroca(novosComDesconto) === chaveDaTroca(antigosComDesconto)) {
+    return { ok: false, status: 400, erro: 'A nova forma de pagamento é igual à atual (mesma forma, valores e datas). Nada foi alterado. Para mudar, altere a forma, os valores ou as datas.' }
+  }
   const alterado = v.totalCentavos !== saldo
   // Total menor que o saldo = parte da dívida deixa de existir. Só com o motivo
   // da redução escrito (fica na troca, na linha do tempo e no lead).

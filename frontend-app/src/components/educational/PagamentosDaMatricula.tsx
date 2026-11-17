@@ -156,6 +156,9 @@ export function ListaDeFaturas({ registrationId, origem, podeOperar }: { registr
   })
   const [alvo, setAlvo] = useState<Fatura | null>(null)
   const [descontar, setDescontar] = useState<Fatura | null>(null)
+  // Canceladas e substituídas (combinado desfeito, troca de forma) são só
+  // histórico: ficam recolhidas para a lista não parecer cobrança em dobro.
+  const [verHistorico, setVerHistorico] = useState(false)
 
   if (q.isLoading) return <div class="space-y-2">{[0, 1].map((i) => <Skeleton key={i} class="h-12 w-full" />)}</div>
   if (q.isError) return <div class="text-xs text-danger">Não foi possível carregar os pagamentos: {(q.error as Error).message}</div>
@@ -169,6 +172,8 @@ export function ListaDeFaturas({ registrationId, origem, podeOperar }: { registr
   const vencido = validas.filter((f) => f.situacao === 'vencida').reduce((s, f) => s + (f.valor || 0), 0)
   const previsto = validas.filter((f) => f.situacao === 'prevista').reduce((s, f) => s + (f.valor || 0), 0)
   const pct = validas.length ? Math.round((pagas.length / validas.length) * 100) : 0
+  const canceladas = faturas.filter((f) => f.situacao === 'cancelada')
+  const visiveis = verHistorico ? faturas : faturas.filter((f) => f.situacao !== 'cancelada')
 
   return (
     <div class="space-y-3">
@@ -189,9 +194,15 @@ export function ListaDeFaturas({ registrationId, origem, podeOperar }: { registr
           <span>Parcela</span><span>Vencimento</span><span>Pagamento</span><span>Meio</span><span class="text-right">Valor</span><span>Situação</span>
         </div>
         <ul class="divide-y divide-border">
-          {faturas.map((f) => <LinhaDaFatura key={f.chave} f={f} podeOperar={podeOperar} aoAtualizar={() => setAlvo(f)} aoDescontar={() => setDescontar(f)} />)}
+          {visiveis.map((f) => <LinhaDaFatura key={f.chave} f={f} podeOperar={podeOperar} aoAtualizar={() => setAlvo(f)} aoDescontar={() => setDescontar(f)} />)}
+          {!visiveis.length && <li class="px-3 py-2 text-xs text-fg-muted">Nenhuma cobrança valendo agora.</li>}
         </ul>
       </div>
+      {canceladas.length > 0 && (
+        <button type="button" class="text-2xs text-fg-muted hover:text-fg underline" onClick={() => setVerHistorico((v) => !v)}>
+          {verHistorico ? 'Esconder o histórico' : `Ver histórico (${canceladas.length} ${canceladas.length === 1 ? 'cobrança cancelada ou substituída' : 'cobranças canceladas ou substituídas'})`}
+        </button>
+      )}
       {alvo && q.data && <AtualizarFaturaModal registrationId={registrationId} base={BASE[origem]} fatura={alvo} hoje={q.data.hoje} onClose={() => setAlvo(null)} />}
       {descontar && q.data && <DescontoModal registrationId={registrationId} base={BASE[origem]} fatura={descontar} hoje={q.data.hoje} onClose={() => setDescontar(null)} />}
       <DescontosConcedidos registrationId={registrationId} base={BASE[origem]} />

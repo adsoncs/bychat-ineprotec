@@ -670,11 +670,22 @@ export function faturaDoTitulo(t: any, total: number) {
   }
 }
 
+/**
+ * Substituída cuja troca não deixou nenhum título vivo: a combinação foi
+ * desfeita depois da troca (o desfazer cancela a nova forma, mas a antiga já
+ * estava substituída). É histórico morto — não aparece nem conta na numeração,
+ * senão o aluno vê as parcelas em dobro ("Pagamento 1 de 22").
+ * `titulos` já vem sem as canceladas.
+ */
+export function semSubstituidasOrfas<T extends { status: string; trocaId: number | null }>(titulos: T[]): T[] {
+  return titulos.filter((t) => t.status !== 'substituida' || titulos.some((x) => x.trocaId === t.trocaId && x.status !== 'substituida'))
+}
+
 export async function faturasDosTitulos(registrationId: number, somente?: 'combinado' | 'acordo') {
-  const titulos = await prisma.enrollmentTitulo.findMany({
+  const titulos = semSubstituidasOrfas(await prisma.enrollmentTitulo.findMany({
     where: { registrationId, ...(somente ? { origem: somente } : {}), NOT: { status: 'cancelada' } },
     orderBy: [{ origem: 'desc' }, { ordem: 'asc' }],
-  })
+  }))
   // A numeração é a da combinação original: a nova forma entra com rótulo próprio.
   const total = titulos.filter((t) => t.origem === 'combinado' && (!t.trocaId || t.status === 'substituida')).length
   // O que ainda não tem cobrança, à espera do cartão de uma troca, não aparece ao aluno.
@@ -686,7 +697,7 @@ export async function resumoDoCombinado(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPlan: true } })
   const c = (reg?.paymentPlan as any)?.combinado
   if (!c) return null
-  const titulos = await prisma.enrollmentTitulo.findMany({ where: { registrationId, origem: 'combinado', NOT: { status: 'cancelada' } }, orderBy: { ordem: 'asc' } })
+  const titulos = semSubstituidasOrfas(await prisma.enrollmentTitulo.findMany({ where: { registrationId, origem: 'combinado', NOT: { status: 'cancelada' } }, orderBy: { ordem: 'asc' } }))
   return {
     descricao: String(c.descricao ?? ''), motivo: c.motivo ?? null, por: c.por ?? null, em: c.em ?? null, descontoPct: c.descontoPct ?? null,
     total: titulos.filter((t) => !['substituida', 'aguardando'].includes(t.status)).reduce((s, t) => s + t.valorCentavos, 0) / 100,

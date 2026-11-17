@@ -31,6 +31,8 @@ const mesQueVem = () => { const d = new Date(`${hoje()}T12:00:00`); d.setMonth(d
 const numero = (s: string) => { const n = Number(String(s).replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
 const dia = (iso: string) => iso.split('-').reverse().join('/')
 const TOM: Record<string, 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = { paga: 'success', aberta: 'info', prevista: 'neutral', vencida: 'danger', estornada: 'warning', cancelada: 'neutral' }
+/** Cobranças que não valem mais: ficam recolhidas atrás de "Ver histórico". */
+const HISTORICO = ['cancelada', 'substituida']
 const ROTULO_STATUS: Record<string, string> = { substituida: 'Substituída', aguardando: 'Aguardando aprovação', renegociada: 'Renegociada' }
 const ROTULO: Record<string, string> = { paga: 'Paga', aberta: 'Em aberto', prevista: 'Não gerada', vencida: 'Vencida', estornada: 'Estornada', cancelada: 'Cancelada' }
 
@@ -52,6 +54,7 @@ export function PagamentoCombinado({ registrationId, pago, fechada }: { registra
   const [motivo, setMotivo] = useState('')
   const [confirmar, setConfirmar] = useState(false)
   const [desfazer, setDesfazer] = useState(false)
+  const [verHistorico, setVerHistorico] = useState(false)
 
   const atualizar = () => {
     void qc.invalidateQueries({ queryKey: ['mi-combinado', registrationId] })
@@ -114,7 +117,7 @@ export function PagamentoCombinado({ registrationId, pago, fechada }: { registra
               <th class="px-2 py-1.5 font-medium">Data</th><th class="px-2 py-1.5 font-medium">Situação</th><th class="px-2 py-1.5 font-medium">Ações</th>
             </tr></thead>
             <tbody>
-              {c.pagamentos.map((p) => (
+              {c.pagamentos.filter((p) => verHistorico || !HISTORICO.includes(p.status)).map((p) => (
                 <tr key={p.id} class="border-b border-border last:border-0 align-top">
                   <td class="px-3 py-2 text-fg">{p.titulo}{p.erro && p.status === 'prevista' && <div class="text-2xs text-danger mt-0.5">{p.erro}</div>}</td>
                   <td class="px-2 py-2">{p.detalhe ?? p.meio}</td>
@@ -135,6 +138,11 @@ export function PagamentoCombinado({ registrationId, pago, fechada }: { registra
             </tbody>
           </table>
         </div>
+        {c.pagamentos.some((p) => HISTORICO.includes(p.status)) && (
+          <button type="button" class="text-2xs text-fg-muted hover:text-fg underline mt-2" onClick={() => setVerHistorico((v) => !v)}>
+            {verHistorico ? 'Esconder o histórico' : `Ver histórico (${c.pagamentos.filter((p) => HISTORICO.includes(p.status)).length} canceladas ou substituídas)`}
+          </button>
+        )}
         <div class="text-2xs text-fg-muted mt-2">
           {c.por ? `Combinado por ${c.por}` : ''}{c.em ? ` em ${new Date(c.em).toLocaleDateString('pt-BR')}` : ''}{c.motivo ? ` · ${c.motivo}` : ''}.
           {' '}A matrícula é confirmada no 1º pagamento recebido. O cartão é pago na página do Asaas, pelo link.
