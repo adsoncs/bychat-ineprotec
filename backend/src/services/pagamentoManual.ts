@@ -144,6 +144,10 @@ export async function registrarPagamentoManual(p: PagamentoManualInput): Promise
   })
   if (!reg) return { ok: false, status: 404, erro: 'Inscrição não encontrada' }
   if (['cancelled', 'transferred', 'merged', 'expired'].includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada não recebe pagamento.' }
+  // Pagamento combinado: a baixa vai no próximo pagamento em aberto. Gravada só
+  // na inscrição, o título seguia "em aberto, R$ 0 pago", o Desfazer passava e
+  // o recebido sumia (MAT-26-000002-M8KK, 17/11).
+  if ((reg.paymentPlan as any)?.combinado) return baixaManualNoCombinado(reg, p, motivo)
   if (reg.paymentStatus === 'paid') return { ok: false, status: 409, erro: 'Esta inscrição já está paga.' }
 
   // Comprovante primeiro: sem arquivo gravado, nada muda na inscrição.
@@ -233,6 +237,81 @@ export async function registrarPagamentoManual(p: PagamentoManualInput): Promise
     registrationId: reg.id, userId: p.usuario.id, userName: p.usuario.nome,
     oQue: `Pagamento manual (${FORMAS_PAGAMENTO_MANUAL[p.forma]})`,
     valor: (p.valorCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), nota: p.motivo,
+  })).catch(() => {})
+  return { ok: true, registrationId: reg.id, methodId: metodo.id }
+}
+
+/** Baixa manual em matrícula com pagamento combinado: o próximo título em aberto é que fica pago. */
+async function baixaManualNoCombinado(
+  reg: { id: number; leadId: number | null; candidateCode: string },
+  p: PagamentoManualInput,
+  motivo: string,
+): Promise<{ ok: true; registrationId: number; methodId: number } | { ok: false; status: number; erro: string }> {
+  const pc = await import('./pagamentoCombinado.js')
+  const t = await prisma.enrollmentTitulo.findFirst({
+    where: { registrationId: reg.id, origem: 'combinado', status: { in: pc.TITULO_EM_ABERTO } },
+    orderBy: { ordem: 'asc' },
+  })
+  if (!t) return { ok: false, status: 409, erro: 'Não há pagamento em aberto nesta combinação.' }
+  const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  if (p.valorCentavos !== t.valorCentavos) {
+    return {
+      ok: false, status: 400,
+      erro: `No pagamento combinado a baixa vai no próximo pagamento em aberto: o ${t.ordem}º, de ${brl(t.valorCentavos)}, com vencimento em ${t.vencimento.split('-').reverse().join('/')}. O valor informado (${brl(p.valorCentavos)}) não fecha com ele. Para outro pagamento, use a Inadimplência.`,
+    }
+  }
+  // O aluno não pode pagar de novo o boleto/Pix que estava aberto.
+  const c = await pc.cancelarNoGateway(await pc.configDaInscricao(reg.id), t)
+  if (!c.ok) return { ok: false, status: 502, erro: `Cancele a cobrança no Asaas antes da baixa: ${c.message}` }
+
+  const pasta = pastaDosComprovantes()
+  await fs.mkdir(pasta, { recursive: true })
+  const arquivo = `comprovante-manual-${reg.id}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${p.comprovante.ext}`
+  await fs.writeFile(join(pasta, arquivo), p.comprovante.buffer)
+  const comprovante = `/uploads/enrollment-docs/${arquivo}`
+  const externalId = `manual-${reg.id}-${Date.now()}`
+  // Pagamento que nunca chegou ao gateway (ex.: Pix recusado): leva o código da
+  // baixa e, se for o 1º, liga-se à inscrição como a 1ª cobrança do combinado.
+  // Sem isso o Financeiro do portal contava o valor duas vezes (inscrição + título).
+  if (!t.externalId) {
+    await prisma.enrollmentTitulo.update({ where: { id: t.id }, data: { externalId, provider: PROVEDOR_MANUAL } })
+    await prisma.enrollmentRegistration.updateMany({ where: { id: reg.id, paymentId: null }, data: { paymentId: externalId } })
+  }
+
+  const ok = await pc.registrarPagamentoDoTitulo(t.id, {
+    valorPagoCentavos: p.valorCentavos, quando: p.pagoEm, fonte: 'manual', pagoComo: 'manual',
+    baixaManual: `${FORMAS_PAGAMENTO_MANUAL[p.forma]}: ${motivo} (por ${p.usuario.nome})`,
+    ator: 'atendente', userId: p.usuario.id, userName: p.usuario.nome,
+  })
+  if (!ok) {
+    await fs.unlink(join(pasta, arquivo)).catch(() => {})
+    return { ok: false, status: 409, erro: 'Este pagamento acabou de mudar. Atualize a página e confira.' }
+  }
+  const valor = p.valorCentavos / 100
+  const metodo = await prisma.enrollmentPaymentMethod.create({
+    data: {
+      registrationId: reg.id, provider: PROVEDOR_MANUAL, method: 'manual', externalId,
+      status: 'paid', amount: valor, paidAt: p.pagoEm, expiresAt: null,
+    },
+  })
+  if (reg.leadId) {
+    logEvent({
+      leadId: reg.leadId, type: 'payment_received', category: 'lifecycle',
+      title: `Pagamento manual registrado — ${reg.candidateCode} (${brl(p.valorCentavos)}, pagamento ${t.ordem} do combinado)`,
+      description: `${FORMAS_PAGAMENTO_MANUAL[p.forma]} em ${p.pagoEm.toLocaleDateString('pt-BR')}. Motivo: ${motivo}`,
+      channel: 'payment', source: PROVEDOR_MANUAL, actorType: 'operator', userId: p.usuario.id, userName: p.usuario.nome,
+      metadata: { registrationId: reg.id, amount: valor, forma: p.forma, tituloId: t.id, manual: true },
+    })
+  }
+  await registrarEventoDaInscricao({
+    registrationId: reg.id, etapa: 'pagamento', acao: 'pagamento_manual', ator: 'atendente',
+    userId: p.usuario.id, userName: p.usuario.nome, req: p.req ?? null,
+    dados: { valor, forma: p.forma, pagoEm: p.pagoEm.toISOString(), motivo, tituloId: t.id, ordem: t.ordem, comprovante },
+  })
+  void import('./trilhaTarefas.js').then((m) => m.avisarBaixaManual({
+    registrationId: reg.id, userId: p.usuario.id, userName: p.usuario.nome,
+    oQue: `Pagamento manual (${FORMAS_PAGAMENTO_MANUAL[p.forma]}) no pagamento ${t.ordem} do combinado`,
+    valor: brl(p.valorCentavos), nota: p.motivo,
   })).catch(() => {})
   return { ok: true, registrationId: reg.id, methodId: metodo.id }
 }
