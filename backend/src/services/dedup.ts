@@ -511,6 +511,10 @@ export async function transferirRelacoesDoLead(tx: Tx, mergeId: number, keepId: 
   await tx.chatImportJob.updateMany(mover)
   await tx.outboundSend.updateMany(mover)
   await tx.enrollmentRegistration.updateMany(mover)
+  // Clique do link rastreável e toques de origem: sem isto a junção deixava o
+  // clique apontando para o lead apagado (ineprotec 17/11, Barbara #37932 → #42473).
+  await tx.trackableLinkClick.updateMany(mover)
+  await tx.leadTouchpoint.updateMany(mover)
 
   // Unicidade (leadId, X): só o que o principal ainda não tem.
   const tags = new Set((await tx.leadTag.findMany({ where: { leadId: keepId }, select: { tagId: true } })).map((t) => t.tagId))

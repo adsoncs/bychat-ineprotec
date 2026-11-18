@@ -18,6 +18,8 @@ import { getAuthenticatedClient } from '../lib/google.js'
 
 import { GOOGLE_ADS_API_BASE as API_BASE } from '../lib/googleAdsApi.js'
 const MAX_LOOKBACK_DAYS = 90
+/** Horas até o clique aparecer no click_view do Google. */
+const ESPERA_CLICK_VIEW_H = 4
 
 async function getSetting(key: string): Promise<string | null> {
   const row = await prisma.setting.findUnique({ where: { key }, select: { value: true } }).catch(() => null)
@@ -156,6 +158,11 @@ export async function enrichLeadFromGclid(leadId: number, ctxIn?: AdsCtx | AdsCt
   }
   // Erro de API (token/permissão) sem achar em nenhuma conta: não marca, para retentar depois.
   if (!found && falhou) return false
+  // O clique só aparece no click_view horas depois. Buscar na hora em que o lead
+  // nasce não achava nada e marcava como tentado para sempre (ineprotec 17–18/11:
+  // 9 de 10 leads do Google sem campanha). Antes de 4 h não marca: a varredura
+  // tenta de novo depois disso (ela só pega lead com mais de 4 h).
+  if (!found && ageDays < ESPERA_CLICK_VIEW_H / 24) return false
 
   // Marca a tentativa mesmo sem achar (evita reconsultar infinitamente um gclid velho).
   const data: any = { googleEnrichedAt: new Date() }
@@ -182,7 +189,9 @@ export async function enrichLeadFromGclid(leadId: number, ctxIn?: AdsCtx | AdsCt
 export async function sweepPendingGoogleEnrichment(limit = 20): Promise<number> {
   const since = new Date(Date.now() - MAX_LOOKBACK_DAYS * 86_400_000)
   const pend = await prisma.lead.findMany({
-    where: { gclid: { not: null }, googleEnrichedAt: null, createdAt: { gte: since } },
+    // Só depois de ESPERA_CLICK_VIEW_H: antes disso o clique ainda não está no click_view
+    // e o lead voltaria em toda varredura (a cada 3 min).
+    where: { gclid: { not: null }, googleEnrichedAt: null, createdAt: { gte: since, lte: new Date(Date.now() - ESPERA_CLICK_VIEW_H * 3600_000) } },
     select: { id: true },
     orderBy: { createdAt: 'desc' },
     take: limit,
