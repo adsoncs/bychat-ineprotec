@@ -286,6 +286,34 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   //    o que restava dela foi para a inscrição nova.
   const cnTransf = plano.meio === 'credito' && plano.transferencia ? lerCondicaoNegociada(plano.condicaoNegociada) : null
   const restantesTransf = cnTransf?.numParcelas ?? 0
+  // Parcelas quitadas pelo crédito da transferência (o que já tinha sido pago
+  // na inscrição antiga): o aluno via só a entrada e achava que o resto estava
+  // em aberto (ineprotec, José Divino, 18/11). Entram como pagas, logo depois
+  // da 1ª; as que faltam pagar seguem numeradas depois delas.
+  const transf = cnTransf
+    ? await prisma.enrollmentTransferencia.findFirst({
+        where: { paraRegistrationId: r.id }, orderBy: { id: 'desc' },
+        select: { parcelasQuitadas: true, creditoCentavos: true, entradaCentavos: true, sobraCentavos: true, createdAt: true, deRegistrationId: true },
+      }).catch(() => null)
+    : null
+  const quitadas = Math.max(0, transf?.parcelasQuitadas ?? 0)
+  if (quitadas > 0 && transf) {
+    const total = 1 + quitadas + restantesTransf
+    const deCodigo = String(plano.transferencia?.deCodigo || '')
+    const valorQuitada = Math.round((transf.creditoCentavos - transf.entradaCentavos - transf.sobraCentavos) / quitadas) / 100
+    const primeira = faturas.find((f) => f.chave === `reg:${r.id}`)
+    if (primeira) { primeira.titulo = `Parcela 1 de ${total}`; primeira.detalhe = 'Paga com o crédito da transferência'; primeira.meio = 'Crédito' }
+    for (let k = 1; k <= quitadas; k++) {
+      faturas.push({
+        chave: `credito:${r.id}:${k + 1}`, titulo: `Parcela ${k + 1} de ${total}`,
+        detalhe: deCodigo ? `Quitada com o que você pagou na inscrição ${deCodigo}` : 'Quitada com o crédito da transferência',
+        valor: valorQuitada, vencimento: null, situacao: 'paga', pagaEm: transf.createdAt.toISOString(), meio: 'Crédito',
+        pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false, podeGerar: false,
+      })
+    }
+  }
+  // Número exibido das parcelas que faltam: depois das quitadas (a chave interna não muda).
+  const rotuloParcela = (i: number, n: number) => cnTransf && quitadas ? `Parcela ${i + quitadas} de ${n + quitadas}` : `Parcela ${i} de ${n}`
   const n = cnTransf ? 1 + restantesTransf : (Number(plano.parcelas) || 1)
   const parcelado = plano.meio === 'boleto' || (!!cnTransf && restantesTransf > 0)
   if (parcelado && n > 1 && !plano.installmentId && situacao !== 'cancelada' && r.status !== 'cancelled' && r.status !== 'transferred') {
@@ -313,7 +341,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
           pagar: g.invoiceUrl ?? null, boletoPdf: g.boletoPdf ?? null, recibo: null, pix: null, linha: null, buscarCodigos: true, podeGerar: false,
         }
         if (f) {
-          faturas.push({ ...f, titulo: `Parcela ${i} de ${n}` })
+          faturas.push({ ...f, titulo: rotuloParcela(i, n) })
           // A próxima só depois desta paga (ou estornada/cancelada pela secretaria).
           if (f.situacao === 'aberta' || f.situacao === 'vencida') fila = false
           continue
@@ -321,7 +349,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
         // Apagada no Asaas: volta a ser prevista (e pode ser gerada de novo).
       }
       faturas.push({
-        chave: `prevista:${r.id}:${i}`, titulo: `Parcela ${i} de ${n}`, detalhe: null, valor,
+        chave: `prevista:${r.id}:${i}`, titulo: rotuloParcela(i, n), detalhe: null, valor,
         vencimento: previsto(i), situacao: 'prevista', pagaEm: null,
         meio: 'Boleto', pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false,
         podeGerar: fila,
