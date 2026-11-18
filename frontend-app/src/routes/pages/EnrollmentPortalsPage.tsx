@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
+import { createPortal } from 'preact/compat'
 import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -358,14 +359,40 @@ function PortalActionsMenu({
   onOpen: () => void
 }) {
   const [open, setOpen] = useState(false)
+  // O cartão do portal tem overflow-hidden: o menu dentro dele era cortado
+  // (Duplicar/Excluir sumiam). Abre no body, em posição fixa, junto ao botão;
+  // vira para cima quando não cabe embaixo e nunca passa da tela.
+  const botao = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null)
   const isInterest = p.formMode === 'interest'
   const embedSnippet = `<iframe src="${publicUrl}?embed=1" style="width:100%;height:680px;border:0" allowtransparency="true"></iframe>`
 
   useEffect(() => {
     if (!open) return
     function close() { setOpen(false) }
+    function posicionar() {
+      const r = botao.current?.getBoundingClientRect()
+      if (!r) return
+      const margem = 8
+      const abaixo = window.innerHeight - r.bottom - margem
+      const acima = r.top - margem
+      const right = Math.max(margem, window.innerWidth - r.right)
+      setPos(abaixo >= 280 || abaixo >= acima
+        ? { top: r.bottom + 4, right, maxHeight: Math.max(120, abaixo - 4) }
+        : { bottom: window.innerHeight - r.top + 4, right, maxHeight: Math.max(120, acima - 4) })
+    }
+    posicionar()
+    const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
+    document.addEventListener('keydown', fechar)
+    window.addEventListener('resize', posicionar)
+    window.addEventListener('scroll', posicionar, true)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('keydown', fechar)
+      window.removeEventListener('resize', posicionar)
+      window.removeEventListener('scroll', posicionar, true)
+    }
   }, [open])
 
   function copy(text: string, label: string) {
@@ -375,15 +402,23 @@ function PortalActionsMenu({
   return (
     <div class="relative shrink-0" onClick={(e) => e.stopPropagation()}>
       <button
+        ref={botao}
         type="button"
         class="size-8 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 border border-border"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
         aria-label="Ações"
       >
         <MoreHorizontal size={14} />
       </button>
-      {open && (
-        <div class="absolute right-0 top-full mt-1 w-56 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20">
+      {open && pos && createPortal(
+        <div
+          role="menu"
+          class="fixed w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-md border border-border bg-surface-2 shadow-lg py-1 z-[60]"
+          style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <a href={publicUrl} target="_blank" rel="noopener noreferrer" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2">
             <ExternalLink size={12} /> Abrir portal público
           </a>
@@ -409,7 +444,8 @@ function PortalActionsMenu({
           <Pode tela="enrollment_portals" acao="delete"><button type="button" class="w-full text-left px-3 py-1.5 text-xs text-danger hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDelete() }}>
             <Trash2 size={12} /> Excluir
           </button></Pode>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
