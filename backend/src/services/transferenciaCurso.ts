@@ -570,9 +570,24 @@ export async function transferirCurso(deId: number, body: any, op: Operador): Pr
   }
   const moodle = await prisma.moodleAcesso.findUnique({ where: { registrationId: deId }, select: { status: true } }).catch(() => null)
   if (moodle?.status === 'LIBERADO') {
-    const { suspender } = await import('./moodleAcessos.js')
-    await suspender(deId, { origem: 'manual', userId: op.userId, userName: op.nome }).catch((e: any) => avisos.push(`Moodle: ${e?.message || e} — suspenda o curso antigo à mão.`))
+    const ma = await import('./moodleAcessos.js')
+    await ma.suspender(deId, { origem: 'manual', userId: op.userId, userName: op.nome }).catch((e: any) => avisos.push(`Moodle: ${e?.message || e} — suspenda o curso antigo à mão.`))
+    // Aluno que já estudava (pago + contrato assinado) não fica sem aula: se a
+    // nova já está paga, o curso novo é liberado na hora; o contrato novo fica
+    // pendente no portal e continua sendo pedido. Sem isto, o AVA ficava cortado
+    // até ele achar e assinar o contrato novo (ineprotec, José Divino, 17/11).
+    const nova = await prisma.enrollmentRegistration.findUnique({ where: { id: novoId }, select: { paymentStatus: true } }).catch(() => null)
+    if (reg.contratoAceite && nova?.paymentStatus === 'paid') {
+      const r = await ma.liberar(novoId, { origem: 'manual', userId: op.userId, userName: op.nome }, { forcar: true })
+        .catch((e: any) => ({ ok: false, erro: String(e?.message || e) }))
+      avisos.push(r.ok
+        ? 'Moodle: o curso novo foi liberado na hora (o aluno já estudava). O contrato novo continua pendente no portal.'
+        : `Moodle: não foi possível liberar o curso novo (${r.erro}). Libere à mão na aba AVA da inscrição nova.`)
+    }
   }
+  // Fluxos em andamento presos à inscrição antiga (ex.: cobrança de documentos)
+  // passam a falar da nova: código, portal e documentos certos.
+  await repontarFluxos(reg.leadId, deId, novoId).catch((e: any) => avisos.push(`Fluxos: ${e?.message || e}`))
 
   const dados = {
     de: reg.candidateCode, para: codigo, curso: previa.para.curso, credito: credito / 100, motivo,
@@ -639,4 +654,31 @@ export async function transferenciasDa(registrationId: number) {
     creditoCentavos: t.creditoCentavos, entradaCentavos: t.entradaCentavos, parcelasQuitadas: t.parcelasQuitadas, sobraCentavos: t.sobraCentavos,
     detalhes: t.detalhes,
   }))
+}
+
+/**
+ * Execuções de fluxo ainda abertas cujo gatilho cita a inscrição antiga passam a
+ * citar a nova (enrollmentId, candidateCode, portal…). As condições de documento
+ * e as mensagens leem daí; sem isto o aluno seguia recebendo cobrança com o
+ * código da inscrição transferida.
+ */
+export async function repontarFluxos(leadId: number | null, deId: number, novoId: number): Promise<number> {
+  if (!leadId) return 0
+  const abertas = await prisma.workflowExecution.findMany({
+    where: { leadId, status: { in: ['running', 'paused', 'waiting'] } },
+    select: { id: true, triggerData: true },
+  })
+  const presas = abertas.filter((e) => Number((e.triggerData as any)?.payload?.enrollmentId) === deId)
+  if (!presas.length) return 0
+  const { buildEnrollmentPayload } = await import('./enrollmentNotify.js')
+  const ctx = await buildEnrollmentPayload(novoId)
+  if (!ctx) return 0
+  for (const e of presas) {
+    const td = (e.triggerData as any) || {}
+    await prisma.workflowExecution.update({
+      where: { id: e.id },
+      data: { triggerData: { ...td, payload: { ...(td.payload || {}), ...ctx.payload } } as any },
+    })
+  }
+  return presas.length
 }
