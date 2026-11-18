@@ -244,7 +244,8 @@ export function MetaAdsReportPage() {
           Período {data.dateRange.from.split('-').reverse().join('/')} a {data.dateRange.to.split('-').reverse().join('/')}
           {data.dateRange.ateOntem ? ' (até ontem: o dia de hoje ainda muda na Meta e não entra)' : ''}
           {ant ? ` · comparado com ${ant.from.split('-').reverse().join('/')} a ${ant.to.split('-').reverse().join('/')}` : ''}
-          {' · '}Resultados e custo por resultado seguem o Gerenciador de Anúncios; "Leads no CRM" são as fichas novas atribuídas a cada campanha.
+          {' · '}Resultados e custo por resultado seguem o Gerenciador de Anúncios; "Leads no CRM" são as fichas novas atribuídas a cada campanha; "Conversas recebidas" são as mensagens de anúncio que chegaram ao WhatsApp, inclusive de quem já era lead
+          {summary?.whatsappRegistradoDesde && data.dateRange.from < summary.whatsappRegistradoDesde ? ` (registradas desde ${summary.whatsappRegistradoDesde.split('-').reverse().join('/')})` : ''}.
         </p>
       )}
 
@@ -310,7 +311,7 @@ export function MetaAdsReportPage() {
           value={summary ? intf.format(summary.totalMetaConversations ?? 0) : '—'}
           loading={isLoading}
           icon={<MessageCircle size={16} />}
-          hint={summary ? `Meta · ${intf.format(summary.totalLeadsWhatsapp ?? 0)} leads de WhatsApp no CRM` : undefined}
+          hint={summary ? `Meta · ${intf.format(summary.totalWhatsappReceived ?? 0)} recebidas no WhatsApp · ${intf.format(summary.totalLeadsWhatsapp ?? 0)} leads novos` : undefined}
         />
         <KpiCard
           label="Vendas"
@@ -1280,7 +1281,8 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
       metaLeads: acc.metaLeads + (r.metaLeads || 0),
       metaConversations: acc.metaConversations + (r.metaConversations || 0),
       results: acc.results + (r.results || 0),
-    }), { spend: 0, leads: 0, sales: 0, revenue: 0, lost: 0, clicks: 0, impressions: 0, metaLeads: 0, metaConversations: 0, results: 0 })
+      recebidas: acc.recebidas + (r.whatsappReceived || 0),
+    }), { spend: 0, leads: 0, sales: 0, revenue: 0, lost: 0, clicks: 0, impressions: 0, metaLeads: 0, metaConversations: 0, results: 0, recebidas: 0 })
     const roi = t.spend > 0 ? ((t.revenue - t.spend) / t.spend) * 100 : 0
     const roas = t.spend > 0 ? t.revenue / t.spend : 0
     const cpl = t.leads > 0 && t.spend > 0 ? t.spend / t.leads : 0
@@ -1296,6 +1298,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
             <th class="text-right px-3 py-2 font-medium">Invest.</th>
             <th class="text-center px-3 py-2 font-medium" title="Fichas novas no CRM atribuídas a esta campanha (a pessoa conta uma vez, na campanha que a trouxe primeiro)">Leads CRM</th>
             <th class="text-center px-3 py-2 font-medium" title="Resultados como no Gerenciador de Anúncios: a ação que a campanha persegue (lead, conversa ou evento do site) e o custo por resultado">Resultados</th>
+            <th class="text-center px-3 py-2 font-medium" title="Mensagens de anúncio de WhatsApp que chegaram ao sistema, inclusive de quem já era lead (essa pessoa não vira lead novo). É o número para comparar com as conversas iniciadas da Meta">Conversas recebidas</th>
             <th class="text-center px-3 py-2 font-medium">Vendas</th>
             <th class="text-right px-3 py-2 font-medium">Receita</th>
             <th class="text-right px-3 py-2 font-medium">ROI</th>
@@ -1324,6 +1327,9 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
                   <LeadsPorTipo r={c} />
                 </td>
                 <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={c} /></td>
+                <td class="px-3 py-2 text-center tabular-nums">
+                  {(c.whatsappReceived || 0) > 0 ? <span class="text-success font-semibold">{intf.format(c.whatsappReceived || 0)}</span> : <span class="text-fg-muted">–</span>}
+                </td>
                 <td class="px-3 py-2 text-center tabular-nums">
                   {c.sales > 0 ? <span class="text-success font-semibold">{c.sales}</span> : <span class="text-fg-muted">–</span>}
                   {c.conversionRate > 0 && (
@@ -1364,6 +1370,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
             <td class="px-3 py-2 text-right tabular-nums">{totals.spend > 0 ? brl.format(totals.spend) : '–'}</td>
             <td class="px-3 py-2 text-center tabular-nums text-info">{intf.format(totals.leads)}</td>
             <td class="px-3 py-2 text-center tabular-nums"><ResultadosDaMeta r={{ results: totals.results, resultType: null, costPerResult: totals.results > 0 && totals.spend > 0 ? totals.spend / totals.results : 0, metaConversations: 0 }} /></td>
+            <td class="px-3 py-2 text-center tabular-nums text-success">{totals.recebidas > 0 ? intf.format(totals.recebidas) : '–'}</td>
             <td class="px-3 py-2 text-center tabular-nums text-success">{intf.format(totals.sales)}</td>
             <td class="px-3 py-2 text-right tabular-nums text-success">{totals.revenue > 0 ? brl.format(totals.revenue) : '–'}</td>
             <td class="px-3 py-2 text-right tabular-nums">

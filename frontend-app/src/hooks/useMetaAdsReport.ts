@@ -35,6 +35,8 @@ export interface MetaAdsReportCampaign {
   metaConversations: number
   /** Gasto ÷ conversas da Meta. */
   costPerConversation: number
+  /** Cliques em anúncio de WhatsApp que chegaram ao sistema (inclui quem já era lead). Só na campanha. */
+  whatsappReceived?: number
   /** "Resultados" do Gerenciador: a ação que a campanha persegue (lead, conversa ou evento do site). */
   resultType: MetaResultType | null
   results: number
@@ -112,6 +114,10 @@ export interface MetaAdsReportSummary {
   totalLeads: number
   totalMetaLeads: number
   totalMetaConversations: number
+  /** Conversas recebidas no WhatsApp vindas de anúncio (inclui quem já era lead). */
+  totalWhatsappReceived?: number
+  /** Desde quando o sistema registra essas conversas (YYYY-MM-DD). */
+  whatsappRegistradoDesde?: string | null
   totalLeadsForm: number
   totalLeadsWhatsapp: number
   totalLeadsSite: number

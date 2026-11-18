@@ -504,6 +504,27 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       if (conv) metaConversationsCount[cid] = (metaConversationsCount[cid] || 0) + conv
     }
 
+    // Conversas recebidas no WhatsApp: cada clique em anúncio de mensagem que
+    // chegou ao sistema no período, INCLUSIVE de quem já era lead (a ficha segue
+    // na campanha que a trouxe primeiro e não entra em "Leads no CRM"). É contra
+    // isto que se compara a "conversa iniciada" da Meta (severiano, 17/11:
+    // Meta 17, recebidas 16, leads novos 11). Gravado desde 10/11/2026.
+    const whatsappRecebidas: Record<string, number> = {}
+    let whatsappRegistradoDesde: string | null = null
+    try {
+      const tpWhere: any = { channel: 'meta_ctwa', campaignId: campaignId ? campaignId : { not: null }, createdAt: { gte: dateFrom, lte: dateTo } }
+      if (funnelId) {
+        const doFunil = await prisma.lead.findMany({ where: { funnelEntradaId: funnelId }, select: { id: true } })
+        tpWhere.leadId = { in: doFunil.map((l) => l.id) }
+      }
+      const tps = await prisma.leadTouchpoint.groupBy({ by: ['campaignId'], where: tpWhere, _count: { _all: true } })
+      for (const t of tps) if (t.campaignId) whatsappRecebidas[t.campaignId] = t._count._all
+      const primeiro = await prisma.leadTouchpoint.findFirst({ where: { channel: 'meta_ctwa' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })
+      whatsappRegistradoDesde = primeiro ? toBrazilDay(primeiro.createdAt) : null
+    } catch (e: any) {
+      app.log.warn(`[Meta dashboard] conversas recebidas: ${e.message}`)
+    }
+
     // ── Reach da janela (Fix Fase 21.10): Meta API call extra ──
     //
     // O reach por dia, somado, NÃO bate com o reach do Meta UI: a mesma pessoa
@@ -527,7 +548,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
 
     // Filter: only campaigns that have data (leads, spend, impressions, or clicks) in the period
     const rawCampaigns = Object.values(campaignMap)
-      .filter(c => c.leads > 0 || c.spend > 0 || c.impressions > 0 || c.clicks > 0 || (metaLeadsCount[c.id] || 0) > 0 || (metaConversationsCount[c.id] || 0) > 0)
+      .filter(c => c.leads > 0 || c.spend > 0 || c.impressions > 0 || c.clicks > 0 || (metaLeadsCount[c.id] || 0) > 0 || (metaConversationsCount[c.id] || 0) > 0 || (whatsappRecebidas[c.id] || 0) > 0)
       .sort((a, b) => b.spend - a.spend || b.leads - a.leads)
 
     // Build final campaigns — TODOS os valores são do período. CPL usa leads reais
@@ -554,6 +575,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         leadsSite: c.leadsSite,
         metaLeads,
         metaConversations,
+        whatsappReceived: whatsappRecebidas[c.id] || 0,
         // "Resultados" do Gerenciador: a ação que a campanha persegue (lead,
         // conversa ou evento do site), contada sem sobreposição.
         resultType: metaResultType[c.id] ?? objetivos.campanhas[c.id]?.tipo ?? null,
@@ -966,6 +988,8 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
         totalLeads: totalRealLeads,
         totalMetaLeads,
         totalMetaConversations,
+        totalWhatsappReceived: campaigns.reduce((s, c) => s + c.whatsappReceived, 0),
+        whatsappRegistradoDesde,
         totalLeadsForm,
         totalLeadsWhatsapp,
         totalLeadsSite,
