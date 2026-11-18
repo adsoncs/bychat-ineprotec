@@ -229,7 +229,7 @@ async function lerInscricao(id: number) {
 }
 type Inscricao = NonNullable<Awaited<ReturnType<typeof lerInscricao>>>
 
-async function exigidosDoProcesso(processoId: number, formData: unknown) {
+export async function exigidosDoProcesso(processoId: number, formData: unknown) {
   const sp: any = await prisma.selectionProcess.findUnique({
     where: { id: processoId },
     select: {
@@ -379,7 +379,7 @@ export async function previaDaTransferencia(deId: number, alvo: Alvo) {
 const pastaDocs = () => join(process.cwd(), '..', 'uploads', 'enrollment-docs')
 
 /** Cópia física do arquivo: apagar o documento numa inscrição não pode sumir com o da outra. */
-async function copiarArquivo(fileUrl: string, novoId: number): Promise<string | null> {
+export async function copiarArquivo(fileUrl: string, novoId: number): Promise<string | null> {
   const nome = fileUrl.split('/uploads/enrollment-docs/')[1]?.split('?')[0]
   if (!nome || !/^[A-Za-z0-9._-]+$/.test(nome)) return null
   const origem = join(pastaDocs(), nome)

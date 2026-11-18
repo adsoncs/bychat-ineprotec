@@ -954,6 +954,8 @@ await app.register(seiIntegrationRoutes)
 await app.register(moodleIntegrationRoutes)
 // Moodle: varredura de 2 em 2 min (só age com a integração ligada).
 iniciarAgendadorMoodle()
+// Pacote (combo): documentos e revisões entre os cursos, de 5 em 5 min (rede de segurança).
+void import('./services/pacoteMatricula.js').then((m) => m.iniciarAgendadorDocumentosDoPacote())
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
 await app.register(helpdeskPortalRoutes)

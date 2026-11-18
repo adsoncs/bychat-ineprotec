@@ -101,6 +101,8 @@ export async function adicionarAoPacote(principalId: number, membroId: number, v
   await registrarEventoDaInscricao({ registrationId: membroId, etapa: 'pagamento', acao: 'pacote_entrou', ator: 'atendente', userId: op.userId ?? null, userName: op.nome ?? null, dados })
   // Principal já paga: o membro fica pago na hora.
   await propagarPagamentoDoPacote(principalId)
+  // Documentos já enviados em qualquer um dos cursos valem para o outro.
+  await sincronizarDocumentosDoPacote(principalId).catch((e) => console.warn('[pacote] documentos:', e?.message || e))
   return { ok: true }
 }
 
@@ -200,4 +202,110 @@ export async function condicaoDoContratoNoPacote(registrationId: number): Promis
   const forma = `Curso contratado em pacote (inscrições ${codigos.join(', ')}), com pagamento único de ${brl(total)} pela inscrição ${res.papel === 'principal' ? res.codigo : res.principalCodigo}`
     + (n > 1 ? `, em ${n} parcelas. Parte deste curso no pacote: ${brl(parte)}.` : `. Parte deste curso no pacote: ${brl(parte)}.`)
   return { valorTotalCentavos: parte, numParcelas: n, valorParcelaCentavos: Math.round(parte / n), forma }
+}
+
+// ── Documentos do pacote ────────────────────────────────────────────────────
+//
+// Os cursos do pacote são da mesma pessoa: RG, CPF, histórico… são os mesmos.
+// Cada documento enviado numa inscrição vale para as outras do pacote que pedem
+// aquele tipo (cópia do arquivo, como na transferência), e a revisão da
+// secretaria (aprovado/recusado) e a análise da IA seguem para as cópias.
+// Mesmo documento = mesmo tipo + mesmo arquivo (nome e tamanho, frente e verso).
+
+const assinaturaDoc = (d: { typeCode: string; fileName: string; sizeBytes: number; versoSizeBytes: number | null }) =>
+  `${d.typeCode}|${d.fileName}|${d.sizeBytes}|${d.versoSizeBytes ?? 0}`
+const CAMPOS_DA_REVISAO = ['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'aiStatus', 'aiSuggestion', 'aiConfidence', 'aiAnalysis', 'aiCostUsd', 'aiProcessedAt'] as const
+
+/** Ids das inscrições ativas do pacote desta (vazio = sem pacote). */
+export async function inscricoesDoPacote(registrationId: number): Promise<number[]> {
+  const p = await pacoteDaInscricao(registrationId)
+  if (!p) return []
+  const principalId = p.papel === 'principal' ? registrationId : p.principalId
+  const pri = p.papel === 'principal' ? p : pacoteDo((await prisma.enrollmentRegistration.findUnique({ where: { id: principalId }, select: { paymentPlan: true } }))?.paymentPlan)
+  if (pri?.papel !== 'principal') return []
+  const ids = [principalId, ...pri.membros.map((m) => m.id)]
+  const ativas = await prisma.enrollmentRegistration.findMany({ where: { id: { in: ids }, status: { notIn: FECHADAS }, mergedIntoId: null }, select: { id: true } })
+  return ativas.map((a) => a.id)
+}
+
+/** Aproveita os documentos entre as inscrições do pacote. Devolve quantos copiou/atualizou. */
+export async function sincronizarDocumentosDoPacote(registrationId: number): Promise<{ copiados: number; atualizados: number }> {
+  const ids = await inscricoesDoPacote(registrationId)
+  if (ids.length < 2) return { copiados: 0, atualizados: 0 }
+  const { exigidosDoProcesso, copiarArquivo } = await import('./transferenciaCurso.js')
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, formData: true, processRegistration: { select: { selectionProcessId: true } }, documents: { orderBy: { uploadedAt: 'desc' } } },
+  })
+  const todos = regs.flatMap((r) => r.documents)
+  let copiados = 0, atualizados = 0
+
+  // 1) Revisão: entre cópias do mesmo documento, vale a mais recente.
+  const porAssinatura = new Map<string, typeof todos>()
+  for (const d of todos) porAssinatura.set(assinaturaDoc(d), [...(porAssinatura.get(assinaturaDoc(d)) ?? []), d])
+  const marco = (d: (typeof todos)[number]) => Math.max(d.reviewedAt?.getTime() ?? 0, d.aiProcessedAt?.getTime() ?? 0)
+  for (const grupo of porAssinatura.values()) {
+    if (grupo.length < 2) continue
+    const fonte = [...grupo].sort((a, b) => marco(b) - marco(a))[0]
+    if (!marco(fonte)) continue
+    for (const d of grupo) {
+      if (d.id === fonte.id) continue
+      const muda = CAMPOS_DA_REVISAO.some((k) => JSON.stringify((d as any)[k] ?? null) !== JSON.stringify((fonte as any)[k] ?? null))
+      if (!muda) continue
+      const data: Record<string, unknown> = {}
+      for (const k of CAMPOS_DA_REVISAO) data[k] = (fonte as any)[k] ?? null
+      await prisma.enrollmentDocument.update({ where: { id: d.id }, data: data as any })
+      atualizados++
+    }
+  }
+
+  // 2) Cópia: o documento mais recente de cada tipo vai para quem pede o tipo e não tem ele.
+  const ultimoPorTipo = new Map<string, (typeof todos)[number]>()
+  for (const d of [...todos].sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())) if (!ultimoPorTipo.has(d.typeCode)) ultimoPorTipo.set(d.typeCode, d)
+  for (const r of regs) {
+    const sp = r.processRegistration?.selectionProcessId
+    const pede = new Set(sp ? (await exigidosDoProcesso(sp, r.formData)).map((e) => e.documentType.code) : [])
+    for (const [tipo, fonte] of ultimoPorTipo) {
+      if (!pede.has(tipo) || fonte.registrationId === r.id) continue
+      if (r.documents.some((d) => assinaturaDoc(d) === assinaturaDoc(fonte))) continue
+      // Ela já tem um envio mais novo desse tipo: não volta para o antigo.
+      const meu = r.documents.find((d) => d.typeCode === tipo)
+      if (meu && meu.uploadedAt > fonte.uploadedAt) continue
+      const url = await copiarArquivo(fonte.fileUrl, r.id)
+      if (!url) continue
+      const verso = fonte.versoFileUrl ? await copiarArquivo(fonte.versoFileUrl, r.id) : null
+      const { id: _id, registrationId: _r, fileUrl: _f, versoFileUrl: _v, ...resto } = fonte as any
+      const dados: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(resto)) if (v !== null && v !== undefined) dados[k] = v
+      // A IA não roda de novo na cópia: o resultado vem da original (passo 1).
+      if (dados.aiStatus === 'pending' || dados.aiStatus === 'processing') dados.aiStatus = 'skipped'
+      await prisma.enrollmentDocument.create({ data: { ...(dados as any), registrationId: r.id, fileUrl: url, ...(verso ? { versoFileUrl: verso } : {}) } })
+      copiados++
+      await registrarEventoDaInscricao({ registrationId: r.id, etapa: 'documentos', acao: 'documento_do_pacote', ator: 'sistema', dados: { tipo, nome: fonte.label, de: fonte.registrationId } })
+    }
+  }
+  if (copiados || atualizados) {
+    for (const id of ids) await import('./funilDaJornada.js').then((f) => f.sincronizarFunil(id)).catch(() => {})
+  }
+  return { copiados, atualizados }
+}
+
+/** Rede de segurança: revisões feitas por caminhos sem gancho (lote, IA, análise). */
+export async function varrerDocumentosDosPacotes(): Promise<number> {
+  const principais = await prisma.enrollmentRegistration.findMany({
+    where: { status: { notIn: FECHADAS }, paymentPlan: { path: '$.pacote.papel', equals: 'principal' } },
+    select: { id: true },
+  })
+  let n = 0
+  for (const p of principais) {
+    const r = await sincronizarDocumentosDoPacote(p.id).catch(() => ({ copiados: 0, atualizados: 0 }))
+    n += r.copiados + r.atualizados
+  }
+  return n
+}
+
+let agendadorDocs: NodeJS.Timeout | null = null
+export function iniciarAgendadorDocumentosDoPacote() {
+  if (agendadorDocs) return
+  agendadorDocs = setInterval(() => { void varrerDocumentosDosPacotes().catch(() => {}) }, 5 * 60_000)
 }

@@ -425,6 +425,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
     // Portais › "No funil": documentos da análise enviados → etapa de "aguardando".
     ;(await import('../services/funilDaJornada.js')).sincronizarFunil(s.enrollmentId)
+    // Pacote (combo): o documento vale também para os outros cursos.
+    void import('../services/pacoteMatricula.js').then((m) => m.sincronizarDocumentosDoPacote(s.enrollmentId)).catch(() => {})
     return { ok: true, document: doc }
   })
 
@@ -592,6 +594,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // Documento da análise acadêmica (ex.: ENEM aprovado) libera a etapa: o funil acompanha.
     if (doc.registrationId) (await import('../services/funilDaJornada.js')).sincronizarFunil(doc.registrationId)
 
+    // Pacote (combo): a revisão vale para a cópia nos outros cursos.
+    void import('../services/pacoteMatricula.js').then((m) => m.sincronizarDocumentosDoPacote(doc.registrationId)).catch(() => {})
     return { ok: true, document: doc }
   })
 
