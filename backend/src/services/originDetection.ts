@@ -141,6 +141,38 @@ export async function detectOrigin(
 }
 
 /**
+ * Anúncio que abre o Direct do Instagram ou o Messenger. A Meta manda o
+ * `referral` no evento (ou dentro de `message`/`postback`) com o id do anúncio;
+ * link ig.me/m.me com `?ref=` chega como source SHORTLINK, sem anúncio.
+ * Antes o webhook do Instagram descartava isso e o lead ficava "instagram".
+ */
+export async function origemDoReferralMeta(evt: any, canal: 'instagram' | 'messenger'): Promise<OriginData | null> {
+  const ref = evt?.referral || evt?.message?.referral || evt?.postback?.referral
+  if (!ref) return null
+  const adId = ref.ad_id ? String(ref.ad_id) : undefined
+  const ctx = ref.ads_context_data || {}
+  if (adId || String(ref.source || '').toUpperCase() === 'ADS') {
+    return comNomesDoAnuncio({
+      originType: 'meta_ctm',
+      adId,
+      utmSource: 'meta',
+      utmMedium: canal === 'messenger' ? 'ctm_messenger' : 'ctm_instagram',
+      referralHeadline: ctx.ad_title || undefined,
+      referralMediaUrl: ctx.photo_url || ctx.video_url || undefined,
+      referralSource: ctx.post_id ? `post:${ctx.post_id}` : undefined,
+      rawReferral: ref,
+      confidence: 'high',
+    })
+  }
+  // Link curto (ig.me/m.me?ref=CODIGO): o código do link rastreável vem no ref.
+  if (ref.ref) {
+    const doLink = await origemDoCodigoDoLink(`(cód. ${String(ref.ref).slice(0, 8)})`)
+    if (doLink) return doLink
+  }
+  return null
+}
+
+/**
  * Remove referências de tracking do texto da mensagem.
  */
 export function stripTrackingRef(text: string): string {
@@ -230,7 +262,7 @@ export function startCompletarAnuncios(): void {
 
 // ── Gravação, em qualquer caminho da mensagem ───────────────────────────────
 
-const ORIGEM_FRACA = new Set(['whatsapp', 'direct', 'organic', 'chat'])
+const ORIGEM_FRACA = new Set(['whatsapp', 'direct', 'organic', 'chat', 'instagram', 'messenger'])
 const CAMPOS_DE_ORIGEM = ['ctwaClid', 'gclid', 'fbclid', 'trackableLinkId', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm', 'campaignId', 'campaignName', 'adsetId', 'adsetName', 'adId', 'adName'] as const
 
 /**

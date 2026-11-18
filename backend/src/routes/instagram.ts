@@ -886,7 +886,7 @@ export async function instagramRoutes(app: FastifyInstance) {
     // Subscrever página aos eventos
     try {
       await fb(
-        `/${chosen.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes`,
+        `/${chosen.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes,messaging_referrals`,
         pageAccessToken,
         { method: 'POST' },
       )
@@ -945,7 +945,7 @@ export async function instagramRoutes(app: FastifyInstance) {
 
     // Subscrever a página aos eventos de messages
     try {
-      await fb(`/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes`, pageAccessToken, {
+      await fb(`/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes,messaging_referrals`, pageAccessToken, {
         method: 'POST',
       })
     } catch (err: any) {
@@ -1252,6 +1252,8 @@ async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenge
       : { instagramSenderId: contatoId }
     // Conta que recebeu: a resposta tem que sair por ela (ver contaDoLead).
     formData.instagramPageId = conn.pageId
+    // Conta IG profissional: a API de conversões de mensagem identifica a conversa por ela.
+    if (channel === 'instagram' && conn.igUserId) formData.instagramAccountId = conn.igUserId
     if (prof.username) formData.instagramUsername = prof.username
     if (prof.profilePic) formData.profilePicUrl = prof.profilePic
     // Conta com empresa definida (setor): a DM vai para o setor dela — é o que
@@ -1328,6 +1330,13 @@ async function processarEventoDM(
   const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
   // Clique em botão (postback) chega sem `message`: o título é o que a pessoa "disse".
   const msg = evt.message ?? (evt.postback ? { text: evt.postback.title || evt.postback.payload, mid: evt.postback.mid } : null)
+  // Clique em anúncio/link que só abre a conversa (evento `referral` sem
+  // mensagem): de quem já é contato grava agora; de quem ainda não é, guarda
+  // para a primeira mensagem.
+  if (!msg && evt.referral && evt.sender?.id) {
+    await guardarReferral(evt, String(evt.sender.id), channel).catch(() => {})
+    return
+  }
   // Lido, entregue, reação e afins não são mensagem: antes viravam balão vazio.
   if (!msg || msg.is_deleted || msg.is_unsupported) return
 
@@ -1353,6 +1362,22 @@ async function processarEventoDM(
 
 const emProcesso = new Set<string>()
 
+/** Referral que chegou antes da primeira mensagem, por `${canal}:${senderId}` (vale 30 min). */
+const referraisPendentes = new Map<string, { evt: any; em: number }>()
+
+async function guardarReferral(evt: any, senderId: string, channel: 'instagram' | 'messenger'): Promise<void> {
+  const uid = `${channel}:${senderId}`
+  const lead = await prisma.lead.findFirst({ where: { uid }, select: { id: true } })
+  const { origemDoReferralMeta, registrarOrigemDaConversa } = await import('../services/originDetection.js')
+  if (lead) {
+    const origem = await origemDoReferralMeta(evt, channel)
+    if (origem) await registrarOrigemDaConversa(origem, async () => lead, [0])
+    return
+  }
+  if (referraisPendentes.size > 5000) referraisPendentes.clear()
+  referraisPendentes.set(uid, { evt, em: Date.now() })
+}
+
 async function gravarRecebida(
   evt: any,
   msg: any,
@@ -1363,6 +1388,16 @@ async function gravarRecebida(
   app: FastifyInstance,
 ): Promise<void> {
   const lead = await leadDoContato(senderId, channel, conn, app)
+  // Clique em anúncio que abre o Direct/Messenger: grava a origem (primeiro
+  // toque manda; de quem já é contato só registra o toque novo).
+  {
+    const { origemDoReferralMeta, registrarOrigemDaConversa } = await import('../services/originDetection.js')
+    const guardado = referraisPendentes.get(`${channel}:${senderId}`)
+    referraisPendentes.delete(`${channel}:${senderId}`)
+    const origem = (await origemDoReferralMeta(evt, channel).catch(() => null))
+      ?? (guardado && Date.now() - guardado.em < 30 * 60_000 ? await origemDoReferralMeta(guardado.evt, channel).catch(() => null) : null)
+    if (origem) await registrarOrigemDaConversa(origem, async () => ({ id: lead.id }), [0]).catch(() => {})
+  }
   // Lista de bloqueio. Um DM não traz e-mail nem telefone, e as regras são por
   // e-mail/domínio/telefone/IP: só casa quando a ficha já tem esses dados.
   const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')

@@ -75,9 +75,12 @@ function computeValue(valueSource: string, fixedValue: number | null, saleValue:
 export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: number, hintValue?: number | null): Promise<void> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, gclid: true, saleValue: true, funnelId: true },
+    select: { id: true, gclid: true, gbraid: true, wbraid: true, saleValue: true, funnelId: true },
   }).catch(() => null)
-  if (!lead?.gclid) return // sem GCLID não há o que reportar pro Google Ads
+  // Sem identificador do clique não há o que reportar. iOS chega com gbraid/wbraid
+  // no lugar do gclid; o Google aceita só UM dos três por conversão.
+  const clique = lead?.gclid ? { gclid: lead.gclid } : lead?.gbraid ? { gbraid: lead.gbraid } : lead?.wbraid ? { wbraid: lead.wbraid } : null
+  if (!lead || !clique) return
 
   const configs = await prisma.googleAdsConfig.findMany({
     where: { active: true, autoSendConversions: true },
@@ -118,7 +121,7 @@ export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: numb
 
       const payload = {
         conversions: [{
-          gclid: lead.gclid,
+          ...clique,
           conversionAction: `customers/${config.customerId}/conversionActions/${mapping.conversionAction}`,
           conversionDateTime: new Date().toISOString().replace('T', ' ').replace('Z', '+00:00'),
           conversionValue: value,

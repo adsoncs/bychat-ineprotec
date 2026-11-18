@@ -1140,6 +1140,8 @@ model Lead {
   // Rastreamento inteligente (Fase 7)
   originType       String?   @db.VarChar(50) // trackable_link, meta_ctwa, google_ads, meta_lead_ads, organic, web_form, manual
   gclid            String?   @db.VarChar(191) // Google Click ID
+  gbraid           String?   @db.VarChar(191) // Google: clique de app iOS sem gclid
+  wbraid           String?   @db.VarChar(191) // Google: clique web → app sem gclid
   fbclid           String?   @db.VarChar(255) // Meta Click ID (fbclid) — landing/site
   ctwaClid         String?   @db.VarChar(191) // Meta Click-to-WhatsApp Click ID
   trackableLinkId  Int? // Link rastreável de origem

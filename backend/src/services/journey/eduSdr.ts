@@ -294,7 +294,7 @@ export async function resumoDoCatalogo(app: FastifyInstance): Promise<string> {
 // ── Contexto do contato ────────────────────────────────────────────────────
 
 const ORIGEM_LEGIVEL: Record<string, string> = {
-  meta_ctwa: 'anúncio do Instagram/Facebook que abre o WhatsApp', meta_lead_ads: 'formulário de anúncio no Facebook/Instagram',
+  meta_ctwa: 'anúncio do Instagram/Facebook que abre o WhatsApp', meta_ctm: 'anúncio do Instagram/Facebook que abre o Direct/Messenger', meta_lead_ads: 'formulário de anúncio no Facebook/Instagram',
   google_ads: 'anúncio no Google', web_form: 'formulário do site', web_chat: 'chat do site', organic: 'site (orgânico)',
   enrollment_portal: 'portal de matrículas', instagram: 'Instagram direto', trackable_link: 'link rastreável',
 }

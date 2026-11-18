@@ -627,6 +627,7 @@ async function notaDeEncaminhamento(leadId: number, chatbot: any, destino: strin
 // anúncio no Meta).
 const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
   meta_ctwa: 'clicou num anúncio do Instagram/Facebook que abre direto o WhatsApp',
+  meta_ctm: 'clicou num anúncio do Instagram/Facebook que abre direto o Direct/Messenger',
   meta_lead_ads: 'preencheu um formulário de um anúncio no Facebook/Instagram',
   google_ads: 'clicou num anúncio no Google',
   web_form: 'preencheu um formulário no nosso site',

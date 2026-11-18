@@ -168,6 +168,7 @@ const BRANCH_FIELD_OPTIONS = [
 // (e, por retro-compatibilidade, `source`) que a condição `source_is` compara.
 const SOURCE_OPTIONS = [
   { value: 'meta_ctwa', label: 'Meta Ads — Click to WhatsApp' },
+  { value: 'meta_ctm', label: 'Meta Ads — Direct/Messenger' },
   { value: 'meta_lead_ads', label: 'Meta Lead Ads' },
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'trackable_link', label: 'Link rastreável' },

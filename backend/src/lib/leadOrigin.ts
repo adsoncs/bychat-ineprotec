@@ -12,6 +12,7 @@
 export const ORIGIN_TYPES = [
   'trackable_link',   // clicou em link encurtado do sistema e foi p/ canal
   'meta_ctwa',        // Click-to-WhatsApp Ad (Meta Ads → WhatsApp)
+  'meta_ctm',         // Click-to-Message Ad (Meta Ads → Direct do Instagram / Messenger)
   'google_ads',       // veio com gclid ou utm_source=google/google_ads
   'meta_lead_ads',    // formulário interno do Facebook (Lead Ads)
   'web_form',         // formulário do site/landing page/portal

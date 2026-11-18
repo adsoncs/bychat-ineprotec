@@ -380,7 +380,7 @@ export async function reportsRoutes(app: FastifyInstance) {
 
     // Tabela header
     const originLabels: Record<string, string> = {
-      trackable_link: 'Links Rastreáveis', meta_ctwa: 'Meta Ads (CTWA)',
+      trackable_link: 'Links Rastreáveis', meta_ctwa: 'Meta Ads (CTWA)', meta_ctm: 'Meta Ads (Direct/Messenger)',
       google_ads: 'Google Ads', meta_lead_ads: 'Meta Ads',
       organic: 'Orgânico', web_form: 'Formulário Web',
       whatsapp: 'WhatsApp', instagram: 'Instagram Direct', telegram: 'Telegram',

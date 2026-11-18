@@ -131,19 +131,19 @@ export function rotaDaOpcao(fields: any[], data: Record<string, any>): RotaDaOpc
 // ── Tracking (UTMs / click-ids) ───────────────────────────────────────────────
 // Parâmetros de campanha com coluna dedicada no lead → nome do parâmetro na URL.
 type TrackKey =
-  | 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'utmTerm' | 'utmId' | 'fbclid' | 'gclid'
+  | 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'utmTerm' | 'utmId' | 'fbclid' | 'gclid' | 'gbraid' | 'wbraid'
   // Google Ads ValueTrack (o cliente configura o tracking template com estes params na URL final).
   | 'googleCampaignId' | 'googleAdGroupId' | 'googleAdId' | 'googleKeyword' | 'googleMatchType' | 'googleNetwork' | 'googleDevice'
 const TRACK_PARAM: Record<TrackKey, string> = {
   utmSource: 'utm_source', utmMedium: 'utm_medium', utmCampaign: 'utm_campaign',
-  utmContent: 'utm_content', utmTerm: 'utm_term', utmId: 'utm_id', fbclid: 'fbclid', gclid: 'gclid',
+  utmContent: 'utm_content', utmTerm: 'utm_term', utmId: 'utm_id', fbclid: 'fbclid', gclid: 'gclid', gbraid: 'gbraid', wbraid: 'wbraid',
   googleCampaignId: 'gad_campaignid', googleAdGroupId: 'gad_adgroupid', googleAdId: 'gad_creative',
   googleKeyword: 'gad_keyword', googleMatchType: 'gad_matchtype', googleNetwork: 'gad_network', googleDevice: 'gad_device',
 }
 const TRACK_KEYS = Object.keys(TRACK_PARAM) as TrackKey[]
 // Limite de cada coluna (VarChar) — trunca por segurança.
 const TRACK_MAXLEN: Partial<Record<TrackKey, number>> = {
-  utmSource: 100, utmMedium: 100, fbclid: 255,
+  utmSource: 100, utmMedium: 100, fbclid: 255, gbraid: 191, wbraid: 191,
   googleCampaignId: 191, googleAdGroupId: 191, googleAdId: 191,
   googleKeyword: 255, googleMatchType: 30, googleNetwork: 30, googleDevice: 30,
 }
@@ -273,8 +273,8 @@ export async function createLeadFromForm(
   }
 
   const originType = isWhats
-    ? ((body?.originType as any) || deriveLeadOrigin({ source: 'whatsapp', channel: 'whatsapp', utmSource: trk.utmSource, gclid: trk.gclid, ctwaClid: body?.ctwaClid || null, trackableLinkId: null }))
-    : deriveLeadOrigin({ source: leadSource, qualificationSource: isSchedulingForm ? 'scheduling' : 'form', utmSource: trk.utmSource, gclid: trk.gclid, ctwaClid: body.ctwaClid || null, trackableLinkId: null })
+    ? ((body?.originType as any) || deriveLeadOrigin({ source: 'whatsapp', channel: 'whatsapp', utmSource: trk.utmSource, gclid: trk.gclid || trk.gbraid || trk.wbraid, ctwaClid: body?.ctwaClid || null, trackableLinkId: null }))
+    : deriveLeadOrigin({ source: leadSource, qualificationSource: isSchedulingForm ? 'scheduling' : 'form', utmSource: trk.utmSource, gclid: trk.gclid || trk.gbraid || trk.wbraid, ctwaClid: body.ctwaClid || null, trackableLinkId: null })
 
   const newLead = await prisma.lead.create({
     data: {
@@ -302,6 +302,8 @@ export async function createLeadFromForm(
       utmSource: trk.utmSource, utmMedium: trk.utmMedium, utmCampaign: trk.utmCampaign,
       utmContent: trk.utmContent, utmTerm: trk.utmTerm, utmId: trk.utmId,
       ...(trk.gclid ? { gclid: String(trk.gclid).slice(0, 191) } : {}),
+      ...(trk.gbraid ? { gbraid: trk.gbraid } : {}),
+      ...(trk.wbraid ? { wbraid: trk.wbraid } : {}),
       ...(trk.fbclid ? { fbclid: trk.fbclid } : {}),
       ...(body.ctwaClid ? { ctwaClid: String(body.ctwaClid).slice(0, 191) } : {}),
       // Google Ads ValueTrack (IDs + keyword da URL). Os NOMES vêm depois no

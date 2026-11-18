@@ -1112,6 +1112,8 @@ function generateEmbedScript(
     : ''
 
   return `(function(){
+  ${ORIGEM_JS}
+  try{__atrOrigem()}catch(ex){}
   if(customElements.get('lead-form'))return;
 
   class LeadForm extends HTMLElement {
@@ -1219,16 +1221,7 @@ function generateEmbedScript(
         btn.disabled=true;btn.textContent='Enviando...';
         var payload={data:data,lgpdConsent:!!(lg&&lg.checked)};
         try{if(window.BT&&BT.getVisitorId)payload.bt_vid=BT.getVisitorId()}catch(ex){}
-        try{var sp=new URL(location.href).searchParams;
-          if(sp.get('utm_source'))payload.utmSource=sp.get('utm_source');
-          if(sp.get('utm_medium'))payload.utmMedium=sp.get('utm_medium');
-          if(sp.get('utm_campaign'))payload.utmCampaign=sp.get('utm_campaign');
-          if(sp.get('utm_content'))payload.utmContent=sp.get('utm_content');
-          if(sp.get('utm_term'))payload.utmTerm=sp.get('utm_term');
-          if(sp.get('utm_id'))payload.utmId=sp.get('utm_id');
-          if(sp.get('gclid'))payload.gclid=sp.get('gclid');
-          if(sp.get('fbclid'))payload.fbclid=sp.get('fbclid');
-        }catch(ex){}
+        try{var og=__atrOrigem();for(var ok in og)payload[ok]=og[ok];}catch(ex){}
         payload.referrer=document.referrer||'';
 
         fetch('${baseUrl}/api/forms/submit/'+fid,{
@@ -1402,7 +1395,8 @@ var idx=(CFG.welcomeEnabled?-1:0);var consentGiven=false;
 function nextLabel(last,isStmt){if(idx===0&&!CFG.welcomeEnabled&&CFG.startButtonText)return CFG.startButtonText;return isStmt?'Continuar':(last?CFG.submitText:CFG.navButtonText);}
 try{if(window.fbq)fbq('track','PageView');}catch(ex){}
 render();
-function capture(){var o={};try{var sp=new URL(location.href).searchParams;['utm_source','utm_medium','utm_campaign','utm_content','utm_term','utm_id'].forEach(function(k){if(sp.get(k))o[k]=sp.get(k);});if(sp.get('gclid'))o.gclid=sp.get('gclid');if(sp.get('fbclid'))o.fbclid=sp.get('fbclid');var c=sp.get('ctwa_clid')||sp.get('ctwaClid');if(c)o.ctwaClid=c;}catch(ex){}try{if(window.BT&&BT.getVisitorId)o.bt_vid=BT.getVisitorId();}catch(ex){}o.referrer=document.referrer||'';return o;}
+${ORIGEM_JS}
+function capture(){var o={};try{var og=__atrOrigem(),R={utmSource:'utm_source',utmMedium:'utm_medium',utmCampaign:'utm_campaign',utmContent:'utm_content',utmTerm:'utm_term',utmId:'utm_id'};for(var k in og)o[R[k]||k]=og[k];}catch(ex){}try{var sp=new URL(location.href).searchParams;var c=sp.get('ctwaClid');if(c&&!o.ctwaClid)o.ctwaClid=c;}catch(ex){}try{if(window.BT&&BT.getVisitorId)o.bt_vid=BT.getVisitorId();}catch(ex){}o.referrer=document.referrer||'';return o;}
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setBar(p){if(bar)bar.style.width=p+'%';}
 function render(){if(idx<0){renderWelcome();return;}if(idx>=FIELDS.length)return;var f=FIELDS[idx];/* LGPD: aceite ANTES de coletar qualquer dado. statement e' so' apresentacao, entao a tela de consentimento entra logo depois dele e antes da primeira pergunta. */if(!consentGiven&&f.type!=='statement'){renderConsent();return;}renderStep(f);}
@@ -1447,12 +1441,19 @@ function renderSuccess(overrideHtml){setBar(100);var h='<div class="screen cente
 /** Código do iframe: repassa as UTMs/gclid da página do site para dentro do
  *  formulário (senão a origem do lead se perde no quadro) e, no modo clássico,
  *  ajusta a altura ao conteúdo (a página avisa por postMessage). */
+// ── Memória da origem ────────────────────────────────────────────────────────
+// A UTM/gclid só vem na URL da página de entrada. Quem chega pelo anúncio e
+// navega até a página do formulário chegava sem nada. O script guarda os
+// parâmetros (30 dias, no navegador do visitante, no domínio do site) e usa
+// os guardados quando a página atual não tem nenhum. A URL atual sempre vence.
+const ORIGEM_JS = "function __atrOrigem(){var M={utm_source:'utmSource',utm_medium:'utmMedium',utm_campaign:'utmCampaign',utm_content:'utmContent',utm_term:'utmTerm',utm_id:'utmId',gclid:'gclid',gbraid:'gbraid',wbraid:'wbraid',fbclid:'fbclid',ctwa_clid:'ctwaClid',gad_campaignid:'googleCampaignId',gad_adgroupid:'googleAdGroupId',gad_creative:'googleAdId',gad_keyword:'googleKeyword',gad_matchtype:'googleMatchType',gad_network:'googleNetwork',gad_device:'googleDevice'};var o={},tem=false;try{var sp=new URL(location.href).searchParams;for(var k in M){var v=sp.get(k);if(v){o[M[k]]=v;tem=true}}}catch(e){}var S='attrae_origem';try{if(tem)localStorage.setItem(S,JSON.stringify({t:Date.now(),p:o}));else{var g=JSON.parse(localStorage.getItem(S)||'null');if(g&&g.p&&Date.now()-g.t<2592e6)o=g.p}}catch(e){}return o}"
+
 export function iframeDoFormulario(id: number | string, hostedUrl: string, displayMode: string): string {
   const fid = String(id).replace(/[^\w-]/g, '')
   const altura = displayMode === 'conversational' ? 'min-height:520px' : 'height:640px'
   return `<!-- Formulário ${fid} -->
 <iframe id="bf-frame-${fid}" src="${hostedUrl}?embed=1" style="width:100%;${altura};border:0" loading="lazy" title="Formulário"></iframe>
-<script>(function(){var f=document.getElementById('bf-frame-${fid}');if(!f)return;try{var q=location.search.replace(/^\\?/,'');if(q)f.src=f.src+'&'+q;}catch(e){}window.addEventListener('message',function(e){var d=e.data;if(d&&d.bfFormId==='${fid}'&&d.bfFormHeight>0)f.style.height=Math.ceil(d.bfFormHeight)+'px';});})();</script>`
+<script>(function(){var f=document.getElementById('bf-frame-${fid}');if(!f)return;${ORIGEM_JS};try{var q=location.search.replace(/^\\?/,'');if(!/(utm_|gclid|gbraid|wbraid|fbclid)/.test(q)){var og=__atrOrigem(),R={utmSource:'utm_source',utmMedium:'utm_medium',utmCampaign:'utm_campaign',utmContent:'utm_content',utmTerm:'utm_term',utmId:'utm_id',ctwaClid:'ctwa_clid',googleCampaignId:'gad_campaignid',googleAdGroupId:'gad_adgroupid',googleAdId:'gad_creative',googleKeyword:'gad_keyword',googleMatchType:'gad_matchtype',googleNetwork:'gad_network',googleDevice:'gad_device'},p=[];for(var k in og)p.push(encodeURIComponent(R[k]||k)+'='+encodeURIComponent(og[k]));if(p.length)q=(q?q+'&':'')+p.join('&');}if(q)f.src=f.src+'&'+q;}catch(e){}window.addEventListener('message',function(e){var d=e.data;if(d&&d.bfFormId==='${fid}'&&d.bfFormHeight>0)f.style.height=Math.ceil(d.bfFormHeight)+'px';});})();</script>`
 }
 
 /** Link direto no modo clássico: página com o mesmo web component do embed.

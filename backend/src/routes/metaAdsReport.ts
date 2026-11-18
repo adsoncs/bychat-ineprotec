@@ -270,7 +270,7 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // separadas. Somar tudo numa coluna "Leads" era o que fazia a campanha de
     // WhatsApp não bater com a Meta (fabad, 16/11).
     const tipoDoLead = (o: string | null | undefined): 'form' | 'whatsapp' | 'site' =>
-      o === 'meta_lead_ads' ? 'form' : o === 'meta_ctwa' ? 'whatsapp' : 'site'
+      o === 'meta_lead_ads' ? 'form' : (o === 'meta_ctwa' || o === 'meta_ctm') ? 'whatsapp' : 'site'
     const q = req.query as any
     // Janelas com timezone Brasil explícito (-03:00). Sem isso, "01/05" interpretado
     // como UTC midnight some no fuso local; "23:59:59" sem TZ depende do fuso do
@@ -512,14 +512,14 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     const whatsappRecebidas: Record<string, number> = {}
     let whatsappRegistradoDesde: string | null = null
     try {
-      const tpWhere: any = { channel: 'meta_ctwa', campaignId: campaignId ? campaignId : { not: null }, createdAt: { gte: dateFrom, lte: dateTo } }
+      const tpWhere: any = { channel: { in: ['meta_ctwa', 'meta_ctm'] }, campaignId: campaignId ? campaignId : { not: null }, createdAt: { gte: dateFrom, lte: dateTo } }
       if (funnelId) {
         const doFunil = await prisma.lead.findMany({ where: { funnelEntradaId: funnelId }, select: { id: true } })
         tpWhere.leadId = { in: doFunil.map((l) => l.id) }
       }
       const tps = await prisma.leadTouchpoint.groupBy({ by: ['campaignId'], where: tpWhere, _count: { _all: true } })
       for (const t of tps) if (t.campaignId) whatsappRecebidas[t.campaignId] = t._count._all
-      const primeiro = await prisma.leadTouchpoint.findFirst({ where: { channel: 'meta_ctwa' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })
+      const primeiro = await prisma.leadTouchpoint.findFirst({ where: { channel: { in: ['meta_ctwa', 'meta_ctm'] } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })
       whatsappRegistradoDesde = primeiro ? toBrazilDay(primeiro.createdAt) : null
     } catch (e: any) {
       app.log.warn(`[Meta dashboard] conversas recebidas: ${e.message}`)

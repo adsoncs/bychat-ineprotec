@@ -99,7 +99,7 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
       cidade: true, customFields: true,
       campaignId: true, ctwaClid: true, gclid: true,
       originType: true, utmSource: true, utmMedium: true, utmCampaign: true,
-      priorityScore: true,
+      priorityScore: true, cloudApiConnectionId: true, uid: true, formData: true,
     }
   })
   if (!lead) {
@@ -166,6 +166,18 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
     custom_data: customData,
   }
 
+  // Conversa que veio de anúncio de mensagem: a Meta só liga a venda ao anúncio
+  // quando o evento vai como business_messaging, com o id do clique (WhatsApp)
+  // ou o id da pessoa na Página/conta (Messenger/Instagram). Se a Meta recusar
+  // (dataset não ligado à WABA/Página), o mesmo evento segue como antes.
+  const original = { ...event }
+  const bm = await camposDeMensagem(lead).catch(() => null)
+  if (bm) {
+    event.action_source = 'business_messaging'
+    event.messaging_channel = bm.canal
+    event.user_data = { ...userData, ...bm.userData }
+  }
+
   // Payload
   const payload: Record<string, any> = {
     data: [event],
@@ -197,13 +209,19 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
   // Enviar para Meta
   try {
     const url = `https://graph.facebook.com/v24.0/${config.pixelId}/events?access_token=${config.accessToken}`
-    const resp = await fetch(url, {
+    let resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
 
-    const result = await resp.json() as any
+    let result = await resp.json() as any
+    if (!resp.ok && bm) {
+      console.warn(`[CAPI] business_messaging recusado (lead ${lead.id}): ${result?.error?.message || resp.status} — reenviando como system_generated`)
+      payload.data = [original]
+      resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      result = await resp.json() as any
+    }
 
     if (resp.ok) {
       await prisma.conversionEvent.update({
@@ -239,6 +257,29 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
     })
     return { success: false, eventId, error: err.message }
   }
+}
+
+/**
+ * Dados do evento de mensagem (Conversions API for Business Messaging), só para
+ * conversa que veio de anúncio:
+ *  - WhatsApp: ctwa_clid + WABA da conexão Cloud API (Evolution não tem WABA).
+ *  - Messenger: page_id + page_scoped_user_id; Instagram: ig_account_id + ig_sid.
+ */
+async function camposDeMensagem(lead: { ctwaClid: string | null; cloudApiConnectionId: number | null; uid: string | null; originType: string | null; formData: unknown }):
+  Promise<{ canal: 'whatsapp' | 'messenger' | 'instagram'; userData: Record<string, string> } | null> {
+  if (lead.ctwaClid && lead.cloudApiConnectionId) {
+    const c = await prisma.cloudApiConnection.findUnique({ where: { id: lead.cloudApiConnectionId }, select: { wabaId: true } })
+    if (c?.wabaId) return { canal: 'whatsapp', userData: { whatsapp_business_account_id: c.wabaId, ctwa_clid: lead.ctwaClid } }
+  }
+  if (lead.originType === 'meta_ctm' && lead.uid) {
+    const [canal, contato] = lead.uid.split(':')
+    const fd = (lead.formData ?? {}) as Record<string, any>
+    const conta = String(fd.instagramPageId || '')
+    if (!contato || !conta) return null
+    if (canal === 'messenger') return { canal: 'messenger', userData: { page_id: conta, page_scoped_user_id: contato } }
+    if (canal === 'instagram' && fd.instagramAccountId) return { canal: 'instagram', userData: { ig_account_id: String(fd.instagramAccountId), ig_sid: contato } }
+  }
+  return null
 }
 
 // ── Envio ad-hoc sem Lead (clique em trackable link) ──

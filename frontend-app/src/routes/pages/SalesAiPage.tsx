@@ -33,6 +33,7 @@ const ORIGIN_LABELS: Record<string, string> = {
   trackable_link: 'Link Rastreável',
   db_connector: 'Banco de Dados',
   meta_ctwa: 'Meta Ads (CTWA)',
+  meta_ctm: 'Meta Ads (Direct/Messenger)',
   google_ads: 'Google Ads',
   meta_lead_ads: 'Meta Lead Ads',
   organic: 'Orgânico',
@@ -45,6 +46,7 @@ const ORIGIN_LABELS: Record<string, string> = {
 const ORIGIN_COLORS: Record<string, string> = {
   trackable_link: '#ff9800',
   meta_ctwa: '#1877f2',
+  meta_ctm: '#c13584',
   google_ads: '#34a853',
   meta_lead_ads: '#e91e63',
   organic: '#9e9e9e',
