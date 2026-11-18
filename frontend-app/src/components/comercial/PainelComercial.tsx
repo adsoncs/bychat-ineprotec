@@ -155,7 +155,7 @@ export function PainelComercial({ portalId }: { portalId?: number }) {
                   <tbody class="divide-y divide-border">
                     {data.vendasDoMes.map((v) => (
                       <tr key={v.negotiationId}>
-                        <td class="py-1.5">{v.leadId ? <Link href={`/app/leads/${v.leadId}`} class="text-info hover:underline">{v.nome || `#${v.leadId}`}</Link> : v.nome}</td>
+                        <td class="py-1.5">{v.leadId ? <Link href={`/leads/${v.leadId}`} class="text-info hover:underline">{v.nome || `#${v.leadId}`}</Link> : v.nome}</td>
                         <td class="font-mono">{v.codigo}</td><td>{v.curso}</td><td>{v.polo ?? '—'}</td><td>{v.vendedor ?? '—'}</td>
                         <td class="text-right">{brl(v.valor)}</td>
                         <td class="text-right">{v.comissao != null ? <>{brl(v.comissao)} <span class="text-fg-muted">({v.comissaoStatus})</span></> : '—'}</td>

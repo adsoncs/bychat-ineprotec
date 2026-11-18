@@ -141,7 +141,7 @@ export function CompararFichasModal({ a, b, onClose, onDone }: { a: number; b: n
                 <div class="flex items-center gap-2">
                   <input type="radio" name="fica" checked={fica === f.id} onChange={() => setFica(f.id)} />
                   <span class="font-medium text-sm truncate">{f.nome || `Ficha #${f.id}`}</span>
-                  <Link href={`/app/leads/${f.id}`} class="ml-auto text-xs text-info inline-flex items-center gap-1">#{f.id} <ExternalLink size={11} /></Link>
+                  <Link href={`/leads/${f.id}`} class="ml-auto text-xs text-info inline-flex items-center gap-1">#{f.id} <ExternalLink size={11} /></Link>
                 </div>
                 {fica === f.id && <div class="text-3xs text-info">Esta ficha fica; a outra é juntada nela.</div>}
                 <div class="text-xs grid grid-cols-[7rem_1fr] gap-x-2 gap-y-0.5">

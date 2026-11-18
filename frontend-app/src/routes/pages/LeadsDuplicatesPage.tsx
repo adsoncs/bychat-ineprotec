@@ -229,7 +229,7 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
           <span class="text-sm font-semibold text-fg">Grupo de {group.totalLeads} leads</span>
           <span class="text-xs text-fg-muted">
             Master inicial:{' '}
-            <Link href={`/app/leads/${group.master.id}`} class="text-info hover:underline">
+            <Link href={`/leads/${group.master.id}`} class="text-info hover:underline">
               #{group.master.id}{group.master.uid ? ` (${group.master.uid})` : ''} — {group.master.nome || group.master.empresa || '(sem nome)'}
             </Link>
           </span>
@@ -347,7 +347,7 @@ function DuplicateLeadRow({
       </td>
       <td class="px-3 py-2 max-w-[18rem]">
         <div class="flex items-center gap-2 flex-wrap">
-          <Link href={`/app/leads/${lead.id}`} class="text-fg hover:text-info hover:underline font-medium truncate">
+          <Link href={`/leads/${lead.id}`} class="text-fg hover:text-info hover:underline font-medium truncate">
             {lead.nome || lead.empresa || `Lead #${lead.id}`}
           </Link>
           {isMaster && <Badge tone="info">Master</Badge>}
@@ -392,7 +392,7 @@ function DuplicateLeadRow({
         {onCompare && (
           <Button size="sm" variant="secondary" class="mr-2" onClick={onCompare}>Comparar</Button>
         )}
-        <Link href={`/app/leads/${lead.id}`} class="inline-flex items-center gap-1 text-xs text-info hover:underline">
+        <Link href={`/leads/${lead.id}`} class="inline-flex items-center gap-1 text-xs text-info hover:underline">
           Abrir <ExternalLink size={11} />
         </Link>
       </td>

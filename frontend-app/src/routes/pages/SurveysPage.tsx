@@ -86,7 +86,7 @@ export function SurveysPage() {
                 <Button size="sm" variant="ghost" onClick={() => setDispatching(s)} disabled={!s.flowId}>
                   <Send size={14} /> Disparar
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => navigate(`/app/surveys/${s.id}`)}>
+                <Button size="sm" variant="secondary" onClick={() => navigate(`/surveys/${s.id}`)}>
                   <BarChart3 size={14} /> Resultados
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setRemoving(s)} aria-label="Remover">

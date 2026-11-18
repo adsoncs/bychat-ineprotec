@@ -705,7 +705,7 @@ function AbaPortais({ portais }: { portais: Array<{ id: number; nome: string; sl
               {portais.map((p) => (
                 <tr key={p.id} class="border-t border-border">
                   <td class="py-2.5 pr-3">
-                    <Link href={`/app/enrollment-portals/${p.id}`} class="text-fg hover:text-accent">{p.nome}</Link>
+                    <Link href={`/enrollment-portals/${p.id}`} class="text-fg hover:text-accent">{p.nome}</Link>
                     <div class="text-2xs text-fg-muted">/portal/{p.slug}{p.active ? '' : ' · desativado'}</div>
                   </td>
                   <LinhaDeChaves portalId={p.id} />

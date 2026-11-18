@@ -20,7 +20,7 @@ export function ComercialInscricaoCard({ registrationId }: { registrationId: num
         <span>
           {p ? (
             <>
-              <Link href={`/app/leads/${p.leadId}`} class="text-info hover:underline">{p.titulo}</Link>{' '}
+              <Link href={`/leads/${p.leadId}`} class="text-info hover:underline">{p.titulo}</Link>{' '}
               <Badge tone={p.resultado === 'won' ? 'success' : p.resultado === 'lost' ? 'danger' : 'info'}>{p.resultado === 'won' ? 'ganha' : p.resultado === 'lost' ? 'perdida' : 'aberta'}</Badge>
               <div class="text-fg-muted">{brl(p.valorFinal)}{p.fechadaEm ? ` · ${new Date(p.fechadaEm).toLocaleDateString('pt-BR')}` : ''}{p.origem === 'portal' ? ' · gerada pela inscrição' : ''}</div>
             </>

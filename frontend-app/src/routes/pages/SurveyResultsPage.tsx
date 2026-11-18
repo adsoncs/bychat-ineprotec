@@ -71,7 +71,7 @@ export function SurveyResultsPage({ params }: { params: { id: string } }) {
       description={data.survey.description ?? 'Resultados da pesquisa'}
       actions={
         <>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/app/surveys')}>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/surveys')}>
             <ArrowLeft size={14} /> Pesquisas
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setAsTable((v) => !v)}>

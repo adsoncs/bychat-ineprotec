@@ -32,7 +32,7 @@ export function MesmaPessoaAviso({ leadId, formData }: { leadId: number; formDat
             <strong class="text-info">Mesma pessoa em {fichas.length === 1 ? 'outra ficha' : `${fichas.length} outras fichas`}</strong>
             {fichas.map((f) => (
               <div key={f.id} class="text-xs">
-                <Link href={`/app/leads/${f.id}`} class="text-info hover:underline">#{f.id} {f.nome || ''}</Link>
+                <Link href={`/leads/${f.id}`} class="text-info hover:underline">#{f.id} {f.nome || ''}</Link>
                 <span class="text-muted"> — {f.funil || 'sem funil'}{f.etapa ? ` › ${f.etapa}` : ''}{f.equipe ? `, ${f.equipe}` : ''}{f.responsavel ? `, com ${f.responsavel}` : ''}</span>
               </div>
             ))}

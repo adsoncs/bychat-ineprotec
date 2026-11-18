@@ -47,7 +47,7 @@ export function ChavesDeHeranca({ portalId, compacto }: { portalId: number; comp
           onChange={(v) => mudar(s.chave, v)} />
       ))}
       <div class="text-2xs text-fg-muted">
-        Edite os valores em <Link href="/app/educational/configuracoes" class="text-accent hover:underline">Educacional › Configurações Gerais</Link>.
+        Edite os valores em <Link href="/educational/configuracoes" class="text-accent hover:underline">Educacional › Configurações Gerais</Link>.
       </div>
     </div>
   )
