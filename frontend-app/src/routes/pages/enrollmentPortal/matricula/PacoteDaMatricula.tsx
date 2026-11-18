@@ -13,12 +13,14 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { useCan } from '@/hooks/usePermissions'
 import { invalidarInscricao } from './Dispensa'
+import { AlertTriangle, Users } from '@/components/ui/icon-set'
 
 interface Membro { id: number; codigo: string; curso: string; valorCentavos: number; pago: boolean; status: string | null }
 type Pacote =
   | { papel: 'principal'; codigo: string; curso: string; valorProprioCentavos: number; totalCentavos: number; membros: Membro[] }
   | { papel: 'membro'; codigo: string; principalId: number; principalPortalId: number | null; principalCodigo: string; principalCurso: string; valorCentavos: number; totalCentavos: number | null; pago: boolean }
-interface Resposta { pacote: Pacote | null; candidatas: Array<{ id: number; codigo: string; curso: string; impedimento: string | null }> }
+interface Resposta { pacote: Pacote | null; candidatas: Array<{ id: number; codigo: string; curso: string; mesmaFicha?: boolean; impedimento: string | null }> }
+interface Outra { id: number; codigo: string; curso: string; portalId: number; portal: string | null; mesmaFicha: boolean; noMesmoPacote: boolean; pago: boolean; status: string; impedimento: string | null }
 
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const centavos = (s: string) => { const n = Number(String(s).replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : 0 }
@@ -153,7 +155,7 @@ export function PacoteDaMatricula({ registrationId, fechada }: { registrationId:
           <div class="grid sm:grid-cols-3 gap-3">
             <Select label="Curso a adicionar" value={membroId} onChange={(e: any) => setMembroId(e.currentTarget.value)}>
               <option value="">Escolha…</option>
-              {candidatas.map((c) => <option key={c.id} value={c.id} disabled={!!c.impedimento}>{c.curso} — {c.codigo}{c.impedimento ? ` (${c.impedimento})` : ''}</option>)}
+              {candidatas.map((c) => <option key={c.id} value={c.id} disabled={!!c.impedimento}>{c.curso} — {c.codigo}{c.mesmaFicha === false ? ' · outra ficha, mesmo CPF' : ''}{c.impedimento ? ` (${c.impedimento})` : ''}</option>)}
             </Select>
             <Input label={principal ? 'Parte deste curso (opcional)' : 'Parte deste curso (R$)'} placeholder={principal ? brl(valorPrincipalAtual) : '0,00'} value={valorEste} onInput={(e: any) => setValorEste(e.currentTarget.value)} />
             <Input label="Parte do curso adicionado (R$)" placeholder="0,00" value={valorOutro} onInput={(e: any) => setValorOutro(e.currentTarget.value)} />
@@ -171,5 +173,53 @@ export function PacoteDaMatricula({ registrationId, fechada }: { registrationId:
         confirmLabel="Adicionar" onConfirm={() => adicionar.mutate()} onOpenChange={(v: boolean) => { if (!v) setConfirmar(false) }}
       />
     </Card>
+  )
+}
+
+/**
+ * Aviso no topo da inscrição (todas as abas): a mesma pessoa tem outra
+ * inscrição ativa, na mesma ficha ou em outra ficha com o mesmo CPF. Evita
+ * cobrar um combo em separado ou atender a mesma pessoa em duas fichas.
+ */
+export function AvisoMesmaPessoa({ registrationId }: { registrationId: number }) {
+  const [, navigate] = useLocation()
+  const q = useQuery({
+    queryKey: ['mi-mesma-pessoa', registrationId],
+    queryFn: () => api.get<{ outras: Outra[] }>(`/admin/matricula-interna/${registrationId}/mesma-pessoa`),
+    staleTime: 30_000,
+  })
+  const outras = q.data?.outras ?? []
+  if (!outras.length) return null
+  const soPacote = outras.every((o) => o.noMesmoPacote)
+  const outraFicha = outras.some((o) => !o.mesmaFicha)
+  const soltas = outras.some((o) => !o.noMesmoPacote && !o.pago && !o.impedimento)
+  const n = outras.length
+  return (
+    <div role="alert" class={`rounded-md border px-3 py-2.5 text-sm ${soPacote ? 'border-accent/40 bg-accent/5' : 'border-warning/60 bg-warning/10'}`}>
+      <div class="flex items-center gap-2 font-semibold">
+        {soPacote ? <Users size={15} /> : <AlertTriangle size={15} class="text-warning" />}
+        {soPacote
+          ? `Esta inscrição faz parte de um pacote com ${n} outro${n > 1 ? 's' : ''} curso${n > 1 ? 's' : ''}`
+          : `Atenção: este aluno tem ${n === 1 ? 'outra inscrição' : `outras ${n} inscrições`}${outraFicha ? ' (com o mesmo CPF)' : ''}`}
+      </div>
+      <ul class="mt-1.5 grid gap-1">
+        {outras.map((o) => (
+          <li key={o.id} class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <button type="button" class="font-mono text-accent hover:underline" onClick={() => navigate(`/enrollment-portals/${o.portalId}/registrations/${o.id}`)}>{o.codigo}</button>
+            <span>{o.curso}</span>
+            {o.portal && <span class="text-fg-muted text-xs">· {o.portal}</span>}
+            {!o.mesmaFicha && <Badge tone="danger">Outra ficha</Badge>}
+            {o.noMesmoPacote ? <Badge tone="info">No mesmo pacote</Badge> : o.pago ? <Badge tone="success">Paga</Badge> : o.impedimento ? <Badge tone="warning">{o.impedimento}</Badge> : <Badge tone="neutral">Sem cobrança</Badge>}
+          </li>
+        ))}
+      </ul>
+      {!soPacote && (
+        <div class="mt-1.5 text-xs text-fg-muted grid gap-0.5">
+          {soltas && <div><strong class="text-fg">É combo?</strong> Monte o pacote na aba Financeiro da inscrição principal <strong class="text-fg">antes</strong> de gerar qualquer cobrança.</div>}
+          {outraFicha && <div><strong class="text-fg">Mesma pessoa em duas fichas.</strong> Confira se é o mesmo aluno; se for, junte as fichas em CRM › Duplicados para o atendimento ficar num lugar só.</div>}
+          {!soltas && !outraFicha && <div>Confira se não é a mesma matrícula feita duas vezes antes de cobrar.</div>}
+        </div>
+      )}
+    </div>
   )
 }

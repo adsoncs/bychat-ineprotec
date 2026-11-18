@@ -9,6 +9,7 @@ import { BotaoDispensa, SeloDispensa, invalidarInscricao } from './enrollmentPor
 import { SenhaDoPortal } from './enrollmentPortal/matricula/SenhaDoPortal'
 import { chamarComoAgente } from './enrollmentPortal/matricula/sessao'
 import { AvisoDeTransferencia, BotaoTransferirCurso } from './enrollmentPortal/matricula/TransferirCurso'
+import { AvisoMesmaPessoa } from './enrollmentPortal/matricula/PacoteDaMatricula'
 import { useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
@@ -188,6 +189,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           )}
           <FaixaDaInscricao portalId={review.portal?.id ?? portalId} polo={typeof (review.registration.formData as any)?.campusNome === 'string' ? (review.registration.formData as any).campusNome : null} />
           <AvisoDeTransferencia registrationId={review.registration.id} />
+          <AvisoMesmaPessoa registrationId={review.registration.id} />
           <StatusBanner review={review} aoAbrirEtapa={(chave) => setAba(abaDaEtapa(chave))} />
           <AbasDaMatricula aba={aba} aoMudar={setAba} etapas={todasAsEtapas} temAvaliacao={temAvaliacao} />
 

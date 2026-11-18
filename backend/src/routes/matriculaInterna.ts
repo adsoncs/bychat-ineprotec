@@ -378,6 +378,13 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     const p = await pacote()
     return { pacote: await p.resumoDoPacote(reg.id), candidatas: await p.candidatasAoPacote(reg.id) }
   })
+  // Aviso do topo: outras inscrições da mesma pessoa (mesma ficha ou mesmo CPF). Só leitura, para quem vê a inscrição.
+  app.get('/api/admin/matricula-interna/:id/mesma-pessoa', { preHandler: guardTela('login') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    reply.header('cache-control', 'no-store')
+    return { outras: await (await pacote()).outrasDaPessoa(reg.id) }
+  })
   app.post('/api/admin/matricula-interna/:id/pacote', { preHandler: guardTela('admin') }, async (req, reply) => {
     const reg = await inscricaoDa(req, reply)
     if (!reg) return

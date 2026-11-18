@@ -172,18 +172,41 @@ export async function resumoDoPacote(registrationId: number) {
   return { papel: 'membro' as const, codigo: r.candidateCode, principalId: p.principalId, principalPortalId: pri?.portalId ?? null, principalCodigo: p.principalCodigo, principalCurso: p.principalCurso, valorCentavos: p.valorCentavos, totalCentavos: total, pago: r.paymentStatus === 'paid' }
 }
 
-/** Outras inscrições da mesma pessoa que podem entrar no pacote desta. */
-export async function candidatasAoPacote(registrationId: number) {
-  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { leadId: true } })
-  if (!r?.leadId) return []
+const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '')
+
+/**
+ * Outras inscrições ativas da MESMA PESSOA: na mesma ficha ou em outra ficha
+ * com o mesmo CPF (só CPF: telefone e e-mail se repetem entre parentes).
+ * Alimenta o aviso do topo da inscrição e a lista do pacote.
+ */
+export async function outrasDaPessoa(registrationId: number) {
+  const r = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { leadId: true, formData: true } })
+  if (!r) return []
+  const cpf = soDigitos((r.formData as any)?.cpf)
+  const porCpf: number[] = cpf.length === 11
+    ? (await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+        "SELECT id FROM bychat_enrollment_registrations WHERE id <> ? AND mergedIntoId IS NULL AND REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?",
+        registrationId, cpf)).map((x) => Number(x.id))
+    : []
   const outras = await prisma.enrollmentRegistration.findMany({
-    where: { leadId: r.leadId, id: { not: registrationId }, status: { notIn: FECHADAS }, mergedIntoId: null },
-    select: { id: true, candidateCode: true, paymentPlan: true, paymentStatus: true, paymentId: true, processRegistration: { select: { offering: { select: { nome: true } } } } },
+    where: { id: { not: registrationId }, status: { notIn: FECHADAS }, mergedIntoId: null, OR: [...(r.leadId ? [{ leadId: r.leadId }] : []), { id: { in: porCpf } }] },
+    select: { id: true, candidateCode: true, portalId: true, leadId: true, status: true, paymentPlan: true, paymentStatus: true, paymentId: true, createdAt: true,
+      portal: { select: { nome: true } }, processRegistration: { select: { offering: { select: { nome: true } } } } },
+    orderBy: { createdAt: 'asc' },
   })
+  const doPacote = new Set(await inscricoesDoPacote(registrationId))
   return outras.map((o) => ({
-    id: o.id, codigo: o.candidateCode, curso: o.processRegistration?.offering?.nome ?? 'Curso',
+    id: o.id, codigo: o.candidateCode, curso: o.processRegistration?.offering?.nome ?? 'Curso', portalId: o.portalId, portal: o.portal?.nome ?? null,
+    mesmaFicha: !!r.leadId && o.leadId === r.leadId, leadId: o.leadId, noMesmoPacote: doPacote.has(o.id),
+    pago: o.paymentStatus === 'paid', status: o.status,
     impedimento: pacoteDo(o.paymentPlan) ? 'Já está em um pacote' : (o.paymentStatus === 'paid' || o.paymentId) ? 'Tem cobrança ou pagamento próprio' : null,
   }))
+}
+
+/** Outras inscrições da mesma pessoa que podem entrar no pacote desta (mesma ficha ou mesmo CPF). */
+export async function candidatasAoPacote(registrationId: number) {
+  return (await outrasDaPessoa(registrationId)).filter((o) => !o.noMesmoPacote)
+    .map((o) => ({ id: o.id, codigo: o.codigo, curso: o.curso, mesmaFicha: o.mesmaFicha, impedimento: o.impedimento }))
 }
 
 /**
