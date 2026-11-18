@@ -4,6 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { phoneKey } from '../lib/phone.js'
+import { DDD_BR } from '../lib/countryCodes.js'
 import { DEFAULT_FIELD_MAP, normKey, guessCoreField, buildAutoMapping } from '../lib/metaFieldMap.js'
 import { createTrackingResolver, trackingParamsOf, trackingMappingOf, withTrackingValues, sameTrackingParams } from '../lib/metaTrackingParams.js'
 import { rejectLeadEntry } from '../services/leadBlocklist.js'
@@ -1518,6 +1519,13 @@ async function createLeadFromMeta(
   // mesmo lead pra sempre (incidente vantari: phone com 33 chars > VarChar(30)).
   // Saneia o telefone (mantém + e dígitos, E.164) e trunca os campos núcleo.
   if (mapped.whatsapp) mapped.whatsapp = mapped.whatsapp.replace(/[^\d+]/g, '').slice(0, 30)
+  // "+22999750414": a pessoa digitou DDD + celular sem o 55 e o "+" veio na
+  // frente — vira DDI 22 e a ficha nunca casa com o WhatsApp (5522…). Nos 9
+  // tenants, 7 de 7 casos assim eram brasileiros (fabad lead 3040, terram 4537
+  // "+51…" de Porto Alegre). Celular BR completo sem o 55 ganha o 55.
+  if (mapped.whatsapp && /^\+[1-9][1-9]9\d{8}$/.test(mapped.whatsapp) && DDD_BR.has(mapped.whatsapp.slice(1, 3))) {
+    mapped.whatsapp = '+55' + mapped.whatsapp.slice(1)
+  }
   if (mapped.nome) mapped.nome = mapped.nome.slice(0, 191)
   if (mapped.empresa) mapped.empresa = mapped.empresa.slice(0, 191)
   if (mapped.email) mapped.email = mapped.email.slice(0, 191)

@@ -116,6 +116,27 @@ async function buscarNoCanal<T extends { id: number }>(
   return achado
 }
 
+/**
+ * Ficha gravada com o número brasileiro como se fosse estrangeiro: o Meta Lead
+ * Ads entrega "+22999750414" (a pessoa digitou DDD + número, sem o 55, e o "+"
+ * veio na frente), e a chave fica "22999750414" — DDI 22 declarado. O WhatsApp
+ * chega como 5522999750414 e não casava: cada mensagem abria uma ficha nova e
+ * a FABI recomeçava do zero em cima do atendimento humano (fabad, 18/11, lead
+ * 3040). Os dígitos são idênticos e o WhatsApp prova o país, então a ficha é
+ * esta — e o número dela é corrigido, para a próxima mensagem casar direto.
+ */
+async function acharPelaChaveSem55<T extends { id: number }>(
+  pk: string | null,
+  canal: CanalDoContato | null | undefined,
+  buscar: (where: Record<string, unknown>) => Promise<T | null>,
+  adotar = true,
+): Promise<T | null> {
+  if (!pk || !/^55\d{10,11}$/.test(pk)) return null
+  const achado = await buscarNoCanal(canal, (extra) => buscar({ phoneKey: pk.slice(2), ...extra }), adotar)
+  if (achado && adotar) await prisma.lead.update({ where: { id: achado.id }, data: { whatsapp: pk, phoneKey: pk } }).catch(() => {})
+  return achado
+}
+
 /** Canal de uma mensagem a partir do que os motores já recebem. */
 export function canalDaMensagem(
   provider: string | null | undefined,
@@ -151,6 +172,9 @@ export async function resolveLeadForContact(c: InboundContact, canal?: CanalDoCo
     const byKey = await buscarNoCanal(canal, (extra) =>
       prisma.lead.findFirst({ where: { phoneKey: pk, ...extra }, orderBy: { createdAt: 'desc' }, select: SELECT }))
     if (byKey) return { lead: byKey, matchedBy: 'phoneKey', phoneKey: pk }
+    const sem55 = await acharPelaChaveSem55(pk, canal, (where) =>
+      prisma.lead.findFirst({ where, orderBy: { createdAt: 'desc' }, select: SELECT }))
+    if (sem55) return { lead: sem55, matchedBy: 'phoneKey', phoneKey: pk }
   }
 
   // 3) pushName — apenas para contato puro-LID (sem telefone resolvido)
@@ -260,6 +284,8 @@ export async function acharLeadDoContato(
     ? await buscarNoCanal(opts.canal, (extra) =>
         prisma.lead.findFirst({ where: { phoneKey: pk, ...filtro, ...extra }, orderBy: ordem }), adotar)
     : null
+  if (!lead) lead = await acharPelaChaveSem55(pk, opts.canal, (where) =>
+    prisma.lead.findFirst({ where: { ...where, ...filtro }, orderBy: ordem }), adotar)
 
   // 2) igualdade crua — o que os motores sempre fizeram. Cobre o número fora do
   //    padrão e a ficha legada sem phoneKey preenchido (o middleware só grava na
