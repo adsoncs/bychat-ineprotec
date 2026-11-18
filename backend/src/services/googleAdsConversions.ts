@@ -46,6 +46,22 @@ async function getDeveloperToken(): Promise<string | null> {
   return String(raw).trim() || null
 }
 
+async function lerFunisPorConta(): Promise<Record<string, number[]>> {
+  const row = await prisma.setting.findUnique({ where: { key: 'google.ads.funis_por_conta' }, select: { value: true } }).catch(() => null)
+  const v: any = row?.value
+  try {
+    const o = typeof v === 'string' ? JSON.parse(v || '{}') : (v || {})
+    return o && typeof o === 'object' ? o : {}
+  } catch { return {} }
+}
+
+async function lerLoginCustomerId(): Promise<string | null> {
+  const row = await prisma.setting.findUnique({ where: { key: 'google.ads.login_customer_id' }, select: { value: true } }).catch(() => null)
+  const v: any = row?.value
+  const raw = typeof v === 'string' ? v : (v?.id || v?.value || '')
+  return String(raw).replace(/\D/g, '') || null
+}
+
 function computeValue(valueSource: string, fixedValue: number | null, saleValue: number | null): number {
   if (valueSource === 'sale_value') return Number(saleValue || 0)
   if (valueSource === 'fixed') return Number(fixedValue || 0)
@@ -59,7 +75,7 @@ function computeValue(valueSource: string, fixedValue: number | null, saleValue:
 export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: number, hintValue?: number | null): Promise<void> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, gclid: true, saleValue: true },
+    select: { id: true, gclid: true, saleValue: true, funnelId: true },
   }).catch(() => null)
   if (!lead?.gclid) return // sem GCLID não há o que reportar pro Google Ads
 
@@ -77,9 +93,17 @@ export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: numb
     return
   }
 
+  // Mais de uma conta (ex.: duas marcas no mesmo CRM): cada conta recebe só as vendas
+  // dos funis dela. Setting `google.ads.funis_por_conta` = { "<customerId>": [funnelId, ...] }.
+  // Conta fora do mapa recebe tudo (comportamento de sempre, com uma conta só).
+  const funisPorConta = await lerFunisPorConta()
+  const loginCustomerId = await lerLoginCustomerId()
+
   for (const config of configs) {
     const mapping = config.conversionMap[0]
     if (!mapping) continue
+    const funis = funisPorConta[config.customerId.replace(/\D/g, '')]
+    if (Array.isArray(funis) && !(lead.funnelId != null && funis.includes(lead.funnelId))) continue
 
     const value = computeValue(
       mapping.valueSource,
@@ -111,6 +135,8 @@ export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: numb
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
             'developer-token': developerToken,
+            // Conta gerenciada por MCC só aceita a chamada com o MCC no cabeçalho.
+            ...(loginCustomerId ? { 'login-customer-id': loginCustomerId } : {}),
           },
           body: JSON.stringify(payload),
         },

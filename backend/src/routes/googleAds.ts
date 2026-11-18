@@ -36,6 +36,29 @@ export function invalidateGoogleAdsTokenCache() {
 
 // Helper de chamada à Google Ads API com OAuth + dev token unificado.
 // Retorna { ok, status, data } pra caller decidir error code.
+/**
+ * Conta do Google Ads em que a rota atua. A instalação pode ter mais de uma
+ * (duas marcas no mesmo CRM): a tela manda `configId`; sem ele vale a primeira
+ * ativa, como antes. Antes era sempre `findFirst` e o mapa de conversões de uma
+ * conta nova sobrescrevia o da primeira.
+ */
+async function contaDoPedido(configId: unknown, include?: any): Promise<any> {
+  const id = Number(configId)
+  if (Number.isFinite(id) && id > 0) {
+    return prisma.googleAdsConfig.findFirst({ where: { id, active: true }, ...(include ? { include } : {}) })
+  }
+  return prisma.googleAdsConfig.findFirst({ where: { active: true }, orderBy: { id: 'asc' }, ...(include ? { include } : {}) })
+}
+
+/** MCC (login-customer-id): conta gerenciada só aceita a chamada com ele no cabeçalho. */
+async function cabecalhoMcc(): Promise<Record<string, string>> {
+  const row = await prisma.setting.findUnique({ where: { key: 'google.ads.login_customer_id' }, select: { value: true } }).catch(() => null)
+  const v: any = row?.value
+  const raw = typeof v === 'string' ? v : (v?.id || v?.value || '')
+  const id = String(raw || '').replace(/\D/g, '')
+  return id ? { 'login-customer-id': id } : {}
+}
+
 async function callGoogleAdsApi(
   connectionId: number,
   path: string,
@@ -349,7 +372,21 @@ export async function googleAdsRoutes(app: FastifyInstance) {
     const body = req.body as any
     if (!body.leadId) return reply.code(400).send({ error: 'leadId obrigatório' })
 
-    const config = await prisma.googleAdsConfig.findFirst({ where: { active: true } })
+    // Sem conta escolhida: a do funil do lead (`google.ads.funis_por_conta`), que é
+    // a mesma regra do envio automático; senão a primeira ativa.
+    let configId = body.configId
+    if (!configId) {
+      const ld = await prisma.lead.findUnique({ where: { id: parseInt(body.leadId) }, select: { funnelId: true } })
+      const row = await prisma.setting.findUnique({ where: { key: 'google.ads.funis_por_conta' }, select: { value: true } }).catch(() => null)
+      let mapa: Record<string, number[]> = {}
+      try { const v: any = row?.value; mapa = typeof v === 'string' ? JSON.parse(v || '{}') : (v || {}) } catch { mapa = {} }
+      const cid = Object.entries(mapa).find(([, funis]) => Array.isArray(funis) && ld?.funnelId != null && funis.includes(ld.funnelId))?.[0]
+      if (cid) {
+        const c = await prisma.googleAdsConfig.findFirst({ where: { active: true, customerId: cid }, select: { id: true } })
+        if (c) configId = c.id
+      }
+    }
+    const config = await contaDoPedido(configId)
     if (!config) return reply.code(400).send({ error: 'Google Ads não configurado' })
     if (!config.conversionAction) return reply.code(400).send({ error: 'Conta sem conversion action escolhida — edite a configuração' })
 
@@ -385,6 +422,7 @@ export async function googleAdsRoutes(app: FastifyInstance) {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             'developer-token': developerToken,
+            ...(await cabecalhoMcc()),
           },
           body: JSON.stringify(conversionPayload),
         }
@@ -416,7 +454,7 @@ export async function googleAdsRoutes(app: FastifyInstance) {
     const leadIds: number[] = body.leadIds || []
     if (leadIds.length === 0) return reply.code(400).send({ error: 'leadIds obrigatório' })
 
-    const config = await prisma.googleAdsConfig.findFirst({ where: { active: true } })
+    const config = await contaDoPedido(body.configId)
     if (!config) return reply.code(400).send({ error: 'Google Ads não configurado' })
     if (!config.conversionAction) return reply.code(400).send({ error: 'Conta sem conversion action escolhida' })
 
@@ -450,6 +488,7 @@ export async function googleAdsRoutes(app: FastifyInstance) {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             'developer-token': developerToken,
+            ...(await cabecalhoMcc()),
           },
           body: JSON.stringify({ conversions, partialFailure: true }),
         }
@@ -511,11 +550,8 @@ export async function googleAdsRoutes(app: FastifyInstance) {
   }
 
   // GET /api/admin/google/ads/conversion-map → retorna o mapping da config ativa
-  app.get('/api/admin/google/ads/conversion-map', { preHandler: adminOnly }, async () => {
-    const config = await prisma.googleAdsConfig.findFirst({
-      where: { active: true },
-      include: { conversionMap: { orderBy: { trigger: 'asc' } } },
-    })
+  app.get('/api/admin/google/ads/conversion-map', { preHandler: adminOnly }, async (req) => {
+    const config = await contaDoPedido((req.query as any)?.configId, { conversionMap: { orderBy: { trigger: 'asc' } } })
     return {
       configId: config?.id ?? null,
       supportedTriggers: SUPPORTED_TRIGGERS,
@@ -529,7 +565,7 @@ export async function googleAdsRoutes(app: FastifyInstance) {
     const body = (req.body as any) || {}
     const items: any[] = Array.isArray(body.items) ? body.items : []
 
-    const config = await prisma.googleAdsConfig.findFirst({ where: { active: true } })
+    const config = await contaDoPedido(body.configId)
     if (!config) return reply.code(400).send({ error: 'Google Ads não configurado' })
 
     const triggersInBody = new Set<string>()

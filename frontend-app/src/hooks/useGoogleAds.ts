@@ -115,8 +115,8 @@ export function useGoogleAdsLeads(onlySales = false) {
 export function useSendGoogleAdsConversion() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ leadId, value }: { leadId: number; value?: number | undefined }) =>
-      api.post<{ success: true; result: unknown }>('/admin/google/ads/send-conversion', { leadId, value }),
+    mutationFn: ({ leadId, value, configId }: { leadId: number; value?: number | undefined; configId?: number | undefined }) =>
+      api.post<{ success: true; result: unknown }>('/admin/google/ads/send-conversion', { leadId, value, configId }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['google-ads-leads'] })
       void qc.invalidateQueries({ queryKey: ['google-ads-config'] })
@@ -177,10 +177,11 @@ export interface ConversionMapResponse {
   items: ConversionMapItem[]
 }
 
-export function useGoogleAdsConversionMap() {
+/** Mapa de uma conta. Sem `configId` vale a primeira conta ativa (instalação com uma conta só). */
+export function useGoogleAdsConversionMap(configId?: number | null) {
   return useQuery({
-    queryKey: ['google-ads-conversion-map'],
-    queryFn: () => api.get<ConversionMapResponse>('/admin/google/ads/conversion-map'),
+    queryKey: ['google-ads-conversion-map', configId ?? null],
+    queryFn: () => api.get<ConversionMapResponse>(`/admin/google/ads/conversion-map${configId ? `?configId=${configId}` : ''}`),
     staleTime: 30_000,
   })
 }
@@ -188,8 +189,10 @@ export function useGoogleAdsConversionMap() {
 export function useUpdateGoogleAdsConversionMap() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (items: ConversionMapItem[]) =>
-      api.put<{ ok: true; count: number }>('/admin/google/ads/conversion-map', { items }),
+    // `configId`: a conta dona do mapa. Sem ele o servidor usa a primeira conta ativa,
+    // e uma segunda conta conectada sobrescrevia o mapa da primeira.
+    mutationFn: ({ items, configId }: { items: ConversionMapItem[]; configId?: number | null }) =>
+      api.put<{ ok: true; count: number }>('/admin/google/ads/conversion-map', { items, configId: configId ?? undefined }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['google-ads-conversion-map'] })
       void qc.invalidateQueries({ queryKey: ['google-ads-config'] })

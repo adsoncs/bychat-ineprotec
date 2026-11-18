@@ -29,24 +29,31 @@ async function getSetting(key: string): Promise<string | null> {
 
 interface AdsCtx { customerId: string; accessToken: string; developerToken: string; loginCustomerId: string | null }
 
-async function resolveAdsContext(): Promise<AdsCtx | null> {
-  const cfg = await prisma.googleAdsConfig.findFirst({
+/**
+ * Um contexto por conta ativa. A instalação pode ter mais de uma conta (ex.: duas
+ * marcas no mesmo CRM): o gclid só existe na conta do clique, então o
+ * enriquecimento procura em cada uma até achar.
+ */
+async function resolveAdsContexts(): Promise<AdsCtx[]> {
+  const cfgs = await prisma.googleAdsConfig.findMany({
     where: { active: true },
     select: { connectionId: true, customerId: true },
+    orderBy: { id: 'asc' },
   })
-  if (!cfg?.connectionId || !cfg.customerId) return null
   const developerToken = await getSetting('google.ads.developer_token')
-  if (!developerToken) return null
+  if (!developerToken || !cfgs.length) return []
   const loginRaw = await getSetting('google.ads.login_customer_id')
   const loginCustomerId = loginRaw ? loginRaw.replace(/\D/g, '') : null
-  try {
-    const auth = await getAuthenticatedClient(cfg.connectionId)
-    const accessToken = (await auth.getAccessToken()).token
-    if (!accessToken) return null
-    return { customerId: cfg.customerId.replace(/\D/g, ''), accessToken, developerToken, loginCustomerId }
-  } catch {
-    return null
+  const out: AdsCtx[] = []
+  for (const cfg of cfgs) {
+    if (!cfg.connectionId || !cfg.customerId) continue
+    try {
+      const auth = await getAuthenticatedClient(cfg.connectionId)
+      const accessToken = (await auth.getAccessToken()).token
+      if (accessToken) out.push({ customerId: cfg.customerId.replace(/\D/g, ''), accessToken, developerToken, loginCustomerId })
+    } catch { /* conexão com problema: as outras contas seguem */ }
   }
+  return out
 }
 
 async function gaqlSearch(ctx: AdsCtx, query: string): Promise<any[]> {
@@ -111,7 +118,7 @@ async function lookupGclid(ctx: AdsCtx, gclid: string, date: string): Promise<En
  * Enriquece UM lead a partir do gclid. Idempotente: sai cedo se já enriquecido ou
  * sem gclid. Só preenche colunas vazias (preserva o que o ValueTrack trouxe).
  */
-export async function enrichLeadFromGclid(leadId: number, ctxIn?: AdsCtx | null): Promise<boolean> {
+export async function enrichLeadFromGclid(leadId: number, ctxIn?: AdsCtx | AdsCtx[] | null): Promise<boolean> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
     select: {
@@ -125,23 +132,30 @@ export async function enrichLeadFromGclid(leadId: number, ctxIn?: AdsCtx | null)
   const ageDays = (Date.now() - new Date(lead.createdAt).getTime()) / 86_400_000
   if (ageDays > MAX_LOOKBACK_DAYS) return false // fora da janela do click_view
 
-  const ctx = ctxIn ?? (await resolveAdsContext())
-  if (!ctx) return false
+  const ctxs = ctxIn ? (Array.isArray(ctxIn) ? ctxIn : [ctxIn]) : await resolveAdsContexts()
+  if (!ctxs.length) return false
 
-  // Tenta o dia da criação e o dia anterior (o clique pode ter sido na véspera / fuso).
+  // Tenta o dia da criação e o dia anterior (o clique pode ter sido na véspera / fuso),
+  // em cada conta ativa até achar o clique.
   const d0 = new Date(lead.createdAt)
   const dates = [fmtDate(d0), fmtDate(new Date(d0.getTime() - 86_400_000))]
   let found: EnrichResult | null = null
-  for (const date of dates) {
-    try {
-      found = await lookupGclid(ctx, lead.gclid, date)
-      if (found) break
-    } catch (e: any) {
-      console.warn(`[gAdsEnrich] lead #${leadId} lookup ${date} falhou: ${e?.message}`)
-      // Erro de API (token/permissão): não marca como enriquecido p/ retentar depois.
-      return false
+  let falhou = false
+  for (const ctx of ctxs) {
+    for (const date of dates) {
+      try {
+        found = await lookupGclid(ctx, lead.gclid, date)
+        if (found) break
+      } catch (e: any) {
+        console.warn(`[gAdsEnrich] lead #${leadId} conta ${ctx.customerId} lookup ${date} falhou: ${e?.message}`)
+        falhou = true
+        break
+      }
     }
+    if (found) break
   }
+  // Erro de API (token/permissão) sem achar em nenhuma conta: não marca, para retentar depois.
+  if (!found && falhou) return false
 
   // Marca a tentativa mesmo sem achar (evita reconsultar infinitamente um gclid velho).
   const data: any = { googleEnrichedAt: new Date() }
@@ -174,11 +188,11 @@ export async function sweepPendingGoogleEnrichment(limit = 20): Promise<number> 
     take: limit,
   })
   if (!pend.length) return 0
-  const ctx = await resolveAdsContext()
-  if (!ctx) return 0 // Google Ads não configurado — tenta na próxima
+  const ctxs = await resolveAdsContexts()
+  if (!ctxs.length) return 0 // Google Ads não configurado — tenta na próxima
   let n = 0
   for (const l of pend) {
-    try { if (await enrichLeadFromGclid(l.id, ctx)) n++ } catch { /* segue */ }
+    try { if (await enrichLeadFromGclid(l.id, ctxs)) n++ } catch { /* segue */ }
   }
   if (n > 0) console.log(`[gAdsEnrich] sweep enriqueceu ${n}/${pend.length} lead(s)`)
   return n

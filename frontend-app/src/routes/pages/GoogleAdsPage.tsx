@@ -394,7 +394,7 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
     const fallbackCA = activeRows[0] ? activeRows[0].row.conversionAction : ''
     const legacyCA = leadWon?.enabled && leadWon.conversionAction ? leadWon.conversionAction : fallbackCA
     try {
-      await create.mutateAsync({
+      const criada = await create.mutateAsync({
         connectionId,
         customerId,
         conversionAction: legacyCA,
@@ -408,7 +408,7 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
         isPrimary: r.key === 'lead.won',
         enabled: true,
       }))
-      await updateMap.mutateAsync(items)
+      await updateMap.mutateAsync({ items, configId: criada.data.id })
       toast('Conta Google Ads conectada com mapping de conversões', 'success')
       onClose()
     } catch (e: unknown) {
