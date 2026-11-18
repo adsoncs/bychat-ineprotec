@@ -369,6 +369,34 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // Matrícula em pacote (combo): mesma permissão do pagamento combinado.
+  const pacote = () => import('../services/pacoteMatricula.js')
+  app.get('/api/admin/matricula-interna/:id/pacote', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    reply.header('cache-control', 'no-store')
+    const p = await pacote()
+    return { pacote: await p.resumoDoPacote(reg.id), candidatas: await p.candidatasAoPacote(reg.id) }
+  })
+  app.post('/api/admin/matricula-interna/:id/pacote', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const b = (req.body as any) || {}
+    const membro = Number(b.membroId)
+    const outra = await prisma.enrollmentRegistration.findUnique({ where: { id: membro }, select: { portalId: true, leadId: true } })
+    if (!outra) return reply.code(404).send({ error: 'Inscrição não encontrada.' })
+    const barrado = await barrar(req, outra.portalId, outra.leadId)
+    if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })
+    return responder(reply, await (await pacote()).adicionarAoPacote(reg.id, membro, {
+      valorMembroCentavos: Number(b.valorMembroCentavos), valorPrincipalCentavos: b.valorPrincipalCentavos != null ? Number(b.valorPrincipalCentavos) : null,
+    }, await operador(req)))
+  })
+  app.delete('/api/admin/matricula-interna/:id/pacote', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    return responder(reply, await (await pacote()).removerDoPacote(reg.id, await operador(req)))
+  })
+
   app.post('/api/admin/matricula-interna/:id/dispensa', { preHandler: guardTela('login') }, (req, reply) => dispensar(req, reply, false))
   app.delete('/api/admin/matricula-interna/:id/dispensa', { preHandler: guardTela('login') }, (req, reply) => dispensar(req, reply, true))
 

@@ -13,6 +13,7 @@ import { chamarComoAgente, rotaInscricao, sessaoInterna } from './sessao'
 import { invalidarInscricao } from './Dispensa'
 import { PagamentoCombinado } from './PagamentoCombinado'
 import { AlterarFormaPagamento } from './AlterarFormaPagamento'
+import { PacoteDaMatricula, usePacote } from './PacoteDaMatricula'
 import { TrocarPlano } from '@/components/educational/PagamentosDaMatricula'
 
 type OpcaoChave = 'entrada' | 'integral'
@@ -264,6 +265,7 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
     },
   })
   const o = q.data
+  const pacote = usePacote(registrationId).data?.pacote ?? null
   useEffect(() => { setEditando(false) }, [escolha?.planoId])
 
   const voltarATabela = useMutation({
@@ -291,8 +293,10 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
   if (q.isLoading) return <Card><div class="text-sm text-fg-muted">Carregando financeiro…</div></Card>
   if (q.error) return <Card><div class="text-sm text-danger">{(q.error as Error).message}</div>{children}</Card>
   if (!o) return null
+  // Curso de um pacote: sem checkout próprio — o pagamento é feito pela principal.
+  if (pacote?.papel === 'membro') return <div class="grid gap-3"><PacoteDaMatricula registrationId={registrationId} fechada={fechada} />{children}</div>
   // Pagamento combinado montado: as cobranças são dele, sem o checkout de uma cobrança só.
-  if ((o as any).combinado) return <div class="grid gap-3"><TrocarPlano registrationId={registrationId} origem="inscricao" /><PagamentoCombinado registrationId={registrationId} pago={pago} fechada={fechada} /><AlterarFormaPagamento registrationId={registrationId} fechada={fechada} />{children}</div>
+  if ((o as any).combinado) return <div class="grid gap-3"><PacoteDaMatricula registrationId={registrationId} fechada={fechada} /><TrocarPlano registrationId={registrationId} origem="inscricao" /><PagamentoCombinado registrationId={registrationId} pago={pago} fechada={fechada} /><AlterarFormaPagamento registrationId={registrationId} fechada={fechada} />{children}</div>
 
   const planoAtual = o.planos?.find((p) => p.id === o.escolha?.planoId) ?? null
   const neg = o.negociacao ?? null
@@ -305,6 +309,7 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
 
   return (
     <div class="grid gap-3">
+      <PacoteDaMatricula registrationId={registrationId} fechada={fechada} />
       <TrocarPlano registrationId={registrationId} origem="inscricao" />
       <Card>
         <div class="flex items-center justify-between gap-2 flex-wrap mb-3">

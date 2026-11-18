@@ -3356,6 +3356,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(sess.enrollmentId, 'pagamento', ondeDoToken(sess))
       if (trava) return reply.code(409).send({ error: trava, travada: true })
     }
+    // Curso de um pacote: o pagamento é um só, pela inscrição principal.
+    const doPacote = await (await import('../services/pacoteMatricula.js')).bloqueioDePagamento(sess.enrollmentId)
+    if (doPacote) return reply.code(409).send({ error: doPacote, travada: true })
 
     const body = (req.body as any) || {}
     const method = body.method as 'pix' | 'boleto' | 'credit_card'

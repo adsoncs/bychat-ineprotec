@@ -266,6 +266,8 @@ export async function criarCombinado(registrationId: number, body: any, op: Oper
     where: { id: registrationId }, select: { id: true, status: true, paymentStatus: true, paymentPlan: true, leadId: true },
   })
   if (!reg) return { ok: false, status: 404, erro: 'Inscrição não encontrada.' }
+  const doPacote = await (await import('./pacoteMatricula.js')).bloqueioDePagamento(registrationId)
+  if (doPacote) return { ok: false, status: 409, erro: doPacote }
   if (reg.paymentStatus === 'paid') return { ok: false, status: 409, erro: 'A inscrição já tem pagamento confirmado.' }
   if (FECHADAS.includes(reg.status)) return { ok: false, status: 409, erro: 'Inscrição cancelada, expirada ou mesclada.' }
   if (!conexaoAceitaCombinado(await conexaoDaInscricao(registrationId))) {

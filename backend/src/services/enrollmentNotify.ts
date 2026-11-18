@@ -102,6 +102,8 @@ export async function sendPaymentConfirmation(input: EnrollmentConfirmationInput
     payload: ctx.payload,
     timestamp: new Date(),
   })
+  // Pacote (combo): o pagamento da principal vale para os outros cursos dele.
+  await import('./pacoteMatricula.js').then((m) => m.propagarPagamentoDoPacote(input.enrollmentId)).catch((e) => console.warn('[pacote] propagar:', e?.message || e))
 }
 
 export async function sendPaymentReminder(input: EnrollmentConfirmationInput): Promise<void> {

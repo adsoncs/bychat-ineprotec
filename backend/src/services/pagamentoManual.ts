@@ -137,6 +137,8 @@ export async function registrarPagamentoManual(p: PagamentoManualInput): Promise
   if (p.pagoEm.getTime() > Date.now() + 24 * 3600 * 1000) return { ok: false, status: 400, erro: 'A data do pagamento não pode ser no futuro.' }
   const motivo = String(p.motivo || '').trim()
   if (motivo.length < 10) return { ok: false, status: 400, erro: 'Explique o motivo (ao menos 10 caracteres) — ex.: "pagou em dinheiro na secretaria do polo".' }
+  const doPacote = await (await import('./pacoteMatricula.js')).bloqueioDePagamento(p.registrationId)
+  if (doPacote) return { ok: false, status: 409, erro: `${doPacote} Dê a baixa nela.` }
 
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: p.registrationId },

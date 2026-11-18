@@ -303,7 +303,7 @@ async function contexto(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, contratoAceite: true, formData: true, analiseAcademica: true, essayAttemptsGranted: true,
+      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, paymentPlan: true, contratoAceite: true, formData: true, analiseAcademica: true, essayAttemptsGranted: true,
       lead: { select: { nome: true } },
       portal: { select: { id: true, slug: true, nome: true, requirePayment: true, jornadaEtapas: true } },
       documents: { select: { typeCode: true, status: true, reviewNote: true }, orderBy: { uploadedAt: 'asc' } },
@@ -466,10 +466,16 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
     if (e.chave === 'pagamento') {
       if (!reg.portal?.requirePayment) continue
       const pago = reg.paymentStatus === 'paid'
+      // Curso de um pacote: paga-se uma vez só, pela inscrição principal.
+      const pac = (await import('./pacoteMatricula.js')).pacoteDo(reg.paymentPlan)
+      const doPacote = pac?.papel === 'membro' ? pac : null
       etapas.push({
         chave: 'pagamento', titulo: ROTULO.pagamento, obrigatoria: e.obrigatoria,
-        situacao: pago ? 'feito' : 'pendente',
-        detalhe: pago ? `Pago${reg.paymentPaidAt ? ' em ' + reg.paymentPaidAt.toLocaleDateString('pt-BR') : ''}` : reg.paymentStatus === 'pending' ? 'Cobrança gerada, aguardando o pagamento' : 'Falta pagar',
+        situacao: pago ? 'feito' : doPacote ? 'aguardando' : 'pendente',
+        detalhe: pago
+          ? `Pago${doPacote ? ` pelo pacote ${doPacote.principalCodigo}` : ''}${reg.paymentPaidAt ? ' em ' + reg.paymentPaidAt.toLocaleDateString('pt-BR') : ''}`
+          : doPacote ? `Incluído no pacote ${doPacote.principalCodigo} (${doPacote.principalCurso}): o pagamento é feito por lá, uma vez só`
+          : reg.paymentStatus === 'pending' ? 'Cobrança gerada, aguardando o pagamento' : 'Falta pagar',
       })
     } else if (e.chave === 'documentos') {
       if (!exigidos.length) continue

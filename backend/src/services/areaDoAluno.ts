@@ -222,9 +222,29 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   let aviso: string | null = null
   const cfg = r.portalId ? await configDoPortal(r.portalId) : null
 
+  // Pacote (combo): o curso membro não tem cobrança própria — mostra a parte
+  // dele e de onde vem o pagamento; a principal avisa o que o pagamento inclui.
+  const pacote = await import('./pacoteMatricula.js').then((m) => m.resumoDoPacote(r.id)).catch(() => null)
+  if (pacote?.papel === 'membro') {
+    const pago = pacote.pago
+    return {
+      faturas: [{
+        chave: `pacote:${r.id}`, titulo: 'Parte deste curso no pacote',
+        detalhe: `Paga junto com a inscrição ${pacote.principalCodigo} (${pacote.principalCurso})${pacote.totalCentavos ? ` — pacote de ${(pacote.totalCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}`,
+        valor: pacote.valorCentavos / 100, vencimento: null, situacao: pago ? 'paga' : 'prevista',
+        pagaEm: pago && r.paymentPaidAt ? r.paymentPaidAt.toISOString() : null, meio: 'Pacote',
+        pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false, podeGerar: false,
+      }],
+      aviso: pago ? null : `O pagamento deste curso é feito pela inscrição ${pacote.principalCodigo}, uma vez só para o pacote.`,
+    }
+  }
+  const avisoDoPacote = pacote?.papel === 'principal'
+    ? `Este pagamento é do pacote e inclui também: ${pacote.membros.map((m) => `${m.curso} (${m.codigo})`).join(', ')}.`
+    : null
+
   // Pagamento combinado: as faturas são os títulos, e os do acordo vêm junto.
   const { faturasDosTitulos } = await import('./pagamentoCombinado.js')
-  if (plano.combinado) return { faturas: (await faturasDosTitulos(r.id)) as Fatura[], aviso: null }
+  if (plano.combinado) return { faturas: (await faturasDosTitulos(r.id)) as Fatura[], aviso: avisoDoPacote }
 
   // 1) Parcelado no gateway: cada parcela é uma cobrança do Asaas.
   if (plano.installmentId && cfg) {
@@ -380,7 +400,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
     }
   }
   faturas.push(...((await faturasDosTitulos(r.id, 'acordo')) as Fatura[]))
-  return { faturas, aviso }
+  return { faturas, aviso: avisoDoPacote ? [avisoDoPacote, aviso].filter(Boolean).join(' ') : aviso }
 }
 
 function hojeBrDe(d: Date) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d) }

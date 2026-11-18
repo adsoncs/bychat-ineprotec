@@ -88,6 +88,8 @@ type Resposta = { ok: true; trocaId: number; pendente: boolean; link: string | n
 const trocasEmAndamento = new Set<number>()
 
 export async function criarTroca(registrationId: number, body: any, op: Operador): Promise<Resposta> {
+  const doPacote = await (await import('./pacoteMatricula.js')).bloqueioDePagamento(registrationId)
+  if (doPacote) return { ok: false, status: 409, erro: doPacote }
   if (trocasEmAndamento.has(registrationId)) return { ok: false, status: 409, erro: 'Já há uma troca desta matrícula sendo processada. Aguarde a resposta antes de tentar de novo.' }
   trocasEmAndamento.add(registrationId)
   try {

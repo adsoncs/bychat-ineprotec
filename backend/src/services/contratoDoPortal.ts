@@ -245,6 +245,14 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   const { condicaoDoContrato } = await import('./planoFinanceiro.js')
   const doPlano = await condicaoDoContrato(of.id, pp, reg.id)
   if (doPlano) forma = doPlano.descricao
+  // Pacote (combo): o contrato traz a parte deste curso e diz que o pagamento é único.
+  const noPacote = await (await import('./pacoteMatricula.js')).condicaoDoContratoNoPacote(registrationId).catch(() => null)
+  if (noPacote) {
+    plano.valorTotalCentavos = noPacote.valorTotalCentavos
+    plano.numParcelas = noPacote.numParcelas
+    plano.valorParcelaCentavos = noPacote.valorParcelaCentavos
+    forma = noPacote.forma
+  }
   const pont = doPlano?.plano.regras.pontualidade
   const { precosDeTabelaDoPlano } = await import('./planoFinanceiro.js')
   const precos = doPlano ? precosDeTabelaDoPlano(doPlano.plano) : { aVista: '', cartao: '', boleto: '' }
