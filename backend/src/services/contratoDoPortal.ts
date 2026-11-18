@@ -184,7 +184,17 @@ function temResponsavel(v: VarsContrato): boolean {
   if (!v.responsavelNome || /pr[óo]pri/i.test(v.responsavelParentesco ?? '')) return false
   const cpfResp = soDigitos(v.responsavelCpf)
   if (cpfResp) return cpfResp !== soDigitos(v.cpf)
-  return nomeNormal(v.responsavelNome) !== nomeNormal(v.nome)
+  if (nomeNormal(v.responsavelNome) === nomeNormal(v.nome)) return false
+  // Adulto sem CPF do responsável que escreveu o próprio nome abreviado
+  // ("Marcio Goncalves" × "MARCIO GONCALVES PEREIRA"): é ele mesmo. Só para
+  // maior de idade — pai e filho menor podem ter nomes contidos um no outro.
+  const anos = idade(String(v.nascimento ?? ''))
+  if (anos != null && anos >= 18) {
+    const a = nomeNormal(v.nome).split(' '), b = nomeNormal(v.responsavelNome).split(' ')
+    const contido = (x: string[], y: string[]) => x.every((t) => y.includes(t))
+    if (contido(b, a) || contido(a, b)) return false
+  }
+  return true
 }
 
 const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão de crédito' }
