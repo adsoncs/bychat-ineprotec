@@ -213,12 +213,85 @@ export interface LeadsListFilters {
   includeUnqualified?: boolean | undefined
   onlyUnqualified?: boolean | undefined
   outcome?: 'open' | 'won' | 'lost' | 'classified' | undefined
-  sortBy?: 'createdAt' | 'empresa' | 'nome' | 'status' | undefined
+  sortBy?: 'createdAt' | 'empresa' | 'nome' | 'status' | 'aiScore' | 'lastMessageAt' | 'outcomeAt' | undefined
   sortDir?: 'asc' | 'desc' | undefined
   // Responsável: single legado OU multi via assignedUserIds[]
   assignedUserId?: number | 'me' | undefined
   assignedUserIds?: number[] | undefined
   onlyUnassigned?: boolean | undefined
+  // ── Barra de filtros nova (ver backend services/leadFilters.ts) ──
+  // Listas aceitam "0"/"__none" como "sem" (sem equipe, sem resumo…).
+  funnelIds?: number[] | undefined
+  statuses?: string[] | undefined
+  teamIds?: number[] | undefined
+  tagMode?: 'any' | 'all' | undefined
+  noTags?: boolean | undefined
+  excludeTagIds?: number[] | undefined
+  originTypes?: string[] | undefined
+  campaigns?: string[] | undefined
+  adNames?: string[] | undefined
+  utmSources?: string[] | undefined
+  utmMediums?: string[] | undefined
+  hasClickId?: boolean | undefined
+  channels?: string[] | undefined
+  cidades?: string[] | undefined
+  segmentos?: string[] | undefined
+  hasEmail?: 'yes' | 'no' | undefined
+  hasWhatsapp?: 'yes' | 'no' | undefined
+  aiScoreLabels?: string[] | undefined
+  statusSummaryIds?: number[] | undefined
+  lossReasonIds?: number[] | undefined
+  duplicate?: boolean | undefined
+  saleDetected?: boolean | undefined
+  awaitingReply?: boolean | undefined
+  neverAnswered?: boolean | undefined
+  idleDays?: number | undefined
+  activity?: 'overdue' | 'today' | 'upcoming' | 'none' | undefined
+  registration?: 'yes' | 'no' | undefined
+  createdFrom?: string | undefined
+  createdTo?: string | undefined
+  lastMessageFrom?: string | undefined
+  lastMessageTo?: string | undefined
+  outcomeFrom?: string | undefined
+  outcomeTo?: string | undefined
+  assignedFrom?: string | undefined
+  assignedTo?: string | undefined
+  // Educacional (vale para a MESMA inscrição) e vínculo do aluno
+  eduPortalIds?: number[] | undefined
+  eduCourseIds?: number[] | undefined
+  eduProcessIds?: number[] | undefined
+  eduStatuses?: string[] | undefined
+  eduPayments?: string[] | undefined
+  eduContract?: 'yes' | 'no' | undefined
+  eduSituacoes?: string[] | undefined
+  eduEnrolled?: 'yes' | 'no' | undefined
+  /** Campos personalizados: chave → valores ("__any" preenchido, "__none" vazio). */
+  customFieldFilters?: Record<string, string[]> | undefined
+}
+
+/** Chaves da barra nova: vão para a URL como vieram (lista → "a,b", booleano → "1"). */
+const CHAVES_AVANCADAS = [
+  'funnelIds', 'statuses', 'teamIds', 'tagMode', 'noTags', 'excludeTagIds', 'originTypes', 'campaigns',
+  'adNames', 'utmSources', 'utmMediums', 'hasClickId', 'channels', 'cidades', 'segmentos', 'hasEmail',
+  'hasWhatsapp', 'aiScoreLabels', 'statusSummaryIds', 'lossReasonIds', 'duplicate', 'saleDetected',
+  'awaitingReply', 'neverAnswered', 'idleDays', 'activity', 'registration', 'createdFrom', 'createdTo',
+  'lastMessageFrom', 'lastMessageTo', 'outcomeFrom', 'outcomeTo', 'assignedFrom', 'assignedTo',
+  'eduPortalIds', 'eduCourseIds', 'eduProcessIds', 'eduStatuses', 'eduPayments', 'eduContract', 'eduSituacoes', 'eduEnrolled',
+] as const satisfies readonly (keyof LeadsListFilters)[]
+
+/** Põe na URL os filtros da barra nova (usado pela lista e pelo Kanban). */
+export function serializarFiltrosAvancados(
+  f: Partial<LeadsListFilters>, p: URLSearchParams, ignorar: readonly string[] = [],
+): void {
+  for (const k of CHAVES_AVANCADAS) {
+    if (ignorar.includes(k)) continue
+    const v = f[k]
+    if (v === undefined || v === null || v === false || v === '') continue
+    if (Array.isArray(v)) { if (v.length) p.set(k, v.join(',')) }
+    else p.set(k, v === true ? '1' : String(v))
+  }
+  const cf = Object.entries(f.customFieldFilters ?? {}).filter(([, vals]) => vals && vals.length)
+  if (cf.length) p.set('cf', JSON.stringify(Object.fromEntries(cf)))
 }
 
 function buildQuery(f: LeadsListFilters): string {
@@ -251,6 +324,7 @@ function buildQuery(f: LeadsListFilters): string {
   if (f.assignedUserIds && f.assignedUserIds.length > 0) p.set('assignedUserIds', f.assignedUserIds.join(','))
   else if (f.assignedUserId !== undefined) p.set('assignedUserId', String(f.assignedUserId))
   if (f.onlyUnassigned) p.set('onlyUnassigned', '1')
+  serializarFiltrosAvancados(f, p)
   const qs = p.toString()
   return qs ? `?${qs}` : ''
 }
@@ -282,6 +356,37 @@ export function useLead(id: number | null) {
     queryFn: () => api.get<LeadDetail>(`/bychat/leads/${id}`),
     enabled: id !== null,
     staleTime: 15_000,
+  })
+}
+
+export interface LeadFilterOption {
+  value: string
+  label: string
+  count: number
+  group?: string
+  color?: string | null
+}
+export type LeadFilterOptions = Record<
+  | 'agents' | 'teams' | 'stages' | 'funnels' | 'sources' | 'originTypes' | 'campaigns' | 'adNames'
+  | 'utmSources' | 'utmMediums' | 'cidades' | 'segmentos' | 'statusSummaries' | 'lossReasons'
+  | 'aiScores' | 'channels' | 'tags',
+  LeadFilterOption[]
+> & {
+  customFields: { key: string; label: string; type: string; group: string | null; values: LeadFilterOption[] }[]
+  edu: null | {
+    portals: LeadFilterOption[]; courses: LeadFilterOption[]; processes: LeadFilterOption[]
+    statuses: LeadFilterOption[]; payments: LeadFilterOption[]; situacoes: LeadFilterOption[]
+    contrato: { assinado: number; semAssinatura: number }
+  }
+}
+
+/** Opções da barra de filtros, já com a contagem de leads de cada uma. */
+export function useLeadFilterOptions(enabled = true) {
+  return useQuery({
+    queryKey: ['lead-filter-options'],
+    queryFn: () => api.get<LeadFilterOptions>('/bychat/leads/filter-options'),
+    staleTime: 120_000,
+    enabled,
   })
 }
 

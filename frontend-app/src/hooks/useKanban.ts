@@ -1,4 +1,4 @@
-import type { LeadEducacional } from '@/hooks/useLeads'
+import { serializarFiltrosAvancados, type LeadEducacional, type LeadsListFilters } from '@/hooks/useLeads'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { comJustificativa } from '@/lib/justificativa'
@@ -124,17 +124,10 @@ export interface KanbanBoardResponse {
   permissions: { canAdvance: boolean; canRetreat: boolean }
 }
 
-export interface KanbanBoardFilters {
-  funnelId?: number | undefined
-  search?: string | undefined
-  outcome?: 'open' | 'won' | 'lost' | 'classified' | undefined
-  aiScoreLabel?: 'hot' | 'warm' | 'cold' | undefined
-  sources?: string[] | undefined
-  assignedUserIds?: number[] | undefined
-  onlyUnassigned?: boolean | undefined
-  tagIds?: number[] | undefined
-  dateFrom?: string | undefined
-  dateTo?: string | undefined
+/** Os mesmos filtros da lista de Leads (barra compartilhada), menos paginação e
+ *  ordenação, mais as opções do quadro. Funil e etapa da barra não vão ao quadro:
+ *  ele já é o de UM funil e as colunas são as etapas. */
+export type KanbanBoardFilters = Omit<LeadsListFilters, 'limit' | 'offset' | 'sortBy' | 'sortDir'> & {
   hideLost?: boolean | undefined
   /** Traz o Educacional de cada lead — só quando o card do agente mostra algum dado dele. */
   edu?: boolean | undefined
@@ -154,6 +147,8 @@ function buildKanbanQuery(f: KanbanBoardFilters): string {
   if (f.dateTo) p.set('dateTo', f.dateTo)
   if (f.hideLost) p.set('hideLost', '1')
   if (f.edu) p.set('edu', '1')
+  if (f.assignedUserId !== undefined && !(f.assignedUserIds && f.assignedUserIds.length)) p.set('assignedUserId', String(f.assignedUserId))
+  serializarFiltrosAvancados(f, p, ['funnelIds', 'statuses'])
   const qs = p.toString()
   return qs ? `?${qs}` : ''
 }

@@ -61,7 +61,7 @@ import {
 import { useAppliedFilter, useSetAppliedFilter, useResetAppliedFilter } from '@/hooks/useSavedFilters'
 import { useUserStore } from '@/stores/user'
 import { SavedFiltersBar } from '@/components/leads/SavedFiltersBar'
-import { KanbanFiltersPanel } from '@/components/leads/KanbanFiltersPanel'
+import { LeadsFilterBar, contarFiltrosAtivos } from '@/components/leads/LeadsFilterBar'
 import { useDuplicateLead, useSendLeadsToKanban } from '@/hooks/useLeads'
 import { useCustomFields } from '@/hooks/useCustomFields'
 import { useKanbanCardStore, useBlocoVisivel, type KanbanCardDado } from '@/stores/kanbanCard'
@@ -279,18 +279,12 @@ export function KanbanPage() {
     resetAppliedMut.mutate({ scope: 'leads' })
   }
 
-  const hasActiveBoardFilters = Boolean(
-    boardFilters.outcome || boardFilters.aiScoreLabel
-    || (boardFilters.sources && boardFilters.sources.length > 0)
-    || (boardFilters.assignedUserIds && boardFilters.assignedUserIds.length > 0)
-    || (boardFilters.tagIds && boardFilters.tagIds.length > 0)
-    || boardFilters.dateFrom || boardFilters.dateTo,
-  )
+  // Busca fica de fora: no quadro ela é local (searchInput), não filtro salvo.
+  const hasActiveBoardFilters = contarFiltrosAtivos({ ...boardFilters, search: undefined }) > 0
   const [sort, setSort] = useState<SortKey>('recent')
   const [compact, setCompact] = useState<boolean>(loadCompact())
   const [view, setView] = useState<ViewMode>(loadView())
   const [hideLost, setHideLost] = useState<boolean>(loadHideLost())
-  const [showFilters, setShowFilters] = useState<boolean>(false)
   const [draggingLead, setDraggingLead] = useState<KanbanLead | null>(null)
   const [duplicating, setDuplicating] = useState<KanbanLead | null>(null)
   const [moving, setMoving] = useState<KanbanLead | null>(null)
@@ -538,14 +532,6 @@ export function KanbanPage() {
             >
               {hideLost && !boardFilters.outcome ? 'Perdidos ocultos' : 'Perdidos visíveis'}
             </Button>
-            <Button
-              variant={showFilters || hasActiveBoardFilters ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setShowFilters((v) => !v)}
-              title="Filtros (resultado, score IA, período, responsável, origem, etiquetas)"
-            >
-              Filtros{hasActiveBoardFilters ? ' •' : ''}
-            </Button>
             {isAdmin && (
               <Button variant="secondary" size="sm" onClick={() => setPermissionsOpen(true)}>
                 <ShieldCheck size={12} /> Permissões
@@ -560,37 +546,43 @@ export function KanbanPage() {
       ) : (
         <>
           <Card class="p-3">
-            <div class="flex flex-wrap items-center gap-3">
-              <SearchInput
-                value={searchInput}
-                onChange={setSearchInput}
-                placeholder="Buscar lead no kanban…"
-                class="flex-1 min-w-48"
-              />
-              <SavedFiltersBar
-                scope="leads"
-                currentFilters={(({ search: _s, funnelId: _f, ...rest }) => rest as Record<string, unknown>)(boardFilters)}
-                hasActiveFilters={hasActiveBoardFilters}
-                onApply={applyFromSaved}
-                onReset={resetAllBoardFilters}
-                currentUserId={currentUserId}
-              />
-              <Badge tone="neutral">{totalLeads} {totalLeads === 1 ? 'lead' : 'leads'}</Badge>
-              {/* Estado normal não é conquista: verde permanente aqui competia
-                * com o verde que significa "ganho" dentro do quadro. */}
-              <span
-                title="O quadro se atualiza sozinho a cada 30 segundos"
-                class="inline-flex items-center gap-1.5 text-2xs text-fg-muted"
-              >
-                <span class={cn('size-1.5 rounded-full', isFetching && !isLoading ? 'bg-accent' : 'bg-fg-muted/50')} />
-                {isFetching && !isLoading ? 'Atualizando…' : 'Atualiza sozinho'}
-              </span>
-            </div>
+            <LeadsFilterBar
+              contexto="kanban"
+              filters={boardFilters}
+              onChange={patchBoardFilters}
+              onClearAll={resetAllBoardFilters}
+              total={totalLeads}
+              busca={
+                <SearchInput
+                  value={searchInput}
+                  onChange={setSearchInput}
+                  placeholder="Buscar lead no quadro…"
+                  class="w-full"
+                />
+              }
+              salvos={
+                <SavedFiltersBar
+                  scope="leads"
+                  currentFilters={(({ search: _s, funnelId: _f, ...rest }) => rest as Record<string, unknown>)(boardFilters)}
+                  hasActiveFilters={hasActiveBoardFilters}
+                  onApply={applyFromSaved}
+                  onReset={resetAllBoardFilters}
+                  currentUserId={currentUserId}
+                />
+              }
+              extra={
+                // Estado normal não é conquista: verde permanente aqui competia
+                // com o verde que significa "ganho" dentro do quadro.
+                <span
+                  title="O quadro se atualiza sozinho a cada 30 segundos"
+                  class="inline-flex items-center gap-1.5 text-2xs text-fg-muted"
+                >
+                  <span class={cn('size-1.5 rounded-full', isFetching && !isLoading ? 'bg-accent' : 'bg-fg-muted/50')} />
+                  {isFetching && !isLoading ? 'Atualizando…' : 'Atualiza sozinho'}
+                </span>
+              }
+            />
           </Card>
-
-          {showFilters && (
-            <KanbanFiltersPanel filters={boardFilters} onChange={patchBoardFilters} />
-          )}
 
           {isLoading && (
             <div class="flex gap-3 overflow-x-auto pb-2">

@@ -9,7 +9,7 @@ export function useEducacionalAtivo(): boolean {
   return !!data?.modules.some((m) => m.id === 'educacional' && m.active !== false)
 }
 
-const STATUS_INSCRICAO: Record<string, string> = {
+export const STATUS_INSCRICAO: Record<string, string> = {
   draft: 'Rascunho',
   pending: 'Aguardando pagamento',
   submitted: 'Enviada',
@@ -27,7 +27,7 @@ const STATUS_INSCRICAO: Record<string, string> = {
   expired: 'Expirada',
 }
 
-const PAGAMENTO: Record<string, string> = {
+export const PAGAMENTO: Record<string, string> = {
   paid: 'Paga',
   pending: 'Pendente',
   overdue: 'Vencida',
@@ -37,7 +37,7 @@ const PAGAMENTO: Record<string, string> = {
   refunded: 'Estornada',
 }
 
-const SITUACAO_MATRICULA: Record<string, string> = {
+export const SITUACAO_MATRICULA: Record<string, string> = {
   PRE_MATRICULADO: 'Pré-matriculado',
   ATIVO: 'Ativo',
   INTEGRALIZANDO: 'Integralizando',

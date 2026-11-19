@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import { useQueryClient } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
-  Plus, Users, Filter as FilterIcon, X as XIcon, Columns3, Trash2, ArrowRight,
+  Plus, Users, X as XIcon, Columns3, Trash2, ArrowRight,
   Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
   Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon, ChevronDown,
@@ -48,7 +48,6 @@ import {
   useQualifyLead,
   useUnqualifyLead,
   useRescoreLeadAi,
-  useLeadSources,
   type AiScoreReason,
   type LeadListItem,
   type LeadsListFilters,
@@ -63,6 +62,7 @@ import { useLeadActivities, type Activity, type ActivityType } from '@/hooks/use
 import { useAppliedFilter, useSetAppliedFilter, useResetAppliedFilter } from '@/hooks/useSavedFilters'
 import { useUserStore } from '@/stores/user'
 import { SavedFiltersBar } from '@/components/leads/SavedFiltersBar'
+import { LeadsFilterBar, contarFiltrosAtivos } from '@/components/leads/LeadsFilterBar'
 import {
   ActivityRow,
   DeleteActivityDialog,
@@ -143,7 +143,6 @@ export function LeadsPage() {
   function openLead(id: number) {
     navigate(`/leads/${id}`)
   }
-  const [showFilters, setShowFilters] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -247,17 +246,7 @@ export function LeadsPage() {
     setFilters((f) => ({ ...f, ...p, offset: 0 }))
   }
 
-  const activeFilterCount =
-    (filters.search ? 1 : 0) +
-    (filters.status ? 1 : 0) +
-    (filters.funnelId !== undefined ? 1 : 0) +
-    (filters.outcome ? 1 : 0) +
-    (filters.aiScoreLabel ? 1 : 0) +
-    (filters.source || (filters.sources && filters.sources.length > 0) ? 1 : 0) +
-    (filters.dateFrom || filters.dateTo ? 1 : 0) +
-    (filters.stageKey || filters.stageEnteredFrom || filters.stageEnteredTo ? 1 : 0) +
-    ((filters.tagIds?.length ?? 0) > 0 ? 1 : 0) +
-    (filters.assignedUserId !== undefined || (filters.assignedUserIds && filters.assignedUserIds.length > 0) || filters.onlyUnassigned ? 1 : 0)
+  const activeFilterCount = contarFiltrosAtivos(filters)
 
   // As ações da linha moram aqui: o kebab (⋯) e o menu do botão direito
   // disparam exatamente as mesmas, sem duas versões para manter.
@@ -352,51 +341,30 @@ export function LeadsPage() {
         </>
       }
     >
-      <div class="flex items-center gap-3 flex-wrap">
-        <SearchInput
-          value={filters.search ?? ''}
-          onChange={(v) => patchFilters({ search: v || undefined })}
-          placeholder="Buscar por empresa, nome, e-mail, WhatsApp…"
-          class="w-full sm:max-w-md"
-        />
-        <QuickStageFilter
-          funnelId={filters.funnelId}
-          value={filters.status}
-          onChange={(v) => patchFilters({ status: v })}
-        />
-        <Button variant="secondary" size="sm" onClick={() => setShowFilters((v) => !v)}>
-          <FilterIcon size={14} />
-          Filtros{activeFilterCount > 0 && <Badge tone="accent">{activeFilterCount}</Badge>}
-        </Button>
-        <SavedFiltersBar
-          scope="leads"
-          currentFilters={(({ limit: _l, offset: _o, sortBy: _sb, sortDir: _sd, search: _s, ...rest }) => rest as Record<string, unknown>)(filters)}
-          hasActiveFilters={activeFilterCount > 0}
-          onApply={applyFromSaved}
-          onReset={resetAllFilters}
-          currentUserId={currentUserId}
-        />
-        {filters.source && (
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-3/60 px-2.5 py-1 text-xs text-fg hover:bg-surface-3"
-            title="Limpar filtro de origem"
-            onClick={() => patchFilters({ source: undefined })}
-          >
-            <span class="text-fg-muted">Origem:</span>
-            <span class="font-medium">{leadSourceLabel(filters.source)}</span>
-            <XIcon size={12} />
-          </button>
-        )}
-        <AssigneeQuickFilters filters={filters} onChange={patchFilters} />
-        {data && (
-          <span class="text-xs text-fg-muted">
-            <strong class="text-fg tabular-nums">{data.total}</strong> resultados
-          </span>
-        )}
-      </div>
-
-      {showFilters && <FiltersPanel filters={filters} onChange={patchFilters} />}
+      <LeadsFilterBar
+        filters={filters}
+        onChange={patchFilters}
+        onClearAll={resetAllFilters}
+        total={data?.total}
+        busca={
+          <SearchInput
+            value={filters.search ?? ''}
+            onChange={(v) => patchFilters({ search: v || undefined })}
+            placeholder="Buscar por nome, empresa, e-mail, WhatsApp, cidade ou código…"
+            class="w-full"
+          />
+        }
+        salvos={
+          <SavedFiltersBar
+            scope="leads"
+            currentFilters={(({ limit: _l, offset: _o, sortBy: _sb, sortDir: _sd, search: _s, ...rest }) => rest as Record<string, unknown>)(filters)}
+            hasActiveFilters={activeFilterCount > 0}
+            onApply={applyFromSaved}
+            onReset={resetAllFilters}
+            currentUserId={currentUserId}
+          />
+        }
+      />
 
       <Card class="p-0 overflow-hidden">
         {isLoading && <LeadsLoading />}
@@ -405,7 +373,12 @@ export function LeadsPage() {
           <EmptyState
             icon={<Users size={24} />}
             title="Nenhum lead encontrado"
-            description={activeFilterCount > 0 ? 'Tente outros termos ou limpe filtros.' : 'Quando seus leads forem qualificados, aparecerão aqui.'}
+            description={activeFilterCount > 0 ? 'Nenhum lead atende a todos os filtros ao mesmo tempo. Tire um deles ou limpe tudo.' : 'Quando seus leads forem qualificados, aparecerão aqui.'}
+            action={activeFilterCount > 0 ? (
+              <Button variant="secondary" size="sm" onClick={resetAllFilters}>
+                <XIcon size={14} /> Limpar filtros
+              </Button>
+            ) : undefined}
           />
         )}
         {!isLoading && data && data.leads.length > 0 && (
@@ -1048,333 +1021,6 @@ function BulkOutcomeModal({
 
 // Lead Routing F6: filtros rápidos por responsável.
 // "Meus leads" e "Sem responsável" são mutuamente exclusivos — clicar um limpa o outro.
-function AssigneeQuickFilters({
-  filters, onChange,
-}: {
-  filters: LeadsListFilters
-  onChange: (patch: Partial<LeadsListFilters>) => void
-}) {
-  const mine = filters.assignedUserId === 'me'
-  const unassigned = filters.onlyUnassigned === true
-  return (
-    <>
-      <button
-        type="button"
-        class={cn(
-          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-          mine
-            ? 'bg-accent text-fg-on-brand border-accent'
-            : 'bg-surface-3/60 text-fg-muted border-border hover:bg-surface-3',
-        )}
-        onClick={() => onChange({
-          assignedUserId: mine ? undefined : 'me',
-          onlyUnassigned: undefined,
-          offset: 0,
-        })}
-      >
-        Meus leads
-      </button>
-      <button
-        type="button"
-        class={cn(
-          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-          unassigned
-            ? 'bg-warning text-fg-on-brand border-warning'
-            : 'bg-surface-3/60 text-fg-muted border-border hover:bg-surface-3',
-        )}
-        onClick={() => onChange({
-          onlyUnassigned: unassigned ? undefined : true,
-          assignedUserId: undefined,
-          offset: 0,
-        })}
-      >
-        Sem responsável
-      </button>
-    </>
-  )
-}
-
-function QuickStageFilter({
-  funnelId, value, onChange,
-}: {
-  funnelId: number | undefined
-  value: string | undefined
-  onChange: (v: string | undefined) => void
-}) {
-  const { data } = useStages(funnelId)
-  const stages = (data?.stages ?? []).filter((s) => s.active)
-  return (
-    <select
-      class="h-9 px-2 rounded-md bg-surface border border-border text-xs text-fg cursor-pointer focus:outline-none focus:border-accent"
-      value={value ?? ''}
-      onChange={(e) => {
-        const v = (e.target as HTMLSelectElement).value
-        onChange(v || undefined)
-      }}
-      aria-label="Filtrar por etapa"
-    >
-      <option value="">Todas as etapas</option>
-      {stages.map((s) => (
-        <option key={s.id} value={s.key}>{s.name}</option>
-      ))}
-    </select>
-  )
-}
-
-function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChange: (p: Partial<LeadsListFilters>) => void }) {
-  const { data: funnels } = useFunnels()
-  const { data: tagsData } = useTags()
-  const { data: stagesData } = useStages(filters.funnelId)
-  const { data: agentsData } = useAgents()
-  const { data: sourcesData } = useLeadSources()
-  const tagIds = filters.tagIds ?? []
-  const assignedUserIds = filters.assignedUserIds ?? []
-  const sources = filters.sources ?? []
-  const availableSources = sourcesData?.sources ?? []
-
-  function toggleTag(id: number) {
-    if (tagIds.includes(id)) onChange({ tagIds: tagIds.filter((t) => t !== id) })
-    else onChange({ tagIds: [...tagIds, id] })
-  }
-
-  function toggleAgent(id: number) {
-    if (assignedUserIds.includes(id)) onChange({ assignedUserIds: assignedUserIds.filter((x) => x !== id) })
-    else onChange({ assignedUserIds: [...assignedUserIds, id] })
-  }
-
-  function toggleSource(key: string) {
-    if (sources.includes(key)) onChange({ sources: sources.filter((x) => x !== key) })
-    else onChange({ sources: [...sources, key] })
-  }
-
-  return (
-    <Card>
-      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Select
-          label="Funil"
-          value={filters.funnelId !== undefined ? String(filters.funnelId) : ''}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value
-            onChange({ funnelId: v ? Number(v) : undefined })
-          }}
-        >
-          <option value="">Todos</option>
-          {funnels?.funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </Select>
-
-        <Select
-          label="Resultado"
-          value={filters.outcome ?? ''}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value
-            onChange({ outcome: (v || undefined) as LeadsListFilters['outcome'] })
-          }}
-        >
-          <option value="">Todos</option>
-          <option value="open">Em andamento</option>
-          <option value="won">Ganhos</option>
-          <option value="lost">Perdidos</option>
-          <option value="classified">Classificados (ganho ou perdido)</option>
-        </Select>
-
-        <Select
-          label="Score IA"
-          value={filters.aiScoreLabel ?? ''}
-          onChange={(e) => {
-            const v = (e.target as HTMLSelectElement).value
-            onChange({ aiScoreLabel: (v || undefined) as LeadsListFilters['aiScoreLabel'] })
-          }}
-          hint="Faixa qualitativa do lead score por IA"
-        >
-          <option value="">Qualquer</option>
-          <option value="hot">🔥 Quente (70-100)</option>
-          <option value="warm">🌤 Morno (40-69)</option>
-          <option value="cold">❄️ Frio (0-39)</option>
-        </Select>
-
-        <div class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-fg-muted" title="Data em que a ficha virou lead (entrou no funil)">Período (entrada como lead)</span>
-          <div class="flex gap-1">
-            <input
-              type="date"
-              class="flex-1 h-9 px-2 rounded-md bg-surface border border-border text-xs text-fg focus:outline-none focus:border-accent"
-              value={filters.dateFrom ?? ''}
-              onInput={(e) => onChange({ dateFrom: (e.target as HTMLInputElement).value || undefined })}
-            />
-            <input
-              type="date"
-              class="flex-1 h-9 px-2 rounded-md bg-surface border border-border text-xs text-fg focus:outline-none focus:border-accent"
-              value={filters.dateTo ?? ''}
-              onInput={(e) => onChange({ dateTo: (e.target as HTMLInputElement).value || undefined })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Responsável (multi) */}
-      <div class="mt-4 pt-4 border-t border-border">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">
-            Responsável
-          </span>
-          {assignedUserIds.length > 0 && (
-            <button
-              type="button"
-              class="text-2xs text-fg-muted hover:text-fg"
-              onClick={() => onChange({ assignedUserIds: undefined })}
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-        <div class="flex flex-wrap gap-1.5">
-          {(agentsData?.agents ?? []).filter((a) => a.active).map((a) => {
-            const active = assignedUserIds.includes(a.id)
-            return (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => toggleAgent(a.id)}
-                class={cn(
-                  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-xs font-medium transition-colors',
-                  active ? 'bg-accent/15 text-accent border-accent' : 'bg-surface text-fg-muted border-border hover:text-fg',
-                )}
-              >
-                {a.name || a.email}
-              </button>
-            )
-          })}
-          {(!agentsData || agentsData.agents.length === 0) && (
-            <span class="text-xs text-fg-muted">Sem operadores cadastrados</span>
-          )}
-        </div>
-      </div>
-
-      {/* Origem (multi) */}
-      <div class="mt-4 pt-4 border-t border-border">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">
-            Origem
-          </span>
-          {sources.length > 0 && (
-            <button
-              type="button"
-              class="text-2xs text-fg-muted hover:text-fg"
-              onClick={() => onChange({ sources: undefined })}
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-        <div class="flex flex-wrap gap-1.5">
-          {availableSources.length === 0 ? (
-            <span class="text-xs text-fg-muted italic">Nenhuma origem encontrada</span>
-          ) : availableSources.map((src) => {
-            const key = src.value ?? ''
-            const active = sources.includes(key)
-            return (
-              <button
-                key={key || 'null'}
-                type="button"
-                onClick={() => toggleSource(key)}
-                class={cn(
-                  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-xs font-medium transition-colors',
-                  active ? 'bg-accent/15 text-accent border-accent' : 'bg-surface text-fg-muted border-border hover:text-fg',
-                )}
-              >
-                {leadSourceLabel(src.value)}
-                <span class="text-fg-muted text-3xs">{src.count}</span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Sub-bloco: Data de entrada na etapa */}
-      <div class="mt-4 pt-4 border-t border-border">
-        <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">
-          Data de entrada na etapa
-        </div>
-        <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
-          <Select
-            label="Etapa"
-            value={filters.stageKey ?? ''}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value
-              onChange({ stageKey: v || undefined })
-            }}
-          >
-            <option value="">Qualquer etapa</option>
-            {stagesData?.stages.filter((s) => s.active).map((s) => (
-              <option key={s.id} value={s.key}>{s.name}</option>
-            ))}
-          </Select>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-medium text-fg-muted">Entrou a partir de</span>
-            <input
-              type="date"
-              class="h-9 px-2 rounded-md bg-surface border border-border text-xs text-fg focus:outline-none focus:border-accent"
-              value={filters.stageEnteredFrom ?? ''}
-              onInput={(e) => onChange({ stageEnteredFrom: (e.target as HTMLInputElement).value || undefined })}
-            />
-          </div>
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-medium text-fg-muted">Entrou até</span>
-            <input
-              type="date"
-              class="h-9 px-2 rounded-md bg-surface border border-border text-xs text-fg focus:outline-none focus:border-accent"
-              value={filters.stageEnteredTo ?? ''}
-              onInput={(e) => onChange({ stageEnteredTo: (e.target as HTMLInputElement).value || undefined })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {tagsData && tagsData.tags.length > 0 && (
-        <div class="mt-3">
-          <span class="text-xs font-medium text-fg-muted block mb-1.5">Etiquetas</span>
-          <div class="flex flex-wrap gap-1.5">
-            {tagsData.tags.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => toggleTag(t.id)}
-                class={cn(
-                  'inline-flex items-center gap-1 h-6 px-2 rounded-full text-xs font-medium transition-all',
-                  tagIds.includes(t.id) ? 'ring-2 ring-accent' : 'opacity-60 hover:opacity-100',
-                )}
-                style={{ background: `${t.color}22`, color: t.color }}
-              >
-                <span class="size-1.5 rounded-full" style={{ background: t.color }} />
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(filters.funnelId !== undefined || filters.outcome !== undefined || filters.aiScoreLabel !== undefined
-         || filters.dateFrom !== undefined || filters.dateTo !== undefined || tagIds.length > 0
-         || filters.stageKey !== undefined || filters.stageEnteredFrom !== undefined || filters.stageEnteredTo !== undefined
-         || assignedUserIds.length > 0 || sources.length > 0) && (
-        <button
-          type="button"
-          class="mt-3 inline-flex items-center gap-1 text-xs text-fg-muted hover:text-fg"
-          onClick={() => onChange({
-            funnelId: undefined, outcome: undefined, aiScoreLabel: undefined,
-            dateFrom: undefined, dateTo: undefined, tagIds: undefined,
-            stageKey: undefined, stageEnteredFrom: undefined, stageEnteredTo: undefined,
-            assignedUserIds: undefined, sources: undefined,
-            scoreMin: undefined, scoreMax: undefined,
-          })}
-        >
-          <XIcon size={12} /> Limpar filtros
-        </button>
-      )}
-    </Card>
-  )
-}
-
 function LeadsLoading() {
   return (
     <div class="p-4 flex flex-col gap-2">

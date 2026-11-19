@@ -114,7 +114,11 @@ export async function leadsRoutes(app: FastifyInstance) {
     // Origem (source): aceita ?source=meta_lead_ads (legacy single) OU ?sources=meta_lead_ads,whatsapp (multi)
     if (q.sources) {
       const arr = String(q.sources).split(',').map((s) => s.trim()).filter(Boolean)
-      if (arr.length > 0) where.source = { in: arr }
+      const reais = arr.filter((s) => s !== '__none')
+      // "__none" = sem origem gravada (nula ou vazia), junto das escolhidas.
+      if (arr.includes('__none')) {
+        whereAnd.push({ OR: [...(reais.length ? [{ source: { in: reais } }] : []), { source: null }, { source: '' }] })
+      } else if (arr.length > 0) where.source = { in: arr }
     } else if (q.source) {
       where.source = String(q.source)
     }
@@ -144,7 +148,13 @@ export async function leadsRoutes(app: FastifyInstance) {
     // ?assignedUserIds=1,2,3           → multi-select (UI nova)
     // ?assignedUserId=123              → legacy single
     // ?assignedUserId=me               → atalho UI "Meus leads"
-    if (q.onlyUnassigned === '1') {
+    // Responsáveis + "Sem responsável" juntos (barra nova): um OU o outro.
+    const idsResp = q.assignedUserIds
+      ? String(q.assignedUserIds).split(',').map((s: string) => parseInt(s.trim())).filter(Number.isInteger)
+      : []
+    if (q.onlyUnassigned === '1' && idsResp.length > 0) {
+      whereAnd.push({ OR: [{ assignedUserId: { in: idsResp } }, { assignedUserId: null }] })
+    } else if (q.onlyUnassigned === '1') {
       where.assignedUserId = null
     } else if (q.assignedUserIds) {
       const ids = String(q.assignedUserIds).split(',').map((s) => parseInt(s.trim())).filter(Number.isInteger)
@@ -230,8 +240,14 @@ export async function leadsRoutes(app: FastifyInstance) {
       nome: { nome: sortDir },
       status: { status: sortDir },
       aiScore: { aiScore: sortDir },
+      lastMessageAt: { lastMessageAt: { sort: sortDir, nulls: 'last' } },
+      outcomeAt: { outcomeAt: { sort: sortDir, nulls: 'last' } },
     }
     const orderBy = validSorts[sortField] || { createdAt: 'desc' }
+
+    // Barra de filtros nova (equipe, campanha, canal, atendimento, datas…).
+    const { aplicarFiltrosAvancados } = await import('../services/leadFilters.js')
+    await aplicarFiltrosAvancados(q, whereAnd)
 
     // Aplica AND combinado (scope + search) antes da query.
     if (whereAnd.length > 0) where.AND = whereAnd
@@ -924,6 +940,25 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── GET /api/bychat/leads/qualification-stats ─── Preview de impacto do backfill ──
   // Conta quantos leads atualmente têm qualifiedAt=null e quantos serão qualificados
   // pelo backfill baseado na origem. NÃO altera dados.
+  // ── GET /api/bychat/leads/filter-options ─── Opções da barra de filtros ──
+  // Cada opção vem com a contagem de leads (qualificados, no escopo do usuário),
+  // para a barra mostrar só o que existe e quantos há antes do clique.
+  app.get('/api/bychat/leads/filter-options', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user as JwtPayload
+    const q = req.query as any
+    const partes: any[] = []
+    const scope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
+    if (Object.keys(scope).length > 0) partes.push(scope)
+    const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+    const semReservados = await filtroDeCanaisVisiveis(user.userId, user.role)
+    if (semReservados) partes.push(semReservados)
+    if (q.includeUnqualified !== '1') partes.push({ qualifiedAt: { not: null } })
+    const { opcoesDosFiltros } = await import('../services/leadFilters.js')
+    // Contagem por campo personalizado só para quem vê todos os leads.
+    const veTudo = Object.keys(scope).length === 0 && !semReservados
+    return opcoesDosFiltros(partes.length ? { AND: partes } : {}, veTudo)
+  })
+
   // ── GET /api/bychat/leads/sources ─── Origens distintas presentes nos leads ──
   // Devolve só as origens que efetivamente existem no banco; usado pelo filtro
   // "Origem" da listagem pra não mostrar opções vazias / inventadas.

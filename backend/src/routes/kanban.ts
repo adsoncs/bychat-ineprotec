@@ -169,7 +169,7 @@ export async function kanbanRoutes(app: FastifyInstance) {
     // card de funil adicional, os do vínculo (o aluno ganho em Vendas está
     // "aberto" e com outro dono no card da Secretaria). Por isso entram em
     // `card` e são aplicados nos dois ramos lá embaixo.
-    const card: { outcome?: any; assignedUserId?: any } = {}
+    const card: { outcome?: any; assignedUserId?: any; AND?: any[] } = {}
     if (q.outcome === 'open') card.outcome = null
     else if (q.outcome === 'won') card.outcome = 'won'
     else if (q.outcome === 'lost') card.outcome = 'lost'
@@ -179,16 +179,22 @@ export async function kanbanRoutes(app: FastifyInstance) {
       leadWhere.aiScoreLabel = q.aiScoreLabel
     }
 
+    // "__none" = sem origem; entra no AND (mais abaixo) junto com as escolhidas.
+    const origemSem: any[] = []
     if (q.sources) {
       const arr = String(q.sources).split(',').map((s: string) => s.trim()).filter(Boolean)
-      if (arr.length > 0) leadWhere.source = { in: arr }
+      const reais = arr.filter((s) => s !== '__none')
+      if (arr.includes('__none')) origemSem.push({ OR: [...(reais.length ? [{ source: { in: reais } }] : []), { source: null }, { source: '' }] })
+      else if (arr.length > 0) leadWhere.source = { in: arr }
     } else if (q.source) {
       leadWhere.source = String(q.source)
     }
 
     if (q.assignedUserIds) {
       const ids = String(q.assignedUserIds).split(',').map((s: string) => parseInt(s.trim())).filter(Number.isInteger)
-      if (ids.length > 0) card.assignedUserId = { in: ids }
+      // Barra nova: responsáveis + "Sem responsável" juntos.
+      if (ids.length > 0 && q.onlyUnassigned === '1') card.AND = [{ OR: [{ assignedUserId: { in: ids } }, { assignedUserId: null }] }]
+      else if (ids.length > 0) card.assignedUserId = { in: ids }
     } else if (q.assignedUserId === 'me') {
       card.assignedUserId = user.userId
     } else if (q.assignedUserId) {
@@ -203,10 +209,12 @@ export async function kanbanRoutes(app: FastifyInstance) {
       if (ids.length > 0) leadWhere.tags = { some: { tagId: { in: ids } } }
     }
 
+    // Mesmo período da lista de Leads: a data em que a ficha virou lead.
+    // (Sem hora, `new Date('AAAA-MM-DD')` é 21h do dia anterior aqui.)
     if (q.dateFrom || q.dateTo) {
-      leadWhere.createdAt = {}
-      if (q.dateFrom) leadWhere.createdAt.gte = new Date(q.dateFrom)
-      if (q.dateTo) leadWhere.createdAt.lte = new Date(q.dateTo + 'T23:59:59')
+      leadWhere.qualifiedAt = { not: null }
+      if (q.dateFrom) leadWhere.qualifiedAt.gte = new Date(String(q.dateFrom).length === 10 ? q.dateFrom + 'T00:00:00' : q.dateFrom)
+      if (q.dateTo) leadWhere.qualifiedAt.lte = new Date(q.dateTo + 'T23:59:59')
     }
 
     // Reforma F1: scope efetivo do user no módulo 'leads'.
@@ -223,6 +231,11 @@ export async function kanbanRoutes(app: FastifyInstance) {
         { email: { contains: q.search } },
       ] })
     }
+    andClauses.push(...origemSem)
+    // Barra de filtros nova (a mesma da lista de Leads): equipe, campanha,
+    // canal, atendimento, Educacional, campos personalizados, datas…
+    const { aplicarFiltrosAvancados } = await import('../services/leadFilters.js')
+    await aplicarFiltrosAvancados(q, andClauses)
     // Toggle "Ocultar perdidos": esconde outcome='lost', mantendo abertos (null) e
     // ganhos. Só aplica quando NÃO há filtro outcome explícito (o filtro vence).
     // OR explícito porque { not: 'lost' } no Prisma exclui linhas NULL.
