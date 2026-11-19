@@ -195,6 +195,24 @@ export async function surveysRoutes(app: FastifyInstance) {
     return results
   })
 
+  // Planilha das respostas (CSV com ; e BOM: abre direto no Excel em pt-BR).
+  app.get('/api/surveys/:id/export.csv', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const r = await computeSurveyResults(id)
+    if (!r) return reply.code(404).send({ error: 'Pesquisa não encontrada' })
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`
+    const dt = (d: Date | string) => new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    const comNps = !!r.survey.npsQuestionKey
+    const cab = ['Respondida em', 'Nome', 'Telefone', 'Ficha', ...r.columns.map((c) => c.label + (c.type === 'scale' ? ` (${c.scaleMin}–${c.scaleMax})` : '')), ...(comNps ? ['Faixa NPS'] : [])]
+    const faixa: Record<string, string> = { promoter: 'Promotor', passive: 'Neutro', detractor: 'Detrator' }
+    const linhas = r.rows.map((x) => [dt(x.respondedAt), x.nome, x.phone, x.leadId,
+      ...r.columns.map((c) => x.answers[c.key]), ...(comNps ? [x.npsCategory ? faixa[x.npsCategory] ?? x.npsCategory : ''] : [])].map(esc).join(';'))
+    const nome = (r.survey.name || `pesquisa-${id}`).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase()
+    await logUserAudit({ ...auditActor(req), action: 'survey.exported', targetType: 'survey', targetLabel: String(id), changes: { linhas: r.rows.length } as any }).catch(() => {})
+    reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="respostas-${nome}.csv"`)
+    return '\uFEFF' + [cab.map(esc).join(';'), ...linhas].join('\n')
+  })
+
   // Expira convites vencidos sob demanda (o worker também roda periodicamente).
   app.post('/api/surveys/expire-sessions', { preHandler: [authMiddleware, adminOnly] }, async () => {
     const count = await expireSurveySessions()

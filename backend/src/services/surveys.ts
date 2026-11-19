@@ -298,6 +298,52 @@ async function tagLead(leadId: number, name: string): Promise<void> {
  * PERGUNTA DE NPS — não sobre o total de respostas, e não é média de notas. Fica
  * num lugar só para nenhuma tela inventar a sua própria conta.
  */
+export interface SurveyColumn {
+  key: string
+  label: string
+  type: string
+  scaleMin?: number
+  scaleMax?: number
+  scaleMinLabel?: string | null
+  scaleMaxLabel?: string | null
+  options?: Array<{ value: string; label: string }>
+  /** Pergunta que não está mais na pesquisa (respondida numa versão antiga). */
+  removida?: boolean
+}
+
+/** Colunas da tabela de respostas: as perguntas que se respondem (sem os
+ *  títulos de seção), na ordem da pesquisa, mais as chaves antigas. */
+export function surveyColumns(questions: any[], answers: unknown[]): SurveyColumn[] {
+  const cols: SurveyColumn[] = questions
+    .filter((q) => q && q.key && q.type !== 'statement')
+    .map((q) => ({
+      key: String(q.key), label: String(q.label ?? q.key), type: String(q.type),
+      ...(q.type === 'scale' ? { scaleMin: q.scaleMin ?? 1, scaleMax: q.scaleMax ?? 5, scaleMinLabel: q.scaleMinLabel ?? null, scaleMaxLabel: q.scaleMaxLabel ?? null } : {}),
+      ...(Array.isArray(q.options) ? { options: q.options.map((o: any) => ({ value: String(o.value), label: String(o.label ?? o.value) })) } : {}),
+    }))
+  const conhecidas = new Set(cols.map((c) => c.key))
+  for (const a of answers) {
+    if (!a || typeof a !== 'object') continue
+    for (const k of Object.keys(a as object)) {
+      if (conhecidas.has(k) || k.startsWith('_')) continue
+      conhecidas.add(k)
+      cols.push({ key: k, label: k, type: 'text', removida: true })
+    }
+  }
+  return cols
+}
+
+/** Resposta como a pessoa escolheu: opção pelo rótulo; nota como número. */
+export function answerText(c: SurveyColumn, v: unknown): string | number | null {
+  if (v == null || v === '') return null
+  if (c.type === 'scale') { const n = Number(v); return Number.isFinite(n) ? n : String(v) }
+  if (c.options) {
+    const vals = Array.isArray(v) ? v.map(String) : [String(v)]
+    return vals.map((x) => c.options!.find((o) => o.value === x)?.label ?? x).join(', ')
+  }
+  return Array.isArray(v) ? v.join(', ') : String(v).trim()
+}
+
 export async function computeSurveyResults(surveyId: number) {
   const survey = await prisma.survey.findUnique({ where: { id: surveyId } })
   if (!survey) return null
@@ -309,9 +355,10 @@ export async function computeSurveyResults(surveyId: number) {
 
   const leadIds = [...new Set(responses.map((r) => r.leadId).filter((x): x is number => x != null))]
   const leads = leadIds.length
-    ? await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true } })
+    ? await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, whatsapp: true } })
     : []
   const leadName = new Map(leads.map((l) => [l.id, l.nome]))
+  const leadPhone = new Map(leads.map((l) => [l.id, l.whatsapp]))
 
   const questions: any[] = Array.isArray(survey.questions) ? (survey.questions as any[]) : []
   const npsKey = resolveNpsKey(survey)
@@ -342,8 +389,9 @@ export async function computeSurveyResults(surveyId: number) {
   // Respostas abertas, com quem escreveu e a nota que deu — é onde o detrator
   // explica o porquê, e ler isso separado da nota perde o sentido.
   const openKeys = questions.filter((q) => q.type === 'textarea' || q.type === 'text').map((q) => q.key)
+  const labelOf = new Map(questions.map((q) => [q.key, String(q.label ?? q.key)]))
   const comments = responses.flatMap((r) => openKeys
-    .map((k) => ({ key: k, text: String((r.answers as any)?.[k] ?? '').trim() }))
+    .map((k) => ({ key: k, label: labelOf.get(k) ?? k, text: String((r.answers as any)?.[k] ?? '').trim() }))
     .filter((c) => c.text)
     .map((c) => ({
       ...c, responseId: r.id, leadId: r.leadId,
@@ -354,8 +402,22 @@ export async function computeSurveyResults(surveyId: number) {
   const invites = Object.fromEntries(sessions.map((s) => [s.status, s._count])) as Record<string, number>
   const sent = (invites.pending ?? 0) + (invites.answered ?? 0) + (invites.expired ?? 0)
 
+  // Uma linha por pessoa, com as perguntas na ordem da pesquisa. Chave que está
+  // na resposta mas saiu da pesquisa (perguntas refeitas) vira coluna extra, para
+  // nada sumir da tabela nem da planilha.
+  const columns = surveyColumns(questions, responses.map((r) => r.answers))
+  const rows = responses.map((r) => ({
+    responseId: r.id, leadId: r.leadId,
+    nome: r.leadId ? (leadName.get(r.leadId) ?? null) : null,
+    phone: r.phone ?? (r.leadId ? leadPhone.get(r.leadId) ?? null : null),
+    respondedAt: r.respondedAt, npsScore: r.npsScore, npsCategory: r.npsCategory,
+    answers: Object.fromEntries(columns.map((c) => [c.key, answerText(c, (r.answers as any)?.[c.key])])),
+  }))
+
   return {
     survey: { id: survey.id, name: survey.name, description: survey.description, npsQuestionKey: npsKey },
+    columns,
+    rows,
     totals: {
       responses: responses.length,
       invites: sent,

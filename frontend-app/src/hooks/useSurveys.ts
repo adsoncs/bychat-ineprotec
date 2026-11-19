@@ -53,6 +53,29 @@ export interface Survey {
   flowChannelLabel?: string | null
 }
 
+export interface SurveyColumn {
+  key: string
+  label: string
+  type: string
+  scaleMin?: number
+  scaleMax?: number
+  scaleMinLabel?: string | null
+  scaleMaxLabel?: string | null
+  options?: Array<{ value: string; label: string }>
+  removida?: boolean
+}
+
+export interface SurveyRow {
+  responseId: number
+  leadId: number | null
+  nome: string | null
+  phone: string | null
+  respondedAt: string
+  npsScore: number | null
+  npsCategory: NpsCategory | null
+  answers: Record<string, string | number | null>
+}
+
 export interface SurveyResults {
   survey: { id: number; name: string; description: string | null; npsQuestionKey: string | null }
   totals: { responses: number; invites: number; responseRate: number | null; pending: number; expired: number }
@@ -74,8 +97,14 @@ export interface SurveyResults {
     avg: number | null
     counts: Record<string, number>
   }[]
+  /** Perguntas que se respondem, na ordem da pesquisa (+ chaves de versões antigas). */
+  columns?: SurveyColumn[]
+  /** Uma linha por pessoa que respondeu. */
+  rows?: SurveyRow[]
   comments: {
     key: string
+    /** Texto da pergunta. */
+    label?: string
     text: string
     responseId: number
     leadId: number | null

@@ -11,14 +11,16 @@
 
 import { useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, RefreshCw, Table2, BarChart3, MessageSquareQuote, Users } from 'lucide-preact'
+import { ArrowLeft, RefreshCw, Table2, BarChart3, MessageSquareQuote, Users, Download, ListChecks } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useSurveyResults, CATEGORY_LABEL, type NpsCategory, type SurveyResults } from '@/hooks/useSurveys'
+import { useSurveyResults, CATEGORY_LABEL, type NpsCategory, type SurveyResults, type SurveyColumn } from '@/hooks/useSurveys'
+import { SearchInput } from '@/components/ui/SearchInput'
+import { baixarCsv } from '@/lib/baixarCsv'
+import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
 // Faixas do NPS → token de cor do gráfico. É codificação de ESTADO (bom/neutro/
@@ -45,6 +47,15 @@ export function SurveyResultsPage({ params }: { params: { id: string } }) {
   const id = params?.id ? Number(params.id) : null
   const { data, isLoading, isFetching, refetch } = useSurveyResults(id)
   const [asTable, setAsTable] = useState(false)
+  const [baixando, setBaixando] = useState(false)
+  const baixar = () => {
+    if (!data) return
+    setBaixando(true)
+    const nome = `respostas-${data.survey.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase()}.csv`
+    baixarCsv(`/surveys/${data.survey.id}/export.csv`, nome)
+      .catch((e) => toast((e as Error).message, 'danger'))
+      .finally(() => setBaixando(false))
+  }
 
   if (isLoading) {
     return (
@@ -77,6 +88,9 @@ export function SurveyResultsPage({ params }: { params: { id: string } }) {
           <Button variant="ghost" size="sm" onClick={() => setAsTable((v) => !v)}>
             {asTable ? <BarChart3 size={14} /> : <Table2 size={14} />} {asTable ? 'Ver gráficos' : 'Ver tabela'}
           </Button>
+          <Button variant="secondary" size="sm" onClick={baixar} disabled={baixando || !data.totals.responses} title="Planilha com uma linha por pessoa e uma coluna por pergunta (abre no Excel)">
+            <Download size={14} /> {baixando ? 'Baixando…' : 'Baixar planilha'}
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw size={14} class={isFetching ? 'animate-spin' : ''} /> Atualizar
           </Button>
@@ -94,13 +108,17 @@ export function SurveyResultsPage({ params }: { params: { id: string } }) {
               : 'Dispare a pesquisa para começar a receber respostas.'}
           />
         ) : asTable ? (
-          <TableView r={data} />
+          <>
+            <TableView r={data} />
+            <Responses r={data} />
+          </>
         ) : (
           <>
             <SplitBar r={data} />
             <Distribution r={data} />
             <QuestionAverages r={data} />
             <Comments r={data} />
+            <Responses r={data} />
           </>
         )}
       </div>
@@ -307,42 +325,136 @@ function QuestionAverages({ r }: { r: SurveyResults }) {
 
 function Comments({ r }: { r: SurveyResults }) {
   const [filter, setFilter] = useState<NpsCategory | 'all'>('all')
+  const temNps = r.nps.answered > 0
   const list = r.comments.filter((c) => filter === 'all' || c.npsCategory === filter)
+  // Agrupado pela pergunta, na ordem da pesquisa: cada resposta embaixo do que foi perguntado.
+  const ordem = (r.columns ?? []).map((c) => c.key)
+  const grupos = useMemo(() => {
+    const m = new Map<string, { label: string; itens: typeof list }>()
+    for (const c of list) {
+      const g = m.get(c.key) ?? { label: c.label ?? c.key, itens: [] }
+      g.itens.push(c)
+      m.set(c.key, g)
+    }
+    return [...m.entries()].sort((a, b) => (ordem.indexOf(a[0]) + 1 || 999) - (ordem.indexOf(b[0]) + 1 || 999))
+  }, [list, ordem.join(',')])
   if (!r.comments.length) return null
+  return (
+    <Card class="p-5 space-y-4">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <h2 class="text-sm font-semibold text-fg flex items-center gap-2">
+          <MessageSquareQuote size={14} class="text-fg-subtle" /> O que escreveram
+          <span class="text-xs font-normal text-fg-subtle">{r.comments.length} resposta(s) aberta(s)</span>
+        </h2>
+        {temNps && (
+          <div class="flex gap-1">
+            {([['all', 'Todos'], ['detractor', CATEGORY_LABEL.detractor], ['passive', CATEGORY_LABEL.passive], ['promoter', CATEGORY_LABEL.promoter]] as const).map(([v, label]) => (
+              <Button key={v} size="sm" variant={filter === v ? 'secondary' : 'ghost'} onClick={() => setFilter(v as any)}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!list.length && <p class="text-xs text-fg-subtle">Nenhum comentário nesta faixa.</p>}
+      {grupos.map(([key, g]) => (
+        <section key={key} class="space-y-2">
+          <h3 class="text-sm font-medium text-fg border-l-2 border-accent pl-2.5">
+            {g.label}
+            <span class="ml-2 text-xs font-normal text-fg-subtle">{g.itens.length}</span>
+          </h3>
+          <ul class="space-y-2">
+            {g.itens.map((c) => (
+              <li key={`${c.responseId}-${c.key}`} class="rounded-md border border-border bg-surface-2 p-3 space-y-1.5">
+                <p class="text-sm text-fg whitespace-pre-wrap">{c.text}</p>
+                <div class="flex items-center gap-2 flex-wrap text-xs text-fg-subtle">
+                  <span class="inline-flex items-center gap-1"><Users size={11} /> {c.nome || 'Não identificado'}</span>
+                  <span>· {quando(c.respondedAt)}</span>
+                  {c.npsCategory && (
+                    <span class="inline-flex items-center gap-1.5 font-medium text-fg">
+                      <span class="size-2.5 rounded-sm" style={{ background: CAT_VAR[c.npsCategory] }} aria-hidden="true" />
+                      {CATEGORY_LABEL[c.npsCategory]} · nota {c.npsScore}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </Card>
+  )
+}
+
+const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+// ── Respostas por pessoa ─────────────────────────────────────────────────────
+// Uma linha por pessoa, uma coluna por pergunta, com o texto da pergunta no
+// cabeçalho: é o que a planilha baixada também traz.
+
+function Celula({ c, v }: { c: SurveyColumn; v: string | number | null | undefined }) {
+  if (v == null || v === '') return <span class="text-fg-subtle">—</span>
+  if (c.type === 'scale' && typeof v === 'number') {
+    const rotulo = v === c.scaleMax ? c.scaleMaxLabel : v === c.scaleMin ? c.scaleMinLabel : null
+    return (
+      <span class="whitespace-nowrap">
+        <span class="font-semibold tabular-nums">{v}</span>
+        <span class="text-fg-subtle tabular-nums">/{c.scaleMax}</span>
+        {rotulo && <span class="block text-[0.6875rem] text-fg-subtle whitespace-normal">{rotulo}</span>}
+      </span>
+    )
+  }
+  return <span class="block min-w-[14rem] max-w-[28rem] whitespace-pre-wrap">{String(v)}</span>
+}
+
+function Responses({ r }: { r: SurveyResults }) {
+  const [busca, setBusca] = useState('')
+  const cols = r.columns ?? []
+  const rows = r.rows ?? []
+  const t = busca.trim().toLowerCase()
+  const visiveis = t ? rows.filter((x) => [x.nome, x.phone, ...Object.values(x.answers)].some((v) => String(v ?? '').toLowerCase().includes(t))) : rows
+  if (!rows.length || !cols.length) return null
   return (
     <Card class="p-5 space-y-3">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="text-sm font-semibold text-fg flex items-center gap-2">
-          <MessageSquareQuote size={14} class="text-fg-subtle" /> O que escreveram
+          <ListChecks size={14} class="text-fg-subtle" /> Respostas por pessoa
+          <span class="text-xs font-normal text-fg-subtle">{visiveis.length} de {rows.length}</span>
         </h2>
-        <div class="flex gap-1">
-          {([['all', 'Todos'], ['detractor', CATEGORY_LABEL.detractor], ['passive', CATEGORY_LABEL.passive], ['promoter', CATEGORY_LABEL.promoter]] as const).map(([v, label]) => (
-            <Button key={v} size="sm" variant={filter === v ? 'secondary' : 'ghost'} onClick={() => setFilter(v as any)}>
-              {label}
-            </Button>
-          ))}
-        </div>
+        <SearchInput value={busca} onChange={setBusca} placeholder="Buscar nome, telefone ou resposta…" class="w-full sm:w-72" />
       </div>
-      {!list.length && <p class="text-xs text-fg-subtle">Nenhum comentário nesta faixa.</p>}
-      <ul class="space-y-3">
-        {list.map((c) => (
-          <li key={`${c.responseId}-${c.key}`} class="rounded-md border border-border bg-surface-2 p-3 space-y-1.5">
-            <div class="flex items-center gap-2 flex-wrap">
-              {c.npsCategory && (
-                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-fg">
-                  <span class="size-2.5 rounded-sm" style={{ background: CAT_VAR[c.npsCategory] }} aria-hidden="true" />
-                  {CATEGORY_LABEL[c.npsCategory]} · nota {c.npsScore}
-                </span>
-              )}
-              <Badge tone="neutral">{c.key}</Badge>
-              <span class="text-xs text-fg-subtle inline-flex items-center gap-1">
-                <Users size={11} /> {c.nome || 'Não identificado'}
-              </span>
-            </div>
-            <p class="text-sm text-fg whitespace-pre-wrap">{c.text}</p>
-          </li>
-        ))}
-      </ul>
+      <div class="overflow-x-auto -mx-5 px-5">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left align-bottom">
+              <th class="py-2 pr-4 text-xs font-medium text-fg-subtle uppercase tracking-wider whitespace-nowrap">Pessoa</th>
+              {cols.map((c, i) => (
+                <th key={c.key} class="py-2 pr-4 font-medium text-fg-muted text-xs min-w-[10rem] max-w-[18rem]" title={c.label}>
+                  <span class="text-fg-subtle tabular-nums mr-1">{i + 1}.</span>
+                  <span class="line-clamp-3">{c.label}</span>
+                  {c.type === 'scale' && <span class="block text-[0.6875rem] font-normal text-fg-subtle">nota {c.scaleMin}–{c.scaleMax}</span>}
+                  {c.removida && <span class="block text-[0.6875rem] font-normal text-fg-subtle">pergunta de versão anterior</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody class="text-fg">
+            {visiveis.map((x) => (
+              <tr key={x.responseId} class="border-t border-border align-top">
+                <td class="py-2.5 pr-4 whitespace-nowrap">
+                  {x.leadId
+                    ? <a href={`/app/leads/${x.leadId}`} class="font-medium text-fg hover:text-accent hover:underline">{x.nome || 'Sem nome'}</a>
+                    : <span class="font-medium">{x.nome || 'Não identificado'}</span>}
+                  <span class="block text-xs text-fg-subtle tabular-nums">{x.phone ?? ''}</span>
+                  <span class="block text-[0.6875rem] text-fg-subtle">{quando(x.respondedAt)}</span>
+                </td>
+                {cols.map((c) => <td key={c.key} class="py-2.5 pr-4"><Celula c={c} v={x.answers[c.key]} /></td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!visiveis.length && <p class="text-xs text-fg-subtle">Nada encontrado para "{busca}".</p>}
     </Card>
   )
 }
