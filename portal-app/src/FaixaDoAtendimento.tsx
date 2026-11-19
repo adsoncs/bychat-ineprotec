@@ -1,7 +1,7 @@
 // Faixa do topo na inscrição assistida: deixa claro, o tempo todo, que é a
 // equipe operando o portal — e dá as duas saídas: passar para o candidato
 // continuar sozinho, ou encerrar o atendimento nesta aba.
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useState, useRef } from 'preact/hooks'
 import {
   aoMudarInscricao, dadosDoAtendimento, encerrarAtendimento, inscricaoDoAtendimento, linkParaOCandidato,
 } from './atendimento'
@@ -25,6 +25,22 @@ export function FaixaDoAtendimento() {
   const [agora, setAgora] = useState(Date.now())
 
   useEffect(() => aoMudarInscricao(() => forcar((n) => n + 1)), [])
+  // A faixa fica presa ao topo e o cabeçalho do portal é FIXO no topo: sem
+  // isto os dois ocupavam o mesmo lugar e a faixa cobria o logo. A altura dela
+  // (que muda ao quebrar linha no celular ou abrir o link) vira
+  // --faixa-atendimento, que o cabeçalho e os blocos "grudados" somam ao topo.
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    const raiz = document.documentElement
+    if (!el) { raiz.style.removeProperty('--faixa-atendimento'); return }
+    const medir = () => raiz.style.setProperty('--faixa-atendimento', `${el.getBoundingClientRect().height}px`)
+    medir()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(medir) : null
+    ro?.observe(el)
+    window.addEventListener('resize', medir)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', medir); raiz.style.removeProperty('--faixa-atendimento') }
+  })
   useEffect(() => { const i = setInterval(() => setAgora(Date.now()), 30_000); return () => clearInterval(i) }, [])
 
   if (!dados) return null
@@ -49,7 +65,8 @@ export function FaixaDoAtendimento() {
   }
 
   const barra: Record<string, string> = {
-    position: 'sticky', top: '0', zIndex: '1000', background: vencido ? '#7f1d1d' : '#1e293b', color: '#fff',
+    // Fixa (não sticky): no celular o sticky soltava ao rolar e sobrava um buraco no topo.
+    position: 'fixed', top: '0', left: '0', right: '0', zIndex: '1000', background: vencido ? '#7f1d1d' : '#1e293b', color: '#fff',
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif', fontSize: '13px', lineHeight: '1.35',
     padding: '8px 16px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 14px',
     boxShadow: '0 1px 4px rgba(0,0,0,.25)',
@@ -61,11 +78,11 @@ export function FaixaDoAtendimento() {
   const fantasma = { ...botao, background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,.45)' }
 
   if (encerrado) {
-    return <div style={barra} role="status"><strong>Atendimento encerrado.</strong> Pode fechar esta aba.</div>
+    return <div ref={ref} style={barra} role="status"><strong>Atendimento encerrado.</strong> Pode fechar esta aba.</div>
   }
 
   return (
-    <div style={barra} role="region" aria-label="Atendimento assistido">
+    <div ref={ref} style={barra} role="region" aria-label="Atendimento assistido">
       <span style={{ flex: '1 1 260px', minWidth: '0' }}>
         <strong>Atendimento assistido</strong> · {dados.nome}
         {codigo && <> · inscrição <code style={{ fontSize: '12px' }}>{codigo}</code></>}

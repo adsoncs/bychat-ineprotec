@@ -1656,3 +1656,18 @@ body:has(input:focus, select:focus, textarea:focus) .a11y:not(:focus-within) { o
 }
 /* Sem o contador no cartão, o título do passo encostava no primeiro campo. */
 .cartao > h2 + .campos, .cartao > h2 + .curso-do-link { margin-top: 16px; }
+
+
+/* ── Atendimento assistido: a faixa da equipe no topo ───────────
+   FaixaDoAtendimento mede a própria altura em --faixa-atendimento. O
+   cabeçalho fixo desce essa altura (antes a faixa cobria o logo) e o que
+   "gruda" ao rolar gruda por baixo dos dois. Sem atendimento, vale 0. */
+.barra-topo { top: var(--faixa-atendimento, 0px); }
+/* A faixa é fixa: o espaço dela entra no corpo da página. */
+body { padding-top: var(--faixa-atendimento, 0px); }
+:root[data-topo='barra'] { scroll-padding-top: calc(var(--altura-barra, 68px) + var(--faixa-atendimento, 0px) + 16px); }
+@media (min-width: 900px) {
+  [data-template='duas-colunas'] .resumo { top: calc(20px + var(--faixa-atendimento, 0px)); }
+  :root[data-topo='barra'][data-template='duas-colunas'] .resumo { top: calc(var(--altura-barra, 68px) + var(--faixa-atendimento, 0px) + 20px); }
+}
+.lado-a-lado > .coluna-dados { top: calc(20px + var(--faixa-atendimento, 0px)); }

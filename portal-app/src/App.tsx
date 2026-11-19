@@ -1181,6 +1181,10 @@ function Concluido(props: {
   ]
   // Tudo feito ou entregue (o que falta é da instituição): vira a tela final.
   const tudoEntregue = !!etapas?.length && etapas.every((e) => e.situacao !== 'pendente')
+  // O portal não tem etapa depois da inscrição (ou nenhuma se aplica): a
+  // moldura das etapas não pode ficar vazia na tela, e "siga os passos
+  // abaixo" não pode apontar para o nada.
+  const semEtapas = etapas !== null && etapas.length === 0
 
   const acesso = (
     <AcessoNoTopo
@@ -1223,8 +1227,10 @@ function Concluido(props: {
             <p class="sub">{tx('conc.faltaPagamento', 'Falta concluir o pagamento para a inscrição valer.')}</p>
             <a href={props.pagamentoUrl}><button class="principal">{tx('conc.pagarAgora', 'Pagar agora')}</button></a>
           </>
-        ) : props.token && !pago ? (
+        ) : props.token && !pago && !semEtapas ? (
           <p class="sub">{tx('conc.sigaPassos', 'Siga os próximos passos abaixo para concluir.')}</p>
+        ) : semEtapas && !props.mensagem ? (
+          <p class="sub">{tx('conc.semPassos', 'Tudo certo por aqui. A instituição entra em contato com os próximos passos.')}</p>
         ) : !props.mensagem ? (
           <p class="sub">{tx('conc.whatsapp', 'Enviamos os próximos passos para o seu WhatsApp.')}</p>
         ) : null}
@@ -1247,7 +1253,7 @@ function Concluido(props: {
           (pagamento, documentos, contrato, redação). Sem nenhuma aplicável,
           não aparece nada — a tela fica como antes. */}
       {props.token && !props.pagamentoUrl && (
-        <div class="cartao" style={`margin-top:14px;text-align:left${tudoEntregue ? ';display:none' : ''}`}>
+        <div class="cartao" style={`margin-top:14px;text-align:left${tudoEntregue || semEtapas ? ';display:none' : ''}`}>
           <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} aoCarregar={setEtapas} />
         </div>
       )}
