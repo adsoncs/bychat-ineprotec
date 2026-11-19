@@ -172,7 +172,12 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
     setTemplateId(c.templateId)
     setAudienceType(c.audienceType)
     setMapping(c.variableMapping ?? {})
-    if (c.scheduledAt) setScheduledAt(new Date(c.scheduledAt).toISOString().slice(0, 16))
+    // datetime-local é hora LOCAL: toISOString() (UTC) mostrava 3h adiantado e,
+    // salvo de novo, empurrava o envio 3h para frente.
+    if (c.scheduledAt) {
+      const d = new Date(c.scheduledAt)
+      setScheduledAt(new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16))
+    }
     const already = detail.metrics?.total ?? 0
     if (already > 0) setKeptAudience({ created: c.totalRecipients ?? 0, skipped: c.skippedCount ?? 0 })
     setLoadedEdit(true)

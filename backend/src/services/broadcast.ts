@@ -76,6 +76,41 @@ function buildSendComponents(variables: Record<string, string>): unknown[] {
   return comps
 }
 
+/**
+ * Texto do modelo como a pessoa recebe (cabeçalho, corpo e rodapé com as
+ * variáveis dela, e os botões), para gravar na conversa da ficha.
+ */
+export async function textoDoEnvio(templateId: number, variables: Record<string, string>): Promise<string> {
+  const comps = (await templateComponents(templateId)) as any[]
+  const lista = Array.isArray(comps) ? comps : []
+  const get = (t: string) => lista.find((c) => String(c?.type).toUpperCase() === t)
+  const preencher = (comp: 'header' | 'body', txt?: string) =>
+    String(txt ?? '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, k) => (variables[`${comp}:${k}`] ?? m))
+  const partes = [
+    get('HEADER')?.format === 'TEXT' || (get('HEADER') && !get('HEADER')?.format) ? preencher('header', get('HEADER')?.text) : '',
+    preencher('body', get('BODY')?.text),
+    get('FOOTER')?.text ?? '',
+  ].filter(Boolean)
+  const botoes = (get('BUTTONS')?.buttons || []).map((x: any) => `[botão: ${x.text}]`).join(' ')
+  return [...partes, botoes].filter(Boolean).join('\n\n')
+}
+
+/**
+ * Grava o envio na conversa da ficha (sem emitir message.sent: um disparo em
+ * massa não pode mover etapa nem acionar fluxos de "mensagem enviada"). Antes o
+ * disparo só registrava o custo — a equipe e a IA não viam o que a pessoa recebeu.
+ */
+async function gravarNaConversa(rec: any, campaign: any, wamid: string | null): Promise<void> {
+  if (!rec.leadId) return
+  const body = await textoDoEnvio(campaign.templateId, (rec.variables || {}) as Record<string, string>).catch(() => '')
+  await prisma.message.create({ data: {
+    leadId: rec.leadId, fromMe: true, body: (body || `[modelo ${campaign.templateName}]`).slice(0, 4000), mediaType: 'text', provider: 'cloud_api',
+    cloudApiConnectionId: campaign.cloudApiConnectionId, senderName: `Disparo: ${String(campaign.name).slice(0, 60)}`, isInternal: false,
+    externalId: wamid, ack: wamid ? 1 : 0, timestamp: new Date(),
+  } as any }).catch((e) => console.warn(`[broadcast] conversa do lead ${rec.leadId}:`, e?.message || e))
+  await prisma.lead.update({ where: { id: rec.leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
+}
+
 // ─── Resolução de variáveis por destinatário ───────────
 type VarMapping = Record<string, { type: 'lead_field' | 'column' | 'fixed'; value: string }>
 
@@ -262,6 +297,7 @@ function createBroadcastWorker(): Worker {
       const result = await provider.sendTemplate(rec.phone, campaign.templateName, campaign.templateLanguage, components)
       await markSendSent(tracked.id, tracked.startedAt, { externalId: result.messageId })
       await recordOutbound({ wamid: result.messageId, connectionId: conn.id, leadId: rec.leadId, templateName: campaign.templateName })
+      await gravarNaConversa(rec, campaign, result.messageId)
       await prisma.broadcastRecipient.update({ where: { id: rec.id }, data: { status: 'sent', wamid: result.messageId, sentAt: new Date(), error: null } })
       await prisma.broadcastCampaign.update({ where: { id: campaign.id }, data: { sentCount: { increment: 1 } } })
     } catch (err: any) {
