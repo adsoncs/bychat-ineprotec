@@ -754,7 +754,18 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
     nome, ra: 'a definir na matrícula', curso: of.course?.nome ?? of.nome, turma: of.nome,
     valorTotal: money(valorTotal), numParcelas: String(numParcelas || '—'), valorParcela: money(valorParcela),
   }
-  const termo = aceite?.termo ?? (await getTermoTemplate()).replace(/\{(\w+)\}/g, (_, k) => (k in vars ? vars[k] : `{${k}}`))
+  // Transferência que quitou parcelas: o "valor ajustado" do termo é o que falta
+  // pagar, e um parágrafo diz o crédito e o total do curso (senão o aluno lia um
+  // total menor que o curso, sem saber do crédito).
+  const cr = cond?.creditoDaTransferencia
+  if (cr) { vars.valorTotal = money(cr.aPagarCentavos); vars.numParcelas = String(numParcelas); vars.valorParcela = money(valorParcela) }
+  let termo = aceite?.termo ?? (await getTermoTemplate()).replace(/\{(\w+)\}/g, (_, k) => (k in vars ? vars[k] : `{${k}}`))
+  if (!aceite?.termo && cr) {
+    const dia = cr.primeiraSeguinte ? new Date(`${cr.primeiraSeguinte}T12:00:00`).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null
+    const credito = `CRÉDITO DE TRANSFERÊNCIA: além do valor acima, ${money(cr.centavos)} já pagos na inscrição ${cr.deCodigo}, transferida para este curso, quitam a 1ª parcela e mais ${cr.parcelasQuitadas}. Valor total do curso: ${money(valorTotal)}. As ${numParcelas} parcelas restantes vencem todo mês${dia ? ` a partir de ${dia}` : ''}.`
+    const i = termo.indexOf('\n\nCONDIÇÕES:')
+    termo = i >= 0 ? `${termo.slice(0, i)}\n\n${credito}${termo.slice(i)}` : `${termo}\n\n${credito}`
+  }
   return {
     titulo: 'Contrato de prestação de serviços educacionais',
     termo, curso: vars.curso, oferta: of.nome, aluno: nome,

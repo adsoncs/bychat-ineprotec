@@ -626,6 +626,12 @@ export interface CondicaoDoContrato {
   valorTotalCentavos: number
   /** Frase para o contrato: "Matrícula + 5 parcelas de R$ 599,90, todo dia 10". */
   descricao: string
+  /**
+   * Transferência de curso em que o crédito quitou parcelas além da entrada: o
+   * total é o do curso (crédito + restantes) e numParcelas/valorParcela são as
+   * que ainda faltam pagar.
+   */
+  creditoDaTransferencia?: { centavos: number; deCodigo: string; parcelasQuitadas: number; aPagarCentavos: number; primeiraSeguinte: string | null }
 }
 
 /**
@@ -702,6 +708,29 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
       plano, opcao, numParcelas: boletoUnico.parcelas,
       valorParcelaCentavos: Math.round(boletoUnico.valorParcela * 100), valorTotalCentavos: Math.round(boletoUnico.valorTotal * 100),
       descricao: `Pagamento em ${boletoUnico.parcelas}x de ${brlR(boletoUnico.valorParcela)} no boleto (total ${brlR(boletoUnico.valorTotal)})${fraseDaPontualidade(plano, boletoUnico.valorParcela, opcao)}`,
+    }
+  }
+  // Transferência que quitou parcelas além da entrada (crédito maior que ela): a
+  // condição gravada é "entrada + restantes", e as parcelas quitadas sumiam do
+  // contrato — o total saía menor que o curso (ineprotec, Utaro 19/11: "8x de
+  // R$ 240,00, total R$ 1.929,90" num curso de R$ 2.998,80). Vale o registro da
+  // transferência: crédito + o que falta pagar.
+  if (Number(tr?.creditoCentavos) > 0 && registrationId) {
+    const t = await prisma.enrollmentTransferencia.findFirst({
+      where: { paraRegistrationId: registrationId }, orderBy: { id: 'desc' },
+      select: { creditoCentavos: true, parcelasQuitadas: true },
+    }).catch(() => null)
+    if (t && t.parcelasQuitadas > 0 && plano.numParcelas > 0) {
+      const aPagar = plano.numParcelas * plano.valorParcelaCentavos
+      const credito = t.creditoCentavos
+      const primeira = typeof negociada?.primeiraSeguinte === 'string' ? negociada.primeiraSeguinte : null
+      const aPartir = primeira ? `, a partir de ${new Date(`${primeira}T12:00:00`).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''
+      return {
+        plano, opcao, numParcelas: plano.numParcelas, valorParcelaCentavos: plano.valorParcelaCentavos,
+        valorTotalCentavos: credito + aPagar,
+        descricao: `Crédito de ${brl(credito)} da inscrição ${tr.deCodigo} (quita a 1ª parcela e mais ${t.parcelasQuitadas}) + ${plano.numParcelas}x de ${brl(plano.valorParcelaCentavos)}, todo dia ${plano.diaVencimento}${aPartir} (total ${brl(credito + aPagar)})`,
+        creditoDaTransferencia: { centavos: credito, deCodigo: String(tr.deCodigo ?? ''), parcelasQuitadas: t.parcelasQuitadas, aPagarCentavos: aPagar, primeiraSeguinte: primeira },
+      }
     }
   }
   const n = totalDeParcelas(plano)
