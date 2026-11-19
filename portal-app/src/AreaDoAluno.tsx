@@ -151,6 +151,8 @@ export function AreaDoAluno(props: {
 
       {aba === 'inicio' && (
         <section class="ada-secao" aria-label="Início">
+          {/* Restante liberado pela secretaria: logo na entrada, não só na aba Financeiro. */}
+          {area.restante && <CartaoRestante r={area.restante} codigo={area.inscricao.codigo} />}
           <div class="ada-resumos">
             <CartaoResumo icone="financeiro" titulo="Financeiro" tom={area.financeiro.vencidas ? 'erro' : area.financeiro.proxima ? 'pendente' : 'ok'}
               valor={area.financeiro.proxima ? reais(area.financeiro.proxima.valor) : area.financeiro.faturas.length ? 'Em dia' : 'Sem faturas'}
