@@ -172,6 +172,15 @@ const TRADUCAO: Record<string, string> = {
   invalidrecordunknown: 'Registro não encontrado no Moodle.',
   wsusercannotassign: 'O usuário do token não tem permissão para inscrever alunos neste curso (papel/permissões no Moodle).',
   wsnoinstance: 'O curso não tem a "Inscrição manual" ativa no Moodle.',
+  usernotconfirmed: 'O aluno tem conta no AVA que ainda não foi confirmada (autocadastro sem clicar no link do e-mail).',
+  invalidparameter: 'O Moodle recusou um dado enviado (confira o e-mail e o nome do aluno).',
+}
+
+/** Conta do Moodle criada por autocadastro e nunca confirmada (o Moodle recusa inscrever). */
+export function ehContaNaoConfirmada(e: unknown): boolean {
+  if (!(e instanceof MoodleError) && !(e instanceof Error)) return false
+  const cod = e instanceof MoodleError ? e.codigo ?? '' : ''
+  return cod === 'usernotconfirmed' || /usernotconfirmed|não foi confirmada/.test(e.message)
 }
 
 export async function chamar<T = any>(funcao: string, params: Record<string, unknown> = {}, cfgDada?: MoodleConfig): Promise<T> {
@@ -240,6 +249,13 @@ export async function usuariosPorCampo(campo: 'username' | 'email' | 'id', valor
     if (e instanceof MoodleError && (e.codigo === 'invalidrecordunknown' || e.codigo === 'invalidrecord')) return []
     throw e
   }
+}
+
+/** Edita e-mail e/ou suspensão de um usuário (core_user_update_users). */
+export async function atualizarUsuario(id: number, campos: { email?: string; suspenso?: boolean }): Promise<void> {
+  await chamar('core_user_update_users', {
+    users: [{ id, ...(campos.email ? { email: campos.email } : {}), ...(campos.suspenso !== undefined ? { suspended: campos.suspenso ? 1 : 0 } : {}) }],
+  })
 }
 
 export async function criarUsuario(u: { username: string; password: string; firstname: string; lastname: string; email: string; trocarSenha: boolean }): Promise<number> {

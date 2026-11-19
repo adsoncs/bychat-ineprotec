@@ -88,10 +88,21 @@ function partesDoNome(nome: string): { firstname: string; lastname: string } {
   return { firstname: p[0], lastname: p.slice(1).join(' ') }
 }
 
+/**
+ * E-mail que o Moodle aceita. Mais rígido que "tem @ e ponto": "...@...com.br"
+ * (texto de exemplo que ficou no formulário) passava e o Moodle respondia só
+ * "Valor inválido de parâmetro detectado".
+ */
+export function emailValido(v: string): boolean {
+  return /^(?!\.)(?!.*\.\.)[a-z0-9._%+'-]+(?<!\.)@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(v)
+}
+
 function dadosDoAluno(reg: Reg) {
   const fd = (reg.formData ?? {}) as Record<string, any>
   const nome = so(fd.nome) || so(reg.lead?.nome)
-  const email = (so(fd.email) || so(reg.lead?.email)).toLowerCase()
+  // O do formulário primeiro; inválido, vale o da ficha do lead (se for válido).
+  const candidatos = [so(fd.email), so(reg.lead?.email)].map((e) => e.toLowerCase()).filter(Boolean)
+  const email = candidatos.find(emailValido) ?? candidatos[0] ?? ''
   const cpf = soDigitos(fd.cpf)
   return { nome, email, cpf }
 }
@@ -134,7 +145,7 @@ async function aptidaoNoMoodle(registrationId: number, cfgDada?: moodle.MoodleCo
     { regra: true, ok: reg.paymentStatus === 'paid', texto: 'Pagamento confirmado' },
     { regra: true, ok: !!aceiteEm(reg), texto: 'Contrato aceito ou assinado' },
     { regra: false, ok: cpfValido(aluno.cpf), texto: aluno.cpf ? 'CPF válido (vira o usuário no Moodle)' : 'CPF na inscrição (vira o usuário no Moodle)' },
-    { regra: false, ok: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(aluno.email), texto: 'E-mail do aluno (o Moodle exige)' },
+    { regra: false, ok: emailValido(aluno.email), texto: emailValido(aluno.email) ? 'E-mail do aluno (o Moodle exige)' : `E-mail do aluno válido (hoje: "${aluno.email || 'vazio'}"; corrija na ficha do lead ou na inscrição)` },
     { regra: false, ok: aluno.nome.length >= 2, texto: 'Nome do aluno' },
     { regra: false, curso: true, ok: !!courseId, texto: courseId ? `Curso no Moodle: ${cursoNome ?? `#${courseId}`}` : `Curso no Moodle definido para a oferta "${oferta.nome ?? '—'}" (de-para)` },
   ]
@@ -146,19 +157,75 @@ async function aptidaoNoMoodle(registrationId: number, cfgDada?: moodle.MoodleCo
 
 export interface Ator { origem: 'automatico' | 'manual'; userId?: number | null; userName?: string | null }
 
+interface UsuarioDoAluno {
+  id: number; username: string; criado: boolean
+  /** Achado pelo e-mail (não há conta com o CPF): pode ser autocadastro antigo. */
+  porEmail?: boolean; auth?: string; firstaccess?: number; fullname?: string
+}
+
 /** Acha o aluno pelo CPF; senão pelo e-mail; senão cria. */
-async function garantirUsuario(aluno: { cpf: string; email: string; nome: string }, cfg: moodle.MoodleConfig): Promise<{ id: number; username: string; criado: boolean }> {
+async function garantirUsuario(aluno: { cpf: string; email: string; nome: string }, cfg: moodle.MoodleConfig): Promise<UsuarioDoAluno> {
   const porCpf = await moodle.usuariosPorCampo('username', aluno.cpf)
   if (porCpf[0]) return { id: porCpf[0].id, username: porCpf[0].username, criado: false }
-  const porEmail = await moodle.usuariosPorCampo('email', aluno.email)
-  if (porEmail.length === 1) return { id: porEmail[0].id, username: porEmail[0].username, criado: false }
+  const porEmail = emailValido(aluno.email) ? await moodle.usuariosPorCampo('email', aluno.email) : []
+  if (porEmail.length === 1) {
+    const u = porEmail[0]!
+    return { id: u.id, username: u.username, criado: false, porEmail: true, auth: u.auth, firstaccess: u.firstaccess, fullname: u.fullname }
+  }
   if (porEmail.length > 1) throw new Error(`Há ${porEmail.length} usuários no Moodle com o e-mail ${aluno.email}: escolha à mão qual é o aluno.`)
+  return criarContaPadrao(aluno, cfg)
+}
+
+/** A conta de sempre: login = CPF, senha inicial da integração. */
+async function criarContaPadrao(aluno: { cpf: string; email: string; nome: string }, cfg: moodle.MoodleConfig): Promise<UsuarioDoAluno> {
   if (!cfg.senha) throw new Error('Defina a senha inicial do aluno em Integrações › Moodle.')
+  // O Moodle só diz "Valor inválido de parâmetro detectado": conferir antes
+  // dá à equipe o que corrigir.
+  if (!emailValido(aluno.email)) throw new Error(`E-mail do aluno inválido (${aluno.email || 'vazio'}): corrija o e-mail na ficha do lead e a liberação tenta de novo sozinha.`)
+  if (aluno.cpf.length !== 11) throw new Error(`CPF do aluno inválido (${aluno.cpf || 'vazio'}): ele é o login do AVA; corrija na inscrição.`)
   const { firstname, lastname } = partesDoNome(aluno.nome)
   // Sem troca obrigatória no 1º acesso (pedido do cliente, 12/11/2026): com o
   // login automático pelo Meu Portal, a tela de "mudar a senha" atrapalhava.
   const id = await moodle.criarUsuario({ username: aluno.cpf, password: cfg.senha, firstname, lastname, email: aluno.email, trocarSenha: false })
   return { id, username: aluno.cpf, criado: true }
+}
+
+/**
+ * Conta achada pelo e-mail que o Moodle recusa por não estar confirmada
+ * (o aluno se autocadastrou no AVA e não clicou no link do e-mail). O Moodle
+ * não deixa confirmar por integração nem repetir o e-mail numa conta nova.
+ *
+ * Seguro (autocadastro, nunca acessada, achada pelo e-mail): a conta antiga
+ * fica no Moodle, suspensa e com o e-mail trocado para `nome+antigaID@dominio`,
+ * e o aluno ganha a conta padrão (CPF + senha inicial), como todos.
+ * Fora disso não mexe em nada: explica o que fazer no Moodle.
+ */
+async function substituirContaNaoConfirmada(
+  registrationId: number, u: UsuarioDoAluno, aluno: { cpf: string; email: string; nome: string }, cfg: moodle.MoodleConfig,
+): Promise<{ novo: UsuarioDoAluno; antigo: { id: number; username: string; emailNovo: string } }> {
+  const site = String(cfg.baseUrl || 'o AVA').replace(/^https?:\/\//, '').replace(/\/+$/, '')
+  const nomeNoAva = u.fullname || u.username
+  const explicar = (motivo: string) => new Error(
+    `O aluno já tem conta no AVA criada por autocadastro e não confirmada: usuário "${u.username}", nome "${nomeNoAva}", nº ${u.id} (${motivo}). `
+    + `Confirme em ${site} › Administração do site › Usuários (procure pelo nome) e a liberação acontece sozinha na próxima tentativa.`,
+  )
+  if (!u.porEmail) throw explicar('é a conta do CPF dele')
+  if (u.auth && u.auth !== 'email') throw explicar(`método de login "${u.auth}", não é autocadastro`)
+  if (u.firstaccess) throw explicar('ela já foi usada, por isso não foi trocada automaticamente')
+  const [local, dominio] = aluno.email.split('@')
+  if (!local || !dominio) throw explicar('e-mail do aluno sem formato válido')
+  const emailNovo = `${local}+antiga${u.id}@${dominio}`
+  await moodle.atualizarUsuario(u.id, { email: emailNovo, suspenso: true })
+  // Anotado já aqui: se a conta nova falhar, fica registrado o que mudou na antiga.
+  await registrarEventoDaInscricao({
+    registrationId, etapa: 'acesso', acao: 'moodle_conta_antiga_desativada', ator: 'sistema', userId: null, userName: null,
+    dados: {
+      motivo: 'Conta de autocadastro não confirmada e nunca acessada: suspensa e com o e-mail trocado para liberar a conta padrão (CPF)',
+      contaAntiga: u.username, contaAntigaId: u.id, emailOriginal: aluno.email, emailDaContaAntiga: emailNovo,
+    },
+  }).catch(() => {})
+  const novo = await criarContaPadrao(aluno, cfg)
+  return { novo, antigo: { id: u.id, username: u.username, emailNovo } }
 }
 
 async function falhou(registrationId: number, erro: string, tentativas: number) {
@@ -200,8 +267,17 @@ async function liberarNoMoodle(registrationId: number, ator: Ator, opts: { forca
   }
   const aluno = dadosDoAluno(reg)
   try {
-    const u = await garantirUsuario(aluno, cfg)
-    await moodle.inscrever(u.id, apt.courseId)
+    let u = await garantirUsuario(aluno, cfg)
+    let contaAntiga: { id: number; username: string; emailNovo: string } | null = null
+    try {
+      await moodle.inscrever(u.id, apt.courseId)
+    } catch (e) {
+      if (!moodle.ehContaNaoConfirmada(e)) throw e
+      const troca = await substituirContaNaoConfirmada(registrationId, u, aluno, cfg)
+      u = troca.novo
+      contaAntiga = troca.antigo
+      await moodle.inscrever(u.id, apt.courseId)
+    }
     const cursos = await moodle.cursosDoUsuario(u.id)
     if (!cursos.some((c) => c.id === apt.courseId)) throw new Error('O Moodle aceitou o pedido, mas o curso não aparece na lista do aluno.')
     const agora = new Date()
@@ -217,7 +293,7 @@ async function liberarNoMoodle(registrationId: number, ator: Ator, opts: { forca
     await registrarEventoDaInscricao({
       registrationId, etapa: 'acesso', acao: 'moodle_liberado', ator: ator.origem === 'manual' ? 'atendente' : 'sistema',
       userId: ator.userId ?? null, userName: ator.userName ?? null,
-      dados: { curso: apt.cursoNome, courseId: apt.courseId, usuario: u.username, usuarioCriado: u.criado, forcado: !!(opts.forcar && !apt.apta) },
+      dados: { curso: apt.cursoNome, courseId: apt.courseId, usuario: u.username, usuarioCriado: u.criado, forcado: !!(opts.forcar && !apt.apta), ...(contaAntiga ? { contaAntigaDesativada: contaAntiga.username } : {}) },
     })
     // Só na 1ª liberação desta inscrição: reativar ou confirmar não repete o aviso.
     if (!atual.liberadoEm) await anunciarNoMoodle(registrationId, cfg).catch((e) => console.warn(`[moodle] gatilho ava_liberado #${registrationId}:`, e?.message || e))

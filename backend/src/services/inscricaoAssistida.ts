@@ -218,6 +218,14 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
 
 /** Rótulo legível de cada ação do histórico (painel). */
 export const ROTULO_ACAO: Record<string, string> = {
+  // AVA (Moodle)
+  moodle_liberado: 'AVA liberado',
+  moodle_conta_antiga_desativada: 'AVA: conta antiga não confirmada foi desativada e a conta padrão criada',
+  moodle_suspenso: 'AVA suspenso',
+  moodle_reativado: 'AVA reativado',
+  moodle_curso_trocado: 'AVA: curso trocado',
+  moodle_curso_concluido: 'Curso concluído no AVA',
+  moodle_vinculado: 'AVA vinculado à mão',
   inscricao_criada: 'Inscrição enviada',
   inscricao_retomada: 'Inscrição reenviada (mesma pessoa)',
   inscricao_administrativa: 'Cadastro administrativo da inscrição',
