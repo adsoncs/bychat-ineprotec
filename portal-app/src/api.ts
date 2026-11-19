@@ -3,6 +3,7 @@
 
 import type { Campo } from './validacao'
 import { t } from './textos'
+import { origemParaEnvio } from './origem'
 
 export interface Oferta {
   id: number
@@ -216,7 +217,8 @@ export const enviarInscricao = (slug: string, formData: Record<string, unknown>,
     headers: { 'Content-Type': 'application/json' },
     // O curso do link vai junto: o servidor confere que a oferta é a dele.
     // O link de continuação (?t=) também: a inscrição fica no lead de origem.
-    body: JSON.stringify({ formData, ...(curso ? { curso } : {}), ...(continueToken ? { continueToken } : {}) }),
+    // A origem guardada na chegada (origem.ts) vai junto; o que a pessoa digitou vence.
+    body: JSON.stringify({ formData: { ...origemParaEnvio(), ...formData }, ...(curso ? { curso } : {}), ...(continueToken ? { continueToken } : {}) }),
   })
 
 /** Captura de interesse: cria o contato e manda o link de continuação por WhatsApp/e-mail. */
@@ -224,7 +226,7 @@ export const enviarInteresse = (slug: string, formData: Record<string, unknown>)
   pedir<{ ok: true; continuationPortalNome?: string }>(`/api/public/portals/${encodeURIComponent(slug)}/interest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ formData }),
+    body: JSON.stringify({ formData: { ...origemParaEnvio(), ...formData } }),
   })
 
 /** Rascunho no servidor: quem troca de aparelho no meio não recomeça. */

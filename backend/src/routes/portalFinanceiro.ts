@@ -53,7 +53,7 @@ const SELECT_LINHA = {
   paymentPaidAt: true, paymentExpiresAt: true, paymentPlan: true, paymentUrl: true,
   vendedorUserId: true, atendidoPorUserId: true, origem: true,
   utmSource: true, utmMedium: true, utmCampaign: true, gclid: true, fbclid: true, referrer: true,
-  lead: { select: { id: true, nome: true, email: true, whatsapp: true, assignedUserId: true } },
+  lead: { select: { id: true, nome: true, email: true, whatsapp: true, assignedUserId: true, originType: true, utmSource: true, utmCampaign: true, gclid: true, fbclid: true, ctwaClid: true, campaignName: true, googleCampaignName: true } },
   portal: { select: { id: true, nome: true, paymentScope: true, paymentConnection: { select: { provider: true } } } },
   processRegistration: {
     select: {
@@ -213,7 +213,7 @@ function linha(r: any) {
     valorPlano: plano.valorTotal != null ? Number(plano.valorTotal) || null : null,
     origemInscricao: r.origem ?? null,
     midia: midiaDe(r),
-    campanha: r.utmCampaign ?? null,
+    campanha: r.utmCampaign ?? r.lead?.googleCampaignName ?? r.lead?.campaignName ?? r.lead?.utmCampaign ?? null,
     /** Comercial (preenchido em comComercial): quem vendeu, quem fechou e a comissão. */
     comercial: {
       vendedorId: (r.vendedorUserId ?? null) as number | null,
@@ -223,15 +223,27 @@ function linha(r: any) {
   }
 }
 
-/** De onde veio a matrícula, pela marcação de anúncio/UTM. */
-function midiaDe(r: any): string {
-  if (r.gclid) return 'Google Ads'
-  if (r.fbclid) return 'Meta Ads'
-  const s = String(r.utmSource || '').toLowerCase()
-  if (!s) return r.referrer ? 'Indicação / site' : 'Sem marcação'
+/** De onde veio a matrícula: a marcação da inscrição; sem ela, a do lead
+ *  (LP, formulário, Meta Lead Ads, clique para WhatsApp). */
+const ORIGEM_LEAD: Record<string, string> = {
+  google_ads: 'Google Ads', meta_ctwa: 'Meta (clique p/ WhatsApp)', meta_lead_ads: 'Meta Lead Ads',
+  whatsapp: 'WhatsApp', web_form: 'Formulário', trackable_link: 'Link rastreável', organic: 'Orgânico',
+  direct: 'Direto', manual: 'Cadastro manual', enrollment_portal: 'Portal',
+}
+function porMarcacao(x: { gclid?: string | null; fbclid?: string | null; utmSource?: string | null }): string | null {
+  if (x.gclid) return 'Google Ads'
+  if (x.fbclid) return 'Meta Ads'
+  const s = String(x.utmSource || '').toLowerCase()
+  if (!s) return null
   if (/google|adwords|gads/.test(s)) return 'Google'
   if (/facebook|instagram|meta|fb|ig/.test(s)) return 'Meta'
-  return r.utmSource
+  return x.utmSource!
+}
+function midiaDe(r: any): string {
+  const l = r.lead ?? {}
+  return porMarcacao(r) ?? porMarcacao(l) ?? (l.ctwaClid ? 'Meta (clique p/ WhatsApp)' : null)
+    ?? (l.originType ? ORIGEM_LEAD[l.originType] ?? l.originType : null)
+    ?? (r.referrer ? 'Indicação / site' : 'Sem marcação')
 }
 
 type Pessoa = { id: number; nome: string } | null

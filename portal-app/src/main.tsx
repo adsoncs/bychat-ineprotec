@@ -9,12 +9,16 @@ import './estilo.css'
 import { iniciarAtendimento, emAtendimento } from './atendimento'
 import { FaixaDoAtendimento } from './FaixaDoAtendimento'
 import { Acessibilidade, aplicarPreferencias } from './Acessibilidade'
+import { guardarOrigem } from './origem'
 
 // Tamanho do texto e alto contraste escolhidos neste aparelho: antes do 1º desenho.
 aplicarPreferencias()
 
 // Inscrição assistida: antes de qualquer pedido ao servidor (atendimento.ts).
 iniciarAtendimento()
+
+// Anúncio/UTM da chegada: a URL perde a marcação quando a pessoa navega (origem.ts).
+guardarOrigem()
 
 // Roteamento mínimo: o formulário público e as telas da área logada moram na
 // mesma aplicação, e um `switch` custa menos que um roteador no bundle.

@@ -609,6 +609,25 @@ async function contaTemSenha(leadId: number): Promise<boolean> {
   return !!conta?.senhaHash
 }
 
+
+/** Origem gravada na inscrição: a que veio no envio do portal ou, sem nada
+ *  nela, a do lead. UTM vai em bloco (não mistura campanha de uma origem com
+ *  fonte de outra). */
+export function origemDaInscricao(fd: Record<string, any>, lead: any) {
+  const corta = (v: unknown, n: number) => (v == null || v === '' ? null : String(v).slice(0, n))
+  const doEnvio = !!(fd.utm_source || fd.utm_campaign || fd.gclid || fd.fbclid)
+  const utm = doEnvio
+    ? { utmSource: fd.utm_source, utmMedium: fd.utm_medium, utmCampaign: fd.utm_campaign }
+    : { utmSource: lead?.utmSource, utmMedium: lead?.utmMedium, utmCampaign: lead?.utmCampaign }
+  return {
+    utmSource: corta(utm.utmSource, 100),
+    utmMedium: corta(utm.utmMedium, 100),
+    utmCampaign: corta(utm.utmCampaign, 191),
+    fbclid: corta(fd.fbclid || (doEnvio ? null : lead?.fbclid), 191),
+    gclid: corta(fd.gclid || (doEnvio ? null : lead?.gclid), 191),
+    referrer: fd.referrer ? String(fd.referrer).slice(0, 2000) : null,
+  }
+}
 export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/enrollment-portals — listar
@@ -2692,7 +2711,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           completed: false,
           status: resolvedEntryStage,
           source: portalLeadSource(portal),
-          originType: 'enrollment_portal',
+          // Clique do Google na chegada (origem.ts no portal): é a mídia que trouxe a pessoa.
+          originType: fd.gclid || fd.gbraid || fd.wbraid ? 'google_ads' : 'enrollment_portal',
           teamId: routedTeamId,
           ...(rota?.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
           funnelId: resolvedFunnelId,
@@ -2705,7 +2725,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           utmCampaign: fd.utm_campaign || null,
           utmContent: fd.utm_content || null,
           utmTerm: fd.utm_term || null,
+          utmId: fd.utm_id || null,
           gclid: fd.gclid || null,
+          gbraid: fd.gbraid || null,
+          wbraid: fd.wbraid || null,
+          fbclid: fd.fbclid || null,
           lastActivityAt: new Date(),
           qualifiedAt: new Date(),
           qualificationSource: 'enrollment_portal',
@@ -2760,7 +2784,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       if (email && !lead.email) upd.email = email
       if (cpf && !(lead.formData as any)?.cpf) upd.formData = { ...(lead.formData as any || {}), cpf }
       if (trackingVisitorId && !lead.trackingVisitorId) upd.trackingVisitorId = trackingVisitorId
-      if (!lead.originType) upd.originType = 'enrollment_portal'
+      if (!lead.originType) upd.originType = fd.gclid || fd.gbraid || fd.wbraid ? 'google_ads' : 'enrollment_portal'
+      // Origem que chegou pelo portal entra só onde o lead não tem: a 1ª origem conhecida fica.
+      if (!lead.utmSource && fd.utm_source) Object.assign(upd, {
+        utmSource: fd.utm_source, utmMedium: fd.utm_medium || null, utmCampaign: fd.utm_campaign || null,
+        utmContent: fd.utm_content || null, utmTerm: fd.utm_term || null, utmId: fd.utm_id || null,
+      })
+      for (const k of ['gclid', 'gbraid', 'wbraid', 'fbclid'] as const) if (!lead[k] && fd[k]) upd[k] = fd[k]
 
       // Roteamento por config do portal — espelha lógica do branch de novo lead.
       const prevFunnelId = lead.funnelId ?? null
@@ -2880,12 +2910,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       leadId: lead.id,
       ipAddress: (req.ip || '').substring(0, 45),
       userAgent: (headers['user-agent'] || '').toString().substring(0, 500),
-      utmSource: fd.utm_source || null,
-      utmMedium: fd.utm_medium || null,
-      utmCampaign: fd.utm_campaign || null,
-      fbclid: fd.fbclid || null,
-      gclid: fd.gclid || null,
-      referrer: fd.referrer || null,
+      // A origem que o portal trouxe; sem ela, a do lead (LP, formulário,
+      // Meta Lead Ads, clique para WhatsApp): é quem pagou pela matrícula.
+      ...origemDaInscricao(fd, lead),
     }
     // Retomada: a cobrança que estava aberta pode ser de outro curso ou outro
     // preço — cancela no gateway; a pessoa gera a nova no checkout.
@@ -4460,7 +4487,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           utmSource: fd.utm_source || null,
           utmMedium: fd.utm_medium || null,
           utmCampaign: fd.utm_campaign || null,
+          utmContent: fd.utm_content || null,
+          utmTerm: fd.utm_term || null,
           gclid: fd.gclid || null,
+          gbraid: fd.gbraid || null,
+          wbraid: fd.wbraid || null,
+          fbclid: fd.fbclid || null,
           lastActivityAt: new Date(),
           qualifiedAt: new Date(),
           qualificationSource: 'enrollment_portal_interest',
