@@ -349,32 +349,39 @@ function CartaoRestante({ r, codigo }: { r: NonNullable<Area['restante']>; codig
 
   return (
     <div class="cartao ada-restante">
-      <h2 class="ada-titulo">Pague o restante agora no cartão</h2>
-      <p class="sub">
-        {r.parcelas} {r.parcelas === 1 ? 'parcela' : 'parcelas'} que faltam, de uma vez: <b>{reais(r.valor)}</b> em até <b>{r.parcelasMax}x sem juros</b>.
-      </p>
-      <div class="campo">
-        <label for="restante-vezes">Em quantas vezes</label>
-        <select id="restante-vezes" value={String(n)} onChange={(e) => setVezes((e.target as HTMLSelectElement).value)}>
-          {Array.from({ length: maximo }, (_, i) => i + 1).map((k) => (
-            <option key={k} value={String(k)}>{k === 1 ? `À vista no cartão: ${reais(valor)}` : `${k}x de ${reais(Math.round((valor / k) * 100) / 100)} sem juros`}</option>
-          ))}
-        </select>
-      </div>
-      <div class="campo">
-        <label for="restante-cupom">Cupom de desconto <span class="opcional">(se tiver)</span></label>
-        <div style="display:flex;gap:8px">
-          <input id="restante-cupom" value={cupom} onInput={(e) => { setCupom((e.target as HTMLInputElement).value.toUpperCase()); setAplicado(null) }} placeholder="Ex.: DESCONTO10" autocomplete="off" />
-          <button type="button" class="botao-contorno" disabled={ocupado} onClick={aplicar}>Aplicar</button>
+      <div class="ada-restante-grade">
+        <div>
+          <h2 class="ada-titulo">Pague o restante agora no cartão</h2>
+          <p class="sub">{r.parcelas} {r.parcelas === 1 ? 'parcela que falta' : 'parcelas que faltam'}, de uma vez só.</p>
+          <div class="ada-restante-valor">
+            <b>{reais(valor)}</b>
+            <span>em até {maximo}x sem juros{aplicado?.cupom ? ` · com o cupom ${aplicado.cupom}` : ''}</span>
+          </div>
+          <p class="ada-nota">O pagamento abre na página segura do banco. Aprovado o cartão, as parcelas aparecem como pagas aqui. Até lá, os boletos continuam valendo.</p>
         </div>
-        {aplicado?.cupom && <span class="ada-dica">Cupom {aplicado.cupom}: −{reais(aplicado.desconto)}. Novo total <b>{reais(aplicado.valor)}</b>.</span>}
+        <div>
+          <div class="campo">
+            <label for="restante-vezes">Em quantas vezes</label>
+            <select id="restante-vezes" value={String(n)} onChange={(e) => setVezes((e.target as HTMLSelectElement).value)}>
+              {Array.from({ length: maximo }, (_, i) => i + 1).map((k) => (
+                <option key={k} value={String(k)}>{k === 1 ? `À vista no cartão: ${reais(valor)}` : `${k}x de ${reais(Math.round((valor / k) * 100) / 100)} sem juros`}</option>
+              ))}
+            </select>
+          </div>
+          <div class="campo">
+            <label for="restante-cupom">Cupom de desconto <span class="opcional">(se tiver)</span></label>
+            <div class="ada-cupom">
+              <input id="restante-cupom" value={cupom} onInput={(e) => { setCupom((e.target as HTMLInputElement).value.toUpperCase()); setAplicado(null) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void aplicar() } }} placeholder="Ex.: DESCONTO10" autocomplete="off" autocapitalize="characters" />
+              <button type="button" class="botao-contorno" disabled={ocupado || !cupom.trim()} onClick={aplicar}>Aplicar</button>
+            </div>
+            {aplicado?.cupom && <span class="ada-restante-ok">Cupom {aplicado.cupom} aplicado: −{reais(aplicado.desconto)}.</span>}
+          </div>
+          <button type="button" class="ada-botao ada-restante-pagar" disabled={ocupado} onClick={pagar}>{ocupado ? 'Abrindo…' : `Pagar ${n}x de ${reais(Math.round((valor / n) * 100) / 100)} no cartão`}</button>
+          {r.aguardando?.link && <p class="ada-dica" style="margin-top:10px">Já começou? <a href={r.aguardando.link} target="_blank" rel="noopener">Continuar o pagamento aberto</a></p>}
+          {erro && <p class="ada-erro" role="alert">{erro}</p>}
+        </div>
       </div>
-      <div class="ada-fatura-acoes">
-        <button type="button" class="ada-botao" disabled={ocupado} onClick={pagar}>{ocupado ? 'Abrindo…' : `Pagar ${reais(valor)} no cartão`}</button>
-        {r.aguardando?.link && <a class="botao-contorno" href={r.aguardando.link} target="_blank" rel="noopener">Continuar o pagamento já aberto</a>}
-      </div>
-      <p class="ada-nota">O pagamento abre na página segura do banco. Aprovado o cartão, as parcelas aparecem como pagas aqui. Até lá, os boletos continuam valendo.</p>
-      {erro && <p class="ada-erro">{erro}</p>}
     </div>
   )
 }

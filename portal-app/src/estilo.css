@@ -1197,6 +1197,27 @@ button.principal.perigo { background: var(--erro); }
 :root .pagina.logada:has(.ada) .barra-topo .barra-conteudo { max-width: calc(1120px - 32px); }
 .ada { display: grid; gap: 16px; min-width: 0; }
 .ada .cartao { margin: 0; }
+/* O layout de duas colunas da INSCRIÇÃO põe todo .cartao/.resumo numa área
+   de grade ("form"/"resumo"). Dentro do Meu Portal isso desmontava as grades
+   (Início com os resumos espremidos e as faturas fora do lugar). */
+:root .ada .cartao, :root .ada .resumo { grid-area: auto; }
+
+/* Pagar o restante agora: destaque no topo; no computador, valor à esquerda e
+   escolhas à direita. */
+.ada-restante { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave), var(--sombra); }
+.ada-restante .ada-restante-grade { display: grid; gap: 18px; }
+.ada-restante .ada-restante-valor b { display: block; font-size: 30px; line-height: 1.1; letter-spacing: -.02em; color: var(--tinta); }
+.ada-restante .ada-restante-valor span { display: block; margin-top: 4px; font-size: 14px; color: var(--tinta-2); }
+.ada-restante .campo { margin-bottom: 14px; }
+.ada-restante .ada-cupom { display: flex; gap: 8px; align-items: stretch; }
+.ada-restante .ada-cupom input { flex: 1; min-width: 0; }
+.ada-restante .ada-cupom .botao-contorno { flex: none; padding-inline: 18px; border-radius: calc(var(--raio) - 4px); }
+.ada-restante .ada-restante-pagar { width: 100%; justify-content: center; padding: 14px 20px; font-size: 16px; }
+.ada-restante .ada-restante-ok { display: block; margin-top: 6px; font-size: 13.5px; color: var(--ok, #15803d); }
+.ada-restante .ada-nota { margin-top: 12px; }
+@media (min-width: 760px) {
+  .ada-restante .ada-restante-grade { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 28px; align-items: start; }
+}
 .ada-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 .ada-capa {
