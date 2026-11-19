@@ -323,6 +323,19 @@ export async function leadsRoutes(app: FastifyInstance) {
     return { leads: enriched, total, limit, offset }
   })
 
+  // ── GET /api/bychat/leads/:id/inscricoes-ativas ─── Alerta de matrícula já cadastrada ──
+  // Da ficha e das ligadas (duplicada, mesmo telefone, mesmo CPF), no recorte
+  // de portais de quem pergunta. A conversa e a ficha mostram como alerta.
+  app.get('/api/bychat/leads/:id/inscricoes-ativas', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Lead inválido' })
+    if (!await assertLeadAccess(req, reply, id)) return
+    const { alcanceDaRequisicao, whereInscricoes } = await import('../lib/portalAccess.js')
+    const { inscricoesAtivasDoContato } = await import('../services/inscricoesDoContato.js')
+    reply.header('cache-control', 'no-store')
+    return { inscricoes: await inscricoesAtivasDoContato(id, whereInscricoes(await alcanceDaRequisicao(req))) }
+  })
+
   // ── GET /api/bychat/leads/:id ─── Detalhe ──
   app.get('/api/bychat/leads/:id', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any

@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { AlertaInscricoes } from '@/components/leads/AlertaInscricoes'
 import { pegarRascunhoPedido } from '@/lib/rascunhoDaConversa'
 import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -3197,6 +3198,9 @@ function ChatPanel({
           </div>
         </div>
       </header>
+
+      {/* Matrícula já cadastrada (desta ficha ou de uma ligada): avisa antes de fazer outra. */}
+      <AlertaInscricoes leadId={leadId} />
 
       {isSnoozed && snoozedUntil && (
         <div class="px-3 py-2 border-b border-border bg-warning/10 text-warning flex items-center gap-2 text-xs">

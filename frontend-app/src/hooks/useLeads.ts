@@ -977,3 +977,30 @@ export function useLeadTransferHistory(leadId: number | null) {
     staleTime: 30_000,
   })
 }
+
+// ── Inscrições ativas do contato (alerta de matrícula já cadastrada) ──
+export interface InscricaoAtivaDoContato {
+  id: number
+  portalId: number
+  portal: string | null
+  codigo: string
+  curso: string | null
+  status: string
+  pagamento: string | null
+  origem: string | null
+  vendedor: string | null
+  criadaEm: string
+  leadId: number | null
+  ligacao: 'esta_ficha' | 'ficha_principal' | 'possivel_duplicado' | 'mesmo_telefone' | 'mesmo_cpf'
+}
+
+/** Da ficha e das ligadas (duplicada, mesmo telefone, mesmo CPF). */
+export function useInscricoesAtivas(leadId: number | null | undefined) {
+  return useQuery({
+    queryKey: ['lead-inscricoes-ativas', leadId],
+    queryFn: () => api.get<{ inscricoes: InscricaoAtivaDoContato[] }>(`/bychat/leads/${leadId}/inscricoes-ativas`),
+    enabled: !!leadId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  })
+}

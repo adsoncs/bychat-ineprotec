@@ -218,6 +218,7 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
 
 /** Rótulo legível de cada ação do histórico (painel). */
 export const ROTULO_ACAO: Record<string, string> = {
+  duplicidade_confirmada: 'Matrícula criada mesmo havendo outra inscrição ativa da pessoa (motivo informado)',
   // Pagar o restante agora (cartão pelo Meu Portal)
   restante_liberado: 'Pagamento do restante no cartão liberado ao aluno',
   restante_cancelado: 'Pagamento do restante no cartão cancelado',

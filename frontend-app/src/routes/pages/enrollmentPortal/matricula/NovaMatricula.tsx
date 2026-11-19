@@ -6,7 +6,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/lib/apiClient'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
+import type { InscricaoAtivaDoContato } from '@/hooks/useLeads'
+import { STATUS_INSCRICAO } from '@/components/leads/eduColumns'
 import { toast } from '@/lib/toast'
 
 export interface OfertaDoCatalogo { id: number; nome: string; complemento?: string | null; turno: string | null; curso: string | null; ingresso: string | null; polos: Array<{ id: number; nome: string }> }
@@ -54,6 +56,11 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   // Trava: a pessoa já PAGOU outro curso. Troca vai por "Transferir de curso";
   // matrícula nova só quando quem atende confirma que é um segundo curso.
   const [troca, setTroca] = useState<{ id: number; candidateCode: string; portalId: number; curso: string } | null>(null)
+  // A pessoa já tem inscrição ativa (nesta ficha em outro portal, ou numa ficha
+  // ligada: duplicada, mesmo telefone, mesmo CPF). Só cria com confirmação e motivo.
+  const [ativas, setAtivas] = useState<InscricaoAtivaDoContato[] | null>(null)
+  const [motivoDup, setMotivoDup] = useState('')
+  const [segundo, setSegundo] = useState(false)
   // Dados digitados sem ficha escolhida: confere (com uma pausa) se a pessoa já tem ficha.
   const [conferir, setConferir] = useState({ nome: '', whatsapp: '', email: '', cpf: '' })
   useEffect(() => {
@@ -78,10 +85,11 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   const oferta = cat.data?.ofertas.find((o) => String(o.id) === offeringId)
   const escolher = (l: LeadDaBusca) => { setLead(l); setNome(l.nome ?? ''); setWhatsapp(l.whatsapp ?? ''); setEmail(l.email ?? ''); setBusca('') }
   const criar = useMutation({
-    mutationFn: (segundoCurso: boolean = false) => api.post<{ id: number; existente: boolean; candidateCode: string }>('/admin/matricula-interna', {
+    mutationFn: (o: { segundoCurso?: boolean; confirmar?: boolean } = {}) => api.post<{ id: number; existente: boolean; candidateCode: string }>('/admin/matricula-interna', {
       portalId, leadId: lead?.id ?? null, nome, whatsapp, email, cpf, offeringId: Number(offeringId), campusId: campusId ? Number(campusId) : null, lgpdConsent: lgpd,
       ...(!lead && fichaSeparada ? { fichaSeparada: true } : {}),
-      ...(segundoCurso ? { segundoCurso: true } : {}),
+      ...(o.segundoCurso ? { segundoCurso: true } : {}),
+      ...(o.confirmar ? { confirmarDuplicidade: true, motivoDuplicidade: motivoDup } : {}),
     }),
     onSuccess: (r) => {
       toast(r.existente ? `Já existe a inscrição ${r.candidateCode}: abrindo` : `Inscrição ${r.candidateCode} criada`, 'success')
@@ -92,6 +100,8 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
     onError: (e: unknown) => {
       const t = e instanceof ApiError && e.status === 409 ? (e.payload as any)?.trocaDeCurso : null
       if (t) { setTroca(t); return }
+      const lista = e instanceof ApiError && (e.status === 409 || e.status === 400) ? (e.payload as any)?.inscricoesAtivas : null
+      if (Array.isArray(lista) && lista.length) { setAtivas(lista); if ((e as ApiError).status === 400) toast((e as Error).message, 'danger'); return }
       toast((e as Error).message, 'danger')
     },
   })
@@ -108,9 +118,33 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
       description={`${portalNome}. Preencha o básico: documentos, valores e cobrança ficam nas abas da inscrição.`}
       footer={<>
         <Button size="sm" variant="secondary" onClick={onClose}>Cancelar</Button>
-        {!troca && <Button size="sm" variant="primary" disabled={!pronto || criar.isPending} onClick={() => criar.mutate(false)}>{criar.isPending ? 'Criando…' : 'Criar matrícula'}</Button>}
+        {!troca && !ativas && <Button size="sm" variant="primary" disabled={!pronto || criar.isPending} onClick={() => criar.mutate({})}>{criar.isPending ? 'Criando…' : 'Criar matrícula'}</Button>}
       </>}>
       <div class="grid gap-4">
+        {ativas && (
+          <div class="rounded-md border border-warning/50 bg-warning/10 px-3 py-3 text-sm text-fg grid gap-2" role="alert">
+            <div><strong>Esta pessoa já tem {ativas.length === 1 ? 'uma inscrição ativa' : `${ativas.length} inscrições ativas`}.</strong> Confira antes de criar outra: pode ser a mesma matrícula feita pelo portal.</div>
+            <ul class="grid gap-1 text-xs">
+              {ativas.map((i) => (
+                <li key={i.id} class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <button type="button" class="font-mono font-semibold text-accent hover:underline" onClick={() => { onClose(); navigate(`/enrollment-portals/${i.portalId}/registrations/${i.id}${de ? `?de=${encodeURIComponent(de)}` : ''}`) }}>{i.codigo}</button>
+                  <span class="text-fg-muted">{[i.curso, i.portal].filter(Boolean).join(' · ')}</span>
+                  <span class="rounded bg-surface-3 px-1.5 py-px text-3xs font-semibold uppercase">{STATUS_INSCRICAO[i.status] ?? i.status}</span>
+                  {i.vendedor && <span class="text-fg-muted">vendedor(a) {i.vendedor}</span>}
+                  {i.ligacao !== 'esta_ficha' && <span class="font-medium text-warning">{i.ligacao === 'possivel_duplicado' ? 'em ficha duplicada' : i.ligacao === 'mesmo_cpf' ? 'outra ficha, mesmo CPF' : i.ligacao === 'mesmo_telefone' ? 'outra ficha, mesmo telefone' : 'na ficha principal'}</span>}
+                </li>
+              ))}
+            </ul>
+            <div class="text-xs text-fg-muted">Clique no código para abrir a existente. Se for mesmo outra matrícula (ex.: segundo curso), escreva o motivo: ele fica no histórico.</div>
+            <Textarea label="Motivo para criar outra" rows={2} value={motivoDup} placeholder="Ex.: segundo curso, Eletrotécnica além de Mineração" onInput={(e) => setMotivoDup((e.target as HTMLTextAreaElement).value)} />
+            <div class="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" disabled={criar.isPending || motivoDup.trim().length < 5} onClick={() => criar.mutate({ confirmar: true, segundoCurso: segundo })}>
+                {criar.isPending ? 'Criando…' : 'Criar mesmo assim'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setAtivas(null); setMotivoDup('') }}>Voltar</Button>
+            </div>
+          </div>
+        )}
         {troca && (
           <div class="rounded-md border border-warning/50 bg-warning/10 px-3 py-3 text-sm text-fg grid gap-2">
             <div>
@@ -121,7 +155,7 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
             </div>
             <div class="flex flex-wrap gap-2">
               <Button size="sm" variant="primary" onClick={irParaTransferencia}>Transferir de curso</Button>
-              <Button size="sm" variant="secondary" disabled={criar.isPending} onClick={() => criar.mutate(true)}>
+              <Button size="sm" variant="secondary" disabled={criar.isPending} onClick={() => { setSegundo(true); criar.mutate({ segundoCurso: true }) }}>
                 {criar.isPending ? 'Criando…' : 'É um segundo curso: criar matrícula'}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setTroca(null)}>Voltar</Button>

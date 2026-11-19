@@ -18,7 +18,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { guardTela, avaliarTela } from '../lib/eduTelas.js'
-import { alcanceDaRequisicao, podeOperarPortal } from '../lib/portalAccess.js'
+import { alcanceDaRequisicao, podeOperarPortal, whereInscricoes } from '../lib/portalAccess.js'
 import { signAtendimento, signCandidateToken, signMagicLink } from '../lib/candidateAuth.js'
 import { canUserAccessLead } from '../lib/teamAccess.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
@@ -159,6 +159,27 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       if (ja) return { ok: true, existente: true, id: ja.id, candidateCode: ja.candidateCode, fichaUsada }
     }
 
+    // Já existe inscrição ATIVA desta pessoa — nesta ficha (outro portal) ou numa
+    // ficha ligada (duplicada, mesmo telefone, mesmo CPF). Ineprotec 19/11: a do
+    // portal estava na ficha duplicada e a equipe fez outra à mão. Só segue com
+    // a confirmação de quem atende, e o motivo fica no histórico.
+    let duplicidadeConfirmada: { motivo: string; codigos: string[] } | null = null
+    if (leadId != null) {
+      const { inscricoesAtivasDoContato } = await import('../services/inscricoesDoContato.js')
+      const ativas = await inscricoesAtivasDoContato(leadId, whereInscricoes(await alcanceDaRequisicao(req)))
+      if (ativas.length) {
+        const motivo = String(b0.motivoDuplicidade ?? '').trim()
+        if (b0.confirmarDuplicidade !== true) {
+          return reply.code(409).send({
+            error: `Esta pessoa já tem ${ativas.length === 1 ? 'a inscrição' : `${ativas.length} inscrições`} ativa${ativas.length === 1 ? '' : 's'} (${ativas.map((a) => a.codigo).join(', ')}). Abra a existente ou confirme que é outra matrícula.`,
+            inscricoesAtivas: ativas,
+          })
+        }
+        if (motivo.length < 5) return reply.code(400).send({ error: 'Diga por que é outra matrícula (ex.: segundo curso).', inscricoesAtivas: ativas })
+        duplicidadeConfirmada = { motivo: motivo.slice(0, 500), codigos: ativas.map((a) => a.codigo) }
+      }
+    }
+
     const nome = await nomeDe(u)
     const token = signAtendimento({ userId: u.userId, nome, portalSlug: portal.slug, leadId, interno: true }, 1)
     const offeringId = Number(b0.offeringId)
@@ -179,9 +200,15 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       },
     })
     const d: any = r.json()
-    if (r.statusCode >= 400) return reply.code(r.statusCode).send({ error: d?.error || 'Não foi possível criar a matrícula.', ...(d?.trocaDeCurso ? { trocaDeCurso: d.trocaDeCurso } : {}) })
+    if (r.statusCode >= 400) return reply.code(r.statusCode).send({ error: d?.error || 'Não foi possível criar a matrícula.', ...(d?.trocaDeCurso ? { trocaDeCurso: d.trocaDeCurso } : {}), ...(d?.inscricoesAtivas ? { inscricoesAtivas: d.inscricoesAtivas } : {}) })
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { candidateCode: d.candidateCode }, select: { id: true, candidateCode: true } })
     if (!reg) return reply.code(500).send({ error: 'A inscrição foi enviada, mas não foi encontrada. Procure na lista do portal.' })
+    if (duplicidadeConfirmada) {
+      await registrarEventoDaInscricao({
+        registrationId: reg.id, etapa: 'inscricao', acao: 'duplicidade_confirmada', ator: 'atendente', userId: u.userId, userName: nome,
+        dados: { motivo: duplicidadeConfirmada.motivo, outrasInscricoes: duplicidadeConfirmada.codigos },
+      }).catch(() => {})
+    }
     if (fichaUsada) {
       logEvent({
         leadId: fichaUsada.id, type: EVENT_TYPES.ANNOTATION_SAVED, category: 'operator',

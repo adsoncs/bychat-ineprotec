@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { AlertaInscricoes } from '@/components/leads/AlertaInscricoes'
 import { useEquipeLigada } from '@/components/equipe/PainelDaEquipe'
 import { useAcoesDaEquipe } from '@/hooks/useEquipe'
 import { useEquipeStore } from '@/stores/equipe'
@@ -97,6 +98,9 @@ export function LeadDetailPage({ params }: Props) {
         isLoading={isLoading}
         actions={actions}
       />
+
+      {/* Matrícula já cadastrada (desta ficha ou de uma ligada). */}
+      <AlertaInscricoes leadId={id} class="rounded-md border" />
 
       <div class="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-6 items-start">
         <aside class="hidden lg:block">

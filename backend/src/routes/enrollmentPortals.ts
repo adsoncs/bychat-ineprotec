@@ -2771,9 +2771,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         const { ligarFichas } = await import('../services/juncaoSegura.js')
         await ligarFichas(fichaDoOutroProcesso.id, lead.id, { nome: 'Sistema', motivo: 'outro processo da mesma pessoa (curso ou forma de ingresso diferente)' }).catch(() => null)
       } else {
-        flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
+        // ESPERA a marcação: ela passa a ficha duplicada para quem já atende a
+        // principal, e a inscrição (logo abaixo) congela o vendedor a partir do
+        // dono da ficha. Sem esperar, o vendedor ficava o do rodízio — ineprotec
+        // 19/11: a Jéssica atendia, a inscrição do portal ficou com a Valeska.
+        await flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
           console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
         })
+        const dono = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true, teamId: true } }).catch(() => null)
+        if (dono) { lead.assignedUserId = dono.assignedUserId; lead.teamId = dono.teamId }
       }
     } else {
       // Enriquece dados básicos se vieram vazios + roteia para funil/etapa/team
