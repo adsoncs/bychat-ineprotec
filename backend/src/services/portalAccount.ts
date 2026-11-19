@@ -295,7 +295,7 @@ export const INSCRICAO_ENCERRADA = ['cancelled', 'transferred', 'expired']
  */
 export async function inscricaoDoPortal(leadId: number, codigo?: string | null) {
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' },
+    where: { leadId: { in: await fichasDaConta(leadId) }, status: { not: 'merged' } }, orderBy: { id: 'desc' },
     select: { id: true, candidateCode: true, status: true },
   })
   const pedida = codigo ? regs.find((r) => r.candidateCode === codigo) : undefined
@@ -337,4 +337,38 @@ export async function quemE(accountId: number) {
       curso: i.processRegistration?.offering?.course?.nome || i.processRegistration?.offering?.nome || i.portal?.nome || null,
     })),
   }
+}
+
+/**
+ * Fichas da MESMA PESSOA que a conta do portal enxerga: a da conta e as ligadas
+ * a ela como "mesma pessoa, outro curso" (duplicateStatus 'linked', nos dois
+ * sentidos) — só as que têm o MESMO CPF da conta (numa conta ou numa inscrição).
+ * Cada curso tem a sua ficha (o seu funil), mas o aluno é um só: antes cada conta
+ * via só a ficha dela e o login pelo CPF abria sempre a primeira (ineprotec,
+ * Samara 19/11: EJA Médio numa ficha, Fundamental na outra).
+ */
+export async function fichasDaConta(leadId: number): Promise<number[]> {
+  const conta = await prisma.portalAccount.findUnique({ where: { leadId }, select: { cpf: true } }).catch(() => null)
+  const cpf = soDigitos(conta?.cpf ?? '')
+  if (cpf.length !== 11) return [leadId]
+  const vistas = new Set<number>([leadId])
+  let fila = [leadId]
+  for (let passo = 0; passo < 3 && fila.length; passo++) {
+    const atuais = await prisma.lead.findMany({ where: { id: { in: fila } }, select: { id: true, possibleDuplicateOfId: true, duplicateStatus: true } })
+    const vizinhas = await prisma.lead.findMany({ where: { possibleDuplicateOfId: { in: fila }, duplicateStatus: 'linked' }, select: { id: true } })
+    const novas = [
+      ...atuais.filter((l) => l.duplicateStatus === 'linked' && l.possibleDuplicateOfId).map((l) => l.possibleDuplicateOfId!),
+      ...vizinhas.map((l) => l.id),
+    ].filter((id) => !vistas.has(id))
+    fila = []
+    for (const id of new Set(novas)) {
+      const [c, regs] = await Promise.all([
+        prisma.portalAccount.findUnique({ where: { leadId: id }, select: { cpf: true } }).catch(() => null),
+        prisma.enrollmentRegistration.findMany({ where: { leadId: id }, select: { formData: true } }).catch(() => [] as any[]),
+      ])
+      const mesmoCpf = soDigitos(c?.cpf ?? '') === cpf || regs.some((r: any) => soDigitos(String(r.formData?.cpf ?? '')) === cpf)
+      if (mesmoCpf) { vistas.add(id); fila.push(id) }
+    }
+  }
+  return [...vistas]
 }

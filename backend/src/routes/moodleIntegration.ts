@@ -271,7 +271,7 @@ export async function moodleIntegrationRoutes(app: FastifyInstance) {
     const conta = await contaDaRequisicao(req)
     if (!conta) return reply.code(401).send({ error: 'Entre no portal de novo.' })
     const registro = Number((req.query as any)?.registro)
-    const reg = Number.isInteger(registro) ? await prisma.enrollmentRegistration.findFirst({ where: { id: registro, leadId: conta.leadId }, select: { id: true } }) : null
+    const reg = Number.isInteger(registro) ? await prisma.enrollmentRegistration.findFirst({ where: { id: registro, leadId: { in: await (await import('../services/portalAccount.js')).fichasDaConta(conta.leadId) } }, select: { id: true } }) : null
     if (!reg) return reply.code(404).send({ error: 'Curso não encontrado nesta conta.' })
     try {
       return { progresso: await progressoDaInscricao(reg.id, { forcar: String((req.query as any)?.forcar ?? '') === '1' }) }
@@ -286,7 +286,7 @@ export async function moodleIntegrationRoutes(app: FastifyInstance) {
     const conta = await contaDaRequisicao(req)
     if (!conta) return reply.code(401).type('text/html; charset=utf-8').send('<p>Entre no portal de novo para acessar o curso.</p>')
     const registro = Number((req.query as any)?.registro)
-    const reg = Number.isInteger(registro) ? await prisma.enrollmentRegistration.findFirst({ where: { id: registro, leadId: conta.leadId }, select: { id: true } }) : null
+    const reg = Number.isInteger(registro) ? await prisma.enrollmentRegistration.findFirst({ where: { id: registro, leadId: { in: await (await import('../services/portalAccount.js')).fichasDaConta(conta.leadId) } }, select: { id: true } }) : null
     if (!reg) return reply.code(404).type('text/html; charset=utf-8').send('<p>Curso não encontrado nesta conta.</p>')
     const destino = await destinoDeEntrada(reg.id)
     if (!destino) return reply.code(409).type('text/html; charset=utf-8').send('<p>Seu acesso ao curso ainda não está liberado. Fale com a secretaria.</p>')

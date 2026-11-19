@@ -173,8 +173,10 @@ export async function inscricaoParaFaturas(id: number) {
 }
 
 export async function inscricoesDaConta(leadId: number) {
+  // Todas as fichas da mesma pessoa (um curso por ficha): services/portalAccount.fichasDaConta.
+  const { fichasDaConta } = await import('./portalAccount.js')
   return prisma.enrollmentRegistration.findMany({
-    where: { leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: SELECT_REG,
+    where: { leadId: { in: await fichasDaConta(leadId) }, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: SELECT_REG,
   })
 }
 

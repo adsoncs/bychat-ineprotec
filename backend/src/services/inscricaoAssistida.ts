@@ -150,7 +150,7 @@ async function inscricaoDaRequisicao(req: FastifyRequest): Promise<number | null
   const conta = await contaDaRequisicao(req).catch(() => null)
   if (!conta) return null
   const r = await prisma.enrollmentRegistration.findFirst({
-    where: { leadId: conta.leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: { id: true },
+    where: { leadId: { in: await (await import('./portalAccount.js')).fichasDaConta(conta.leadId) }, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: { id: true },
   })
   return r?.id ?? null
 }

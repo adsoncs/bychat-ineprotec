@@ -39,7 +39,7 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
     // sempre os da inscrição mais recente. De outra pessoa, não vale nunca.
     if (session) {
       const doToken = await prisma.enrollmentRegistration.findFirst({
-        where: { id: session.enrollmentId, leadId: conta.leadId, status: { not: 'merged' } }, select: { id: true },
+        where: { id: session.enrollmentId, leadId: { in: await (await import('../services/portalAccount.js')).fichasDaConta(conta.leadId) }, status: { not: 'merged' } }, select: { id: true },
       })
       if (doToken) return { ...session, onde: ondeDoToken(session) }
     }
