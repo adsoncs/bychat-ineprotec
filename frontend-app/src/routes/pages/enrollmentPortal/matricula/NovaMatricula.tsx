@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/apiClient'
+import { api, ApiError } from '@/lib/apiClient'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -51,6 +51,9 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   const [campusId, setCampusId] = useState('')
   const [lgpd, setLgpd] = useState(false)
   const [fichaSeparada, setFichaSeparada] = useState(false)
+  // Trava: a pessoa já PAGOU outro curso. Troca vai por "Transferir de curso";
+  // matrícula nova só quando quem atende confirma que é um segundo curso.
+  const [troca, setTroca] = useState<{ id: number; candidateCode: string; portalId: number; curso: string } | null>(null)
   // Dados digitados sem ficha escolhida: confere (com uma pausa) se a pessoa já tem ficha.
   const [conferir, setConferir] = useState({ nome: '', whatsapp: '', email: '', cpf: '' })
   useEffect(() => {
@@ -75,9 +78,10 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
   const oferta = cat.data?.ofertas.find((o) => String(o.id) === offeringId)
   const escolher = (l: LeadDaBusca) => { setLead(l); setNome(l.nome ?? ''); setWhatsapp(l.whatsapp ?? ''); setEmail(l.email ?? ''); setBusca('') }
   const criar = useMutation({
-    mutationFn: () => api.post<{ id: number; existente: boolean; candidateCode: string }>('/admin/matricula-interna', {
+    mutationFn: (segundoCurso: boolean = false) => api.post<{ id: number; existente: boolean; candidateCode: string }>('/admin/matricula-interna', {
       portalId, leadId: lead?.id ?? null, nome, whatsapp, email, cpf, offeringId: Number(offeringId), campusId: campusId ? Number(campusId) : null, lgpdConsent: lgpd,
       ...(!lead && fichaSeparada ? { fichaSeparada: true } : {}),
+      ...(segundoCurso ? { segundoCurso: true } : {}),
     }),
     onSuccess: (r) => {
       toast(r.existente ? `Já existe a inscrição ${r.candidateCode}: abrindo` : `Inscrição ${r.candidateCode} criada`, 'success')
@@ -85,8 +89,18 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
       onClose()
       navigate(`/enrollment-portals/${portalId}/registrations/${r.id}${de ? `?de=${encodeURIComponent(de)}` : ''}`)
     },
-    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    onError: (e: unknown) => {
+      const t = e instanceof ApiError && e.status === 409 ? (e.payload as any)?.trocaDeCurso : null
+      if (t) { setTroca(t); return }
+      toast((e as Error).message, 'danger')
+    },
   })
+  const irParaTransferencia = () => {
+    if (!troca) return
+    const q = new URLSearchParams({ transferir: '1', paraPortal: String(portalId), paraOferta: offeringId, ...(campusId ? { paraPolo: campusId } : {}), ...(de ? { de } : {}) })
+    onClose()
+    navigate(`/enrollment-portals/${troca.portalId}/registrations/${troca.id}?${q.toString()}`)
+  }
   const pronto = nome.trim() && (whatsapp.trim() || email.trim()) && oferta && (oferta.polos.length <= 1 || campusId) && lgpd
 
   return (
@@ -94,9 +108,26 @@ export function NovaMatriculaModal({ portalId, portalNome, lead: leadInicial, de
       description={`${portalNome}. Preencha o básico: documentos, valores e cobrança ficam nas abas da inscrição.`}
       footer={<>
         <Button size="sm" variant="secondary" onClick={onClose}>Cancelar</Button>
-        <Button size="sm" variant="primary" disabled={!pronto || criar.isPending} onClick={() => criar.mutate()}>{criar.isPending ? 'Criando…' : 'Criar matrícula'}</Button>
+        {!troca && <Button size="sm" variant="primary" disabled={!pronto || criar.isPending} onClick={() => criar.mutate(false)}>{criar.isPending ? 'Criando…' : 'Criar matrícula'}</Button>}
       </>}>
       <div class="grid gap-4">
+        {troca && (
+          <div class="rounded-md border border-warning/50 bg-warning/10 px-3 py-3 text-sm text-fg grid gap-2">
+            <div>
+              <strong>Esta pessoa já tem a matrícula {troca.candidateCode} paga</strong> em {troca.curso}.
+            </div>
+            <div class="text-xs text-fg-muted">
+              Se ela quer <strong>trocar de curso</strong>, use "Transferir de curso": o que já foi pago vira crédito no curso novo, os documentos vão junto e não nasce outra ficha. Uma matrícula nova deixaria o pagamento na inscrição antiga e criaria uma segunda ficha.
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <Button size="sm" variant="primary" onClick={irParaTransferencia}>Transferir de curso</Button>
+              <Button size="sm" variant="secondary" disabled={criar.isPending} onClick={() => criar.mutate(true)}>
+                {criar.isPending ? 'Criando…' : 'É um segundo curso: criar matrícula'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setTroca(null)}>Voltar</Button>
+            </div>
+          </div>
+        )}
         {!leadInicial && (
           lead ? (
             <div class="flex items-center gap-2 rounded-md bg-surface-3 px-3 py-2">

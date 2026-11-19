@@ -82,7 +82,8 @@ export function AvisoDeTransferencia({ registrationId }: { registrationId: numbe
 /** Botão do cabeçalho + modal com a prévia e a confirmação. */
 export function BotaoTransferirCurso({ registrationId, portalIdAtual, aberta }: { registrationId: number; portalIdAtual: number; aberta: boolean }) {
   const pode = useCan('edu_transferir_curso', 'edit')
-  const [abrir, setAbrir] = useState(false)
+  // ?transferir=1 (vindo da trava da Nova matrícula): já abre o modal.
+  const [abrir, setAbrir] = useState(() => paramDaUrl('transferir') === '1')
   if (!pode || !aberta) return null
   return (
     <>
@@ -94,13 +95,18 @@ export function BotaoTransferirCurso({ registrationId, portalIdAtual, aberta }: 
   )
 }
 
+function paramDaUrl(nome: string): string {
+  try { return new URLSearchParams(window.location.search).get(nome) ?? '' } catch { return '' }
+}
+
 function ModalTransferir({ registrationId, portalIdAtual, onClose }: { registrationId: number; portalIdAtual: number; onClose: () => void }) {
   const [, navigate] = useLocation()
   const qc = useQueryClient()
   const portais = useEnrollmentPortals()
-  const [portalId, setPortalId] = useState(String(portalIdAtual))
-  const [offeringId, setOfferingId] = useState('')
-  const [campusId, setCampusId] = useState('')
+  // Curso de destino pode vir da Nova matrícula barrada (?paraPortal=&paraOferta=&paraPolo=).
+  const [portalId, setPortalId] = useState(paramDaUrl('paraPortal') || String(portalIdAtual))
+  const [offeringId, setOfferingId] = useState(paramDaUrl('paraOferta'))
+  const [campusId, setCampusId] = useState(paramDaUrl('paraPolo'))
   const [planoId, setPlanoId] = useState('')
   const [precoPor, setPrecoPor] = useState('')
   const [motivo, setMotivo] = useState('')

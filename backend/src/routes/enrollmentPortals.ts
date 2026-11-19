@@ -2631,6 +2631,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         lead = null
       }
     }
+    // Equipe fazendo a inscrição de quem já PAGOU outro curso: troca de curso vai
+    // por "Transferir de curso" (crédito, contrato e documentos juntos). Só segue
+    // como segundo curso quando quem atende confirma (segundoCurso).
+    if (fichaDoOutroProcesso && atendente && body.segundoCurso !== true && offeringId) {
+      const { matriculaPagaDeOutroCurso } = await import('../services/juncaoSegura.js')
+      const paga = await matriculaPagaDeOutroCurso(fichaDoOutroProcesso.id, Number(offeringId)).catch(() => null)
+      if (paga) {
+        return reply.code(409).send({
+          error: `Esta pessoa já tem a matrícula ${paga.candidateCode} paga em ${paga.curso}. Se é troca de curso, use "Transferir de curso" nessa inscrição no painel; se é um segundo curso, confirme.`,
+          trocaDeCurso: paga,
+        })
+      }
+    }
 
     // Resolve funil: portal.funnelId > default do sistema > null
     let resolvedFunnelId: number | null = portal.funnelId || null

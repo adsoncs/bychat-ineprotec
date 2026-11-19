@@ -421,3 +421,27 @@ export async function processosDiferentes(aId: number, bId: number): Promise<str
   if (!soA.length || !soB.length) return null
   return `inscrições em processos diferentes: ${soA.map((p) => p.rotulo).join(', ')} × ${soB.map((p) => p.rotulo).join(', ')}`
 }
+
+/**
+ * Matrícula PAGA da ficha num curso diferente do da oferta nova. É o sinal de
+ * troca de curso feita pelo caminho errado: a equipe abre "Nova matrícula" em vez
+ * de "Transferir de curso", e a regra do segundo processo cria outra ficha, sem o
+ * pagamento, o contrato nem os documentos da primeira (ineprotec, Utaro 18/11).
+ * Quem atende escolhe: transferir (crédito aproveitado) ou segundo curso de verdade.
+ */
+export async function matriculaPagaDeOutroCurso(leadId: number, offeringId: number): Promise<
+  { id: number; candidateCode: string; portalId: number; curso: string } | null
+> {
+  const novo = await processoDaOferta(offeringId)
+  if (!novo) return null
+  const regs = await prisma.enrollmentRegistration.findMany({
+    where: { leadId, ...ABERTA, OR: [{ status: 'paid' }, { paymentStatus: 'paid' }] },
+    select: { id: true, candidateCode: true, portalId: true, processRegistration: { select: SELECT_PROCESSO } },
+    orderBy: { id: 'desc' },
+  }).catch(() => [] as any[])
+  for (const r of regs) {
+    const p = processoDe(r.processRegistration, r.candidateCode)
+    if (p && p.chave !== novo.chave) return { id: r.id, candidateCode: r.candidateCode, portalId: r.portalId, curso: p.rotulo }
+  }
+  return null
+}

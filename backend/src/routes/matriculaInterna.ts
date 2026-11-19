@@ -134,6 +134,19 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     const barrado = await barrar(req, portalId, leadId)
     if (barrado) return reply.code(barrado.status).send({ error: barrado.erro })
 
+    // Já pagou outro curso: troca de curso vai por "Transferir de curso" (o crédito
+    // vai junto). Matrícula nova só quando a equipe confirma que é um SEGUNDO curso.
+    if (leadId != null && b0.segundoCurso !== true && Number(b0.offeringId) > 0) {
+      const { matriculaPagaDeOutroCurso } = await import('../services/juncaoSegura.js')
+      const paga = await matriculaPagaDeOutroCurso(leadId, Number(b0.offeringId))
+      if (paga) {
+        return reply.code(409).send({
+          error: `Esta pessoa já tem a matrícula ${paga.candidateCode} paga em ${paga.curso}. Se é troca de curso, use "Transferir de curso" nessa inscrição; se é um segundo curso, confirme.`,
+          trocaDeCurso: paga,
+        })
+      }
+    }
+
     const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true, slug: true, active: true, formMode: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
     if (!portal.active) return reply.code(400).send({ error: 'Este portal está desativado.' })
@@ -158,6 +171,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       payload: {
         ...(leadId != null ? { continueToken: token } : {}),
         ...(fichaSeparada ? { fichaSeparada: true } : {}),
+        ...(b0.segundoCurso === true ? { segundoCurso: true } : {}),
         formData: {
           nome: String(b0.nome || '').trim(), email: String(b0.email || '').trim(), whatsapp: String(b0.whatsapp || '').trim(), cpf: String(b0.cpf || '').trim(),
           offeringId, ...(b0.campusId ? { campusId: Number(b0.campusId) } : {}), lgpdConsent: b0.lgpdConsent === true,
@@ -165,7 +179,7 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       },
     })
     const d: any = r.json()
-    if (r.statusCode >= 400) return reply.code(r.statusCode).send({ error: d?.error || 'Não foi possível criar a matrícula.' })
+    if (r.statusCode >= 400) return reply.code(r.statusCode).send({ error: d?.error || 'Não foi possível criar a matrícula.', ...(d?.trocaDeCurso ? { trocaDeCurso: d.trocaDeCurso } : {}) })
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { candidateCode: d.candidateCode }, select: { id: true, candidateCode: true } })
     if (!reg) return reply.code(500).send({ error: 'A inscrição foi enviada, mas não foi encontrada. Procure na lista do portal.' })
     if (fichaUsada) {
