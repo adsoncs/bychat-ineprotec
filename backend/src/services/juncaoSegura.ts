@@ -445,3 +445,35 @@ export async function matriculaPagaDeOutroCurso(leadId: number, offeringId: numb
   }
   return null
 }
+
+/** Duas ofertas são o mesmo processo (curso + forma de ingresso)? */
+export async function mesmoProcesso(ofertaA: number, ofertaB: number): Promise<boolean> {
+  if (ofertaA === ofertaB) return true
+  const [a, b] = await Promise.all([processoDaOferta(ofertaA), processoDaOferta(ofertaB)])
+  return !!a && !!b && a.chave === b.chave
+}
+
+/**
+ * Ficha nova do portal (o próprio candidato se inscreveu) que a detecção marcou
+ * como possível duplicata de outra: se é a MESMA pessoa (CPF igual, além do
+ * WhatsApp/e-mail que a detecção já casou) e o curso novo é outro processo, não
+ * é duplicata — é o segundo curso dela. Liga as fichas como "mesma pessoa, outro
+ * curso" (o que a equipe faria à mão). Mesmo curso segue para revisão.
+ * Sem CPF igual nada muda: quem digita o telefone de outra pessoa não "entra" na
+ * ficha dela (ineprotec, Samara 19/11).
+ */
+export async function ligarSegundoCursoDoPortal(novaFichaId: number, cpf: string, offeringId: number): Promise<number | null> {
+  const nova = await prisma.lead.findUnique({ where: { id: novaFichaId }, select: { duplicateStatus: true, possibleDuplicateOfId: true } })
+  const outraId = nova?.possibleDuplicateOfId
+  if (!outraId || nova?.duplicateStatus !== 'pending_review') return null
+  const { normalizeCpf } = await import('../lib/cpf.js')
+  const meu = normalizeCpf(String(cpf || ''))
+  if (meu.length !== 11) return null
+  const regs = await prisma.enrollmentRegistration.findMany({ where: { leadId: outraId }, select: { formData: true } })
+  const cpfs = new Set(regs.map((r: any) => normalizeCpf(String(r.formData?.cpf ?? ''))).filter((c) => c.length === 11))
+  if (!cpfs.has(meu)) return null
+  const [abertos, novo] = await Promise.all([processosAbertos(outraId), processoDaOferta(offeringId)])
+  if (!novo || !abertos.length || abertos.some((p) => p.chave === novo.chave)) return null
+  await ligarFichas(outraId, novaFichaId, { nome: 'Sistema', motivo: `mesma pessoa (mesmo CPF) inscrita em outro curso: ${novo.rotulo}` })
+  return outraId
+}

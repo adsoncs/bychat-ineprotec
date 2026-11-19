@@ -2778,6 +2778,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         await flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
           console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
         })
+        // Mesma pessoa (CPF) que já tem outro curso: é o segundo curso dela, não duplicata.
+        if (cpf && offeringId) {
+          const { ligarSegundoCursoDoPortal } = await import('../services/juncaoSegura.js')
+          await ligarSegundoCursoDoPortal(lead.id, cpf, Number(offeringId)).catch((e) => req.log.warn(`[enrollment] segundo curso: ${e?.message || e}`))
+        }
         const dono = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true, teamId: true } }).catch(() => null)
         if (dono) { lead.assignedUserId = dono.assignedUserId; lead.teamId = dono.teamId }
       }

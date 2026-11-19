@@ -153,9 +153,21 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     if (portal.formMode === 'interest') return reply.code(400).send({ error: 'Este portal só captura interesse: não tem inscrição completa.' })
 
     if (leadId != null) {
-      const ja = await prisma.enrollmentRegistration.findFirst({
-        where: { leadId, portalId, status: { notIn: ['merged', 'cancelled', 'transferred'] } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
+      // Só reabre a inscrição que já existe quando é o MESMO curso (curso + forma
+      // de ingresso). Outro curso no mesmo portal é um segundo curso de verdade —
+      // antes o painel devolvia a inscrição antiga e a equipe juntava os dois
+      // cursos numa só cobrança (ineprotec, Samara 18/11: EJA Fundamental + Médio).
+      const abertas = await prisma.enrollmentRegistration.findMany({
+        where: { leadId, portalId, status: { notIn: ['merged', 'cancelled', 'transferred'] } }, orderBy: { id: 'desc' },
+        select: { id: true, candidateCode: true, processRegistration: { select: { offeringId: true } } },
       })
+      const { mesmoProcesso } = await import('../services/juncaoSegura.js')
+      const ofertaNova = Number(b0.offeringId)
+      let ja: { id: number; candidateCode: string } | null = null
+      for (const r of abertas) {
+        const ofertaDela = r.processRegistration?.offeringId ?? null
+        if (!ofertaDela || !(ofertaNova > 0) || await mesmoProcesso(ofertaDela, ofertaNova)) { ja = r; break }
+      }
       if (ja) return { ok: true, existente: true, id: ja.id, candidateCode: ja.candidateCode, fichaUsada }
     }
 

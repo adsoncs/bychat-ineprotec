@@ -66,6 +66,8 @@ const MEIO: Record<string, string> = {
 const meioLegivel = (m: string | null | undefined) => {
   const s = String(m || '').toUpperCase()
   if (!s) return null
+  // Crédito (de transferência ou pago junto em outra inscrição) — contém "CREDIT".
+  if (s === 'CREDITO') return 'Crédito'
   if (s.includes('PIX')) return 'PIX'
   if (s.includes('BOLETO') || s.includes('BANK_SLIP')) return 'Boleto'
   if (s.includes('CREDIT')) return 'Cartão de crédito'
@@ -276,7 +278,9 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
     faturas.push({
       chave: `reg:${r.id}`,
       titulo: tituloDaCobranca(r),
-      detalhe: parcelasCartao ? `em ${parcelasCartao}x no cartão` : (manual ? 'Registrado pela secretaria' : null),
+      detalhe: parcelasCartao ? `em ${parcelasCartao}x no cartão` : (manual ? 'Registrado pela secretaria'
+        : (plano as any)?.pagoNaInscricao?.codigo ? `Paga junto com a inscrição ${(plano as any).pagoNaInscricao.codigo}`
+        : (plano as any)?.incluiParcelaDe?.codigo ? `Inclui ${(Number((plano as any).incluiParcelaDe.valor) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} da 1ª parcela da inscrição ${(plano as any).incluiParcelaDe.codigo}` : null),
       valor: Number(r.paymentAmount),
       vencimento: aberta && r.paymentExpiresAt ? hojeBrDe(prazoDaCobranca(r)!) : null,
       situacao,
