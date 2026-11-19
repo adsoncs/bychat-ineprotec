@@ -341,6 +341,30 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
     return r.ok ? r : reply.code(r.status).send({ error: r.erro })
   })
 
+  // Pagar o restante agora: o agente libera, o aluno paga no cartão pelo Meu
+  // Portal. Fica debaixo de /troca para valer a permissão "Alterar forma de pagamento".
+  const restante = () => import('../services/restanteAgora.js')
+  app.get('/api/admin/matricula-interna/:id/troca/restante', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    reply.header('cache-control', 'no-store')
+    return (await restante()).estadoDoRestante(reg.id)
+  })
+  app.post('/api/admin/matricula-interna/:id/troca/restante', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const u = usuario(req)
+    const r = await (await restante()).liberarRestante(reg.id, req.body, { userId: u.userId, nome: await nomeDe(u) })
+    return r.ok ? r : reply.code(r.status).send({ error: r.erro })
+  })
+  app.post('/api/admin/matricula-interna/:id/troca/restante/cancelar', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const reg = await inscricaoDa(req, reply)
+    if (!reg) return
+    const u = usuario(req)
+    const r = await (await restante()).cancelarRestante(reg.id, { userId: u.userId, nome: await nomeDe(u) })
+    return r.ok ? r : reply.code(r.status).send({ error: r.erro })
+  })
+
   // Pagamento combinado: permissão "Valor personalizado" (lib/eduTelas).
   const combinado = () => import('../services/pagamentoCombinado.js')
   const operador = async (req: FastifyRequest) => { const u = usuario(req); return { userId: u.userId, nome: await nomeDe(u) } }

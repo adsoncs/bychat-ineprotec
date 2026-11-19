@@ -41,4 +41,28 @@ export async function areaDoAlunoRoutes(app: FastifyInstance) {
     if (!r.ok) return reply.code(r.status).send({ error: r.erro })
     return r
   })
+
+  // "Pagar o restante agora" liberado pela secretaria: prévia do cupom e pagamento no cartão.
+  app.post('/api/public/portal/area/restante/cupom', async (req, reply) => {
+    reply.header('cache-control', 'no-store')
+    if (!(await areaAtiva())) return reply.code(404).send({ error: 'Indisponível' })
+    const conta = await contaDaRequisicao(req)
+    if (!conta) return reply.code(401).send({ error: 'Entre no portal de novo.' })
+    const b = (req.body as any) || {}
+    const { previaDoCupom } = await import('../services/restanteAgora.js')
+    const r = await previaDoCupom(conta.leadId, String(b.codigo || ''), String(b.cupom || ''))
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return r
+  })
+  app.post('/api/public/portal/area/restante/pagar', async (req, reply) => {
+    reply.header('cache-control', 'no-store')
+    if (!(await areaAtiva())) return reply.code(404).send({ error: 'Indisponível' })
+    const conta = await contaDaRequisicao(req)
+    if (!conta) return reply.code(401).send({ error: 'Entre no portal de novo.' })
+    const b = (req.body as any) || {}
+    const { pagarRestante } = await import('../services/restanteAgora.js')
+    const r = await pagarRestante(conta.leadId, String(b.codigo || ''), b, req)
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return r
+  })
 }

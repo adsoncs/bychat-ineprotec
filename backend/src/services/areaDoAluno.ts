@@ -351,6 +351,15 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
     for (let i = 2; i <= n; i++) {
       const g = geradas[String(i)]
       if ((g as any)?.situacao === 'renegociada') continue
+      // Quitada no "Pagar o restante agora" (cartão): paga, sem consultar o Asaas.
+      if ((g as any)?.viaRestante && (g as any)?.situacao === 'paga') {
+        faturas.push({
+          chave: `restante:${r.id}:${i}`, titulo: rotuloParcela(i, n), detalhe: 'Paga no cartão, junto com as outras parcelas do restante',
+          valor, vencimento: null, situacao: 'paga', pagaEm: (g as any).pagaEm ?? null, meio: 'Cartão',
+          pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false, podeGerar: false,
+        })
+        continue
+      }
       if (g && cfg) {
         let removida = false
         const p = await asaasGet(cfg, `/payments/${encodeURIComponent(g.id)}`).catch((e: any) => { removida = e?.status === 404; return null })
@@ -486,6 +495,8 @@ export async function montarArea(leadId: number, codigo?: string | null) {
       pagas: fin.faturas.filter((f) => f.situacao === 'paga').length,
     },
     contratos,
+    // "Pagar o restante agora" liberado pela secretaria (services/restanteAgora).
+    restante: await import('./restanteAgora.js').then((m) => m.restanteParaAluno(r)).catch(() => null),
     // AVA: acesso liberado no Moodle (services/moodleAcessos). Sem integração, o portal mostra "em breve".
     ava: await avaDaInscricao(r.id).catch(() => ({ disponivel: false, url: null, usuario: null, curso: null, suspenso: false })),
   }

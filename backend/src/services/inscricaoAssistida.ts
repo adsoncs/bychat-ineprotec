@@ -218,6 +218,12 @@ export function instalarInscricaoAssistida(app: FastifyInstance): void {
 
 /** Rótulo legível de cada ação do histórico (painel). */
 export const ROTULO_ACAO: Record<string, string> = {
+  // Pagar o restante agora (cartão pelo Meu Portal)
+  restante_liberado: 'Pagamento do restante no cartão liberado ao aluno',
+  restante_cancelado: 'Pagamento do restante no cartão cancelado',
+  restante_cobranca_criada: 'Aluno abriu o pagamento do restante no cartão',
+  restante_pago: 'Restante pago no cartão',
+  restante_estornado: 'Pagamento do restante estornado',
   // AVA (Moodle)
   moodle_liberado: 'AVA liberado',
   moodle_conta_antiga_desativada: 'AVA: conta antiga não confirmada foi desativada e a conta padrão criada',

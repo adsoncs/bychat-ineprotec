@@ -13,6 +13,7 @@ import { chamarComoAgente, rotaInscricao, sessaoInterna } from './sessao'
 import { invalidarInscricao } from './Dispensa'
 import { PagamentoCombinado } from './PagamentoCombinado'
 import { AlterarFormaPagamento } from './AlterarFormaPagamento'
+import { PagarRestante } from './PagarRestante'
 import { PacoteDaMatricula, usePacote } from './PacoteDaMatricula'
 import { TrocarPlano } from '@/components/educational/PagamentosDaMatricula'
 
@@ -359,6 +360,7 @@ export function AbaFinanceiro({ registrationId, pago, fechada, acoes, children }
 
       <PagamentoCombinado registrationId={registrationId} pago={pago} fechada={fechada} />
       <AlterarFormaPagamento registrationId={registrationId} fechada={fechada} />
+      <PagarRestante registrationId={registrationId} fechada={fechada} />
 
       {!o.semPlano && (o.valorAvulso?.portalCobra ?? true) && (
         <Card>

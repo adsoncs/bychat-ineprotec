@@ -5705,6 +5705,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // própria: não podem mexer na situação da inscrição como cobrança principal.
     const refTitulo = ref.match(/^titulo-(\d+)$/)
     const refParcela = ref.match(/^portal-parcela:(\d+):(\d+)$/)
+    // "Pagar o restante agora" (cartão pelo Meu Portal).
+    const refRestante = ref.match(/^portal-restante:(\d+)$/)
+    if (refRestante) {
+      const { aplicarAvisoDoRestante } = await import('../services/restanteAgora.js')
+      const ok = await aplicarAvisoDoRestante(Number(refRestante[1]), event, payment)
+      if (hitId) await updateWebhookHit(hitId, ok ? { status: 'processed', registrationId: Number(refRestante[1]) } : { status: 'notFound' })
+      return { ok: true, event }
+    }
     if (refTitulo || refParcela) {
       const c = await import('../services/pagamentoCombinado.js')
       const registrationId = refTitulo

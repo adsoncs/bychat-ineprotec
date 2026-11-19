@@ -33,6 +33,8 @@ export interface Area {
   token: string
   financeiro: { faturas: Fatura[]; aviso: string | null; proxima: Fatura | null; emAberto: number; vencidas: number; pagas: number }
   contratos: Contrato[]
+  /** "Pagar o restante agora" liberado pela secretaria (cartão, sem juros). */
+  restante?: { valor: number; parcelas: number; parcelasMax: number; aguardando: { link: string | null; valor: number; parcelas: number; cupom: string | null } | null } | null
   ava: { disponivel: boolean; url: string | null; usuario?: string | null; curso?: string | null; suspenso?: boolean }
 }
 type JornadaDoPortal = Awaited<ReturnType<typeof carregarJornadaDoPortal>>
@@ -198,6 +200,7 @@ export function AreaDoAluno(props: {
 
       {aba === 'financeiro' && (
         <section class="ada-secao" aria-label="Financeiro">
+          {area.restante && <CartaoRestante r={area.restante} codigo={area.inscricao.codigo} />}
           <div class="ada-numeros">
             <Numero rotulo="Em aberto" valor={reais(area.financeiro.emAberto)} tom={area.financeiro.emAberto ? 'pendente' : 'ok'} />
             <Numero rotulo="Vencidas" valor={String(area.financeiro.vencidas)} tom={area.financeiro.vencidas ? 'erro' : 'neutro'} />
@@ -298,6 +301,79 @@ function CartaoResumo(p: { icone: string; titulo: string; valor: string; legenda
       <span class="ada-resumo-legenda">{p.legenda}</span>
       <span class="ada-resumo-acao">{p.acao} <span aria-hidden="true">→</span></span>
     </button>
+  )
+}
+
+/**
+ * Liberado pela secretaria: quitar as parcelas que faltam no cartão, em até N
+ * vezes sem juros. Cupom de desconto opcional, conferido antes de pagar.
+ */
+function CartaoRestante({ r, codigo }: { r: NonNullable<Area['restante']>; codigo: string }) {
+  const [vezes, setVezes] = useState(String(r.aguardando?.parcelas ?? r.parcelasMax))
+  const [cupom, setCupom] = useState(r.aguardando?.cupom ?? '')
+  const [aplicado, setAplicado] = useState<{ valor: number; desconto: number; cupom: string | null; parcelasMax: number } | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const valor = aplicado?.valor ?? r.valor
+  const maximo = aplicado?.parcelasMax ?? r.parcelasMax
+  const n = Math.min(maximo, Math.max(1, Number(vezes) || 1))
+
+  async function post(caminho: string, corpo: Record<string, unknown>) {
+    const resp = await fetch(caminho, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, ...corpo }) })
+    const d = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new Error(d.error || 'Não foi possível agora. Tente de novo em alguns minutos.')
+    return d
+  }
+  async function aplicar() {
+    if (ocupado) return
+    setOcupado(true); setErro(null)
+    try {
+      if (!cupom.trim()) { setAplicado(null); return }
+      const d = await post('/api/public/portal/area/restante/cupom', { cupom })
+      setAplicado({ valor: d.valor, desconto: d.desconto, cupom: d.cupom, parcelasMax: d.parcelasMax })
+    } catch (e: any) { setAplicado(null); setErro(e.message) } finally { setOcupado(false) }
+  }
+  async function pagar() {
+    if (ocupado) return
+    // Abre a aba já no clique (o navegador bloqueia janela aberta depois do await).
+    const janela = window.open('', '_blank')
+    setOcupado(true); setErro(null)
+    try {
+      const d = await post('/api/public/portal/area/restante/pagar', { parcelas: n, cupom: aplicado?.cupom ?? '' })
+      if (janela) janela.location.href = d.link
+      else window.location.href = d.link
+    } catch (e: any) { janela?.close(); setErro(e.message) } finally { setOcupado(false) }
+  }
+
+  return (
+    <div class="cartao ada-restante">
+      <h2 class="ada-titulo">Pague o restante agora no cartão</h2>
+      <p class="sub">
+        {r.parcelas} {r.parcelas === 1 ? 'parcela' : 'parcelas'} que faltam, de uma vez: <b>{reais(r.valor)}</b> em até <b>{r.parcelasMax}x sem juros</b>.
+      </p>
+      <div class="campo">
+        <label for="restante-vezes">Em quantas vezes</label>
+        <select id="restante-vezes" value={String(n)} onChange={(e) => setVezes((e.target as HTMLSelectElement).value)}>
+          {Array.from({ length: maximo }, (_, i) => i + 1).map((k) => (
+            <option key={k} value={String(k)}>{k === 1 ? `À vista no cartão: ${reais(valor)}` : `${k}x de ${reais(Math.round((valor / k) * 100) / 100)} sem juros`}</option>
+          ))}
+        </select>
+      </div>
+      <div class="campo">
+        <label for="restante-cupom">Cupom de desconto <span class="opcional">(se tiver)</span></label>
+        <div style="display:flex;gap:8px">
+          <input id="restante-cupom" value={cupom} onInput={(e) => { setCupom((e.target as HTMLInputElement).value.toUpperCase()); setAplicado(null) }} placeholder="Ex.: DESCONTO10" autocomplete="off" />
+          <button type="button" class="botao-contorno" disabled={ocupado} onClick={aplicar}>Aplicar</button>
+        </div>
+        {aplicado?.cupom && <span class="ada-dica">Cupom {aplicado.cupom}: −{reais(aplicado.desconto)}. Novo total <b>{reais(aplicado.valor)}</b>.</span>}
+      </div>
+      <div class="ada-fatura-acoes">
+        <button type="button" class="ada-botao" disabled={ocupado} onClick={pagar}>{ocupado ? 'Abrindo…' : `Pagar ${reais(valor)} no cartão`}</button>
+        {r.aguardando?.link && <a class="botao-contorno" href={r.aguardando.link} target="_blank" rel="noopener">Continuar o pagamento já aberto</a>}
+      </div>
+      <p class="ada-nota">O pagamento abre na página segura do banco. Aprovado o cartão, as parcelas aparecem como pagas aqui. Até lá, os boletos continuam valendo.</p>
+      {erro && <p class="ada-erro">{erro}</p>}
+    </div>
   )
 }
 

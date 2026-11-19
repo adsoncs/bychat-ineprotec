@@ -104,7 +104,7 @@ export async function avisarEstornoAsaas(event: string, payment: any): Promise<v
     let registrationId: number | null = null
     const m1 = ref.match(/^enrollment-(\d+)$/)
     const m2 = ref.match(/^titulo-(\d+)$/)
-    const m3 = ref.match(/^portal-parcela:(\d+):(\d+)$/)
+    const m3 = ref.match(/^portal-parcela:(\d+):(\d+)$/) ?? ref.match(/^portal-restante:(\d+)$/)
     if (m1) registrationId = Number(m1[1])
     else if (m3) registrationId = Number(m3[1])
     else if (m2) registrationId = (await prisma.enrollmentTitulo.findUnique({ where: { id: Number(m2[1]) }, select: { registrationId: true } }))?.registrationId ?? null
