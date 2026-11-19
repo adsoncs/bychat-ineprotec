@@ -1061,3 +1061,43 @@ export function checkPortalSlug(slug: string, excludeId?: number | null): Promis
   if (excludeId) qs.set('excludeId', String(excludeId))
   return api.get<CheckSlugResult>(`/admin/enrollment-portals/check-slug?${qs}`)
 }
+
+// ── Busca de inscritos em TODOS os portais (tela de portais) ──
+export interface InscricaoEncontrada {
+  id: number
+  portalId: number
+  portal: { nome: string; codePrefix: string; active: boolean; identidadePainel: IdentidadePainel | null } | null
+  codigo: string
+  status: string
+  pagamento: string | null
+  contratoAceito: boolean
+  curso: string | null
+  processo: string | null
+  origem: string | null
+  criadaEm: string
+  encerrada: boolean
+}
+export interface PessoaEncontrada {
+  leadId: number | null
+  nome: string
+  email: string | null
+  whatsapp: string | null
+  cpf: string | null
+  responsavel: string | null
+  aluno: { ra: string | null; situacoes: string[] } | null
+  inscricoes: InscricaoEncontrada[]
+}
+
+/** Nome, CPF, telefone, e-mail, código da inscrição ou RA — em todos os portais visíveis. */
+export function useBuscaDeInscritos(termo: string) {
+  const t = termo.trim()
+  return useQuery({
+    queryKey: ['enrollment-registrations', 'busca', t],
+    queryFn: () => api.get<{ pessoas: PessoaEncontrada[]; total: number; limitado?: boolean }>(
+      `/admin/enrollment-registrations/busca?q=${encodeURIComponent(t)}`,
+    ),
+    enabled: t.length >= 2,
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  })
+}

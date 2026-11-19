@@ -1649,6 +1649,111 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/enrollment-registrations/:id — detalhe completo incluindo docs
+  // ── GET /api/admin/enrollment-registrations/busca?q= ─── Busca em TODOS os portais ──
+  // A busca da tela de portais filtrava só os cartões (nome do portal), e o
+  // atendente não achava em qual portal estava a inscrição de alguém. Aqui
+  // procura por nome (o da ficha e o digitado no portal), e-mail, telefone,
+  // CPF, código da inscrição e RA, em todos os portais que a pessoa enxerga
+  // (mesmo recorte da lista de cada portal), e agrupa por pessoa: a mesma
+  // pessoa pode ter várias inscrições em portais diferentes.
+  app.get('/api/admin/enrollment-registrations/busca', { preHandler: guardTela('login') }, async (req) => {
+    const termo = String((req.query as any).q ?? '').trim().slice(0, 100)
+    if (termo.length < 2) return { pessoas: [], total: 0 }
+    const digitos = termo.replace(/\D/g, '')
+    const palavras = termo.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6)
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+
+    const ou: any[] = [{ candidateCode: { contains: termo.replace(/\s+/g, '') } }]
+    if (palavras.length) ou.push({ lead: { AND: palavras.map((w) => ({ nome: { contains: w } })) } })
+    if (termo.includes('@') || palavras.length === 1) ou.push({ lead: { email: { contains: termo } } })
+    if (digitos.length >= 4) {
+      ou.push({ lead: { whatsapp: { contains: digitos } } })
+      // Celular digitado sem o 9 extra (ou com) ainda acha a ficha.
+      if (digitos.length >= 10) ou.push({ lead: { phoneKey: { contains: digitos.slice(-8) } } })
+      ou.push({ lead: { aluno: { is: { OR: [{ cpf: { contains: digitos } }, { ra: { contains: digitos } }, { vinculos: { some: { ra: { contains: digitos } } } }] } } } })
+    }
+    if (!digitos.length || digitos.length !== termo.replace(/\s/g, '').length) {
+      ou.push({ lead: { aluno: { is: { OR: [{ ra: { contains: termo } }, { vinculos: { some: { ra: { contains: termo } } } }] } } } })
+    }
+    // CPF e nome digitados no portal ficam no formData (CPF com pontuação).
+    const extras: number[] = []
+    if (digitos.length >= 5) {
+      const rows = await prisma.$queryRaw<{ id: number }[]>`
+        SELECT id FROM bychat_enrollment_registrations
+         WHERE REPLACE(REPLACE(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '.', ''), '-', ''), ' ', '') LIKE ${'%' + digitos + '%'}
+         LIMIT 200`.catch(() => [])
+      extras.push(...rows.map((r) => Number(r.id)))
+    }
+    if (palavras.length && !digitos.length) {
+      const cond = Prisma.join(palavras.map((w) => Prisma.sql`LOWER(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.nome'))) LIKE ${'%' + w.toLowerCase() + '%'}`), ' AND ')
+      const rows = await prisma.$queryRaw<{ id: number }[]>`SELECT id FROM bychat_enrollment_registrations WHERE ${cond} LIMIT 200`.catch(() => [])
+      extras.push(...rows.map((r) => Number(r.id)))
+    }
+    if (extras.length) ou.push({ id: { in: [...new Set(extras)] } })
+
+    const where: any = { status: { not: 'merged' }, OR: ou }
+    if (recorte) where.AND = [recorte]
+    const regs = await prisma.enrollmentRegistration.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 120,
+      select: {
+        id: true, portalId: true, candidateCode: true, status: true, paymentStatus: true, createdAt: true,
+        formData: true, contratoAceite: true, origem: true,
+        portal: { select: { id: true, nome: true, codePrefix: true, active: true, identidadePainel: true } },
+        processRegistration: { select: { selectionProcess: { select: { nome: true } }, offering: { select: { nome: true, course: { select: { nome: true } } } } } },
+        lead: { select: { id: true, nome: true, email: true, whatsapp: true, assignedUser: { select: { name: true } }, aluno: { select: { ra: true, vinculos: { select: { situacao: true, ra: true } } } } } },
+      },
+    })
+
+    // Encerradas vão para o fim do grupo: quem procura quer a inscrição viva.
+    const ENCERRADA = new Set(['cancelled', 'expired', 'transferred', 'rejected'])
+    const pessoas = new Map<string, any>()
+    for (const r of regs) {
+      const fd = (r.formData ?? {}) as Record<string, unknown>
+      const chave = r.lead ? `l${r.lead.id}` : `r${r.id}`
+      let p = pessoas.get(chave)
+      if (!p) {
+        p = {
+          leadId: r.lead?.id ?? null,
+          nome: r.lead?.nome || (typeof fd.nome === 'string' ? fd.nome : null) || 'Sem nome',
+          email: r.lead?.email || (typeof fd.email === 'string' ? fd.email : null),
+          whatsapp: r.lead?.whatsapp || (typeof fd.whatsapp === 'string' ? fd.whatsapp : null),
+          cpf: typeof fd.cpf === 'string' ? fd.cpf : null,
+          responsavel: r.lead?.assignedUser?.name ?? null,
+          aluno: r.lead?.aluno ? { ra: r.lead.aluno.ra, situacoes: r.lead.aluno.vinculos.map((v) => v.situacao) } : null,
+          inscricoes: [] as any[],
+        }
+        pessoas.set(chave, p)
+      }
+      if (!p.cpf && typeof fd.cpf === 'string') p.cpf = fd.cpf
+      p.inscricoes.push({
+        id: r.id,
+        portalId: r.portalId,
+        portal: r.portal ? { nome: r.portal.nome, codePrefix: r.portal.codePrefix, active: r.portal.active, identidadePainel: r.portal.identidadePainel } : null,
+        codigo: r.candidateCode,
+        status: r.status,
+        pagamento: r.paymentStatus,
+        contratoAceito: r.contratoAceite != null,
+        curso: r.processRegistration?.offering?.course?.nome ?? r.processRegistration?.offering?.nome ?? (typeof fd.curso === 'string' ? fd.curso : null),
+        processo: r.processRegistration?.selectionProcess?.nome ?? null,
+        origem: r.origem,
+        criadaEm: r.createdAt,
+        encerrada: ENCERRADA.has(r.status),
+      })
+    }
+    const lista = [...pessoas.values()]
+    for (const p of lista) {
+      p.inscricoes.sort((a: any, b: any) => Number(a.encerrada) - Number(b.encerrada) || +new Date(b.criadaEm) - +new Date(a.criadaEm))
+    }
+    // Código exato primeiro; depois quem tem inscrição viva; depois a mais recente.
+    const codigoExato = (p: any) => p.inscricoes.some((i: any) => i.codigo.toLowerCase() === termo.toLowerCase())
+    lista.sort((a, b) => Number(codigoExato(b)) - Number(codigoExato(a))
+      || Number(a.inscricoes.every((i: any) => i.encerrada)) - Number(b.inscricoes.every((i: any) => i.encerrada))
+      || +new Date(b.inscricoes[0].criadaEm) - +new Date(a.inscricoes[0].criadaEm))
+    return { pessoas: lista.slice(0, 25), total: lista.length, limitado: regs.length >= 120 }
+  })
+
   app.get('/api/admin/enrollment-registrations/:id', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({

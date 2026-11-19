@@ -28,7 +28,8 @@ import { toast } from '@/lib/toast'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { formatRelative } from '@/lib/format'
 import { ICONES_PORTAL, CORES_PORTAL, SeloDoPortal, PolosDoPortal, identidadeDo, tinta } from '@/lib/identidadePortal'
-import type { IdentidadePainel } from '@/hooks/useEnrollmentPortals'
+import { useBuscaDeInscritos, type IdentidadePainel } from '@/hooks/useEnrollmentPortals'
+import { BuscaDeInscritos, caminhoDaInscricao } from '@/components/enrollment/BuscaDeInscritos'
 import { Pode } from '@/components/auth/Pode'
 
 export function EnrollmentPortalsPage() {
@@ -182,6 +183,14 @@ function ListaDePortais({ portals, renderCard }: {
   renderCard: (p: EnrollmentPortal) => preact.ComponentChildren
 }) {
   const [busca, setBusca] = useState('')
+  const [, navigate] = useLocation()
+  // A busca também procura INSCRITOS em todos os portais (nome, CPF, telefone,
+  // e-mail, código, RA) — com espera curta para não consultar a cada tecla.
+  const [termo, setTermo] = useState('')
+  useEffect(() => { const t = setTimeout(() => setTermo(busca.trim()), 300); return () => clearTimeout(t) }, [busca])
+  const inscritos = useBuscaDeInscritos(termo)
+  const pessoas = termo.length >= 2 ? (inscritos.data?.pessoas ?? []) : []
+  const portaisComInscrito = new Set(pessoas.flatMap((p) => p.inscricoes.map((i) => i.portalId)))
   const [empresa, setEmpresa] = useState<string>('todas')
   const [situacao, setSituacao] = useState<'todos' | 'ativos' | 'inativos'>('todos')
 
@@ -206,6 +215,8 @@ function ListaDePortais({ portals, renderCard }: {
     if (situacao === 'ativos' && !p.active) return false
     if (situacao === 'inativos' && p.active) return false
     if (!q) return true
+    // O portal aparece se o nome bate OU se tem inscrição de quem foi buscado.
+    if (portaisComInscrito.has(p.id)) return true
     return [p.nome, p.slug, p.codePrefix, id.empresa, id.descricao, p.unit?.nome, p.team?.name].some((v) => (v ?? '').toLowerCase().includes(q))
   })
   const agrupar = empresas.length > 1 && empresa === 'todas'
@@ -224,7 +235,13 @@ function ListaDePortais({ portals, renderCard }: {
             type="search"
             value={busca}
             onInput={(e) => setBusca((e.target as HTMLInputElement).value)}
-            placeholder="Buscar por nome, empresa, código, equipe…"
+            onKeyDown={(e) => {
+              // Uma só inscrição encontrada: Enter já abre o cadastro dela.
+              if (e.key !== 'Enter') return
+              const unica = pessoas.length === 1 && pessoas[0]!.inscricoes.length === 1 ? pessoas[0]!.inscricoes[0] : null
+              if (unica && termo === busca.trim() && !inscritos.isPlaceholderData && !inscritos.isFetching) navigate(caminhoDaInscricao(unica))
+            }}
+            placeholder="Buscar inscrito (nome, CPF, telefone, e-mail, código, RA) ou portal…"
             class="w-full h-9 pl-8 pr-3 rounded-md border border-border bg-surface-inset text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
           />
         </label>
@@ -248,8 +265,22 @@ function ListaDePortais({ portals, renderCard }: {
           ))}
         </div>
       )}
+      {termo.length >= 2 && (
+        <BuscaDeInscritos
+          termo={termo}
+          pessoas={pessoas}
+          total={inscritos.data?.total ?? 0}
+          limitado={inscritos.data?.limitado}
+          carregando={inscritos.isFetching}
+        />
+      )}
+      {termo.length >= 2 && visiveis.length > 0 && (
+        <div class="text-2xs font-semibold uppercase tracking-wider text-fg-muted pt-1">
+          Portais {portaisComInscrito.size > 0 ? 'com inscrições encontradas ou com o nome buscado' : 'com o nome buscado'}
+        </div>
+      )}
       {visiveis.length === 0 ? (
-        <Card><div class="text-xs text-fg-muted italic text-center py-8">Nenhum portal com esses filtros.</div></Card>
+        termo.length >= 2 ? null : <Card><div class="text-xs text-fg-muted italic text-center py-8">Nenhum portal com esses filtros.</div></Card>
       ) : grupos.map((g) => (
         <section key={g.k} class="space-y-2">
           {g.e && (
