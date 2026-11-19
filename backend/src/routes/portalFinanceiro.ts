@@ -51,7 +51,9 @@ const SELECT_LINHA = {
   id: true, candidateCode: true, status: true, createdAt: true, formData: true,
   paymentId: true, paymentStatus: true, paymentAmount: true, paymentMethod: true,
   paymentPaidAt: true, paymentExpiresAt: true, paymentPlan: true, paymentUrl: true,
-  lead: { select: { id: true, nome: true, email: true, whatsapp: true } },
+  vendedorUserId: true, atendidoPorUserId: true, origem: true,
+  utmSource: true, utmMedium: true, utmCampaign: true, gclid: true, fbclid: true, referrer: true,
+  lead: { select: { id: true, nome: true, email: true, whatsapp: true, assignedUserId: true } },
   portal: { select: { id: true, nome: true, paymentScope: true, paymentConnection: { select: { provider: true } } } },
   processRegistration: {
     select: {
@@ -207,8 +209,89 @@ function linha(r: any) {
     temLink: !!r.paymentUrl,
     parcelasPortal,
     recebidoParcelas,
+    /** Valor total do plano escolhido (curso todo), quando o portal grava. */
+    valorPlano: plano.valorTotal != null ? Number(plano.valorTotal) || null : null,
+    origemInscricao: r.origem ?? null,
+    midia: midiaDe(r),
+    campanha: r.utmCampaign ?? null,
+    /** Comercial (preenchido em comComercial): quem vendeu, quem fechou e a comissão. */
+    comercial: {
+      vendedorId: (r.vendedorUserId ?? null) as number | null,
+      atendidoPorId: (r.atendidoPorUserId ?? null) as number | null,
+      responsavelLeadId: (r.lead?.assignedUserId ?? null) as number | null,
+    } as Comercial,
   }
 }
+
+/** De onde veio a matrícula, pela marcação de anúncio/UTM. */
+function midiaDe(r: any): string {
+  if (r.gclid) return 'Google Ads'
+  if (r.fbclid) return 'Meta Ads'
+  const s = String(r.utmSource || '').toLowerCase()
+  if (!s) return r.referrer ? 'Indicação / site' : 'Sem marcação'
+  if (/google|adwords|gads/.test(s)) return 'Google'
+  if (/facebook|instagram|meta|fb|ig/.test(s)) return 'Meta'
+  return r.utmSource
+}
+
+type Pessoa = { id: number; nome: string } | null
+export interface Comercial {
+  vendedorId: number | null
+  atendidoPorId: number | null
+  responsavelLeadId: number | null
+  vendedor?: Pessoa
+  atendidoPor?: Pessoa
+  responsavelLead?: Pessoa
+  /** Quem ganhou a venda: responsável pela proposta ganha (é quem recebe a comissão). */
+  fechadoPor?: Pessoa
+  proposta?: { id: number; status: string; resultado: string | null; valor: number | null; fechadaEm: string | null } | null
+  comissao?: { id: number; valor: number; status: string; regra: string | null; competencia: string | null; pagaEm: string | null; beneficiario: Pessoa } | null
+}
+
+/** Junta em cada linha a proposta da inscrição, quem fechou e a comissão
+ *  lançada (Metas & Comissões), com os nomes das pessoas. */
+async function comComercial<T extends { id: number; comercial: Comercial }>(itens: T[]): Promise<T[]> {
+  if (!itens.length) return itens
+  const props = await prisma.negotiation.findMany({
+    where: { registrationId: { in: itens.map((l) => l.id) } },
+    orderBy: { id: 'desc' },
+    select: {
+      id: true, registrationId: true, status: true, resultado: true, valorFinal: true, fechadaEm: true, responsavelUserId: true, fechadaPor: true,
+      commission: { select: { id: true, userId: true, valorTotal: true, status: true, competencia: true, pagaEm: true, rule: { select: { nome: true } } } },
+    },
+  })
+  // Uma por inscrição: a ganha vale; senão a mais recente.
+  const porReg = new Map<number, (typeof props)[number]>()
+  for (const p of props) {
+    const atual = porReg.get(p.registrationId!)
+    if (!atual || (p.resultado === 'won' && atual.resultado !== 'won')) porReg.set(p.registrationId!, p)
+  }
+  const ids = new Set<number>()
+  for (const l of itens) for (const x of [l.comercial.vendedorId, l.comercial.atendidoPorId, l.comercial.responsavelLeadId]) if (x) ids.add(x)
+  for (const p of porReg.values()) for (const x of [p.responsavelUserId, p.fechadaPor, p.commission?.userId]) if (x) ids.add(x)
+  const users = ids.size ? await prisma.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true } }) : []
+  const nome = new Map(users.map((u) => [u.id, u.name]))
+  const pessoa = (id: number | null | undefined): Pessoa => (id ? { id, nome: nome.get(id) ?? `Usuário #${id}` } : null)
+  for (const l of itens) {
+    const c = l.comercial
+    c.vendedor = pessoa(c.vendedorId)
+    c.atendidoPor = pessoa(c.atendidoPorId)
+    c.responsavelLead = pessoa(c.responsavelLeadId)
+    const p = porReg.get(l.id)
+    c.proposta = p ? { id: p.id, status: p.status, resultado: p.resultado, valor: p.valorFinal != null ? Number(p.valorFinal) : null, fechadaEm: p.fechadaEm?.toISOString() ?? null } : null
+    c.fechadoPor = p?.resultado === 'won' ? pessoa(p.commission?.userId ?? p.responsavelUserId ?? p.fechadaPor) : null
+    const e = p?.commission
+    c.comissao = e ? {
+      id: e.id, valor: Number(e.valorTotal), status: e.status, regra: e.rule?.nome ?? null,
+      competencia: e.competencia ? e.competencia.toISOString().slice(0, 7) : null,
+      pagaEm: e.pagaEm?.toISOString() ?? null, beneficiario: pessoa(e.userId),
+    } : null
+  }
+  return itens
+}
+
+/** Comissão que vale como custo da venda (cancelada não conta). */
+const comissaoValida = (l: { comercial: Comercial }) => (l.comercial.comissao && l.comercial.comissao.status !== 'cancelada' ? l.comercial.comissao.valor : 0)
 
 function filtros(q: any) {
   // Mesclada em outra (duplicidade) não é linha própria: entra na principal.
@@ -256,7 +339,12 @@ function filtrarLinhas(itens: ReturnType<typeof linha>[], q: any) {
     && (!q.meio || l.meio === q.meio)
     && (!q.gateway || l.gateway === q.gateway)
     && (!q.escopo || l.escopo === q.escopo)
-    && (!q.cupom || (q.cupom === 'com' ? !!l.cupom : q.cupom === 'sem' ? !l.cupom : l.cupom === String(q.cupom).toUpperCase())),
+    && (!q.cupom || (q.cupom === 'com' ? !!l.cupom : q.cupom === 'sem' ? !l.cupom : l.cupom === String(q.cupom).toUpperCase()))
+    // Responsável pela venda: quem fechou; sem proposta ganha, o vendedor da inscrição.
+    && (!q.responsavelId || (q.responsavelId === 'sem'
+      ? !(l.comercial.fechadoPor ?? l.comercial.vendedor)
+      : (l.comercial.fechadoPor ?? l.comercial.vendedor)?.id === parseInt(q.responsavelId)))
+    && (!q.comissao || (q.comissao === 'sem' ? !l.comercial.comissao : l.comercial.comissao?.status === q.comissao)),
   )
 }
 
@@ -292,7 +380,32 @@ function indicadores(itens: ReturnType<typeof linha>[], q: any) {
   for (const e of entradas) porDia.set(e.dia, centavos((porDia.get(e.dia) ?? 0) + e.valor))
   const contar = (s: Situacao) => itens.filter((l) => l.situacao === s).length
   const recebido = centavos(entradas.reduce((a, e) => a + e.valor, 0))
+  // Por responsável pela venda (quem fechou; senão o vendedor da inscrição).
+  const porResp = new Map<string, { id: number | null; nome: string; matriculas: number; pagas: number; recebido: number; comissao: number; comissaoPaga: number }>()
+  for (const l of itens) {
+    const p = l.comercial.fechadoPor ?? l.comercial.vendedor
+    const k = String(p?.id ?? 'sem')
+    const a = porResp.get(k) ?? { id: p?.id ?? null, nome: p?.nome ?? 'Sem responsável', matriculas: 0, pagas: 0, recebido: 0, comissao: 0, comissaoPaga: 0 }
+    a.matriculas++
+    if (l.situacao === 'pago') a.pagas++
+    a.comissao = centavos(a.comissao + comissaoValida(l))
+    if (l.comercial.comissao?.status === 'paga') a.comissaoPaga = centavos(a.comissaoPaga + l.comercial.comissao.valor)
+    porResp.set(k, a)
+  }
+  for (const e of entradas) {
+    const p = e.l.comercial.fechadoPor ?? e.l.comercial.vendedor
+    const a = porResp.get(String(p?.id ?? 'sem'))!
+    a.recebido = centavos(a.recebido + e.valor)
+  }
+  const comissoes = itens.map((l) => l.comercial.comissao).filter((c): c is NonNullable<typeof c> => !!c && c.status !== 'cancelada')
   return {
+    comissao: {
+      total: centavos(comissoes.reduce((a, c) => a + c.valor, 0)),
+      prevista: centavos(comissoes.filter((c) => c.status !== 'paga').reduce((a, c) => a + c.valor, 0)),
+      paga: centavos(comissoes.filter((c) => c.status === 'paga').reduce((a, c) => a + c.valor, 0)),
+      lancamentos: comissoes.length,
+    },
+    porResponsavel: [...porResp.values()].sort((a, b) => b.recebido - a.recebido || b.matriculas - a.matriculas),
     inscricoes: itens.length,
     comCobranca: comCobranca.length,
     pagos: pagos.length,
@@ -345,31 +458,43 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const rows = await prisma.enrollmentRegistration.findMany({
       where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 5000,
     })
-    const itens = recortar(filtrarLinhas(await comMescladas(rows.map(linha)), q), q)
+    const base = await comComercial(await comMescladas(rows.map(linha)))
+    // Para o filtro "Responsável": todas as pessoas que aparecem, antes de filtrar.
+    const resp = new Map<number, string>()
+    for (const l of base) { const p = l.comercial.fechadoPor ?? l.comercial.vendedor; if (p) resp.set(p.id, p.nome) }
+    const responsaveis = [...resp.entries()].map(([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    const itens = recortar(filtrarLinhas(base, q), q)
     const ordem = String(q.ordenar || 'recentes')
     if (ordem === 'valor') itens.sort((a, b) => (b.valorCobrado ?? 0) - (a.valorCobrado ?? 0))
     if (ordem === 'pagamento') itens.sort((a, b) => String(b.ultimoPagamento ?? '').localeCompare(String(a.ultimoPagamento ?? '')))
     if (ordem === 'vencimento') itens.sort((a, b) => String(a.vencimentoMaisAntigo ?? '9999').localeCompare(String(b.vencimentoMaisAntigo ?? '9999')))
     if (ordem === 'recebido') itens.sort((a, b) => (b.recebidoNoPeriodo ?? 0) - (a.recebidoNoPeriodo ?? 0))
+    if (ordem === 'comissao') itens.sort((a, b) => comissaoValida(b) - comissaoValida(a))
     const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
     const offset = parseInt(q.offset) || 0
-    return { indicadores: indicadores(itens, q), dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
+    return { indicadores: indicadores(itens, q), responsaveis, dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
   })
 
   app.get(`${BASE}/export.csv`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({ where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 20000 })
-    const itens = recortar(filtrarLinhas(await comMescladas(rows.map(linha)), q), q)
+    const itens = recortar(filtrarLinhas(await comComercial(await comMescladas(rows.map(linha))), q), q)
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const n = (v: number | null) => (v == null ? '' : v.toFixed(2).replace('.', ','))
     const dt = (d: Date | string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '')
     const linhas = [
-      ['Código', 'Candidato', 'E-mail', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em', 'Último pagamento', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento', 'Vence no período'].join(';'),
+      ['Código', 'Candidato', 'E-mail', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em', 'Último pagamento', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento', 'Vence no período',
+        'Valor do plano', 'Responsável pela venda', 'Ganho em', 'Vendedor na inscrição', 'Atendido por', 'Responsável atual do lead', 'Proposta', 'Valor da proposta',
+        'Comissão', 'Situação da comissão', 'Regra de comissão', 'Competência', 'Comissão paga em', 'Líquido após comissão', 'Origem da inscrição', 'Mídia', 'Campanha'].join(';'),
       ...itens.map((l) => [l.candidateCode, l.nome, l.email, l.portal?.nome, l.curso?.nome, l.oferta?.nome, l.processo?.nome, l.rotulo,
         n(l.valorTabela), n(l.descontoCupom), n(l.descontoAVista), l.cupom, n(l.valorCobrado), l.parcelas, l.meio, l.gateway, l.situacao,
         dt(l.pagoEm), dt(l.venceEm), dt(l.criadoEm), l.ultimoPagamento ? String(l.ultimoPagamento).slice(0, 10).split('-').reverse().join('/') : '',
         n(l.recebidoNoPeriodo), n(l.recebidoTotal), n(l.emAberto), n(l.vencidoValor),
-        l.proximoVencimento ? l.proximoVencimento.split('-').reverse().join('/') : '', n(l.venceNoPeriodo)].map(esc).join(';')),
+        l.proximoVencimento ? l.proximoVencimento.split('-').reverse().join('/') : '', n(l.venceNoPeriodo),
+        n(l.valorPlano), l.comercial.fechadoPor?.nome, dt(l.comercial.proposta?.resultado === 'won' ? l.comercial.proposta.fechadaEm : null), l.comercial.vendedor?.nome, l.comercial.atendidoPor?.nome, l.comercial.responsavelLead?.nome,
+        l.comercial.proposta ? `#${l.comercial.proposta.id} ${l.comercial.proposta.status}` : '', n(l.comercial.proposta?.valor ?? null),
+        n(l.comercial.comissao?.valor ?? null), l.comercial.comissao?.status, l.comercial.comissao?.regra, l.comercial.comissao?.competencia, dt(l.comercial.comissao?.pagaEm ?? null),
+        n(centavos(l.recebidoTotal - comissaoValida(l))), l.origemInscricao, l.midia, l.campanha].map(esc).join(';')),
     ]
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="financeiro-portal.csv"')
     return '﻿' + linhas.join('\n')
@@ -404,7 +529,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
           }).catch(() => [])
         : Promise.resolve([]),
     ])
-    const [l] = await comMescladas([linha(r)])
+    const [l] = await comComercial(await comMescladas([linha(r)]))
     return {
       linha: l,
       plano: r.paymentPlan,

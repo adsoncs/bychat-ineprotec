@@ -55,7 +55,26 @@ export interface LinhaFinanceiro {
   /** Recebido / vencendo dentro do período do filtro. */
   recebidoNoPeriodo: number | null
   venceNoPeriodo: number | null
+  /** Valor total do plano escolhido (curso todo), quando o portal grava. */
+  valorPlano?: number | null
+  origemInscricao?: string | null
+  midia?: string | null
+  campanha?: string | null
+  comercial?: ComercialFin
 }
+
+export type PessoaFin = { id: number; nome: string } | null
+export interface ComercialFin {
+  vendedor?: PessoaFin
+  atendidoPor?: PessoaFin
+  responsavelLead?: PessoaFin
+  /** Quem ganhou a venda (responsável pela proposta ganha; recebe a comissão). */
+  fechadoPor?: PessoaFin
+  proposta?: { id: number; status: string; resultado: string | null; valor: number | null; fechadaEm: string | null } | null
+  comissao?: { id: number; valor: number; status: string; regra: string | null; competencia: string | null; pagaEm: string | null; beneficiario: PessoaFin } | null
+}
+
+export interface ResponsavelFin { id: number | null; nome: string; matriculas: number; pagas: number; recebido: number; comissao: number; comissaoPaga: number }
 
 export type DataPorFin = 'pagamento' | 'vencimento' | 'inscricao'
 
@@ -80,6 +99,8 @@ export interface IndicadoresFin {
   porMeio: Record<string, { quantidade: number; valor: number }>
   porCurso: Array<{ curso: string; inscritos: number; pagos: number; recebido: number }>
   porDia: Array<{ dia: string; valor: number }>
+  comissao?: { total: number; prevista: number; paga: number; lancamentos: number }
+  porResponsavel?: ResponsavelFin[]
 }
 
 export interface FiltrosFin {
@@ -96,6 +117,10 @@ export interface FiltrosFin {
   gateway?: string | undefined
   escopo?: string | undefined
   cupom?: string | undefined
+  /** Id de quem vendeu, ou "sem". */
+  responsavelId?: string | undefined
+  /** prevista | paga | cancelada | sem */
+  comissao?: string | undefined
   search?: string | undefined
   ordenar?: string | undefined
   limit?: number | undefined
@@ -113,7 +138,7 @@ const BASE = '/admin/educational/portal-financeiro'
 export function usePortalFinanceiro(f: FiltrosFin) {
   return useQuery({
     queryKey: ['portal-financeiro', f],
-    queryFn: () => api.get<{ indicadores: IndicadoresFin; total: number; limit: number; offset: number; items: LinhaFinanceiro[] }>(`${BASE}?${qsDe(f)}`),
+    queryFn: () => api.get<{ indicadores: IndicadoresFin; responsaveis?: Array<{ id: number; nome: string }>; total: number; limit: number; offset: number; items: LinhaFinanceiro[] }>(`${BASE}?${qsDe(f)}`),
     staleTime: 15_000,
   })
 }

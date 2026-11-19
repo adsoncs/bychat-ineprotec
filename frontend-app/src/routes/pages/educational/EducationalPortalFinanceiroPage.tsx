@@ -28,7 +28,7 @@ import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEduc
 import { Pode } from '@/components/auth/Pode'
 import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, TrocarPlano, quandoBr } from '@/components/educational/PagamentosDaMatricula'
 import { useCan } from '@/hooks/usePermissions'
-import { COLUNAS_FIN, SeletorDeColunas, useColunasFin } from './financeiroColunas'
+import { SeletorDeColunas, colunasVisiveis, useColunasFin } from './financeiroColunas'
 import { DescontosConcedidosCard } from './DescontosConcedidosCard'
 
 const brl = (n: number | null | undefined) =>
@@ -59,7 +59,7 @@ function hojeMenos(dias: number) {
 export function EducationalPortalFinanceiroPage() {
   const [f, setF] = useState<FiltrosFin>({ dataPor: 'pagamento', de: hojeMenos(90), ate: hojeMenos(0), limit: 50, offset: 0, ordenar: 'recentes' })
   const [colunas, setColunas] = useColunasFin()
-  const visiveis = COLUNAS_FIN.filter((c) => colunas.includes(c.id))
+  const visiveis = colunasVisiveis(colunas)
   const porPagamento = (f.dataPor ?? 'pagamento') === 'pagamento'
   const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState<number | null>(null)
@@ -71,7 +71,7 @@ export function EducationalPortalFinanceiroPage() {
   const ind = q.data?.indicadores
 
   const set = (patch: Partial<FiltrosFin>) => setF((a) => ({ ...a, ...patch, offset: 0 }))
-  const temFiltro = !!(f.portalId || f.courseId || f.offeringId || f.processId || f.situacao || f.meio || f.gateway || f.escopo || f.cupom || f.search)
+  const temFiltro = !!(f.portalId || f.courseId || f.offeringId || f.processId || f.situacao || f.meio || f.gateway || f.escopo || f.cupom || f.responsavelId || f.comissao || f.search)
   const limpar = () => { setBusca(''); setF({ dataPor: f.dataPor, de: f.de, ate: f.ate, limit: 50, offset: 0, ordenar: 'recentes' }) }
 
   const maxDia = useMemo(() => Math.max(1, ...(ind?.porDia ?? []).map((d) => d.valor)), [ind])
@@ -181,6 +181,37 @@ export function EducationalPortalFinanceiroPage() {
         </Card>
       )}
 
+      {!!ind?.porResponsavel?.length && (
+        <Card class="p-4 mb-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <div class="text-sm font-semibold">Por responsável pela venda</div>
+            {ind.comissao && (
+              <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
+                <span>Comissões: <b class="text-fg tabular-nums">{brl(ind.comissao.total)}</b> em {ind.comissao.lancamentos} venda(s)</span>
+                <span>Prevista <b class="text-warning tabular-nums">{brl(ind.comissao.prevista)}</b></span>
+                <span>Paga <b class="text-success tabular-nums">{brl(ind.comissao.paga)}</b></span>
+              </div>
+            )}
+          </div>
+          <Table minWidth="44rem">
+            <THead><TR><TH>Responsável</TH><TH align="right">Matrículas</TH><TH align="right">Pagas</TH><TH align="right">Recebido</TH><TH align="right">Comissão</TH><TH align="right">Líquido</TH></TR></THead>
+            <TBody>
+              {ind.porResponsavel.map((r) => (
+                <TR key={r.id ?? 'sem'} class={r.id ? 'cursor-pointer hover:bg-surface-2' : ''} onClick={() => r.id && set({ responsavelId: String(r.id) })} title={r.id ? 'Filtrar a lista por esta pessoa' : undefined}>
+                  <TD><span class={r.id ? '' : 'text-fg-muted'}>{r.nome}</span></TD>
+                  <TD align="right">{r.matriculas}</TD>
+                  <TD align="right">{r.pagas}</TD>
+                  <TD align="right"><span class="tabular-nums">{brl(r.recebido)}</span></TD>
+                  <TD align="right"><span class="tabular-nums">{r.comissao ? brl(r.comissao) : '—'}</span>{r.comissaoPaga > 0 && <div class="text-2xs text-success">paga {brl(r.comissaoPaga)}</div>}</TD>
+                  <TD align="right"><span class="tabular-nums font-medium">{brl(Math.round((r.recebido - r.comissao) * 100) / 100)}</span></TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+          <div class="text-2xs text-fg-muted mt-2">Responsável = quem ganhou a proposta da matrícula (Metas & Comissões); sem proposta ganha, o vendedor da inscrição. Bônus por faixa não entram aqui (são por pessoa e mês). Clique numa linha para filtrar.</div>
+        </Card>
+      )}
+
       <DescontosConcedidosCard de={f.de} ate={f.ate} portalId={f.portalId} />
 
       {/* Filtros */}
@@ -212,12 +243,25 @@ export function EducationalPortalFinanceiroPage() {
             <option value="">Todos</option>
             {Object.entries(GATEWAY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </Select>
+          <Select label="Responsável" value={f.responsavelId ?? ''} onChange={(e) => set({ responsavelId: (e.target as HTMLSelectElement).value || undefined })}>
+            <option value="">Todos</option>
+            {(q.data?.responsaveis ?? []).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
+            <option value="sem">Sem responsável</option>
+          </Select>
+          <Select label="Comissão" value={f.comissao ?? ''} onChange={(e) => set({ comissao: (e.target as HTMLSelectElement).value || undefined })}>
+            <option value="">Todas</option>
+            <option value="prevista">Prevista</option>
+            <option value="paga">Paga</option>
+            <option value="cancelada">Cancelada</option>
+            <option value="sem">Sem comissão</option>
+          </Select>
           <Select label="Ordenar" value={f.ordenar ?? 'recentes'} onChange={(e) => set({ ordenar: (e.target as HTMLSelectElement).value })}>
             <option value="recentes">Inscrição mais recente</option>
             <option value="pagamento">Pagamento mais recente</option>
             <option value="recebido">Maior valor pago no período</option>
             <option value="vencimento">Vence primeiro</option>
             <option value="valor">Maior valor</option>
+            <option value="comissao">Maior comissão</option>
           </Select>
           <Select label="Portal" value={f.portalId ?? ''} onChange={(e) => set({ portalId: (e.target as HTMLSelectElement).value || undefined })}>
             <option value="">Todos</option>
