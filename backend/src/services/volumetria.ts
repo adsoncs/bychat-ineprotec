@@ -116,6 +116,14 @@ export async function volumetriaDoMes(competencia: string) {
     SELECT DATE(CONVERT_TZ(createdAt, '+00:00', '-03:00')) dia, COUNT(*) chamadas, COALESCE(SUM(custoUsd), 0) custo
     FROM bychat_consumo WHERE fonte = 'ia' AND createdAt >= ${inicio} AND createdAt < ${fim}
     GROUP BY dia ORDER BY dia`
+  // Uso por chave: a loja cobra só o que foi feito com a chave da Attrae. Uso sem
+  // chave gravada (antes de 20/11/2026) fica numa linha sem chave.
+  const iaChave = await prisma.consumoEvento.groupBy({
+    by: ['provedor', 'chave', 'chaveFinal'], where: { fonte: 'ia', createdAt: noMes },
+    _count: { _all: true },
+    _sum: { quantidade: true, custoUsd: true, entrada: true, saida: true, cacheEscrita: true, cacheLeitura: true },
+    _min: { createdAt: true }, _max: { createdAt: true },
+  })
   const primeiro = await prisma.consumoEvento.findFirst({ where: { fonte: 'ia' }, orderBy: { id: 'asc' }, select: { createdAt: true } })
   const ia = {
     medindoDesde: primeiro?.createdAt ?? null,
@@ -135,6 +143,11 @@ export async function volumetriaDoMes(competencia: string) {
       cacheEscrita: num(x._sum.cacheEscrita), cacheLeitura: num(x._sum.cacheLeitura),
       custoUsd: num(x._sum.custoUsd),
     })).sort((a, b) => b.custoUsd - a.custoUsd),
+    porChave: iaChave.map((x) => ({
+      chave: x.chave ?? null, provedor: x.provedor, final: x.chaveFinal ?? null, chamadas: x._count._all, tokens: num(x._sum.quantidade),
+      entrada: num(x._sum.entrada), saida: num(x._sum.saida), cacheEscrita: num(x._sum.cacheEscrita), cacheLeitura: num(x._sum.cacheLeitura),
+      custoUsd: num(x._sum.custoUsd), primeiroUso: x._min.createdAt ?? null, ultimoUso: x._max.createdAt ?? null,
+    })).sort((a, b) => b.tokens - a.tokens),
     porDia: iaDia.map((d) => ({ dia: String(d.dia instanceof Date ? d.dia.toISOString().slice(0, 10) : d.dia), chamadas: num(d.chamadas), custoUsd: num(d.custo) })),
   }
 

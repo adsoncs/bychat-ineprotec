@@ -11,12 +11,20 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { api } from '@/lib/apiClient'
 
+const dataCurta = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) : '—')
+
 interface PorNumero { numero: string; enviadas: number; recebidas: number; leadsUnicos?: number }
 interface Midias { canal: string; quantidade: number; bytes: number; externas: number; porTipo: Array<{ tipo: string; quantidade: number; bytes: number }> }
 
 interface UsoDaFuncionalidade {
   funcionalidade: string; chamadas: number; tokens: number
   entrada: number; saida: number; cacheEscrita: number; cacheLeitura: number
+}
+
+/** Uso de IA por chave: final da chave, volume e se entra na cobrança (a loja classifica). */
+interface UsoDaChave {
+  provedor: string; final: string | null; chamadas: number; tokens: number
+  primeiroUso: string | null; ultimoUso: string | null; rotulo: string | null; cobrada: boolean
 }
 
 interface LinhaDoPlano {
@@ -36,6 +44,7 @@ interface Volumetria {
   ia: {
     medindoDesde: string | null; chamadas: number; tokens: number
     porFuncionalidade?: UsoDaFuncionalidade[]
+    porChave?: UsoDaChave[]
   }
   whatsappCloud: {
     enviadas: number; recebidas: number; leadsUnicos?: number
@@ -482,6 +491,24 @@ export function VolumetriaPage() {
                 linhas={linhasDoUsoDeIA(usoIA, totalTokensIA)}
               />
             </Secao>
+            {(d.ia.porChave?.length ?? 0) > 0 && (
+              <Secao
+                titulo="Uso por chave de IA"
+                nota="Cada linha é uma chave de IA usada no mês, reconhecida pelos 4 últimos caracteres. “Entra na cobrança” é o uso feito com a chave fornecida pela Attrae; “Chave própria” é o uso feito com a chave da sua empresa, que você paga direto ao provedor e não é cobrado aqui."
+              >
+                <Tabela
+                  cab={['Chave', 'Provedor', 'Período de uso', 'Chamadas', 'Tokens', 'Cobrança']}
+                  vazio="Nenhum uso de IA registrado neste mês."
+                  linhas={(d.ia.porChave ?? []).map((k) => [
+                    k.final ? `…${k.final}${k.rotulo ? ` (${k.rotulo})` : ''}` : (k.rotulo ?? 'Sem identificação (uso anterior à separação por chave)'),
+                    k.provedor === 'anthropic' ? 'Anthropic' : k.provedor === 'openai' ? 'OpenAI' : k.provedor,
+                    k.primeiroUso ? `${dataCurta(k.primeiroUso)} a ${dataCurta(k.ultimoUso)}` : '—',
+                    n(k.chamadas), n(k.tokens),
+                    k.cobrada ? 'Entra na cobrança' : 'Chave própria (não cobrada)',
+                  ])}
+                />
+              </Secao>
+            )}
           </>
         )}
 

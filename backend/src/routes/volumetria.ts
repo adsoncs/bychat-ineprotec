@@ -45,6 +45,17 @@ function paraOCliente(v: Awaited<ReturnType<typeof volumetriaDoMes>>, cobranca: 
         funcionalidade: f.funcionalidade, chamadas: f.chamadas, tokens: f.tokens,
         entrada: f.entrada, saida: f.saida, cacheEscrita: f.cacheEscrita, cacheLeitura: f.cacheLeitura,
       })),
+      // Uso por chave: só volume e se entra na cobrança (a classificação é da loja,
+      // publicada com a cobrança). Sem classificação = cobrada (padrão da loja).
+      porChave: ia.porChave.map((k) => {
+        const dono = k.chave && c?.chavesIa && typeof c.chavesIa === 'object' ? c.chavesIa[k.chave] : null
+        return {
+          provedor: k.provedor, final: k.final, chamadas: k.chamadas, tokens: k.tokens,
+          primeiroUso: k.primeiroUso, ultimoUso: k.ultimoUso,
+          rotulo: (dono && typeof dono === 'object' ? dono.rotulo : null) ?? null,
+          cobrada: !(dono === 'cliente' || (dono && typeof dono === 'object' && dono.dono === 'cliente')),
+        }
+      }),
     },
     whatsappCloud: {
       enviadas: whatsappCloud.enviadas,

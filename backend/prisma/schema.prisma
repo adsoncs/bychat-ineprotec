@@ -10571,11 +10571,17 @@ model ConsumoEvento {
   unidade        String   @default("token") @db.VarChar(20)
   /// custo real estimado pelo preço de tabela do provedor; null = modelo sem preço
   custoUsd       Decimal? @db.Decimal(14, 6)
+  /// De qual chave foi o uso: "<provedor>:<12 hex do sha256 da chave>" (a chave nunca é gravada).
+  /// É o que separa, na cobrança, o uso da chave da Attrae do uso da chave própria do cliente.
+  chave          String?  @db.VarChar(60)
+  /// Últimos 4 caracteres da chave, para reconhecer na tela ("…IQAA").
+  chaveFinal     String?  @db.VarChar(12)
   leadId         Int?
   createdAt      DateTime @default(now())
 
   @@index([fonte, createdAt])
   @@index([funcionalidade, createdAt])
+  @@index([fonte, chave, createdAt])
   @@map("bychat_consumo")
 }
 

@@ -7,6 +7,7 @@
 // logo depois de ler o JSON. O modelo gravado é o que a API devolve (o que
 // rodou de verdade), não o pedido. Nunca lança e nunca atrasa a resposta.
 
+import { createHash } from 'crypto'
 import { prisma } from './prisma.js'
 
 export type ProvedorIA = 'anthropic' | 'openai'
@@ -81,6 +82,24 @@ export function tokensDaResposta(provedor: ProvedorIA, resposta: any): { entrada
 }
 
 /**
+ * Impressão digital da chave de IA: "<provedor>:<12 hex do sha256>" + os 4 últimos
+ * caracteres. A chave em si nunca é gravada. Serve para a loja separar o uso da
+ * chave da Attrae (cobrado) do uso da chave própria do cliente (não cobrado):
+ * antes a troca de chave não deixava rastro e o mês inteiro era cobrado igual.
+ */
+export function impressaoDaChave(provedor: ProvedorIA, chave: string | null | undefined): { chave: string; chaveFinal: string } | null {
+  const k = String(chave ?? '').trim()
+  if (!k) return null
+  return { chave: `${provedor}:${createHash('sha256').update(k).digest('hex').slice(0, 12)}`, chaveFinal: k.slice(-4) }
+}
+
+/** A chave que as chamadas usam agora (mesma resolução do lib/aiKeys, com o cache de 60 s dele). */
+async function chaveEmUso(provedor: ProvedorIA) {
+  const { getAnthropicKey, getOpenAiKey } = await import('./aiKeys.js')
+  return impressaoDaChave(provedor, provedor === 'anthropic' ? await getAnthropicKey() : await getOpenAiKey())
+}
+
+/**
  * Registra o uso de uma chamada de IA. Chame logo depois de ler o JSON da
  * resposta: `registrarUsoIA('chatbot', 'anthropic', data)`. Não espera, não lança.
  */
@@ -89,6 +108,7 @@ export function registrarUsoIA(funcionalidade: string, provedor: ProvedorIA, res
     const t = tokensDaResposta(provedor, resposta)
     if (!t) return
     const modelo = String((resposta as any)?.model ?? 'desconhecido').slice(0, 100)
+    const ch = await chaveEmUso(provedor).catch(() => null)
     const preco = precoDoModelo(await tabelaDePrecosIA(), modelo)
     const custo = preco
       ? (t.entrada * preco.entrada + t.saida * preco.saida + t.cacheEscrita * preco.cacheEscrita + t.cacheLeitura * preco.cacheLeitura) / 1_000_000
@@ -98,6 +118,7 @@ export function registrarUsoIA(funcionalidade: string, provedor: ProvedorIA, res
         fonte: 'ia', provedor, item: modelo, funcionalidade: funcionalidade.slice(0, 60),
         ...t, quantidade: t.entrada + t.saida + t.cacheEscrita + t.cacheLeitura, unidade: 'token',
         custoUsd: custo, leadId: extra?.leadId ?? null,
+        ...(ch ? { chave: ch.chave, chaveFinal: ch.chaveFinal } : {}),
       },
     })
   })().catch((e) => console.warn('[consumo] falha ao registrar uso de IA:', (e as Error).message))
