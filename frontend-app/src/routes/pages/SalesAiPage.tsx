@@ -574,6 +574,7 @@ function SettingsTab() {
   const { data: stagesData } = useStages()
 
   const [enabled, setEnabled] = useState(true)
+  const [scoreOn, setScoreOn] = useState(true)
   const [prompt, setPrompt] = useState('')
   const [targetStage, setTargetStage] = useState('')
   const [interval, setInterval] = useState('600')
@@ -583,6 +584,7 @@ function SettingsTab() {
     if (!data) return
     const s = data.settings
     setEnabled(s['sale_detection.enabled'] !== 'false')
+    setScoreOn(s['ai.lead_score_enabled'] !== 'false')
     setPrompt(s['sale_detection.prompt'] ?? '')
     setTargetStage(s['sale_detection.target_stage'] ?? '')
     setInterval(s['sale_detection.interval'] ?? '600')
@@ -610,6 +612,7 @@ function SettingsTab() {
     }
     const payload: SalesSettingsRaw = {
       'sale_detection.enabled': enabled ? 'true' : 'false',
+      'ai.lead_score_enabled': scoreOn ? 'true' : 'false',
       'sale_detection.prompt': prompt.trim(),
       'sale_detection.target_stage': targetStage.trim(),
       'sale_detection.interval': String(Math.floor(intNum)),
@@ -659,7 +662,27 @@ function SettingsTab() {
               {enabled ? 'Ativada' : 'Desativada'}
             </button>
             <p class="text-2xs text-fg-muted mt-1.5">
-              Quando ativada, a IA analisa conversas automaticamente a cada intervalo configurado.
+              Quando ativada, a IA analisa conversas automaticamente a cada intervalo configurado. Desativada, a análise automática para e não consome IA.
+            </p>
+          </div>
+
+          <div>
+            <div class="text-xs font-medium text-fg-muted mb-1.5">Análise de score do lead</div>
+            <button
+              type="button"
+              onClick={() => setScoreOn((v) => !v)}
+              class={cn(
+                'inline-flex items-center gap-2 px-4 h-8 rounded-md border text-xs font-medium transition-colors',
+                scoreOn
+                  ? 'border-success/40 bg-success/15 text-success'
+                  : 'border-danger/40 bg-danger/15 text-danger',
+              )}
+            >
+              <span class={cn('size-2 rounded-full', scoreOn ? 'bg-success' : 'bg-danger')} />
+              {scoreOn ? 'Ativada' : 'Desativada'}
+            </button>
+            <p class="text-2xs text-fg-muted mt-1.5">
+              Quando ativada, a IA estima de 0 a 100 a chance de cada lead novo fechar negócio. Desativada, o score por IA não é calculado e não consome IA.
             </p>
           </div>
 

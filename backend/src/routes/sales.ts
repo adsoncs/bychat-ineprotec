@@ -244,20 +244,25 @@ export async function salesRoutes(app: FastifyInstance) {
 
   // GET /api/admin/sales/settings — Get sale detection settings
   app.get('/api/admin/sales/settings', { preHandler: adminOnly }, async () => {
-    const keys = ['sale_detection.prompt', 'sale_detection.target_stage', 'sale_detection.enabled', 'sale_detection.interval']
+    const keys = ['sale_detection.prompt', 'sale_detection.target_stage', 'sale_detection.enabled', 'sale_detection.interval', 'ai.lead_score_enabled']
     const rows = await prisma.setting.findMany({ where: { key: { in: keys } } })
     const cfg: Record<string, string> = {}
     rows.forEach(r => {
       const val = typeof r.value === 'string' ? r.value : String(r.value)
       cfg[r.key] = val.replace(/^"|"$/g, '')
     })
+    // Score do lead sem escolha gravada: ligado quando há chave de IA (o padrão do serviço).
+    if (cfg['ai.lead_score_enabled'] == null) {
+      const { getAnthropicKey, getOpenAiKey } = await import('../lib/aiKeys.js')
+      cfg['ai.lead_score_enabled'] = (await getAnthropicKey()) || (await getOpenAiKey()) ? 'true' : 'false'
+    }
     return { settings: cfg }
   })
 
   // PUT /api/admin/sales/settings — Update sale detection settings
   app.put('/api/admin/sales/settings', { preHandler: adminOnly }, async (req) => {
     const body = req.body as Record<string, string>
-    const allowed = ['sale_detection.prompt', 'sale_detection.target_stage', 'sale_detection.enabled', 'sale_detection.interval']
+    const allowed = ['sale_detection.prompt', 'sale_detection.target_stage', 'sale_detection.enabled', 'sale_detection.interval', 'ai.lead_score_enabled']
 
     for (const [key, value] of Object.entries(body)) {
       if (!allowed.includes(key)) continue
@@ -269,8 +274,8 @@ export async function salesRoutes(app: FastifyInstance) {
           data: {
             key,
             value: JSON.stringify(value),
-            label: key.replace('sale_detection.', '').replace(/_/g, ' '),
-            grp: 'sale_detection',
+            label: key === 'ai.lead_score_enabled' ? 'Análise de score do lead por IA' : key.replace('sale_detection.', '').replace(/_/g, ' '),
+            grp: key === 'ai.lead_score_enabled' ? 'ai' : 'sale_detection',
             fieldType: 'text',
           }
         })

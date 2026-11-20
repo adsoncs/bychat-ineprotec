@@ -99,6 +99,8 @@ export interface SalesSettingsRaw {
   'sale_detection.target_stage'?: string
   'sale_detection.enabled'?: string
   'sale_detection.interval'?: string
+  /** Análise de score do lead por IA (true/false). Sem escolha gravada, a API devolve o padrão. */
+  'ai.lead_score_enabled'?: string
 }
 
 const SETTINGS_KEY = ['sales-settings'] as const

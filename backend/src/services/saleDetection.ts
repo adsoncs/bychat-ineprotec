@@ -394,6 +394,10 @@ export async function processSaleDetection(leadId: number): Promise<void> {
  * Busca leads pendentes de análise e enfileira cada um como job individual.
  */
 async function enqueueLeadsForAnalysis() {
+  // Desligada na tela, ou ainda dentro do intervalo escolhido: não varre.
+  const cfg = await configDaDeteccao()
+  if (!cfg.ativa || Date.now() - ultimaVarredura < cfg.intervaloMs - 5_000) return
+  ultimaVarredura = Date.now()
   try {
     const toAnalyze = await prisma.$queryRaw`
       SELECT id FROM bychat_leads
@@ -429,6 +433,19 @@ async function enqueueLeadsForAnalysis() {
 }
 
 /**
+ * O que a tela Vendas IA › "Detecção automática" decidiu. Até 20/11/2026 a tela
+ * gravava o liga/desliga e o intervalo, mas a rotina não lia nenhum dos dois:
+ * desligar não desligava (e a IA seguia consumindo a cada 10 min).
+ */
+let ultimaVarredura = 0
+export async function configDaDeteccao(): Promise<{ ativa: boolean; intervaloMs: number }> {
+  const rows = await prisma.setting.findMany({ where: { key: { in: ['sale_detection.enabled', 'sale_detection.interval'] } } }).catch(() => [])
+  const v = (k: string) => { const r = rows.find((x) => x.key === k); return r ? String(r.value ?? '').replace(/^"|"$/g, '').trim() : '' }
+  const seg = Number(v('sale_detection.interval'))
+  return { ativa: v('sale_detection.enabled') !== 'false', intervaloMs: Number.isFinite(seg) && seg >= 60 ? seg * 1000 : 600_000 }
+}
+
+/**
  * Scheduler com BullMQ: job queue persistente para detecção de vendas.
  * Jobs sobrevivem a restarts do processo.
  */
@@ -449,6 +466,7 @@ export async function startSaleDetectionScheduler() {
     // Worker que processa cada lead individualmente
     const worker = new Worker('sale-detection', async (job) => {
       const { leadId } = job.data
+      if (!(await configDaDeteccao()).ativa) return
       console.log(`[SaleDetection] Analisando lead ${leadId}...`)
       await processSaleDetection(leadId)
     }, {
@@ -468,9 +486,15 @@ export async function startSaleDetectionScheduler() {
     // Scheduler: enfileira leads pendentes no intervalo configurado
     const schedulerQueue = new Queue('sale-detection-scheduler', { connection })
 
-    // Repeatable job que busca e enfileira leads
+    // Repeatable job que busca e enfileira leads. Roda a cada minuto e só varre
+    // quando passa o intervalo escolhido na tela (configDaDeteccao). Repetível
+    // antigo com outro ciclo sai, senão os dois ficariam rodando.
+    const TICK_MS = Math.min(intervalMs, 60_000)
+    for (const r of await schedulerQueue.getRepeatableJobs()) {
+      if (r.name === 'find-leads' && Number(r.every) !== TICK_MS) await schedulerQueue.removeRepeatableByKey(r.key)
+    }
     await schedulerQueue.add('find-leads', {}, {
-      repeat: { every: intervalMs },
+      repeat: { every: TICK_MS },
       removeOnComplete: 10,
       removeOnFail: 10,
     })
@@ -499,6 +523,9 @@ export async function startSaleDetectionScheduler() {
     console.log(`[SaleDetection] Fallback scheduler iniciado (intervalo: ${intervalMs / 1000}s)`)
     setInterval(async () => {
       try {
+        const cfg = await configDaDeteccao()
+        if (!cfg.ativa || Date.now() - ultimaVarredura < cfg.intervaloMs - 5_000) return
+        ultimaVarredura = Date.now()
         const toAnalyze = await prisma.$queryRaw`
           SELECT id FROM bychat_leads
           WHERE saleDetected = false
