@@ -2072,6 +2072,22 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (!await assertTicketAccess(req, reply, lid, 'delete')) return
       const user = (req as any).user as JwtPayload
 
+      // Mesmo guard do DELETE /api/bychat/leads/:id: apagar a ficha solta as
+      // inscrições (onDelete SetNull) e leva a conta do portal junto — o
+      // candidato fica sem entrar nem pagar (fabad, MAT-26-000227, 16/11).
+      const q = (req.query || {}) as any
+      const force = q.force === 'true' || q.force === '1'
+      if (!force) {
+        const regCount = await prisma.enrollmentRegistration.count({ where: { leadId: lid } })
+        if (regCount > 0) {
+          return reply.code(409).send({
+            error: 'lead_has_registrations',
+            message: `Este lead tem ${regCount} inscrição(ões) no portal de matrículas. Excluí-lo solta a(s) inscrição(ões) e apaga o acesso do candidato ao portal. Se for a mesma pessoa de outra ficha, use "Juntar fichas".`,
+            registrationCount: regCount,
+          })
+        }
+      }
+
       const snapshot = await snapshotLead(lid)
       if (!snapshot) return reply.code(404).send({ error: 'Lead nao encontrado' })
 

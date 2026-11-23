@@ -664,7 +664,12 @@ export function useReleaseTicket() {
 export function useDeleteTicket() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (leadId: number) => api.delete<{ ok: true }>(`/atendimento/tickets/${leadId}`),
+    // force: confirma a exclusão mesmo com inscrição no portal (409 lead_has_registrations).
+    mutationFn: (input: number | { leadId: number; force?: boolean }) => {
+      const leadId = typeof input === 'number' ? input : input.leadId
+      const force = typeof input === 'number' ? false : !!input.force
+      return api.delete<{ ok: true }>(`/atendimento/tickets/${leadId}${force ? '?force=true' : ''}`)
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   })
 }

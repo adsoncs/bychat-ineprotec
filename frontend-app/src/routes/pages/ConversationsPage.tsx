@@ -126,6 +126,7 @@ import {
   useAddLeadTags,
   useRemoveLeadTag,
   eventAuthorLabel,
+  getRegistrationConflict,
 } from '@/hooks/useLeads'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags, useCreateTag } from '@/hooks/useTags'
@@ -5069,18 +5070,26 @@ function DeleteTicketDialog({
   leadId, leadName, onClose, onDeleted,
 }: { leadId: number; leadName: string; onClose: () => void; onDeleted: () => void }) {
   const del = useDeleteTicket()
+  // Ficha com inscrição no portal: o 1º clique só avisa; excluir exige um 2º.
+  const [inscricoes, setInscricoes] = useState<number | null>(null)
   return (
     <ConfirmDialog
       open
       onOpenChange={(o) => { if (!o) onClose() }}
       title={`Excluir "${leadName}"`}
-      description="O lead vai para a lixeira (todas as conversas e mensagens permanecem associadas ao histórico)."
+      description={inscricoes
+        ? `Esta ficha tem ${inscricoes} inscrição(ões) no portal de matrículas. Se excluir, a inscrição fica solta e o candidato perde o acesso ao portal (não consegue entrar nem pagar). Se for a mesma pessoa de outra ficha, cancele e use "Juntar fichas".`
+        : 'O lead vai para a lixeira (todas as conversas e mensagens permanecem associadas ao histórico).'}
       destructive
-      confirmLabel="Excluir"
+      confirmLabel={inscricoes ? 'Excluir mesmo assim' : 'Excluir'}
       loading={del.isPending}
-      onConfirm={() => del.mutate(leadId, {
+      onConfirm={() => del.mutate({ leadId, force: !!inscricoes }, {
         onSuccess: () => { toast('Lead excluído', 'success'); onDeleted() },
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        onError: (e: unknown) => {
+          const c = getRegistrationConflict(e)
+          if (c && !inscricoes) { setInscricoes(c.count || 1); return }
+          toast((e as Error).message, 'danger')
+        },
       })}
     />
   )
