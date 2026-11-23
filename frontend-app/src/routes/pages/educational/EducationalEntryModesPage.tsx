@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3, Landmark, AlertTriangle } from '@/components/ui/icon-set'
+import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3, Landmark, AlertTriangle, Package } from '@/components/ui/icon-set'
 import {
   useEntryModes,
   useCreateEntryMode,
@@ -22,6 +22,7 @@ import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SortableList } from '@/components/ui/SortableList'
 import { DocumentRequirementsEditor } from '@/components/educational/DocumentRequirementsEditor'
+import { DocumentosFisicosEditor } from '@/components/educational/DocumentosFisicosEditor'
 import { EduListHero } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
@@ -82,6 +83,7 @@ export function EducationalEntryModesPage() {
 
   // Pega o objeto fresco a partir do id, pra reagir a mutations que invalidam a query.
   const editingDocsOf = editingDocsOfId != null ? modes.find((m) => m.id === editingDocsOfId) ?? null : null
+  const [fisicosDe, setFisicosDe] = useState<EntryMode | null>(null)
 
   return (
     <Page
@@ -169,6 +171,7 @@ export function EducationalEntryModesPage() {
                 mode={m}
                 formaRotulo={rotuloDaForma(m.censoForma)}
                 onEditDocs={() => setEditingDocsOfId(m.id)}
+                onEditFisicos={() => setFisicosDe(m)}
                 onEdit={() => setEditing(m)}
                 onDelete={() => setDeleting(m)}
               />}
@@ -204,6 +207,14 @@ export function EducationalEntryModesPage() {
         />
       )}
 
+      {fisicosDe && (
+        <Modal open onOpenChange={(o) => { if (!o) setFisicosDe(null) }} size="lg"
+          title={`Documentos físicos — ${fisicosDe.icon ? fisicosDe.icon + ' ' : ''}${fisicosDe.name}`}
+          footer={<Button variant="secondary" size="sm" onClick={() => setFisicosDe(null)}>Fechar</Button>}>
+          <DocumentosFisicosEditor entryModeId={fisicosDe.id} />
+        </Modal>
+      )}
+
       {editingDocsOf && (
         <Modal
           open
@@ -232,11 +243,12 @@ export function EducationalEntryModesPage() {
 }
 
 function EntryModeCard({
-  mode, onEditDocs, onEdit, onDelete, formaRotulo,
+  mode, onEditDocs, onEditFisicos, onEdit, onDelete, formaRotulo,
 }: {
   mode: EntryMode
   formaRotulo?: string | null
   onEditDocs: () => void
+  onEditFisicos: () => void
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -312,6 +324,15 @@ function EntryModeCard({
             title="Editar documentos"
           >
             <Paperclip size={12} />
+          </button></Pode>
+          <Pode tela="edu_modos_ingresso" acao="edit"><button
+            type="button"
+            class="size-7 rounded grid place-items-center text-warning bg-warning/10 hover:bg-warning/20"
+            onClick={onEditFisicos}
+            aria-label="Documentos físicos"
+            title="Documentos físicos (entregas em papel)"
+          >
+            <Package size={12} />
           </button></Pode>
           <Pode tela="edu_modos_ingresso" acao="edit"><button
             type="button"

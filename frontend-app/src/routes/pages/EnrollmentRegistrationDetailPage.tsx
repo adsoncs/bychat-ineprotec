@@ -46,6 +46,7 @@ import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/apiClient'
 import { resumoDoPlano, reais } from '@/lib/cobrancas'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
+import { DocumentosFisicosCard } from './enrollmentPortal/DocumentosFisicosCard'
 import { EssayReviewModal } from './educational/EducationalEvaluationsPage'
 import { useEssaySubmission } from '@/hooks/useEducationalReview'
 import { toast } from '@/lib/toast'
@@ -226,6 +227,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               {etapaAnalise?.analise && <SomenteLeitura aviso={false} tela="edu_revisao_documentos"><AnaliseAcademicaCard registrationId={review.registration.id} etapa={etapaAnalise} /></SomenteLeitura>}
               <SomenteLeitura aviso={false} tela="edu_revisao_documentos">
                 <SlotsCard review={review} podeOperar={podeAtender && aberta} />
+                <DocumentosFisicosCard registrationId={review.registration.id} podeOperar={podeAtender} />
                 {(review.extras.length > 0 || (podeAtender && aberta)) && <ExtrasCard extras={review.extras} registrationId={review.registration.id} podeOperar={podeAtender && aberta} />}
                 {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
                 <BulkActionsCard registrationId={review.registration.id} />
@@ -1203,6 +1205,7 @@ function RegistrationCard({ review }: { review: RegistrationReview }) {
         <Field label="Curso" value={offering?.course?.nome ?? '—'} />
         {variacaoDaOferta(offering) && <Field label="Versão" value={<strong>{variacaoDaOferta(offering)}</strong>} />}
         <Field label="Oferta" value={offering?.nome ?? '—'} />
+        {offering?.id && <PrazoInterno offeringId={offering.id} />}
         <Field label="Turno" value={offering?.turno ?? '—'} />
         <Field
           label="Campus"
@@ -1215,6 +1218,13 @@ function RegistrationCard({ review }: { review: RegistrationReview }) {
       </div>
     </Card>
   )
+}
+
+/** Prazo de conclusão da oferta — dado interno (não vai ao portal, à IA nem ao contrato). */
+function PrazoInterno({ offeringId }: { offeringId: number }) {
+  const q = useQuery({ queryKey: ['oferta-interno', offeringId], queryFn: () => api.get<{ prazoConclusao: string | null }>(`/admin/educacional/offerings/${offeringId}/interno`), staleTime: 60_000 })
+  if (!q.data?.prazoConclusao) return null
+  return <Field label="Prazo de conclusão (interno)" value={q.data.prazoConclusao} />
 }
 
 function AutoAdvanceCard({ review }: { review: RegistrationReview }) {

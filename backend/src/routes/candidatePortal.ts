@@ -649,6 +649,27 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     return { ok: true, document: doc }
   })
 
+  // ── Documentos físicos da inscrição (services/documentosFisicos) ──
+  app.get('/api/admin/enrollment-documents/fisicos/:regId', { preHandler: guardTela('admin') }, async (req) => {
+    const { fisicosDaInscricao } = await import('../services/documentosFisicos.js')
+    return { itens: await fisicosDaInscricao(parseInt((req.params as any).regId)) }
+  })
+  app.put('/api/admin/enrollment-documents/fisicos/:regId/:reqId', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const user = (req as any).user as any
+    const usuario = await prisma.user.findUnique({ where: { id: user.userId }, select: { name: true } })
+    const { marcarRecebido } = await import('../services/documentosFisicos.js')
+    const b = (req.body as any) || {}
+    const r = await marcarRecebido(parseInt((req.params as any).regId), parseInt((req.params as any).reqId), { porId: user.userId, porNome: usuario?.name || user.name || '', observacao: b.observacao ?? null, em: b.recebidoEm ?? null })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+  app.delete('/api/admin/enrollment-documents/fisicos/:regId/:reqId', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const { desmarcarRecebido } = await import('../services/documentosFisicos.js')
+    const r = await desmarcarRecebido(parseInt((req.params as any).regId), parseInt((req.params as any).reqId))
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+
   // ── POST /api/admin/enrollment-documents/:id/renotify ──
   // Reemite o domain event de aprovação/rejeição. Útil quando o workflow não
   // disparou na vez original (engine estava com bug, lead bloqueado por execution

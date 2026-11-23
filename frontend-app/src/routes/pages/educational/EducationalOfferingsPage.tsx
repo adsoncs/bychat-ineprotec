@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'preact/hooks'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Ticket, BookOpen, Plus, Pencil, Trash2, Wallet } from '@/components/ui/icon-set'
 import {
   useOfferings,
@@ -26,7 +26,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EduListHero } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { PlanosPagamentoModal } from '@/components/educational/PlanosPagamentoModal'
-import { ApiError } from '@/lib/apiClient'
+import { ApiError, api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { Pode } from '@/components/auth/Pode'
 
@@ -422,6 +422,17 @@ function OfferingFormModal({
   const [inicioMatricula, setInicioMatricula] = useState(toDateInput(offering?.inicioMatricula ?? null))
   const [terminoMatricula, setTerminoMatricula] = useState(toDateInput(offering?.terminoMatricula ?? null))
   const [inicioCurso, setInicioCurso] = useState(toDateInput(offering?.inicioCurso ?? null))
+  // Prazo de conclusão: dado interno, em tabela à parte (não vai ao portal, à IA nem ao contrato).
+  const [prazo, setPrazo] = useState('')
+  const interno = useQuery({ queryKey: ['oferta-interno', offering?.id], enabled: !!offering?.id,
+    queryFn: () => api.get<{ prazoConclusao: string | null }>(`/admin/educacional/offerings/${offering!.id}/interno`) })
+  useEffect(() => { if (interno.data) setPrazo(interno.data.prazoConclusao ?? '') }, [interno.data])
+  const qcInterno = useQueryClient()
+  const gravarPrazo = async (id: number) => {
+    if ((interno.data?.prazoConclusao ?? '') === prazo.trim()) return
+    await api.put(`/admin/educacional/offerings/${id}/interno`, { prazoConclusao: prazo.trim() || null })
+    void qcInterno.invalidateQueries({ queryKey: ['oferta-interno', id] })
+  }
   const [terminoCurso, setTerminoCurso] = useState(toDateInput(offering?.terminoCurso ?? null))
   const [active, setActive] = useState(offering?.active ?? true)
   const [campusIds, setCampusIds] = useState<number[]>(
@@ -475,12 +486,12 @@ function OfferingFormModal({
     }
     if (isEdit) {
       update.mutate({ id: offering.id, ...payload }, {
-        onSuccess: () => { toast('Oferta atualizada', 'success'); onClose() },
+        onSuccess: async () => { await gravarPrazo(offering.id).catch((e) => toast(`Prazo interno: ${(e as Error).message}`, 'danger')); toast('Oferta atualizada', 'success'); onClose() },
         onError: (e: unknown) => toast((e as Error).message, 'danger'),
       })
     } else {
       create.mutate(payload, {
-        onSuccess: () => { toast('Oferta criada', 'success'); onClose() },
+        onSuccess: async (r: any) => { if (r?.offering?.id) await gravarPrazo(r.offering.id).catch(() => {}); toast('Oferta criada', 'success'); onClose() },
         onError: (e: unknown) => toast((e as Error).message, 'danger'),
       })
     }
@@ -707,6 +718,14 @@ function OfferingFormModal({
             onInput={(e) => setTerminoCurso((e.target as HTMLInputElement).value)}
           />
         </div>
+
+        <Input
+          label="Prazo de conclusão (interno)"
+          value={prazo}
+          onInput={(e) => setPrazo((e.target as HTMLInputElement).value)}
+          placeholder="Ex.: 3 meses com experiência; 6 meses sem experiência"
+          hint="Só a equipe vê: não aparece no portal, na IA de atendimento nem no contrato."
+        />
 
         <label class="flex items-center gap-2 text-sm text-fg-muted">
           <input type="checkbox" checked={active} onChange={(e) => setActive((e.target as HTMLInputElement).checked)} />

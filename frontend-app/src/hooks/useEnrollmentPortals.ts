@@ -699,6 +699,7 @@ export interface RegistrationReview {
       entryMode?: { code: string; name: string; icon: string | null; evaluationType?: string | null } | null
     }
     offering?: {
+      id?: number
       nome: string
       complemento?: string | null
       turno: string | null

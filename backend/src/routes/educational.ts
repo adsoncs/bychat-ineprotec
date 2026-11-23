@@ -1028,6 +1028,33 @@ export async function educationalRoutes(app: FastifyInstance) {
     }
   })
 
+  // Documentos físicos do modo (services/documentosFisicos): o que a secretaria
+  // recebe em papel. PUT substitui a lista inteira.
+  app.get('/api/admin/educacional/entry-modes/:id/fisicos', { preHandler: eduAuth }, async (req) => {
+    const { requisitosFisicosDoModo } = await import('../services/documentosFisicos.js')
+    return { itens: await requisitosFisicosDoModo(parseInt((req.params as any).id)) }
+  })
+  app.put('/api/admin/educacional/entry-modes/:id/fisicos', { preHandler: eduAdmin }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    if (!(await prisma.entryMode.findUnique({ where: { id }, select: { id: true } }))) return reply.code(404).send({ error: 'Modo de ingresso não encontrado' })
+    const itens = Array.isArray((req.body as any)?.itens) ? (req.body as any).itens : null
+    if (!itens) return reply.code(400).send({ error: 'Envie a lista em `itens`.' })
+    const { gravarRequisitosFisicos } = await import('../services/documentosFisicos.js')
+    return { itens: await gravarRequisitosFisicos(id, itens) }
+  })
+
+  // Dados internos da oferta (tabela à parte — não sai para portal, IA nem contrato).
+  app.get('/api/admin/educacional/offerings/:id/interno', { preHandler: eduAuth }, async (req) => {
+    const { internoDaOferta } = await import('../services/documentosFisicos.js')
+    return internoDaOferta(parseInt((req.params as any).id))
+  })
+  app.put('/api/admin/educacional/offerings/:id/interno', { preHandler: eduAdmin }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    if (!(await prisma.courseOffering.findUnique({ where: { id }, select: { id: true } }))) return reply.code(404).send({ error: 'Oferta não encontrada' })
+    const { gravarInternoDaOferta } = await import('../services/documentosFisicos.js')
+    return gravarInternoDaOferta(id, { prazoConclusao: (req.body as any)?.prazoConclusao })
+  })
+
   // ══════════════════════════════════════════════
   // TIPOS DE DOCUMENTO (catálogo read-only — seed)
   // ══════════════════════════════════════════════

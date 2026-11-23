@@ -11028,3 +11028,44 @@ model EnrollmentDesconto {
   @@index([trocaId])
   @@map("bychat_enrollment_descontos")
 }
+
+/// Documento físico (em papel) que o modo de ingresso pede — a secretaria confere a entrega.
+/// `condicao` = { campo, valores[] } sobre o formulário (ex.: campusId do polo ENSA).
+model EntryModePhysicalDoc {
+  id          Int      @id @default(autoincrement())
+  entryModeId Int
+  nome        String   @db.VarChar(191)
+  ordem       Int      @default(0)
+  condicao    Json?    @db.Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entryModeId])
+  @@map("bychat_edu_entry_mode_physical_docs")
+}
+
+/// Recebimento de um documento físico na inscrição.
+model EnrollmentPhysicalDoc {
+  id              Int      @id @default(autoincrement())
+  registrationId  Int
+  requisitoId     Int
+  recebidoEm      DateTime
+  recebidoPorId   Int?
+  recebidoPorNome String?  @db.VarChar(191)
+  observacao      String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@unique([registrationId, requisitoId])
+  @@index([requisitoId])
+  @@map("bychat_enrollment_physical_docs")
+}
+
+/// Dados internos da oferta — tabela à parte para nunca sair num include de oferta
+/// (portal público, IA, contrato). Hoje: prazo de conclusão.
+model OfferingInterno {
+  offeringId     Int      @id
+  prazoConclusao String?  @db.VarChar(200)
+  updatedAt      DateTime @updatedAt
+
+  @@map("bychat_edu_offering_internos")
+}
