@@ -7,6 +7,7 @@ import {
 } from './api'
 import { comprimirSePreciso } from './imagem'
 import { t as tx } from './textos'
+import { agruparDocumentos } from './gruposDeDocumento'
 
 // Situação de cada documento na linguagem de quem enviou, não a do banco.
 const SITUACAO: Record<string, { rotulo: string; classe: string }> = {
@@ -134,6 +135,18 @@ export function Documentos(props: {
   // Fora da jornada (/portal/documentos): a moldura do portal, igual às demais telas.
   // (Função, não componente: um componente criado aqui seria outro a cada
   // render, e os filhos — upload em andamento incluído — seriam recriados.)
+  const item = (exig: Exigencia) => (
+    <ItemDeDocumento
+      key={exig.documentType.code}
+      exigencia={exig}
+      enviado={porTipo.get(exig.documentType.code)}
+      enviando={enviando === exig.documentType.code}
+      erro={erros[exig.documentType.code]}
+      nota={notas[exig.documentType.code]}
+      aoEnviar={(a, v, face) => subir(exig, a, v, face)}
+      aoRemover={remover}
+    />
+  )
   const envolver = (conteudo: any) => props.embutido
     ? <div class="docs-embutidos">{conteudo}</div>
     : <Moldura marca={marca} acesso={<AcessoSair />}>{conteudo}</Moldura>
@@ -151,6 +164,10 @@ export function Documentos(props: {
           </div>
         ) : faltam > 0 ? (
           <div class="aviso info">
+            <div class="docs-barra" role="progressbar" aria-valuemin={0} aria-valuemax={obrigatorios.length} aria-valuenow={entregues.length}
+              aria-label={`${entregues.length} de ${obrigatorios.length} documentos obrigatórios enviados`}>
+              <i style={`width:${obrigatorios.length ? Math.round((entregues.length / obrigatorios.length) * 100) : 0}%`} />
+            </div>
             <b>{faltam === 1 ? 'Falta 1' : `Faltam ${faltam}`} de {obrigatorios.length}</b>{' '}
             {faltam === 1 ? 'documento obrigatório' : 'documentos obrigatórios'}.
             Pode enviar foto pelo celular — a imagem precisa estar legível.
@@ -162,20 +179,44 @@ export function Documentos(props: {
         )}
       </div>}
 
-      {exigencias.map((exig) => (
-        <ItemDeDocumento
-          key={exig.documentType.code}
-          exigencia={exig}
-          enviado={porTipo.get(exig.documentType.code)}
-          enviando={enviando === exig.documentType.code}
-          erro={erros[exig.documentType.code]}
-          nota={notas[exig.documentType.code]}
-          aoEnviar={(a, v, face) => subir(exig, a, v, face)}
-          aoRemover={remover}
-        />
-      ))}
+      {props.tipos
+        ? exigencias.map(item)
+        : agruparDocumentos(exigencias, (e) => e.documentType, (e) => e.required).map((g) => {
+          const obr = g.itens.filter((e) => e.required)
+          const ok = obr.filter((e) => { const d = porTipo.get(e.documentType.code); return d && d.status !== 'rejected' }).length
+          const completo = g.soOpcionais ? false : ok === obr.length
+          return (
+            <GrupoDeDocumentos key={g.chave} nome={g.nome} icone={g.icone}
+              contagem={g.soOpcionais ? 'opcionais' : completo ? 'Completo' : `${ok} de ${obr.length} ${obr.length === 1 ? 'obrigatório' : 'obrigatórios'}`}
+              tom={g.soOpcionais ? '' : completo ? 'ok' : 'falta'}
+              recolhivel={completo || g.soOpcionais}>
+              {g.itens.map(item)}
+            </GrupoDeDocumentos>
+          )
+        })}
 
     </>,
+  )
+}
+
+/**
+ * Um grupo (Pessoais, Residência, Escolaridade, Complementares) com a contagem
+ * no cabeçalho. No celular, grupo completo ou só de opcionais começa recolhido
+ * — toca no cabeçalho para abrir; no computador fica tudo aberto.
+ */
+function GrupoDeDocumentos(props: { nome: string; icone: string; contagem: string; tom: '' | 'ok' | 'falta'; recolhivel: boolean; children: any }) {
+  const celular = typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 640px)').matches
+  const [aberto, setAberto] = useState(!(celular && props.recolhivel))
+  return (
+    <section class={`docs-grupo ${aberto ? '' : 'fechado'}`}>
+      <button type="button" class="docs-grupo-topo" aria-expanded={aberto} onClick={() => setAberto(!aberto)}>
+        <span class="docs-grupo-ico" aria-hidden="true">{props.icone}</span>
+        <b>{props.nome}</b>
+        <span class={`docs-grupo-cont ${props.tom}`}>{props.contagem}</span>
+        <span class="docs-grupo-seta" aria-hidden="true">{aberto ? '▴' : '▾'}</span>
+      </button>
+      {aberto && <div class="docs-grupo-itens">{props.children}</div>}
+    </section>
   )
 }
 

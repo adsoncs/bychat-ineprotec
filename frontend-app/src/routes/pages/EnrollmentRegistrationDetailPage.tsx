@@ -47,6 +47,7 @@ import { api } from '@/lib/apiClient'
 import { resumoDoPlano, reais } from '@/lib/cobrancas'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
 import { DocumentosFisicosCard } from './enrollmentPortal/DocumentosFisicosCard'
+import { agruparDocumentos } from '@/lib/gruposDeDocumento'
 import { EssayReviewModal } from './educational/EducationalEvaluationsPage'
 import { useEssaySubmission } from '@/hooks/useEducationalReview'
 import { toast } from '@/lib/toast'
@@ -226,11 +227,19 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
             <div class="grid gap-3">
               {etapaAnalise?.analise && <SomenteLeitura aviso={false} tela="edu_revisao_documentos"><AnaliseAcademicaCard registrationId={review.registration.id} etapa={etapaAnalise} /></SomenteLeitura>}
               <SomenteLeitura aviso={false} tela="edu_revisao_documentos">
-                <SlotsCard review={review} podeOperar={podeAtender && aberta} />
-                <DocumentosFisicosCard registrationId={review.registration.id} podeOperar={podeAtender} />
-                {(review.extras.length > 0 || (podeAtender && aberta)) && <ExtrasCard extras={review.extras} registrationId={review.registration.id} podeOperar={podeAtender && aberta} />}
-                {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
-                <BulkActionsCard registrationId={review.registration.id} />
+                {/* Documentos à esquerda; à direita o que a secretaria confere ao lado: prazo interno e entregas em papel. */}
+                <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_19rem] items-start">
+                  <div class="grid gap-3 min-w-0">
+                    <SlotsCard review={review} podeOperar={podeAtender && aberta} />
+                    {(review.extras.length > 0 || (podeAtender && aberta)) && <ExtrasCard extras={review.extras} registrationId={review.registration.id} podeOperar={podeAtender && aberta} />}
+                    {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
+                    <BulkActionsCard registrationId={review.registration.id} />
+                  </div>
+                  <div class="grid gap-3 min-w-0">
+                    <InscricaoDosDocumentos review={review} />
+                    <DocumentosFisicosCard registrationId={review.registration.id} podeOperar={podeAtender} />
+                  </div>
+                </div>
               </SomenteLeitura>
             </div>
           )}
@@ -1221,10 +1230,21 @@ function RegistrationCard({ review }: { review: RegistrationReview }) {
 }
 
 /** Prazo de conclusão da oferta — dado interno (não vai ao portal, à IA nem ao contrato). */
-function PrazoInterno({ offeringId }: { offeringId: number }) {
+function PrazoInterno({ offeringId, empilhado = false }: { offeringId: number; empilhado?: boolean }) {
   const q = useQuery({ queryKey: ['oferta-interno', offeringId], queryFn: () => api.get<{ prazoConclusao: string | null }>(`/admin/educacional/offerings/${offeringId}/interno`), staleTime: 60_000 })
   if (!q.data?.prazoConclusao) return null
+  if (empilhado) return <CampoEmpilhado label="Prazo de conclusão (interno — o aluno não vê)" value={q.data.prazoConclusao} />
   return <Field label="Prazo de conclusão (interno)" value={q.data.prazoConclusao} />
+}
+
+/** Rótulo em cima, valor embaixo, quebrando linha (coluna estreita). */
+function CampoEmpilhado({ label, value }: { label: string; value: preact.ComponentChildren }) {
+  return (
+    <div>
+      <div class="text-2xs text-fg-muted">{label}</div>
+      <div class="text-fg break-words">{value}</div>
+    </div>
+  )
 }
 
 function AutoAdvanceCard({ review }: { review: RegistrationReview }) {
@@ -1256,16 +1276,94 @@ function SlotsCard({ review, podeOperar }: { review: RegistrationReview; podeOpe
     )
   }
 
+  const slots = review.slots
+  const aprovado = (s: DocumentSlot) => !!s.dispensa || s.latestDoc?.status === 'approved'
+  const resumo = [
+    { n: slots.filter(aprovado).length, rotulo: (n: number) => (n === 1 ? 'aprovado' : 'aprovados'), tom: 'success' as const },
+    { n: slots.filter((s) => !s.dispensa && s.latestDoc?.status === 'pending').length, rotulo: () => 'para analisar', tom: 'warning' as const },
+    { n: slots.filter((s) => !s.dispensa && s.latestDoc?.status === 'rejected').length, rotulo: (n: number) => (n === 1 ? 'recusado' : 'recusados'), tom: 'danger' as const },
+    { n: slots.filter((s) => s.required && !s.dispensa && !s.latestDoc).length, rotulo: (n: number) => (n === 1 ? 'obrigatório não enviado' : 'obrigatórios não enviados'), tom: 'neutral' as const },
+    { n: slots.filter((s) => !s.required && !s.dispensa && !s.latestDoc).length, rotulo: (n: number) => (n === 1 ? 'opcional não enviado' : 'opcionais não enviados'), tom: 'neutral' as const },
+  ].filter((r) => r.n > 0)
+  const grupos = agruparDocumentos(slots, (s) => s.documentType, (s) => s.required)
+
+  return (
+    <>
+      <Card>
+        <div class="text-xs uppercase tracking-wider text-fg-muted">Documentos esperados ({slots.length})</div>
+        <div class="flex flex-wrap gap-1.5 mt-2">
+          {resumo.map((r) => <Badge key={r.rotulo(2)} tone={r.tom}>{r.n} {r.rotulo(r.n)}</Badge>)}
+        </div>
+      </Card>
+      {grupos.map((g) => {
+        const obr = g.itens.filter((s) => s.required)
+        const ok = obr.filter(aprovado).length
+        const completo = !g.soOpcionais && ok === obr.length
+        // Abertos só os que pedem ação: em análise, recusados e obrigatórios
+        // que faltam. Aprovados/dispensados e opcionais não enviados ficam numa linha.
+        const quieto = (s: DocumentSlot) => aprovado(s) || (!s.required && !s.latestDoc)
+        const abertos = g.itens.filter((s) => !quieto(s))
+        const recolhidos = g.itens.filter(quieto)
+        return (
+          <Card key={g.chave}>
+            <div class="flex items-center gap-2 pb-2 mb-2 border-b border-border">
+              <span aria-hidden="true">{g.icone}</span>
+              <span class="text-sm font-semibold text-fg flex-1">{g.nome}</span>
+              <Badge tone={g.soOpcionais ? 'neutral' : completo ? 'success' : 'warning'}>
+                {g.soOpcionais ? 'opcionais' : completo ? 'Completo' : `${ok} de ${obr.length} ${obr.length === 1 ? 'aprovado' : 'aprovados'}`}
+              </Badge>
+            </div>
+            {abertos.length > 0 && (
+              <ul class="space-y-2">
+                {abertos.map((s) => <SlotRow key={s.documentType?.code ?? s.ordem} slot={s} registrationId={review.registration.id} podeOperar={!!podeOperar} />)}
+              </ul>
+            )}
+            {recolhidos.length > 0 && <SlotsRecolhidos slots={recolhidos} registrationId={review.registration.id} podeOperar={!!podeOperar} comEspaco={abertos.length > 0} />}
+          </Card>
+        )
+      })}
+    </>
+  )
+}
+
+/** Linha "✓ CPF · Certidão — aprovados  ver ▾": abre os documentos que não pedem ação. */
+function SlotsRecolhidos({ slots, registrationId, podeOperar, comEspaco }: { slots: DocumentSlot[]; registrationId: number; podeOperar: boolean; comEspaco: boolean }) {
+  const [aberto, setAberto] = useState(false)
+  const nomes = (xs: DocumentSlot[]) => xs.map((s) => s.documentType?.name ?? '—').join(' · ')
+  const aprov = slots.filter((s) => s.dispensa || s.latestDoc?.status === 'approved')
+  const opc = slots.filter((s) => !aprov.includes(s))
+  return (
+    <div class={comEspaco ? 'mt-2' : ''}>
+      <button type="button" onClick={() => setAberto(!aberto)} aria-expanded={aberto}
+        class="w-full flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-xs hover:bg-surface-2">
+        <span class="flex-1 min-w-0">
+          {aprov.length > 0 && <span class="text-fg">✓ {nomes(aprov)} — {aprov.length === 1 ? 'aprovado' : 'aprovados'}</span>}
+          {aprov.length > 0 && opc.length > 0 && <span class="text-fg-muted"> · </span>}
+          {opc.length > 0 && <span class="text-fg-muted">{nomes(opc)} — {opc.length === 1 ? 'opcional, não enviado' : 'opcionais, não enviados'}</span>}
+        </span>
+        <span class="text-fg-muted shrink-0">{aberto ? 'fechar ▴' : 'ver ▾'}</span>
+      </button>
+      {aberto && (
+        <ul class="space-y-2 mt-2">
+          {slots.map((s) => <SlotRow key={s.documentType?.code ?? s.ordem} slot={s} registrationId={registrationId} podeOperar={podeOperar} />)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Coluna da direita da aba Documentos: oferta, polo e prazo interno. */
+function InscricaoDosDocumentos({ review }: { review: RegistrationReview }) {
+  const offering = review.processRegistration?.offering
+  const polo = (review.registration.formData as any)?.campusNome
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">
-        Documentos esperados ({review.slots.length})
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Inscrição</div>
+      <div class="grid gap-2 text-sm">
+        <CampoEmpilhado label="Oferta" value={offering?.nome ?? offering?.course?.nome ?? '—'} />
+        {typeof polo === 'string' && polo && <CampoEmpilhado label="Polo" value={polo} />}
+        {offering?.id && <PrazoInterno offeringId={offering.id} empilhado />}
       </div>
-      <ul class="space-y-2">
-        {review.slots.map((s, idx) => (
-          <SlotRow key={idx} slot={s} registrationId={review.registration.id} podeOperar={!!podeOperar} />
-        ))}
-      </ul>
     </Card>
   )
 }

@@ -213,6 +213,25 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 .doc-arquivo-tam { color: var(--tinta-3); font-variant-numeric: tabular-nums; }
 .doc-remover { background: none; border: 0; color: var(--erro); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; padding: 0; }
 
+/* Grupos de documentos (Pessoais, Residência, Escolaridade, Complementares). */
+.docs-barra { height: 7px; border-radius: 99px; background: var(--linha); overflow: hidden; margin-bottom: 8px; }
+.docs-barra i { display: block; height: 100%; background: var(--marca); border-radius: inherit; }
+.docs-grupo { margin: 0 0 16px; }
+.docs-grupo-topo {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 4px 9px; margin-bottom: 10px;
+  background: none; border: 0; border-bottom: 2px solid var(--marca); font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.docs-grupo.fechado .docs-grupo-topo { border-bottom-color: var(--linha); margin-bottom: 0; }
+.docs-grupo-topo b { font-size: 16px; }
+.docs-grupo-ico { width: 32px; height: 32px; border-radius: 9px; background: var(--marca-suave); display: grid; place-items: center; font-size: 16px; flex: 0 0 auto; }
+.docs-grupo-cont {
+  margin-left: auto; font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 99px;
+  background: var(--papel); border: 1px solid var(--linha); color: var(--tinta-2); white-space: nowrap;
+}
+.docs-grupo-cont.ok { color: var(--ok); border-color: var(--ok); }
+.docs-grupo-cont.falta { color: var(--pendente); border-color: var(--pendente); }
+.docs-grupo-seta { color: var(--tinta-3); font-size: 13px; }
+
 /* Área de envio: alvo grande, porque no celular se toca com o polegar. */
 .solta {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
