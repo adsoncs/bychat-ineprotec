@@ -757,6 +757,8 @@ export interface EtapaDaJornada {
   bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
   /** Só na análise acadêmica: documentos analisados e o parecer. */
   analise?: AnaliseDaEtapa
+  /** Só no contrato: a escola atualizou o texto e pediu um novo aceite (a etapa segue feita). */
+  novoAceite?: boolean
 }
 export interface ParecerDaAnalise {
   resultado: 'deferido' | 'indeferido'

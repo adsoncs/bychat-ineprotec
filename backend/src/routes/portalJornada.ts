@@ -7,6 +7,7 @@
 import { exibicaoDoPolo } from '../services/exibicaoDoPolo.js'
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { novoAceitePendente } from '../services/novoAceite.js'
 import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
@@ -74,7 +75,10 @@ async function contratoWordDaInscricao(registrationId: number) {
     provedor,
     widget: widgetClicksign,
     menorSemResponsavel: d.menor && !d.responsavel,
-    assinatura: await estadoDaAssinaturaDaInscricao(registrationId),
+    // Novo aceite pedido (services/novoAceite): o envelope assinado é o da versão
+    // anterior — para esta tela, ainda não há assinatura do texto atual.
+    novoAceite: !!(await novoAceitePendente(registrationId)),
+    assinatura: (await novoAceitePendente(registrationId)) ? null : await estadoDaAssinaturaDaInscricao(registrationId),
   }
 }
 
@@ -274,7 +278,10 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
     const c = await contratoDaInscricao(s.enrollmentId)
     if (!c) return reply.code(404).send({ error: 'Escolha o curso na inscrição para gerar o contrato.' })
-    return { contrato: c, word: await contratoWordDaInscricao(s.enrollmentId) }
+    const word = await contratoWordDaInscricao(s.enrollmentId)
+    // Novo aceite pedido: a tela mostra o texto atual para aceitar de novo.
+    if (word?.novoAceite) return { contrato: { ...c, assinado: false, assinadoEm: null, assinadoPor: null }, word }
+    return { contrato: c, word }
   })
 
   // PDF do contrato em Word: o do envelope, quando já existe (congelado), ou
@@ -282,7 +289,12 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   app.get('/api/public/registrations/:code/contrato/pdf', async (req, reply) => {
     const s = sessaoDoCandidato(req, (req.params as any).code)
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
-    const env = await envelopeDaInscricao(s.enrollmentId)
+    // ?envelope=<id>: um documento do histórico (só os desta inscrição).
+    const pedido = Number((req.query as any)?.envelope) || 0
+    const env = pedido
+      ? await prisma.acaAssinatura.findFirst({ where: { id: pedido, registrationId: s.enrollmentId, status: { in: ['ENVIADO', 'PARCIAL', 'ASSINADO'] } } })
+      : (await novoAceitePendente(s.enrollmentId)) ? null : await envelopeDaInscricao(s.enrollmentId)
+    if (pedido && !env) return reply.code(404).send({ error: 'Documento não encontrado' })
     let pdf: Buffer | null = null
     // Assinado: a via assinada do provedor (com a trilha das assinaturas). Se
     // não der para buscar, o documento que foi para assinatura.
@@ -331,7 +343,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       const nome = String((req.body as any)?.nome || '').trim()
       if (nome.length < 5 || !nome.includes(' ')) return reply.code(400).send({ error: 'Escreva seu nome completo para assinar.' })
       // Já aceito: responde sem gravar de novo (o histórico registrava cada clique).
-      if ((await envelopeDaInscricao(s.enrollmentId))?.status === 'ASSINADO') {
+      if ((await envelopeDaInscricao(s.enrollmentId))?.status === 'ASSINADO' && !(await novoAceitePendente(s.enrollmentId))) {
         ;(req as any).semRegistroDaEtapa = true
         return { ok: true, jaAssinado: true }
       }

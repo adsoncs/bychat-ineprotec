@@ -450,18 +450,18 @@ export function vencimentoPrevisto(base: Date, meses: number, dia: number): stri
 export async function contratosDaInscricao(r: Reg): Promise<ContratoDoAluno[]> {
   const envs = await prisma.acaAssinatura.findMany({
     where: { registrationId: r.id, status: { in: ['ENVIADO', 'PARCIAL', 'ASSINADO'] } },
-    orderBy: { id: 'desc' }, select: { id: true, titulo: true, provider: true, status: true, finalizadoEm: true },
+    orderBy: { id: 'desc' }, select: { id: true, titulo: true, provider: true, status: true, finalizadoEm: true, metaJson: true },
   })
   const lista: ContratoDoAluno[] = envs.map((e) => ({
     id: e.id,
-    titulo: tituloParaAluno(e.titulo),
+    // Substituído por um novo aceite (services/novoAceite): fica como histórico.
+    titulo: tituloParaAluno(e.titulo) + ((e.metaJson as any)?.substituidoPor ? ' (versão anterior)' : ''),
     forma: e.provider === 'PRESENCIAL' ? 'papel' : (e.provider === 'AUTENTIQUE' || e.provider === 'CLICKSIGN') ? 'eletronica' : 'aceite',
     situacao: e.status === 'ASSINADO' ? 'assinado' : 'aguardando',
     assinadoEm: e.status === 'ASSINADO' && e.finalizadoEm ? e.finalizadoEm.toISOString() : null,
-    // Só o envelope atual tem PDF pela rota do candidato (o mais recente aberto).
-    temPdf: false,
+    // Cada documento abre pelo próprio id (/contrato/pdf?envelope=…).
+    temPdf: true,
   }))
-  if (lista.length) lista[0].temPdf = true
   // Aceite sem envelope (termo simples do portal): registro do aceite, sem PDF próprio.
   const aceite = r.contratoAceite as any
   if (!lista.length && aceite?.em) {

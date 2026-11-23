@@ -104,6 +104,7 @@ function ContratosDasInscricoes() {
   const itens = q.data?.contratos ?? []
   return (
     <div class="space-y-3">
+      <NovoAceitePendentes />
       <div class="flex items-end gap-2">
         <div class="w-72">
           <Select label="Portal" value={portalId} onChange={(e: any) => setPortalId(e.currentTarget.value)}>
@@ -134,5 +135,34 @@ function ContratosDasInscricoes() {
         </Card>
       )}
     </div>
+  )
+}
+
+/** Pedidos de novo aceite em aberto (ficha da inscrição › Contrato › "Pedir novo aceite"). */
+function NovoAceitePendentes() {
+  const [, navigate] = useLocation()
+  const q = useQuery({
+    queryKey: ['novo-aceite'],
+    queryFn: () => api.get<{ pendentes: Array<{ registrationId: number; portalId: number; codigo: string; aluno: string | null; portal: string | null; pedido: { pedidoEm: string; motivo: string; porNome: string } }> }>(`${BASE_CONTRATOS_PORTAL}/novo-aceite`),
+    staleTime: 15_000,
+  })
+  const itens = q.data?.pendentes ?? []
+  if (!itens.length) return null
+  return (
+    <Card class="p-0 overflow-hidden">
+      <div class="px-4 py-2 text-xs uppercase tracking-wider text-fg-muted flex items-center gap-1.5 border-b border-border">
+        <AlertTriangle size={12} /> Aguardando novo aceite do aluno ({itens.length})
+      </div>
+      <div class="divide-y divide-border">
+        {itens.map((i) => (
+          <button key={i.registrationId} class="w-full px-4 py-2 flex flex-wrap items-center gap-3 text-sm text-left hover:bg-surface-2"
+            onClick={() => navigate(`/enrollment-portals/${i.portalId}/registrations/${i.registrationId}`)}>
+            <span class="flex-1 min-w-[14rem] truncate">{i.aluno ?? 'Sem nome'} <span class="text-fg-muted font-mono text-xs">{i.codigo}</span></span>
+            <span class="text-xs text-fg-muted truncate">{[i.portal, `pedido em ${new Date(i.pedido.pedidoEm).toLocaleDateString('pt-BR')}`, i.pedido.porNome].filter(Boolean).join(' · ')}</span>
+            <Badge tone="warning">Pendente</Badge>
+          </button>
+        ))}
+      </div>
+    </Card>
   )
 }

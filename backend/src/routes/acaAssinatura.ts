@@ -270,6 +270,41 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
       })(),
       assinatura: await estadoDaAssinaturaDaInscricao(regId),
       aceite: aceite?.em ? { em: aceite.em, nome: aceite.nome ?? null, via: aceite.via ?? 'TERMO', ip: aceite.ip || null } : null,
+      // Novo aceite (services/novoAceite): pedido em aberto e o que já foi atendido/cancelado.
+      novoAceite: await (await import('../services/novoAceite.js')).situacaoDoNovoAceite(regId),
+    }
+  })
+
+  // Novo aceite do texto atualizado: a secretaria pede, o aluno aceita no Meu Portal.
+  app.post(`${base}/inscricao/:regId/novo-aceite`, { preHandler: guardTela('login') }, async (req, reply) => {
+    const u = (req as any).user as { userId: number; name?: string }
+    const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
+    const { pedirNovoAceite } = await import('../services/novoAceite.js')
+    const r = await pedirNovoAceite(Number((req.params as any).regId), {
+      motivo: String((req.body as any)?.motivo ?? ''), porUserId: u.userId, porNome: usuario?.name || u.name || '',
+    })
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+  app.delete(`${base}/inscricao/:regId/novo-aceite`, { preHandler: guardTela('login') }, async (req, reply) => {
+    const u = (req as any).user as { userId: number; name?: string }
+    const usuario = await prisma.user.findUnique({ where: { id: u.userId }, select: { name: true } })
+    const { cancelarNovoAceite } = await import('../services/novoAceite.js')
+    const r = await cancelarNovoAceite(Number((req.params as any).regId), usuario?.name || u.name || '')
+    if (!r.ok) return reply.code(r.status).send({ error: r.erro })
+    return { ok: true }
+  })
+  // Acompanhamento: quem ainda não aceitou de novo.
+  app.get(`${base}/novo-aceite`, { preHandler: guardTela('login') }, async () => {
+    const regs = await prisma.$queryRaw<Array<{ id: number }>>`SELECT id FROM bychat_enrollment_registrations WHERE JSON_EXTRACT(formData, '$._novoAceite') IS NOT NULL ORDER BY id DESC LIMIT 500`
+    const linhas = regs.length ? await prisma.enrollmentRegistration.findMany({
+      where: { id: { in: regs.map((r) => r.id) } }, orderBy: { id: 'desc' },
+      select: { id: true, candidateCode: true, portalId: true, formData: true, lead: { select: { nome: true } }, portal: { select: { nome: true } } },
+    }) : []
+    const { pedidoDeNovoAceite } = await import('../services/novoAceite.js')
+    return {
+      pendentes: linhas.map((r) => ({ registrationId: r.id, portalId: r.portalId, codigo: r.candidateCode, aluno: r.lead?.nome ?? null, portal: r.portal?.nome ?? null, pedido: pedidoDeNovoAceite(r.formData) }))
+        .filter((x) => x.pedido),
     }
   })
 

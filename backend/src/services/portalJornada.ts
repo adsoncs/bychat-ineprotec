@@ -229,6 +229,8 @@ export type SituacaoEtapa = 'feito' | 'pendente' | 'aguardando'
 export interface EtapaDaInscricao {
   /** A equipe dispensou esta etapa na matrícula interna. */
   dispensada?: boolean
+  /** Só no contrato: a secretaria pediu um novo aceite do texto atualizado (a etapa segue feita). */
+  novoAceite?: boolean
   chave: ChaveEtapa
   titulo: string
   situacao: SituacaoEtapa
@@ -513,10 +515,16 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       const aceite = (reg.contratoAceite ?? null) as any
       const erp = matricula?.contrato?.aceiteEm ?? null
       const assinado = !!erp || !!aceite?.em
+      // Novo aceite pedido pela secretaria (services/novoAceite): a etapa SEGUE
+      // feita — funil, tarefas e AVA não voltam atrás —, só avisa o aluno.
+      const { pedidoDeNovoAceite } = await import('./novoAceite.js')
+      const novoAceite = assinado && !!pedidoDeNovoAceite(reg.formData)
       etapas.push({
         chave: 'contrato', titulo: ROTULO.contrato, obrigatoria: e.obrigatoria,
         situacao: assinado ? 'feito' : 'pendente',
-        detalhe: assinado ? `Assinado em ${new Date(erp ?? aceite.em).toLocaleDateString('pt-BR')}` : 'Falta ler e assinar',
+        detalhe: novoAceite ? 'Termo atualizado — leia e aceite a nova versão'
+          : assinado ? `Assinado em ${new Date(erp ?? aceite.em).toLocaleDateString('pt-BR')}` : 'Falta ler e assinar',
+        ...(novoAceite ? { novoAceite: true } : {}),
       })
     } else if (e.chave === 'prova') {
       if (sp?.entryMode?.evaluationType !== 'exam_online') continue

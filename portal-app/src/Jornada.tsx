@@ -40,6 +40,8 @@ export function Jornada(props: {
   /** Slug do portal (link "escolher outra forma de ingresso" da análise indeferida). */
   portalSlug?: string | null
   aoConcluirTudo?: () => void
+  /** Chamado depois de cada recarga provocada por uma ação na etapa (ex.: o novo aceite). */
+  aoAtualizar?: () => void
   /** Avisa as etapas a cada carga (a conclusão monta a trilha e o resumo com elas). */
   aoCarregar?: (etapas: EtapaDaJornada[]) => void
 }) {
@@ -65,6 +67,7 @@ export function Jornada(props: {
       const j = await carregarJornada(props.codigo, props.token, props.contexto)
       setEtapas(j.etapas)
       if (j.portal?.slug) setSlug(j.portal.slug)
+      props.aoAtualizar?.()
     } catch (e: any) { setFalha(e.message) }
   }
   useEffect(() => { if (!props.etapas) void recarregar() }, [props.codigo, props.token])
@@ -101,7 +104,7 @@ export function Jornada(props: {
     : null
   // Na inscrição, o link pode apontar para etapa travada ou já concluída: aí vale a da vez.
   const alvoDoLink = etapas.find((e) => e.chave === aberta)
-  const abertaValida = props.contexto === 'inscricao' && (!alvoDoLink || alvoDoLink.bloqueada || alvoDoLink.situacao === 'feito') ? null : aberta
+  const abertaValida = props.contexto === 'inscricao' && (!alvoDoLink || alvoDoLink.bloqueada || (alvoDoLink.situacao === 'feito' && !alvoDoLink.novoAceite)) ? null : aberta
   const tudoFeito = tudoPronto
   // "Concluída" é só o que terminou; em análise ainda não conta.
   const concluidas = etapas.filter((e) => e.situacao === 'feito').length
@@ -162,13 +165,13 @@ export function Jornada(props: {
                   <b class="etapa-titulo"><IconeDaEtapa chave={e.chave} />{tx(`etapas.nome.${e.chave}`, e.titulo)}</b>
                   <span class="sub">{travada ? e.bloqueada!.motivo : e.detalhe}</span>
                 </div>
-                <span class={`etapa-status ${travada ? 'travada' : e.situacao} ${!travada && temRecusa(e) ? 'alerta' : ''}`}>{travada ? SITUACAO.travada : temRecusa(e) ? tx('etapas.corrigir', 'Corrigir') : SITUACAO[e.situacao]}</span>
+                <span class={`etapa-status ${travada ? 'travada' : e.novoAceite ? 'pendente' : e.situacao} ${!travada && temRecusa(e) ? 'alerta' : ''}`}>{travada ? SITUACAO.travada : e.novoAceite ? tx('etapas.novoAceite', 'Termo atualizado') : temRecusa(e) ? tx('etapas.corrigir', 'Corrigir') : SITUACAO[e.situacao]}</span>
                 {/* Concluída também abre quando há o que consultar: contrato assinado
                     (PDF) e documentos enviados — como o boleto mostra a cobrança. */}
                 {!expandida && !travada
-                  && (e.situacao !== 'feito' || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
+                  && (e.situacao !== 'feito' || e.novoAceite || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
                   <button class="link etapa-acao" type="button" onClick={() => setAberta(e.chave)}>
-                    {e.situacao === 'pendente' ? tx('etapas.fazerAgora', 'Fazer agora') : tx('etapas.ver', 'Ver')}
+                    {e.novoAceite ? tx('etapas.lerEAceitar', 'Ler e aceitar') : e.situacao === 'pendente' ? tx('etapas.fazerAgora', 'Fazer agora') : tx('etapas.ver', 'Ver')}
                   </button>
                 )}
                 {expandida && (

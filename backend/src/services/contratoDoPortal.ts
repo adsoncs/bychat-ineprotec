@@ -597,7 +597,11 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
  */
 export async function aceitarContratoNoPortal(registrationId: number, nome: string, ip?: string | null): Promise<Resultado> {
   const atual = await envelopeDaInscricao(registrationId)
-  if (atual?.status === 'ASSINADO') return { ok: true, assinatura: estado(atual) }
+  // Novo aceite pedido pela secretaria (services/novoAceite): o aceite anterior
+  // não encerra — o aluno aceita o texto atual e nasce um envelope novo.
+  const { novoAceitePendente, concluirNovoAceite } = await import('./novoAceite.js')
+  const novoAceite = atual?.status === 'ASSINADO' ? await novoAceitePendente(registrationId) : null
+  if (atual?.status === 'ASSINADO' && !novoAceite) return { ok: true, assinatura: estado(atual) }
   const r = await pdfDoContratoDaInscricao(registrationId)
   if (!r) return { ok: false, erro: 'Não há contrato configurado para este curso.' }
   const svc = await import('./acaAssinatura.js')
@@ -613,6 +617,7 @@ export async function aceitarContratoNoPortal(registrationId: number, nome: stri
   const integridade = { sha256Documento: await sha256(r.pdf), sha256Arquivo: await sha256(final), em: new Date().toISOString() }
   await prisma.acaAssinatura.update({ where: { id: env.id }, data: { provider: 'PORTAL', status: 'ENVIADO', enviadoEm: new Date(), metaJson: { ...((env as any).metaJson ?? {}), integridade } as any } })
   for (const s of env.signatarios) await svc.simularAssinatura(env.id, s.id)
+  if (novoAceite) await concluirNovoAceite(registrationId, env.id, { nome, ip: ip ?? null })
   const fim = await envelopeDaInscricao(registrationId)
   return { ok: true, assinatura: estado(fim!) }
 }

@@ -114,8 +114,12 @@ export function AreaDoAluno(props: {
   // contrato pendente é a etapa da jornada — e precisa aparecer no cartão e na aba.
   const etapaContrato = etapasAbertas.find((e) => e.chave === 'contrato') ?? null
   const contratoPendente = !!etapaContrato && !area.contratos.some((c) => c.situacao === 'assinado')
+  // Novo aceite pedido pela escola (termo atualizado): a etapa segue feita, mas
+  // o texto novo espera o aceite — aviso no Início, no cartão e na aba.
+  const etapaNovoAceite = props.jornada && props.jornada.inscricao.candidateCode === area.inscricao.codigo
+    ? props.jornada.etapas.find((e) => e.chave === 'contrato' && e.novoAceite) ?? null : null
   const primeiro = props.nome.trim().split(/\s+/)[0] || ''
-  const alertas = { financeiro: area.financeiro.vencidas > 0, documentos: docs.recusados > 0 || docs.faltam > 0 }
+  const alertas = { financeiro: area.financeiro.vencidas > 0, documentos: docs.recusados > 0 || docs.faltam > 0, contratos: !!etapaNovoAceite }
 
   return (
     <div class="ada">
@@ -153,6 +157,12 @@ export function AreaDoAluno(props: {
         <section class="ada-secao" aria-label="Início">
           {/* Restante liberado pela secretaria: logo na entrada, não só na aba Financeiro. */}
           {area.restante && <CartaoRestante r={area.restante} codigo={area.inscricao.codigo} />}
+          {etapaNovoAceite && (
+            <div class="aviso info" role="status">
+              <b>Atualizamos o seu termo de matrícula.</b> Leia a nova versão e confirme o seu aceite — leva menos de um minuto e não muda o acesso ao seu curso.{' '}
+              <button type="button" class="link" onClick={() => ir('contratos')}>Ler e aceitar</button>
+            </div>
+          )}
           <div class="ada-resumos">
             <CartaoResumo icone="financeiro" titulo="Financeiro" tom={area.financeiro.vencidas ? 'erro' : area.financeiro.proxima ? 'pendente' : 'ok'}
               valor={area.financeiro.proxima ? reais(area.financeiro.proxima.valor) : area.financeiro.faturas.length ? 'Em dia' : 'Sem faturas'}
@@ -164,10 +174,15 @@ export function AreaDoAluno(props: {
               valor={docs.total ? `${docs.aprovados} de ${docs.total}` : '—'}
               legenda={docs.recusados ? `${docs.recusados} recusado(s) — reenvie` : docs.faltam ? `${docs.faltam} a enviar` : docs.emAnalise ? `${docs.emAnalise} em análise` : docs.total ? 'Todos aprovados' : 'Nenhum exigido'}
               acao="Ver documentos" aoClicar={() => ir('documentos')} />
+            {etapaNovoAceite ? (
+              <CartaoResumo icone="contratos" titulo="Contrato" tom="pendente" valor="Atualizado"
+                legenda="Leia e aceite a nova versão" acao="Ler e aceitar" aoClicar={() => ir('contratos')} />
+            ) : (
             <CartaoResumo icone="contratos" titulo="Contrato" tom={area.contratos.some((c) => c.situacao === 'assinado') ? 'ok' : (area.contratos.length || contratoPendente) ? 'pendente' : 'neutro'}
               valor={area.contratos.some((c) => c.situacao === 'assinado') ? 'Assinado' : (area.contratos.length || contratoPendente) ? 'Aguardando' : '—'}
               legenda={(() => { const c = area.contratos.find((x) => x.situacao === 'assinado'); return c ? `em ${dia(c.assinadoEm)}` : (area.contratos.length || contratoPendente) ? 'Falta a sua assinatura' : 'Ainda não emitido' })()}
               acao={contratoPendente ? 'Assinar contrato' : 'Ver contrato'} aoClicar={() => ir('contratos')} />
+            )}
             <CartaoResumo icone="ava" titulo="AVA" tom="neutro" valor={area.ava.disponivel ? 'Disponível' : area.ava.suspenso ? 'Suspenso' : 'Em breve'}
               legenda={area.ava.disponivel ? 'Suas aulas e materiais' : 'Acesso às aulas por aqui'}
               acao={area.ava.disponivel && area.ava.url ? 'Acessar meu curso' : 'Saiba mais'}
@@ -234,6 +249,10 @@ export function AreaDoAluno(props: {
             {contratoPendente && props.jornada && (
               <Jornada codigo={props.jornada.inscricao.candidateCode} token={props.jornada.token} contexto="painel" etapas={[etapaContrato!]} portalSlug={props.jornada.portal?.slug}
                 aoConcluirTudo={props.aoRecarregar} />
+            )}
+            {etapaNovoAceite && props.jornada && (
+              <Jornada codigo={props.jornada.inscricao.candidateCode} token={props.jornada.token} contexto="painel" etapas={[etapaNovoAceite]} portalSlug={props.jornada.portal?.slug}
+                aoAtualizar={props.aoRecarregar} />
             )}
             {contratoPendente ? null : area.contratos.length === 0
               ? <p class="ada-vazio">O contrato aparece aqui assim que for emitido para você.</p>
@@ -504,7 +523,7 @@ function LinhaDeContrato({ c, codigo, token }: { c: Contrato; codigo: string; to
     const janela = window.open('', '_blank')
     setAbrindo(true); setErro(null)
     try {
-      const r = await fetch(`/api/public/registrations/${encodeURIComponent(codigo)}/contrato/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch(`/api/public/registrations/${encodeURIComponent(codigo)}/contrato/pdf${c.id > 0 ? `?envelope=${c.id}` : ''}`, { headers: { Authorization: `Bearer ${token}` } })
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Não foi possível abrir o documento.')
       const url = URL.createObjectURL(await r.blob())
       if (janela) janela.location.href = url; else location.href = url
