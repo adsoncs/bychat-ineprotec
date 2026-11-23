@@ -5195,6 +5195,9 @@ model EnrollmentDocument {
   versoFileName  String? @db.VarChar(191)
   versoMimeType  String? @db.VarChar(50)
   versoSizeBytes Int?
+  // Revisão por lado (só com verso): { frente: {status, nota, por, em}, verso: {...} }.
+  // O `status` abaixo é o geral: aprovado só com os dois lados aprovados.
+  lados          Json?   @db.Json
 
   // Status final da review (decisão humana, final).
   // pending | approved | rejected

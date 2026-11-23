@@ -273,6 +273,8 @@ export interface DocumentoEnviado {
   status: string
   reviewNote?: string | null
   uploadedAt: string
+  /** Frente e verso: a revisão de cada face (null = arquivo único). */
+  lados?: { frente: { status: string; nota: string | null }; verso: { status: string; nota: string | null } } | null
 }
 
 export interface Candidato {
@@ -289,7 +291,7 @@ const comToken = (token?: string): RequestInit => (token ? { headers: { Authoriz
 export const carregarCandidato = (token?: string) => pedir<Candidato>('/api/candidate/me', comToken(token))
 
 /** Envio do arquivo. Multipart porque o backend valida os bytes, não só o nome. */
-export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string, verso?: File | null): Promise<void> {
+export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string, verso?: File | null, reenviar?: 'frente' | 'verso'): Promise<void> {
   // No Android, o arquivo escolhido direto do Google Drive, de um anexo do
   // WhatsApp ou movido depois da escolha às vezes não pode ser lido: o envio
   // falhava antes de sair do aparelho e a pessoa via só "Failed to fetch"
@@ -307,6 +309,8 @@ export async function enviarDocumento(typeCode: string, label: string, arquivo: 
   if (verso) fd.append('verso', verso, verso.name)
   fd.append('typeCode', typeCode)
   fd.append('label', label)
+  // Só uma face recusada (a outra aprovada): o arquivo é a face que volta.
+  if (reenviar) fd.append('reenviar', reenviar)
   let r: Response
   try {
     r = await fetch('/api/candidate/documents', { method: 'POST', body: fd, credentials: 'same-origin', ...comToken(token) })

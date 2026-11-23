@@ -219,7 +219,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
           select: {
             id: true, typeCode: true, typeId: true, label: true,
             fileName: true, mimeType: true, sizeBytes: true, versoFileName: true,
-            status: true, reviewNote: true, uploadedAt: true, reviewedAt: true,
+            status: true, reviewNote: true, uploadedAt: true, reviewedAt: true, lados: true,
             aiStatus: true, aiSuggestion: true, aiConfidence: true,
             type: { select: { code: true, name: true, category: true } },
           },
@@ -300,7 +300,11 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       lead: enrollment.lead,
       portal: portalSanitized,
       processRegistration,
-      documents: enrollment.documents,
+      // Frente e verso: a situação de cada face, para pedir só a recusada.
+      documents: await (async () => {
+        const { ladosDoDocumento } = await import('../services/documentoLados.js')
+        return enrollment.documents.map((d: any) => ({ ...d, lados: ladosDoDocumento({ ...d, versoFileUrl: d.versoFileName ? 'verso' : null }) }))
+      })(),
       enemScoreImports: enrollment.enemScoreImports,
       paymentMethods: (enrollment as any).paymentMethods || [],
       timeline,
@@ -375,11 +379,37 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       if (String(err?.code || '').includes('FILE_TOO_LARGE')) return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' })
       throw err
     }
-    // Só o verso não basta: a frente é o documento.
-    if (!frente) { await descartar(); return reply.code(400).send({ error: verso ? 'Envie também a frente do documento.' : 'Nenhum arquivo enviado' }) }
-    const principal: Salvo = frente
+    // Reenvio de uma face só (frente e verso com a outra face já aprovada —
+    // services/documentoLados): o arquivo que chegou é a face recusada.
+    const reenviar: 'frente' | 'verso' | null = fields.reenviar === 'frente' || fields.reenviar === 'verso' ? fields.reenviar : null
+    if (reenviar) {
+      const unico = reenviar === 'verso' ? (verso ?? frente) : (frente ?? verso)
+      if (!unico || (frente && verso)) { await descartar(); return reply.code(400).send({ error: `Envie só o ${reenviar === 'verso' ? 'verso' : 'a frente'} do documento.` }) }
+      if (reenviar === 'verso') { verso = unico; frente = null } else { frente = unico; verso = null }
+    } else if (!frente) {
+      // Só o verso não basta: a frente é o documento.
+      await descartar(); return reply.code(400).send({ error: verso ? 'Envie também a frente do documento.' : 'Nenhum arquivo enviado' })
+    }
 
     const typeCode = String(fields.type || fields.typeCode || 'other').substring(0, 30)
+    // A face aprovada vem do último envio deste tipo.
+    let faceAprovada: { lados: any; frente?: { fileUrl: string; fileName: string; mimeType: string; sizeBytes: number }; verso?: { versoFileUrl: string; versoFileName: string | null; versoMimeType: string | null; versoSizeBytes: number | null } } | null = null
+    if (reenviar) {
+      const anterior = await prisma.enrollmentDocument.findFirst({ where: { registrationId: s.enrollmentId, typeCode, versoFileUrl: { not: null } }, orderBy: { uploadedAt: 'desc' } })
+      const { ladosDoDocumento } = await import('../services/documentoLados.js')
+      const l = anterior ? ladosDoDocumento(anterior) : null
+      const outro = reenviar === 'verso' ? 'frente' : 'verso'
+      if (!anterior || !l || l[outro].status !== 'approved') {
+        await descartar()
+        return reply.code(400).send({ error: `${outro === 'frente' ? 'A frente' : 'O verso'} ainda não foi aprovado — envie frente e verso.` })
+      }
+      faceAprovada = {
+        lados: { [outro]: l[outro], [reenviar]: { status: 'pending', nota: null, por: null, em: null } },
+        ...(outro === 'frente'
+          ? { frente: { fileUrl: anterior.fileUrl, fileName: anterior.fileName, mimeType: anterior.mimeType, sizeBytes: anterior.sizeBytes } }
+          : { verso: { versoFileUrl: anterior.versoFileUrl!, versoFileName: anterior.versoFileName, versoMimeType: anterior.versoMimeType, versoSizeBytes: anterior.versoSizeBytes } }),
+      }
+    }
     if (!(req as any).atendente?.interno) {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDoDocumento(s.enrollmentId, typeCode, s.onde)
       if (trava) {
@@ -387,7 +417,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: trava, travada: true })
       }
     }
-    const label = String(fields.label || principal.filename || 'Documento').substring(0, 100)
+    const label = String(fields.label || (frente ?? verso)?.filename || 'Documento').substring(0, 100)
 
     // Resolve FK opcional para DocumentType via code (pode ser null se tipo livre).
     const docType = await prisma.documentType.findUnique({ where: { code: typeCode } }).catch(() => null)
@@ -400,10 +430,14 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       data: {
         registrationId: s.enrollmentId,
         typeCode, typeId, label,
-        fileUrl: `${appUrl}/uploads/enrollment-docs/${principal.savedName}`,
-        fileName: principal.filename.substring(0, 191),
-        mimeType: principal.mimetype.substring(0, 50),
-        sizeBytes: principal.total,
+        ...(frente ? {
+          fileUrl: `${appUrl}/uploads/enrollment-docs/${(frente as Salvo).savedName}`,
+          fileName: (frente as Salvo).filename.substring(0, 191),
+          mimeType: (frente as Salvo).mimetype.substring(0, 50),
+          sizeBytes: (frente as Salvo).total,
+        } : faceAprovada!.frente!),
+        ...(faceAprovada?.verso ?? {}),
+        ...(faceAprovada ? { lados: faceAprovada.lados } : {}),
         ...(verso ? {
           versoFileUrl: `${appUrl}/uploads/enrollment-docs/${(verso as Salvo).savedName}`,
           versoFileName: (verso as Salvo).filename.substring(0, 191),
@@ -439,9 +473,13 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     if (doc.status === 'approved') return reply.code(400).send({ error: 'Documento aprovado não pode ser removido' })
 
     await prisma.enrollmentDocument.delete({ where: { id: doc.id } })
-    // Remove arquivo físico (fire-and-forget)
+    // Remove arquivo físico (fire-and-forget) — menos o que outro documento ainda
+    // usa: o reenvio de uma face só reaproveita o arquivo da face aprovada.
     for (const url of [doc.fileUrl, doc.versoFileUrl]) {
-      const savedName = url?.split('?')[0]?.split('/').pop()
+      if (!url) continue
+      const emUso = await prisma.enrollmentDocument.count({ where: { OR: [{ fileUrl: url }, { versoFileUrl: url }] } })
+      if (emUso > 0) continue
+      const savedName = url.split('?')[0]?.split('/').pop()
       if (savedName) fs.unlink(join(process.cwd(), '..', 'uploads', 'enrollment-docs', savedName)).catch(() => {})
     }
     ;(await import('../services/funilDaJornada.js')).sincronizarFunil(s.enrollmentId)
@@ -570,23 +608,35 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     }
 
     // Documento substituído pelo candidato (ou id errado): 404 claro, não 500.
-    const existe = await prisma.enrollmentDocument.findUnique({ where: { id: parseInt(id) || -1 }, select: { id: true } })
+    const existe = await prisma.enrollmentDocument.findUnique({ where: { id: parseInt(id) || -1 } })
     if (!existe) return reply.code(404).send({ error: 'Documento não encontrado — o candidato pode ter enviado outro no lugar.' })
 
+    // Frente e verso: `lado` revisa uma face só (services/documentoLados); sem
+    // ele, as duas. O status geral sai das faces.
+    const lado = body.lado === 'frente' || body.lado === 'verso' ? body.lado : null
+    if (lado && !existe.versoFileUrl) return reply.code(400).send({ error: 'Este documento foi enviado em um arquivo só — revise o documento inteiro.' })
+    const { revisar } = await import('../services/documentoLados.js')
+    const r = revisar(existe, { lado, status, nota: body.reviewNote?.trim() || null, por: user.userId })
     const doc = await prisma.enrollmentDocument.update({
-      where: { id: parseInt(id) },
-      data: { status, reviewNote: body.reviewNote || null, reviewedBy: user.userId, reviewedAt: new Date() },
+      where: { id: existe.id },
+      data: {
+        status: r.status, reviewNote: r.reviewNote, reviewedBy: user.userId, reviewedAt: new Date(),
+        ...(r.lados ? { lados: r.lados as any } : {}),
+      },
     })
 
     // Emite domain event (consumido pelo workflowEngine — workflows seedados
-    // tratam o envio das notificações via templates editáveis).
-    import('../services/enrollmentNotify.js')
-      .then(m => status === 'rejected' ? m.sendDocumentRejectionNotice(doc.id) : m.sendDocumentApprovalNotice(doc.id))
-      .catch(err => req.log.warn(`[doc-review] notification failed: ${err.message}`))
+    // tratam o envio das notificações via templates editáveis). Face aprovada
+    // com a outra ainda pendente não avisa ninguém: o documento não terminou.
+    if (doc.status === 'rejected' || (doc.status === 'approved' && existe.status !== 'approved')) {
+      import('../services/enrollmentNotify.js')
+        .then(m => doc.status === 'rejected' ? m.sendDocumentRejectionNotice(doc.id) : m.sendDocumentApprovalNotice(doc.id))
+        .catch(err => req.log.warn(`[doc-review] notification failed: ${err.message}`))
+    }
 
     // Se foi aprovação, checa se a inscrição ficou completa (todos os obrigatórios
     // approved) — e move o lead pra etapa configurada no portal, se houver.
-    if (status === 'approved' && doc.registrationId) {
+    if (doc.status === 'approved' && doc.registrationId) {
       import('./enrollmentDocReview.js')
         .then(m => m.tryAutoAdvanceOnDocsComplete(doc.registrationId, user.userId))
         .catch(err => req.log.warn(`[doc-review] auto-advance failed: ${err.message}`))

@@ -1290,7 +1290,9 @@ function SlotRow({ slot, registrationId, podeOperar }: { slot: DocumentSlot; reg
       {doc && <DocBody doc={doc} registrationId={registrationId} />}
       {!doc && !slot.dispensa && (
         <div class="ml-11 mt-2 text-2xs text-fg-muted">
-          Ainda não enviado. A equipe pode anexar aqui, e o aluno, pela tela dele.
+          {podeOperar && dt?.code
+            ? 'Ainda não enviado. Anexe pelo botão abaixo, ou o aluno envia pela tela dele.'
+            : 'Ainda não enviado. O aluno envia pela tela dele (inscrição encerrada ou sem permissão para anexar por aqui).'}
         </div>
       )}
       {podeOperar && dt?.code && (
@@ -1365,9 +1367,15 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
   const review = useReviewDocument(registrationId)
   const renotify = useRenotifyDocument(registrationId)
   const reanalyze = useReanalyzeDocument(registrationId)
-  const [rejecting, setRejecting] = useState(false)
+  // false = fechado; 'ambos' = o documento inteiro; 'frente'/'verso' = uma face.
+  const [rejecting, setRejecting] = useState<false | 'ambos' | 'frente' | 'verso'>(false)
+  const lados = doc.lados ?? null
 
   const sizeKb = doc.sizeBytes ? Math.round(doc.sizeBytes / 1024) : null
+  const aprovar = (lado: 'frente' | 'verso' | null) => review.mutate({ docId: doc.id, status: 'approved', lado }, {
+    onSuccess: () => toast(lado ? `${lado === 'frente' ? 'Frente aprovada' : 'Verso aprovado'}` : 'Documento aprovado', 'success'),
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
 
   return (
     <div class="ml-11 mt-2 space-y-2">
@@ -1379,7 +1387,30 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
 
       {doc.aiSuggestion && <AiSummary doc={doc} />}
 
-      {doc.status === 'rejected' && doc.reviewNote && (
+      {lados && (
+        <div class="grid gap-1.5 sm:grid-cols-2">
+          {(['frente', 'verso'] as const).map((k) => {
+            const l = lados[k]
+            const url = k === 'frente' ? doc.fileUrl : doc.versoFileUrl
+            return (
+              <div key={k} class={`rounded-md border p-2 text-2xs space-y-1.5 ${l.status === 'rejected' ? 'border-danger/40 bg-danger/5' : l.status === 'approved' ? 'border-success/40 bg-success/5' : 'border-border'}`}>
+                <div class="flex items-center gap-2">
+                  <strong class="text-xs text-fg">{k === 'frente' ? 'Frente' : 'Verso'}</strong>
+                  <Badge tone={l.status === 'approved' ? 'success' : l.status === 'rejected' ? 'danger' : 'warning'}>{l.status === 'approved' ? 'Aprovada' : l.status === 'rejected' ? 'Recusada' : 'Aguardando'}</Badge>
+                </div>
+                {l.status === 'rejected' && l.nota && <div class="text-danger">Motivo: {l.nota}</div>}
+                <div class="flex flex-wrap gap-1">
+                  {url && <a href={url} target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border bg-surface-2 text-fg hover:bg-surface-3"><Eye size={11} /> Ver {k} <ExternalLink size={9} /></a>}
+                  {l.status !== 'approved' && <Button size="sm" variant="primary" disabled={review.isPending} onClick={() => aprovar(k)}><CheckCircle size={11} /> Aprovar {k}</Button>}
+                  {l.status !== 'rejected' && <Button size="sm" variant="secondary" disabled={review.isPending} onClick={() => setRejecting(k)}><XCircle size={11} /> Recusar {k}</Button>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {doc.status === 'rejected' && doc.reviewNote && !lados && (
         <div class="text-2xs text-danger">
           <strong>Motivo da rejeição:</strong> {doc.reviewNote}
         </div>
@@ -1394,7 +1425,7 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
         {/* Abrir o arquivo é o primeiro passo da análise: botão em destaque
             (laranja enquanto aguarda análise), não um link miúdo no meio das
             informações do arquivo — o time bate o olho e sabe o que falta ver. */}
-        {doc.fileUrl && (
+        {doc.fileUrl && !lados && (
           <a
             href={doc.fileUrl}
             target="_blank"
@@ -1406,7 +1437,7 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
             <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} {doc.versoFileUrl ? 'frente' : 'documento'} <ExternalLink size={10} />
           </a>
         )}
-        {doc.versoFileUrl && (
+        {doc.versoFileUrl && !lados && (
           <a
             href={doc.versoFileUrl}
             target="_blank"
@@ -1419,22 +1450,12 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
           </a>
         )}
         {doc.status !== 'approved' && (
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              review.mutate({ docId: doc.id, status: 'approved' }, {
-                onSuccess: () => toast('Documento aprovado', 'success'),
-                onError: (e: unknown) => toast((e as Error).message, 'danger'),
-              })
-            }}
-            disabled={review.isPending}
-          >
-            <CheckCircle size={11} /> Aprovar
+          <Button size="sm" variant={lados ? 'secondary' : 'primary'} onClick={() => aprovar(null)} disabled={review.isPending}>
+            <CheckCircle size={11} /> {lados ? 'Aprovar os dois lados' : 'Aprovar'}
           </Button>
         )}
-        {doc.status !== 'rejected' && (
-          <Button size="sm" variant="secondary" onClick={() => setRejecting(true)}>
+        {doc.status !== 'rejected' && !lados && (
+          <Button size="sm" variant="secondary" onClick={() => setRejecting('ambos')}>
             <XCircle size={11} /> Rejeitar
           </Button>
         )}
@@ -1474,10 +1495,12 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
 
       {rejecting && (
         <RejectModal
+          titulo={rejecting === 'frente' ? 'Recusar a frente' : rejecting === 'verso' ? 'Recusar o verso' : 'Rejeitar documento'}
           onClose={() => setRejecting(false)}
           onSubmit={(note) => {
-            review.mutate({ docId: doc.id, status: 'rejected', reviewNote: note }, {
-              onSuccess: () => { toast('Documento rejeitado', 'success'); setRejecting(false) },
+            const lado = rejecting === 'frente' || rejecting === 'verso' ? rejecting : null
+            review.mutate({ docId: doc.id, status: 'rejected', reviewNote: note, lado }, {
+              onSuccess: () => { toast(lado ? `${lado === 'frente' ? 'Frente recusada' : 'Verso recusado'} — o aluno reenvia só ${lado === 'frente' ? 'a frente' : 'o verso'}` : 'Documento rejeitado', 'success'); setRejecting(false) },
               onError: (e: unknown) => toast((e as Error).message, 'danger'),
             })
           }}
@@ -1510,15 +1533,15 @@ function AiSummary({ doc }: { doc: EnrollmentDocument }) {
 }
 
 function RejectModal({
-  onClose, onSubmit, submitting,
-}: { onClose: () => void; onSubmit: (note: string) => void; submitting: boolean }) {
+  onClose, onSubmit, submitting, titulo = 'Rejeitar documento',
+}: { onClose: () => void; onSubmit: (note: string) => void; submitting: boolean; titulo?: string }) {
   const [note, setNote] = useState('')
 
   return (
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title="Rejeitar documento"
+      title={titulo}
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>Cancelar</Button>

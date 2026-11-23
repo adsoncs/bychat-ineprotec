@@ -427,7 +427,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
             versoFileUrl: true, versoFileName: true, versoMimeType: true,
             status: true, reviewNote: true, reviewedAt: true, reviewedBy: true,
             aiStatus: true, aiSuggestion: true, aiConfidence: true, aiAnalysis: true,
-            uploadedAt: true,
+            uploadedAt: true, lados: true,
             type: { select: { id: true, code: true, name: true, category: true, aiAnalysisTemplate: true } },
           },
         },
@@ -491,9 +491,12 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       : []
     const reviewerMap = new Map(reviewers.map(u => [u.id, u.name]))
 
+    const { ladosDoDocumento } = await import('../services/documentoLados.js')
     const enrichDoc = (d: any) => ({
       ...d,
       reviewerName: d.reviewedBy ? (reviewerMap.get(d.reviewedBy) || `User #${d.reviewedBy}`) : null,
+      // Frente e verso: a revisão de cada face (null = arquivo único).
+      lados: ladosDoDocumento(d),
     })
 
     // Status agregado da redação — só relevante quando entryMode usa avaliação por redação.

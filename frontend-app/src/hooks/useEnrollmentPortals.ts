@@ -611,7 +611,12 @@ export type AiSuggestion = 'approve' | 'review' | 'reject' | null
 export type AiStatus = 'pending' | 'analyzing' | 'completed' | 'failed' | null
 export type CompletionStatus = 'pending' | 'rejected' | 'complete'
 
+/** Revisão de uma face do documento frente e verso. */
+export interface RevisaoDoLado { status: 'pending' | 'approved' | 'rejected'; nota: string | null; por: number | null; em: string | null }
+
 export interface EnrollmentDocument {
+  /** Frente e verso: a revisão de cada face (null = arquivo único). */
+  lados?: { frente: RevisaoDoLado; verso: RevisaoDoLado } | null
   id: number
   typeCode: string | null
   label: string | null
@@ -735,10 +740,10 @@ export function useRegistrationReview(id: number | null | undefined) {
 export function useReviewDocument(registrationId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { docId: number; status: 'approved' | 'rejected'; reviewNote?: string | null }) =>
+    mutationFn: (input: { docId: number; status: 'approved' | 'rejected'; reviewNote?: string | null; lado?: 'frente' | 'verso' | null }) =>
       api.put<{ ok: true; document: EnrollmentDocument }>(
         `/admin/enrollment-documents/${input.docId}/review`,
-        { status: input.status, reviewNote: input.reviewNote ?? null },
+        { status: input.status, reviewNote: input.reviewNote ?? null, ...(input.lado ? { lado: input.lado } : {}) },
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['registration-review', registrationId] })

@@ -95,7 +95,7 @@ export function Documentos(props: {
   })
   const faltam = obrigatorios.length - entregues.length
 
-  async function subir(exig: Exigencia, escolhido: File, escolhidoVerso?: File | null) {
+  async function subir(exig: Exigencia, escolhido: File, escolhidoVerso?: File | null, reenviar?: 'frente' | 'verso') {
     const codigo = exig.documentType.code
     setErros((e) => ({ ...e, [codigo]: '' }))
     setEnviando(codigo)
@@ -115,7 +115,7 @@ export function Documentos(props: {
         const depois = r.para + (rv?.para ?? 0)
         setNotas((n) => ({ ...n, [codigo]: `${rv ? 'Fotos reduzidas' : 'Foto reduzida'} de ${tamanho(antes)} para ${tamanho(depois)} antes de enviar.` }))
       }
-      await enviarDocumento(codigo, exig.documentType.name, r.arquivo, props.token, rv?.arquivo ?? null)
+      await enviarDocumento(codigo, exig.documentType.name, r.arquivo, props.token, rv?.arquivo ?? null, reenviar)
       await recarregar()
       props.aoMudar?.()
     } catch (e: any) {
@@ -170,7 +170,7 @@ export function Documentos(props: {
           enviando={enviando === exig.documentType.code}
           erro={erros[exig.documentType.code]}
           nota={notas[exig.documentType.code]}
-          aoEnviar={(a, v) => subir(exig, a, v)}
+          aoEnviar={(a, v, face) => subir(exig, a, v, face)}
           aoRemover={remover}
         />
       ))}
@@ -185,7 +185,7 @@ function ItemDeDocumento(props: {
   enviando: boolean
   erro?: string
   nota?: string
-  aoEnviar: (a: File, verso?: File | null) => void
+  aoEnviar: (a: File, verso?: File | null, reenviar?: 'frente' | 'verso') => void
   aoRemover: (id: number) => void
 }) {
   const { exigencia: e, enviado } = props
@@ -199,6 +199,14 @@ function ItemDeDocumento(props: {
   const recusado = enviado?.status === 'rejected'
   const doisCampos = !!e.frenteVerso && modo === 'separados'
   const nome = e.documentType.name
+  // Frente e verso revisados em separado: se só uma face foi recusada (e a
+  // outra aprovada), o aluno reenvia só ela.
+  const lados = enviado?.lados ?? null
+  const soUmaFace: 'frente' | 'verso' | null = recusado && lados
+    ? (lados.frente.status === 'rejected' && lados.verso.status === 'approved' ? 'frente'
+      : lados.verso.status === 'rejected' && lados.frente.status === 'approved' ? 'verso' : null)
+    : null
+  const ROT: Record<string, string> = { approved: 'aprovada', rejected: 'recusada', pending: 'em análise' }
 
   return (
     <div class="doc">
@@ -223,13 +231,29 @@ function ItemDeDocumento(props: {
         </div>
       )}
 
+      {lados && enviado?.status !== 'approved' && (
+        <div class="doc-ajuda" style="margin-top:6px">
+          Frente: <b>{ROT[lados.frente.status] ?? lados.frente.status}</b> · Verso: <b>{ROT[lados.verso.status] ?? lados.verso.status}</b>
+        </div>
+      )}
+
       {recusado && enviado?.reviewNote && (
         <div class="aviso erro" style="margin:10px 0 0">
           <b>Recusado:</b> {enviado.reviewNote}
         </div>
       )}
 
-      {(!enviado || recusado) && (
+      {soUmaFace && (
+        props.enviando
+          ? <div class="solta"><span role="status">Enviando…</span></div>
+          : <>
+              <span class="doc-ajuda" style="margin-top:8px">{soUmaFace === 'frente' ? 'O verso foi aprovado — envie só a frente de novo.' : 'A frente foi aprovada — envie só o verso de novo.'}</span>
+              <ZonaDeEnvio descricao={`${soUmaFace === 'frente' ? 'Frente' : 'Verso'} do ${nome}`} rotulo={`Enviar ${soUmaFace === 'frente' ? 'a frente' : 'o verso'} de novo`}
+                aoEscolher={(a) => props.aoEnviar(a, null, soUmaFace)} />
+            </>
+      )}
+
+      {(!enviado || recusado) && !soUmaFace && (
         <>
           {e.frenteVerso && (
             <fieldset class="lados-modo">

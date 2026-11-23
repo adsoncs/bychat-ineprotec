@@ -13,6 +13,7 @@
 // Pedido do cliente (ineprotec, 18/11/2026: Maycon, Fundamental + Médio).
 
 import { prisma } from '../lib/prisma.js'
+import { Prisma } from '@prisma/client'
 import { registrarEventoDaInscricao } from './inscricaoAssistida.js'
 
 export interface MembroDoPacote { id: number; codigo: string; curso: string; valorCentavos: number }
@@ -237,7 +238,7 @@ export async function condicaoDoContratoNoPacote(registrationId: number): Promis
 
 const assinaturaDoc = (d: { typeCode: string; fileName: string; sizeBytes: number; versoSizeBytes: number | null }) =>
   `${d.typeCode}|${d.fileName}|${d.sizeBytes}|${d.versoSizeBytes ?? 0}`
-const CAMPOS_DA_REVISAO = ['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'aiStatus', 'aiSuggestion', 'aiConfidence', 'aiAnalysis', 'aiCostUsd', 'aiProcessedAt'] as const
+const CAMPOS_DA_REVISAO = ['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'aiStatus', 'aiSuggestion', 'aiConfidence', 'aiAnalysis', 'aiCostUsd', 'aiProcessedAt', 'lados'] as const
 
 /** Ids das inscrições ativas do pacote desta (vazio = sem pacote). */
 export async function inscricoesDoPacote(registrationId: number): Promise<number[]> {
@@ -277,6 +278,8 @@ export async function sincronizarDocumentosDoPacote(registrationId: number): Pro
       if (!muda) continue
       const data: Record<string, unknown> = {}
       for (const k of CAMPOS_DA_REVISAO) data[k] = (fonte as any)[k] ?? null
+      // Coluna JSON vazia: o Prisma exige DbNull, não null cru.
+      if (data.lados === null) data.lados = Prisma.DbNull
       await prisma.enrollmentDocument.update({ where: { id: d.id }, data: data as any })
       atualizados++
     }
