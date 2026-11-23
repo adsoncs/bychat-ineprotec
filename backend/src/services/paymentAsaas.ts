@@ -225,6 +225,18 @@ export async function cancelarParcelamentoAsaas(config: AsaasConfig, installment
   }
 }
 
+/** Uma página da lista de cobranças (filtros do GET /payments: status, externalReference…). */
+export async function listarCobrancasAsaas(config: AsaasConfig, filtros: Record<string, string | number>): Promise<{ data: any[]; hasMore: boolean }> {
+  const qs = new URLSearchParams(Object.entries(filtros).map(([k, v]) => [k, String(v)])).toString()
+  const d = await asaasFetch(config, `/payments?${qs}`)
+  return { data: Array.isArray(d?.data) ? d.data : [], hasMore: !!d?.hasMore }
+}
+
+/** Cliente do Asaas (nome, CPF) — para cobrança sem inscrição ligada. */
+export async function consultarClienteAsaas(config: AsaasConfig, customerId: string): Promise<{ name?: string; cpfCnpj?: string } | null> {
+  return asaasFetch(config, `/customers/${encodeURIComponent(customerId)}`)
+}
+
 /** A situação atual da cobrança no Asaas. */
 export async function consultarCobrancaAsaas(config: AsaasConfig, paymentId: string): Promise<any> {
   return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)

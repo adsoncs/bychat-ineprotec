@@ -7,6 +7,7 @@ import { guardTela } from '../lib/eduTelas.js'
 import { alcanceDaRequisicao } from '../lib/portalAccess.js'
 import type { JwtPayload } from '../lib/auth.js'
 import * as I from '../services/inadimplencia.js'
+import { excluirSobras, listarSobras } from '../services/cobrancasSobrando.js'
 import { getEncargosConfig, setEncargosConfig } from '../services/acaEncargos.js'
 
 const BASE = '/api/admin/inadimplencia'
@@ -52,6 +53,13 @@ export async function inadimplenciaRoutes(app: FastifyInstance) {
     resposta(reply, await I.segundaVia(Number((req.params as any).id), String((req.body as any)?.vencimento ?? ''), await operador(req))))
   app.post(`${BASE}/conferir/:id`, { preHandler: guarda }, async (req, reply) =>
     resposta(reply, await I.marcarConferido(Number((req.params as any).id), String((req.body as any)?.nota ?? ''), await operador(req))))
+  // Cobranças sobrando no Asaas (services/cobrancasSobrando): listar e excluir.
+  app.get(`${BASE}/sobrando`, { preHandler: guarda }, async () => listarSobras())
+  app.post(`${BASE}/sobrando/excluir`, { preHandler: guarda }, async (req, reply) => {
+    const itens = (req.body as any)?.itens
+    if (!Array.isArray(itens) || itens.length === 0) return reply.code(400).send({ error: 'Escolha ao menos uma cobrança.' })
+    return excluirSobras(itens, await operador(req))
+  })
   app.post(`${BASE}/baixa`, { preHandler: guarda }, async (req, reply) =>
     resposta(reply, await I.baixaManual(String((req.body as any)?.chave ?? ''), String((req.body as any)?.nota ?? ''), await operador(req))))
 }

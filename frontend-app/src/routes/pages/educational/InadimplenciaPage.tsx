@@ -84,7 +84,7 @@ function Barras({ linhas, aoClicar }: { linhas: Array<{ id: string; rotulo: stri
 }
 
 export function InadimplenciaPage() {
-  const [aba, setAba] = useState<'painel' | 'devedores' | 'acordos' | 'regras'>('painel')
+  const [aba, setAba] = useState<'painel' | 'devedores' | 'acordos' | 'sobrando' | 'regras'>('painel')
   const [faixa, setFaixa] = useState('')
   const [portal, setPortal] = useState('')
   const [situacao, setSituacao] = useState('')
@@ -93,7 +93,7 @@ export function InadimplenciaPage() {
   const resumo = useQuery({ queryKey: ['inad-resumo'], queryFn: () => api.get<Resumo>(`${BASE}/resumo`) })
   const r = resumo.data
   const irPara = (f: { faixa?: string; portal?: string; situacao?: string }) => { setFaixa(f.faixa ?? ''); setPortal(f.portal ?? ''); setSituacao(f.situacao ?? ''); setAba('devedores') }
-  const ABAS = [['painel', 'Painel'], ['devedores', `Devedores${r ? ` (${r.devedores})` : ''}`], ['acordos', `Acordos${r ? ` (${r.acordos.ativos})` : ''}`], ['regras', 'Regras']] as const
+  const ABAS = [['painel', 'Painel'], ['devedores', `Devedores${r ? ` (${r.devedores})` : ''}`], ['acordos', `Acordos${r ? ` (${r.acordos.ativos})` : ''}`], ['sobrando', 'Cobranças sobrando'], ['regras', 'Regras']] as const
   return (
     <Page title="Inadimplência e acordos" description="Quem está em atraso, o que já foi tratado e o que foi renegociado, no portal e no acadêmico."
       actions={<Button size="sm" variant="ghost" onClick={() => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('inad-') })}><RefreshCw size={14} /> Atualizar</Button>}>
@@ -106,6 +106,7 @@ export function InadimplenciaPage() {
       {aba === 'painel' && (resumo.isLoading || !r ? <Skeleton class="h-64" /> : <Painel r={r} irPara={irPara} />)}
       {aba === 'devedores' && <Devedores faixa={faixa} setFaixa={setFaixa} portal={portal} setPortal={setPortal} situacao={situacao} setSituacao={setSituacao} portais={r?.porPortal.map((p) => p.portal) ?? []} aging={r?.aging ?? []} abrir={setAberto} />}
       {aba === 'acordos' && <Acordos abrir={setAberto} />}
+      {aba === 'sobrando' && <CobrancasSobrando />}
       {aba === 'regras' && <Regras />}
       {aberto != null && <FichaDoDevedor leadId={aberto} fechar={() => setAberto(null)} />}
     </Page>
@@ -284,6 +285,112 @@ function Acordos({ abrir }: { abrir: (id: number) => void }) {
         <p class="text-sm text-fg-muted mb-3">As cobranças do acordo serão canceladas e os títulos originais voltam a aparecer como dívida.</p>
         <Textarea label="Motivo" rows={2} value={motivo} onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
       </Modal>
+    </div>
+  )
+}
+
+interface Sobra {
+  conexaoId: number; conexao: string; paymentId: string; valor: number; vencimento: string; situacao: 'PENDING' | 'OVERDUE'; meio: string
+  descricao: string; referencia: string | null; invoiceUrl: string | null; criadaEm: string | null; registrationId: number | null; portalId: number | null
+  codigo: string | null; leadId: number | null; nome: string | null; motivo: string; certeza: 'limpar' | 'conferir'; explicacao: string
+}
+const MOTIVO: Record<string, string> = {
+  inscricao_inexistente: 'Inscrição apagada', inscricao_encerrada: 'Inscrição encerrada', cancelada_no_sistema: 'Já cancelada no sistema',
+  outra_opcao_paga: 'Pagou por outra cobrança', inscricao_expirada: 'Inscrição expirada', sem_vinculo: 'Sem inscrição ligada',
+}
+
+/**
+ * Cobranças em aberto no Asaas que não valem mais nada (inscrição apagada ou
+ * cancelada, cobrança trocada por outra, opção que sobrou depois do pagamento).
+ * O financeiro escolhe e exclui no Asaas; o sistema confere cada uma de novo antes.
+ */
+function CobrancasSobrando() {
+  const qc = useQueryClient()
+  const pode = useCan('edu_inadimplencia', 'edit')
+  const [filtro, setFiltro] = useState<'' | 'limpar' | 'conferir'>('')
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set())
+  const [confirmar, setConfirmar] = useState(false)
+  const q = useQuery({ queryKey: ['inad-sobrando'], queryFn: () => api.get<{ sobras: Sobra[]; verificadas: number; falhas: string[] }>(`${BASE}/sobrando`), staleTime: 60_000 })
+  const todas = q.data?.sobras ?? []
+  const lista = filtro ? todas.filter((s) => s.certeza === filtro) : todas
+  const escolhidas = todas.filter((s) => marcadas.has(s.paymentId))
+  const total = escolhidas.reduce((t, s) => t + Math.round(s.valor * 100), 0)
+  const alternar = (id: string) => setMarcadas((m) => { const n = new Set(m); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const m = useMutation({
+    mutationFn: () => api.post<{ resultado: Array<{ paymentId: string; ok: boolean; mensagem?: string }>; excluidas: number }>(`${BASE}/sobrando/excluir`, { itens: escolhidas.map((s) => ({ conexaoId: s.conexaoId, paymentId: s.paymentId })) }),
+    onSuccess: (r) => {
+      const falhas = r.resultado.filter((x) => !x.ok)
+      toast(`${r.excluidas} ${r.excluidas === 1 ? 'cobrança excluída' : 'cobranças excluídas'} no Asaas${falhas.length ? `; ${falhas.length} ficaram (${falhas[0]!.mensagem})` : ''}.`, falhas.length ? 'warning' : 'success')
+      setConfirmar(false); setMarcadas(new Set())
+      void qc.invalidateQueries({ predicate: (x) => String(x.queryKey[0]).startsWith('inad-') })
+    },
+    onError: erroToast,
+  })
+  const nLimpar = todas.filter((s) => s.certeza === 'limpar').length
+  return (
+    <div class="grid gap-3">
+      <Card>
+        <div class="text-sm text-fg-muted">
+          Cobranças <b class="text-fg">em aberto no Asaas</b> que, pelo sistema, não valem mais: inscrição apagada ou cancelada, cobrança que o sistema já trocou por outra,
+          ou opção de pagamento que sobrou depois que o aluno pagou por outra. Parcelas futuras de quem está pagando <b class="text-fg">não</b> aparecem aqui.
+          <span class="block mt-1"><Badge tone="danger">Pode excluir</Badge> o sistema tem certeza · <Badge tone="warning">Conferir</Badge> provável sobra — decida pelo caso.</span>
+        </div>
+        {q.data && <div class="text-xs text-fg-subtle mt-2">{q.data.verificadas} cobranças em aberto verificadas no Asaas agora · {todas.length} sobrando ({nLimpar} com certeza).</div>}
+        {q.data?.falhas.map((f) => <div key={f} class="text-xs text-danger mt-1">Não foi possível ler: {f}</div>)}
+      </Card>
+      <div class="flex flex-wrap items-end gap-2">
+        <div class="w-48"><Select label="Mostrar" value={filtro} onChange={(e) => setFiltro((e.target as HTMLSelectElement).value as any)}>
+          <option value="">Todas</option><option value="limpar">Pode excluir</option><option value="conferir">Conferir</option>
+        </Select></div>
+        {pode && nLimpar > 0 && <Button size="sm" variant="secondary" onClick={() => setMarcadas(new Set(todas.filter((s) => s.certeza === 'limpar').map((s) => s.paymentId)))}>Marcar as {nLimpar} que podem sair</Button>}
+        {pode && marcadas.size > 0 && <Button size="sm" variant="ghost" onClick={() => setMarcadas(new Set())}>Limpar seleção</Button>}
+        <div class="flex-1" />
+        <Button size="sm" variant="ghost" disabled={q.isFetching} onClick={() => void q.refetch()}><RefreshCw size={14} /> {q.isFetching ? 'Verificando…' : 'Verificar de novo'}</Button>
+        {pode && <Button size="sm" variant="danger" disabled={!escolhidas.length} onClick={() => setConfirmar(true)}>Excluir {escolhidas.length || ''} no Asaas</Button>}
+      </div>
+      <Card class="p-0">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm min-w-[60rem]">
+            <thead><tr class="text-left text-xs text-fg-subtle border-b border-border">
+              <th class="px-3 py-2 w-8" /><th class="px-2 py-2 font-medium">Aluno</th><th class="px-2 py-2 font-medium text-right">Valor</th><th class="px-2 py-2 font-medium">Vencimento</th>
+              <th class="px-2 py-2 font-medium">Cobrança</th><th class="px-2 py-2 font-medium">Por que sobrou</th>
+            </tr></thead>
+            <tbody>
+              {q.isLoading && <tr><td colSpan={6} class="p-3"><Skeleton class="h-24" /><div class="text-xs text-fg-muted mt-2">Lendo as cobranças em aberto no Asaas…</div></td></tr>}
+              {q.isError && <tr><td colSpan={6} class="p-6 text-center text-danger">{(q.error as Error).message}</td></tr>}
+              {!q.isLoading && !q.isError && !lista.length && <tr><td colSpan={6} class="p-6 text-center text-fg-muted">Nenhuma cobrança sobrando. O Asaas está limpo.</td></tr>}
+              {lista.map((s) => (
+                <tr key={s.paymentId} class="border-b border-border last:border-0 align-top">
+                  <td class="px-3 py-2">{pode && <input type="checkbox" aria-label={`Escolher ${s.paymentId}`} checked={marcadas.has(s.paymentId)} onChange={() => alternar(s.paymentId)} />}</td>
+                  <td class="px-2 py-2">
+                    <div class="font-medium">{s.nome ?? '—'}</div>
+                    <div class="text-xs text-fg-muted">
+                      {s.codigo && s.portalId && s.registrationId
+                        ? <a class="text-accent hover:underline" href={`${env.appBasePath}/enrollment-portals/${s.portalId}/registrations/${s.registrationId}`} target="_blank" rel="noopener noreferrer">{s.codigo}</a>
+                        : (s.referencia ?? 'sem referência')}
+                    </div>
+                  </td>
+                  <td class="px-2 py-2 text-right tabular-nums">{money(Math.round(s.valor * 100))}</td>
+                  <td class="px-2 py-2">{s.vencimento ? s.vencimento.split('-').reverse().join('/') : '—'}<div class="text-xs"><Badge tone={s.situacao === 'OVERDUE' ? 'danger' : 'neutral'}>{s.situacao === 'OVERDUE' ? 'Vencida' : 'Aguardando'}</Badge></div></td>
+                  <td class="px-2 py-2 text-xs">
+                    {s.meio}{s.invoiceUrl && <> · <a class="text-accent hover:underline" href={s.invoiceUrl} target="_blank" rel="noopener noreferrer">fatura</a></>}
+                    <div class="text-fg-muted max-w-[16rem] truncate" title={s.descricao}>{s.descricao}</div>
+                    <div class="text-fg-subtle">{s.paymentId}{s.conexao ? ` · ${s.conexao}` : ''}</div>
+                  </td>
+                  <td class="px-2 py-2 text-xs max-w-[20rem]">
+                    <Badge tone={s.certeza === 'limpar' ? 'danger' : 'warning'}>{s.certeza === 'limpar' ? 'Pode excluir' : 'Conferir'}</Badge> <b>{MOTIVO[s.motivo] ?? s.motivo}</b>
+                    <div class="text-fg-muted mt-0.5">{s.explicacao}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <ConfirmDialog open={confirmar} onOpenChange={setConfirmar} destructive loading={m.isPending} confirmLabel="Excluir no Asaas"
+        title={`Excluir ${escolhidas.length} ${escolhidas.length === 1 ? 'cobrança' : 'cobranças'} no Asaas?`}
+        description={`Total de ${money(total)}. O link de pagamento delas deixa de funcionar. Antes de excluir, o sistema confere cada uma de novo: se alguma foi paga nesse meio-tempo, ela fica.`}
+        onConfirm={() => m.mutate()} />
     </div>
   )
 }
