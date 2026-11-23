@@ -57,9 +57,18 @@ export function lerTabelaDePrecos(bruto: unknown): TabelaDePrecos | null {
   }
 }
 
-/** Total do cartão pela tabela: N parcelas sem juros. */
+/**
+ * Total do cartão pela tabela: N parcelas sem juros.
+ *
+ * Quando a parcela anunciada é só o à vista dividido e arredondado
+ * ("R$ 499,90 ou 6x R$ 83,32"), o total é o à vista: multiplicar a parcela
+ * arredondada cobrava centavos a mais no cartão (6 × 83,32 = 499,92), até em
+ * 1x. O gateway acerta a sobra na última parcela.
+ */
 export function totalDoCartao(t: TabelaDePrecos): number {
-  return t.cartao ? centavos(t.cartao.parcelas * t.cartao.valorParcela) : t.aVista
+  if (!t.cartao) return t.aVista
+  if (centavos(t.aVista / t.cartao.parcelas) === t.cartao.valorParcela) return t.aVista
+  return centavos(t.cartao.parcelas * t.cartao.valorParcela)
 }
 
 /** Total do boleto parcelado pela tabela. */

@@ -138,3 +138,25 @@ describe('ERP: o contrato nasce com a condição paga', () => {
     assert.deepEqual(p.map((x) => x.valorBrutoCentavos), [3334, 3333, 3333])
   })
 })
+
+describe('cartão com parcela = à vista arredondado (extensão FABAD)', () => {
+  const ext = lerTabelaDePrecos({ aVista: 499.90, boleto: null, cartao: { parcelas: 6, valorParcela: 83.32 } })!
+  const r = regrasComTabela(lerRegras(null), ext)
+
+  test('total do cartão é o à vista, não 6 × 83,32 = 499,92', () => {
+    assert.equal(totalDoCartao(ext), 499.90)
+    assert.equal(valorBaseDoMeio(ext, 'credit_card'), 499.90)
+  })
+
+  test('1x e 6x cobram R$ 499,90; a tela segue mostrando 6x de R$ 83,32', () => {
+    const opcoes = tabelaDeParcelas(valorBaseDoMeio(ext, 'credit_card'), r.cartao)
+    assert.equal(opcoes[0].valorTotal, 499.90)
+    assert.equal(opcoes[5].valorTotal, 499.90)
+    assert.equal(opcoes[5].valorParcela, 83.32)
+  })
+
+  test('acréscimo real no cartão continua cobrado (12x 229,90 sobre 2.508,00)', () => {
+    const t = lerTabelaDePrecos({ aVista: 2508, boleto: null, cartao: { parcelas: 12, valorParcela: 229.90 } })!
+    assert.equal(totalDoCartao(t), 2758.80)
+  })
+})
