@@ -677,7 +677,22 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
     ? `; ${brl(jaPagoCentavos)} já pago${pp?.pagamentoManual?.pagoEm ? ` em ${new Date(pp.pagamentoManual.pagoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}`
     : ''
 
-  if (pp && !soPagamentoManual && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
+  // Baixa manual que cobre o à vista do curso (ex.: Pix direto no CNPJ com o
+  // desconto do à vista): o curso está quitado. Sem isto o contrato dizia
+  // "12 parcelas de R$ 159,90 (total R$ 1.918,80); R$ 1.822,86 já pago" — sem
+  // dizer que acabou, nem por quanto (ineprotec 23/11, INE 128/135).
+  if (jaPagoCentavos > 0 && opcoesDoPlano(plano).includes('integral')) {
+    const aVista = Math.round(menorPrecoDaOpcao(plano, 'integral') * 100)
+    if (aVista > 0 && jaPagoCentavos >= aVista - 1) {
+      const dia = pp?.pagamentoManual?.pagoEm ? ` em ${new Date(pp.pagamentoManual.pagoEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''
+      return {
+        plano, opcao: 'integral', numParcelas: 1, valorParcelaCentavos: jaPagoCentavos, valorTotalCentavos: jaPagoCentavos,
+        descricao: `Pagamento integral à vista de ${brl(jaPagoCentavos)}${dia}; curso quitado, sem parcelas a pagar` + nota,
+      }
+    }
+  }
+
+  if (pp && (pp.meio || Number(pp.valorTotal) > 0) && !soPagamentoManual && (opcao === 'integral' || (Number(pp.valorTotal) > 0 && boletoEhOCurso(plano, opcao, pp.meio, Number(pp.parcelas))))) {
     const total = Math.round(Number(pp.valorTotal ?? pp.valorCobrado ?? 0) * 100)
     const n = Math.max(1, Number(pp.parcelas) || 1)
     const parcela = Math.round(Number(pp.valorParcela ?? 0) * 100) || total
@@ -718,8 +733,21 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   if (Number(tr?.creditoCentavos) > 0 && registrationId) {
     const t = await prisma.enrollmentTransferencia.findFirst({
       where: { paraRegistrationId: registrationId }, orderBy: { id: 'desc' },
-      select: { creditoCentavos: true, parcelasQuitadas: true },
+      select: { creditoCentavos: true, parcelasQuitadas: true, sobraCentavos: true, detalhes: true },
     }).catch(() => null)
+    // Crédito que quita o curso inteiro: não sobra parcela, e a condição caía no
+    // padrão do plano ("Parcela única de R$ 149,90", total R$ 149,90 num curso de
+    // R$ 1.798,80 — ineprotec INE-26-000041-BB3H, 23/11). O total é o do curso.
+    const dist = (t?.detalhes as any)?.distribuicao
+    const restantes = Number(dist?.parcelasRestantes ?? plano.numParcelas)
+    const aPagarDist = Number(dist?.totalAPagarCentavos ?? NaN)
+    if (t && t.parcelasQuitadas > 0 && restantes === 0 && (aPagarDist === 0 || plano.numParcelas === 0)) {
+      const totalCurso = Number(dist?.totalCursoCentavos) > 0 ? Number(dist.totalCursoCentavos) : t.creditoCentavos - (t.sobraCentavos ?? 0)
+      return {
+        plano, opcao, numParcelas: 1, valorParcelaCentavos: totalCurso, valorTotalCentavos: totalCurso,
+        descricao: `Curso quitado integralmente pelo crédito de ${brl(t.creditoCentavos)} da inscrição ${tr.deCodigo} (transferência de curso); sem parcelas a pagar`,
+      }
+    }
     if (t && t.parcelasQuitadas > 0 && plano.numParcelas > 0) {
       const aPagar = plano.numParcelas * plano.valorParcelaCentavos
       const credito = t.creditoCentavos

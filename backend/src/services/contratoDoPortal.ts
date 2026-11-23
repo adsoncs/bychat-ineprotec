@@ -609,7 +609,9 @@ export async function aceitarContratoNoPortal(registrationId: number, nome: stri
     })).toString('base64'), arquivoNome: `${r.modelo.nome}.pdf`, registrationId,
     signatarios: [{ nome: nome.slice(0, 191), email: r.dados.aluno.email, cpf: r.dados.aluno.cpf, papel: 'ALUNO', deliveryMethod: 'LINK' }],
   })
-  await prisma.acaAssinatura.update({ where: { id: env.id }, data: { provider: 'PORTAL', status: 'ENVIADO', enviadoEm: new Date() } })
+  const final = Buffer.from((await prisma.acaAssinatura.findUnique({ where: { id: env.id }, select: { arquivoBase64: true } }))?.arquivoBase64 ?? '', 'base64')
+  const integridade = { sha256Documento: await sha256(r.pdf), sha256Arquivo: await sha256(final), em: new Date().toISOString() }
+  await prisma.acaAssinatura.update({ where: { id: env.id }, data: { provider: 'PORTAL', status: 'ENVIADO', enviadoEm: new Date(), metaJson: { ...((env as any).metaJson ?? {}), integridade } as any } })
   for (const s of env.signatarios) await svc.simularAssinatura(env.id, s.id)
   const fim = await envelopeDaInscricao(registrationId)
   return { ok: true, assinatura: estado(fim!) }
@@ -658,7 +660,13 @@ export async function pdfDoEnvelopeAssinado(env: { id: number; arquivoAssinadoUr
  * quem aceitou, quando, de onde e o código da inscrição. Se falhar, segue o PDF
  * original — o aceite também fica gravado na inscrição.
  */
-export async function comRegistroDoAceite(pdf: Buffer, a: { titulo: string; nome: string; cpf?: string | null; email?: string | null; codigo: string; ip: string | null }): Promise<Buffer> {
+/** SHA-256 (hex) de um arquivo — o "código de integridade" do documento aceito. */
+export async function sha256(buf: Buffer): Promise<string> {
+  const { createHash } = await import('node:crypto')
+  return createHash('sha256').update(buf).digest('hex')
+}
+
+export async function comRegistroDoAceite(pdf: Buffer, a: { titulo: string; nome: string; cpf?: string | null; email?: string | null; codigo: string; ip: string | null; quando?: Date | null; observacao?: string | null }): Promise<Buffer> {
   const os = await import('node:os'); const path = await import('node:path'); const fs = await import('node:fs/promises')
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aceite-'))
   try {
@@ -667,7 +675,10 @@ export async function comRegistroDoAceite(pdf: Buffer, a: { titulo: string; nome
     const partes: Buffer[] = []
     doc.on('data', (b: Buffer) => partes.push(b))
     const fim = new Promise<void>((ok) => doc.on('end', () => ok()))
-    const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    const quando = (a.quando ?? new Date()).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    // Integridade: o hash é das páginas do documento (sem esta página). Quem
+    // tiver o PDF pode recalcular e provar que o texto aceito não mudou.
+    const hash = await sha256(pdf)
     doc.fontSize(15).font('Helvetica-Bold').text('Registro de aceite eletrônico', { align: 'left' })
     doc.moveDown(0.6).fontSize(10.5).font('Helvetica')
       .text(`O documento "${a.titulo}" foi lido e aceito eletronicamente no portal de matrículas, nos termos da sua cláusula de declaração de aceite.`)
@@ -677,6 +688,11 @@ export async function comRegistroDoAceite(pdf: Buffer, a: { titulo: string; nome
       ['Data e hora', `${quando} (horário de Brasília)`], ['Endereço IP', a.ip || '—'], ['Código da inscrição', a.codigo || '—'],
     ]
     for (const [k, v] of linhas) doc.font('Helvetica-Bold').text(`${k}: `, { continued: true }).font('Helvetica').text(v)
+    doc.moveDown(1).font('Helvetica-Bold').text('Código de integridade do documento (SHA-256):')
+    doc.font('Courier').fontSize(9).text(hash)
+    doc.moveDown(0.4).font('Helvetica').fontSize(9)
+      .text('O código acima identifica as páginas anteriores deste arquivo, exatamente como constam nele. Qualquer alteração no texto gera um código diferente. Assinatura eletrônica simples (Lei nº 14.063/2020, art. 4º, I; MP nº 2.200-2/2001, art. 10, § 2º).')
+    if (a.observacao) doc.moveDown(0.6).fontSize(9).text(a.observacao)
     doc.end(); await fim
     const a1 = path.join(dir, 'doc.pdf'), a2 = path.join(dir, 'aceite.pdf'), out = path.join(dir, 'final.pdf')
     await fs.writeFile(a1, pdf); await fs.writeFile(a2, Buffer.concat(partes))
