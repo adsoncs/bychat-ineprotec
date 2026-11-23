@@ -249,9 +249,17 @@ export async function enviar(envelopeId: number) {
     if (s.deliveryMethod === 'EMAIL' && !s.email) throw new Error(`Signatário ${s.nome}: e-mail obrigatório`)
     if ((s.deliveryMethod === 'SMS' || s.deliveryMethod === 'WHATSAPP') && !s.telefone) throw new Error(`Signatário ${s.nome}: telefone obrigatório p/ ${s.deliveryMethod}`)
   }
-  const { buffer } = await gerarPdf(envelopeId)
   const provedor = await provedorAtivo()
   const cfg = await aut.getConfig()
+  // Modo de teste do provedor = PDF carimbado "documento de teste, sem valor
+  // jurídico". Ficou ligado na ineprotec de 01/10 a 23/11 e contratos reais de
+  // alunos saíram assim (Maycon, Jefferson, José Divino). Só o ambiente de
+  // testes (ASSINATURA_SANDBOX_PERMITIDO=true no .env) envia em sandbox.
+  if (process.env.ASSINATURA_SANDBOX_PERMITIDO !== 'true') {
+    const emTeste = provedor === 'CLICKSIGN' ? (await cs.getConfig()).sandbox : provedor === 'AUTENTIQUE' && cfg.token ? cfg.sandbox : false
+    if (emTeste) throw new Error(`A ${provedor === 'CLICKSIGN' ? 'Clicksign' : 'Autentique'} está em modo de teste (sandbox): o contrato sairia marcado como "documento de teste, sem valor jurídico". Desligue o modo de teste na configuração de assinatura antes de enviar.`)
+  }
+  const { buffer } = await gerarPdf(envelopeId)
 
   if (provedor === 'CLICKSIGN') {
     const csCfg = await cs.getConfig()
@@ -287,7 +295,7 @@ export async function enviar(envelopeId: number) {
       if (sig) usadas.add(sig.public_id)
       if (sig) await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: sig.public_id, linkAssinatura: sig.link?.short_link || null } })
     }
-    await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { provider: 'AUTENTIQUE', documentoExternoId: doc.id, status: 'ENVIADO', enviadoEm: new Date(), metaJson: doc as any } })
+    await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { provider: 'AUTENTIQUE', documentoExternoId: doc.id, status: 'ENVIADO', enviadoEm: new Date(), metaJson: { ...(doc as any), sandbox: cfg.sandbox } as any } })
     await sincronizar(envelopeId).catch(() => {}) // popula os links de assinatura (não vêm na criação)
   } else {
     for (const s of env.signatarios) await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: `sim-${envelopeId}-${s.id}`, linkAssinatura: `https://assinatura.simulada/local/${envelopeId}/${s.id}` } })
