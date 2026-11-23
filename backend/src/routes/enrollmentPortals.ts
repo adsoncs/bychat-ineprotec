@@ -2612,6 +2612,28 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const retomada = decisao.retomar
     if (retomada?.leadId && !lead) lead = await prisma.lead.findUnique({ where: { id: retomada.leadId } })
 
+    // Quem JÁ PAGOU este curso neste portal e voltou ao formulário (ex.: só queria
+    // mandar documentos) não abre outra inscrição sozinho: o formulário manda entrar
+    // no portal. A equipe segue podendo (atendimento), e outro curso segue livre.
+    // ineprotec, Joissy 23/11: paga no Tradicional, refez pelo formulário em Competência.
+    if (!atendente && !continuationLeadId && cpf.length === 11 && offeringId) {
+      const curso = (await prisma.courseOffering.findUnique({ where: { id: offeringId }, select: { courseId: true } }).catch(() => null))?.courseId ?? null
+      if (curso) {
+        const pagas = await prisma.enrollmentRegistration.findMany({
+          where: { portalId: portal.id, paymentStatus: 'paid', status: { notIn: ['cancelled', 'transferred', 'merged', 'expired', 'rejected'] }, mergedIntoId: null },
+          select: { candidateCode: true, formData: true, processRegistration: { select: { offering: { select: { courseId: true } } } } },
+          orderBy: { id: 'desc' }, take: 5000,
+        })
+        const ja = pagas.find((r) => normalizeCpf(String((r.formData as any)?.cpf ?? '')) === cpf && r.processRegistration?.offering?.courseId === curso)
+        if (ja) {
+          return reply.code(409).send({
+            error: `Você já tem a matrícula ${ja.candidateCode} neste curso, com pagamento confirmado. Para enviar documentos, ver parcelas ou o contrato, clique em "Entrar", no topo da página, e use seu e-mail ou CPF. Se quiser mudar de modalidade, fale com a nossa equipe.`,
+            jaMatriculado: ja.candidateCode,
+          })
+        }
+      }
+    }
+
     // Inscrição feita pela EQUIPE sem a ficha escolhida (portal em modo
     // atendimento, ou Nova matrícula do painel): a pessoa que o agente digitou já
     // tem ficha? A inscrição vai para ela, com as travas de outra pessoa (CPF ou
