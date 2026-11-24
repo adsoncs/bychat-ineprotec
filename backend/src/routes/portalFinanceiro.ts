@@ -109,7 +109,7 @@ function movimentos(r: any, plano: Record<string, any>) {
   const rotuloReg = nParcelas > 1 ? `Parcela 1 de ${nParcelas}` : (plano.rotulo ?? 'Cobrança')
   // Curso de dentro do pacote (combo): a 1ª cobrança foi paga UMA vez, na
   // principal — contar aqui de novo somava o mesmo dinheiro duas vezes (Samara:
-  // R$ 215,80 viravam R$ 315,80). As parcelas próprias dele seguem contando.
+  // R$ 215,80 viravam R$ 315,80). O carnê do pacote fica todo na principal.
   const membroDoPacote = plano?.pacote?.papel === 'membro'
   if (r.paymentStatus === 'paid' && r.paymentPaidAt && !transferida && !membroDoPacote) {
     recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })

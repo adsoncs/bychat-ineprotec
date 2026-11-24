@@ -148,7 +148,7 @@ export function PacoteDaMatricula({ registrationId, fechada }: { registrationId:
           </tbody>
         </table>
       )}
-      {principal && <div class="text-2xs text-fg-muted mt-2">O financeiro desta inscrição (checkout, pagamento combinado ou baixa manual) deve somar o total do pacote. O 1º pagamento recebido marca todos os cursos como pagos.</div>}
+      {principal && <div class="text-2xs text-fg-muted mt-2">Todas as parcelas do pacote ficam nesta inscrição, somando o total. O boleto parcelado é recalculado sozinho; o pagamento combinado precisa ser refeito pelo total. O 1º pagamento recebido marca todos os cursos como pagos.</div>}
 
       {abrir && (
         <div class="grid gap-3 mt-3 border-t border-border pt-3">
@@ -157,10 +157,11 @@ export function PacoteDaMatricula({ registrationId, fechada }: { registrationId:
               <option value="">Escolha…</option>
               {candidatas.map((c) => <option key={c.id} value={c.id} disabled={!!c.impedimento}>{c.curso} — {c.codigo}{c.mesmaFicha === false ? ' · outra ficha, mesmo CPF' : ''}{c.impedimento ? ` (${c.impedimento})` : ''}</option>)}
             </Select>
-            <Input label={principal ? 'Parte deste curso (opcional)' : 'Parte deste curso (R$)'} placeholder={principal ? brl(valorPrincipalAtual) : '0,00'} value={valorEste} onInput={(e: any) => setValorEste(e.currentTarget.value)} />
-            <Input label="Parte do curso adicionado (R$)" placeholder="0,00" value={valorOutro} onInput={(e: any) => setValorOutro(e.currentTarget.value)} />
+            <Input label={principal ? 'Valor deste curso inteiro (opcional)' : 'Valor deste curso inteiro (R$)'} placeholder={principal ? brl(valorPrincipalAtual) : '0,00'} value={valorEste} onInput={(e: any) => setValorEste(e.currentTarget.value)} />
+            <Input label="Valor do curso adicionado inteiro (R$)" placeholder="0,00" value={valorOutro} onInput={(e: any) => setValorOutro(e.currentTarget.value)} />
           </div>
           <div class="text-xs text-fg-muted">Total do pacote: <strong class="tabular-nums text-fg">{brl(totalPrevisto)}</strong>. Cada contrato sai com a parte do seu curso e diz que o pagamento é único.</div>
+          <div class="text-xs text-warning">Informe o valor do <strong>curso todo</strong>, não só da 1ª parcela. Todas as parcelas dos cursos ficam nesta inscrição (um carnê só), e o curso adicionado deixa de ter carnê próprio.</div>
           <div class="flex gap-2">
             <Button size="sm" disabled={!membroId || centavos(valorOutro) <= 0 || (!principal && centavos(valorEste) <= 0)} onClick={() => setConfirmar(true)}>Adicionar ao pacote</Button>
             <Button size="sm" variant="ghost" onClick={() => setAbrir(false)}>Cancelar</Button>

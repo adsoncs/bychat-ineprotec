@@ -229,11 +229,10 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   // Pacote (combo): o curso membro não tem cobrança própria — mostra a parte
   // dele e de onde vem o pagamento; a principal avisa o que o pagamento inclui.
   const pacote = await import('./pacoteMatricula.js').then((m) => m.resumoDoPacote(r.id)).catch(() => null)
-  // Pacote só da 1ª cobrança: cada curso segue com as SUAS parcelas (Samara,
-  // MAT-26-000005/000006, 24/11). O membro mostra a 1ª "paga pelo pacote" e as
-  // demais normalmente. Sem parcelas próprias, o pacote é o curso todo (Weslley).
-  const membroComParcelas = pacote?.papel === 'membro' && Number(plano.parcelas) > 1 && plano.meio === 'boleto'
-  if (pacote?.papel === 'membro' && !membroComParcelas) {
+  // O pacote é SEMPRE o curso todo: o membro não tem carnê próprio — todas as
+  // parcelas ficam na principal (regra de 24/11/2026; Samara GEM5/T3T3 tinha
+  // sido montada com carnê nos dois cursos e foi unificada).
+  if (pacote?.papel === 'membro') {
     const pago = pacote.pago
     return {
       faturas: [{
@@ -272,15 +271,7 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
 
   // 2) A cobrança do portal (a única, ou a 1ª do boleto parcelado).
   const situacao = situacaoDaCobranca(r)
-  if (membroComParcelas && pacote?.papel === 'membro') {
-    faturas.push({
-      chave: `reg:${r.id}`, titulo: tituloDaCobranca(r),
-      detalhe: `Paga junto com a inscrição ${pacote.principalCodigo} (${pacote.principalCurso}), no pacote`,
-      valor: pacote.valorCentavos / 100, vencimento: null, situacao: pacote.pago ? 'paga' : 'prevista',
-      pagaEm: pacote.pago && r.paymentPaidAt ? r.paymentPaidAt.toISOString() : null, meio: 'Pacote',
-      pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false, podeGerar: false, podeAtualizar: false,
-    })
-  } else if (situacao && r.paymentAmount != null) {
+  if (situacao && r.paymentAmount != null) {
     const aberta = situacao === 'aberta' || situacao === 'vencida'
     const ultima = r.paymentMethods.find((m) => m.status === 'pending') ?? r.paymentMethods[0]
     const manual = String(r.paymentMethod || '').toUpperCase() === 'MANUAL'

@@ -62,6 +62,37 @@ const mesmaPessoa = (a: any, b: any) => {
   return cpf(a).length === 11 && cpf(a) === cpf(b)
 }
 
+/** Campos do carnê próprio: no pacote, só a principal tem carnê. */
+// planoFinanceiro, condicaoNegociada e escopo ficam: o contrato do curso usa (pontualidade, preços de tabela).
+const CARNE = ['meio', 'parcelas', 'valorParcela', 'valorCobrado', 'valorTotal', 'valorTabela', 'valorCheio', 'descontoPontualidade', 'rotulo', 'acrescimo'] as const
+
+/**
+ * O carnê da principal (boleto parcelado gerado no Meu Portal) passa a cobrar o
+ * TOTAL do pacote: valor da parcela e desconto de pontualidade proporcionais.
+ * Combinado (títulos) e parcelamento no gateway não são mexidos aqui — o
+ * Financeiro refaz por lá. Devolve null quando não há o que recalcular.
+ */
+export function carneDaPrincipal(plano: any, totalCentavos: number): { novo: any; antes: any } | null {
+  const n = Number(plano?.parcelas) || 0
+  if (plano?.meio !== 'boleto' || n < 2 || plano?.combinado || plano?.installmentId || totalCentavos <= 0) return null
+  const parcelaAntes = Number(plano.valorParcela) || 0
+  const valorParcela = Math.round(totalCentavos / n) / 100
+  if (Math.abs(valorParcela - parcelaAntes) < 0.005 && Math.abs(Number(plano.valorTotal ?? 0) - totalCentavos / 100) < 0.005) return null
+  const dp = Number(plano.descontoPontualidade) || 0
+  const descontoPontualidade = dp && parcelaAntes ? Math.round((dp * valorParcela / parcelaAntes) * 10) / 10 : dp
+  const antes = { valorTotal: plano.valorTotal ?? null, valorParcela: plano.valorParcela ?? null, descontoPontualidade: plano.descontoPontualidade ?? null }
+  return { antes, novo: { ...plano, valorTotal: totalCentavos / 100, valorTabela: totalCentavos / 100, valorParcela, ...(dp ? { descontoPontualidade } : {}) } }
+}
+
+/** Tira do plano do membro o carnê próprio (guardado em planoAntesDoPacote). */
+function semCarneProprio(plano: any): any {
+  const { pacote: _p, planoAntesDoPacote, ...resto } = plano ?? {}
+  const guardado: Record<string, unknown> = {}
+  const fica: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(resto)) ((CARNE as readonly string[]).includes(k) ? guardado : fica)[k] = v
+  return { ...fica, ...(Object.keys(guardado).length ? { planoAntesDoPacote: { ...guardado, guardadoEm: new Date().toISOString() } } : planoAntesDoPacote ? { planoAntesDoPacote } : {}) }
+}
+
 /**
  * Liga `membroId` ao pacote de `principalId`. Os valores são em centavos: o do
  * membro é a parte dele; `valorPrincipalCentavos` (opcional) a parte da
@@ -93,11 +124,18 @@ export async function adicionarAoPacote(principalId: number, membroId: number, v
   const vp = valores.valorPrincipalCentavos != null ? Math.round(Number(valores.valorPrincipalCentavos)) : (pp?.papel === 'principal' ? pp.valorProprioCentavos : 0)
   const principal: PacotePrincipal = { papel: 'principal', valorProprioCentavos: Math.max(0, vp), membros, em: pp?.papel === 'principal' ? pp.em : agora, por: op.nome ?? null }
   const membro: PacoteMembro = { papel: 'membro', principalId, principalCodigo: pri.candidateCode, principalCurso: curPri, valorCentavos: vm, em: agora, por: op.nome ?? null }
+  // Um carnê só, na principal (24/11/2026: Samara ficou com carnê nos dois
+  // cursos e a principal só cobrava o curso dela). O membro guarda o plano
+  // próprio à parte e a principal passa a parcelar o total do pacote.
+  const totalPacote = principal.valorProprioCentavos + membros.reduce((acc, m) => acc + m.valorCentavos, 0)
+  const planoPri = { ...((pri.paymentPlan as any) ?? {}), pacote: principal }
+  const carne = carneDaPrincipal(planoPri, totalPacote)
+  const novoPri = carne ? { ...carne.novo, ajusteDoPlano: { em: agora, por: op.nome ?? null, motivo: `Pacote: o carnê passa a cobrar os ${membros.length + 1} cursos (${brl(totalPacote)}).`, antes: carne.antes, anterior: planoPri.ajusteDoPlano ?? null } } : planoPri
   await prisma.$transaction([
-    prisma.enrollmentRegistration.update({ where: { id: principalId }, data: { paymentPlan: { ...((pri.paymentPlan as any) ?? {}), pacote: principal } as any } }),
-    prisma.enrollmentRegistration.update({ where: { id: membroId }, data: { paymentPlan: { ...((mem.paymentPlan as any) ?? {}), pacote: membro } as any } }),
+    prisma.enrollmentRegistration.update({ where: { id: principalId }, data: { paymentPlan: novoPri as any } }),
+    prisma.enrollmentRegistration.update({ where: { id: membroId }, data: { paymentPlan: { ...semCarneProprio(mem.paymentPlan), pacote: membro } as any } }),
   ])
-  const dados = { principal: pri.candidateCode, membro: mem.candidateCode, curso: curMem, valor: brl(vm), valorPrincipal: brl(principal.valorProprioCentavos) }
+  const dados = { principal: pri.candidateCode, membro: mem.candidateCode, curso: curMem, valor: brl(vm), valorPrincipal: brl(principal.valorProprioCentavos), total: brl(totalPacote), ...(carne ? { parcela: `${novoPri.parcelas}x ${brl(Math.round(novoPri.valorParcela * 100))}` } : {}) }
   await registrarEventoDaInscricao({ registrationId: principalId, etapa: 'pagamento', acao: 'pacote_curso_adicionado', ator: 'atendente', userId: op.userId ?? null, userName: op.nome ?? null, dados })
   await registrarEventoDaInscricao({ registrationId: membroId, etapa: 'pagamento', acao: 'pacote_entrou', ator: 'atendente', userId: op.userId ?? null, userName: op.nome ?? null, dados })
   // Principal já paga: o membro fica pago na hora.
@@ -115,12 +153,15 @@ export async function removerDoPacote(membroId: number, op: Operador): Promise<R
   if (mem.paymentMethod === 'PACOTE') return { ok: false, status: 409, erro: 'O pacote já recebeu pagamento: este curso não pode sair dele. Fale com o Financeiro.' }
   const pri = await prisma.enrollmentRegistration.findUnique({ where: { id: pm.principalId }, select: { paymentPlan: true } })
   const pp = pri ? pacoteDo(pri.paymentPlan) : null
-  const { pacote: _m, ...restoM } = (mem.paymentPlan as any) ?? {}
-  const ops: any[] = [prisma.enrollmentRegistration.update({ where: { id: membroId }, data: { paymentPlan: restoM as any } })]
+  const { pacote: _m, planoAntesDoPacote, ...restoM } = (mem.paymentPlan as any) ?? {}
+  const { guardadoEm: _g, ...devolvido } = (planoAntesDoPacote ?? {}) as Record<string, unknown>
+  const ops: any[] = [prisma.enrollmentRegistration.update({ where: { id: membroId }, data: { paymentPlan: { ...restoM, ...devolvido } as any } })]
   if (pri && pp?.papel === 'principal') {
     const membros = pp.membros.filter((m) => m.id !== membroId)
     const { pacote: _p, ...restoP } = (pri.paymentPlan as any) ?? {}
-    ops.push(prisma.enrollmentRegistration.update({ where: { id: pm.principalId }, data: { paymentPlan: (membros.length ? { ...restoP, pacote: { ...pp, membros } } : restoP) as any } }))
+    const plano = membros.length ? { ...restoP, pacote: { ...pp, membros } } : restoP
+    const carne = carneDaPrincipal(plano, pp.valorProprioCentavos + membros.reduce((acc, m) => acc + m.valorCentavos, 0))
+    ops.push(prisma.enrollmentRegistration.update({ where: { id: pm.principalId }, data: { paymentPlan: (carne ? carne.novo : plano) as any } }))
   }
   await prisma.$transaction(ops)
   await registrarEventoDaInscricao({ registrationId: pm.principalId, etapa: 'pagamento', acao: 'pacote_curso_removido', ator: 'atendente', userId: op.userId ?? null, userName: op.nome ?? null, dados: { membro: mem.candidateCode } })
