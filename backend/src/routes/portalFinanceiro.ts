@@ -502,6 +502,13 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     return { indicadores: indicadores(itens, q), porUnidade, responsaveis, dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
   })
 
+  // Conciliação por conta do Asaas: o que entrou na conta × o que o sistema tem como pago.
+  app.get(`${BASE}/conciliacao`, { preHandler: guardTela('admin') }, async (req) => {
+    const q = req.query as any
+    const { conciliar } = await import('../services/conciliacaoAsaas.js')
+    return conciliar({ de: q.de, ate: q.ate, unitId: unitIdDaQuery(q) })
+  })
+
   // Unidades (empresas) para o seletor do topo do Financeiro e da Inadimplência.
   app.get(`${BASE}/unidades`, { preHandler: guardTela('admin') }, async () => ({ unidades: await unidadesDoFinanceiro() }))
 

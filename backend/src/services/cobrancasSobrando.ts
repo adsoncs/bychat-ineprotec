@@ -71,6 +71,21 @@ async function conexoesAsaas(): Promise<Conexao[]> {
   return out
 }
 
+/**
+ * Contas do Asaas com a unidade (empresa) que as usa: a dos portais ligados a
+ * ela (portal.paymentConnectionId). Conta usada por uma unidade só = marca dela;
+ * compartilhada = sem marca, e cada linha fica com a unidade da sua inscrição.
+ */
+export async function conexoesAsaasComUnidade(): Promise<Array<Conexao & { unidade: MarcaDaUnidade | null; unidadeIds: number[] }>> {
+  const portais = await prisma.enrollmentPortal.findMany({ select: { id: true, unitId: true, paymentConnectionId: true } })
+  const marcas = await marcaPorPortal()
+  return (await conexoesAsaas()).map((c) => {
+    const unidadeIds = [...new Set(portais.filter((p) => p.paymentConnectionId === c.id).map((p) => p.unitId))]
+    const um = unidadeIds.length === 1 ? portais.find((p) => p.paymentConnectionId === c.id) : undefined
+    return { ...c, unidadeIds, unidade: um ? marcas.get(um.id) ?? null : null }
+  })
+}
+
 /** Inscrição a que a cobrança se refere, pela referência externa. */
 async function inscricaoDaReferencia(ref: string | null): Promise<{ regId: number | null; tituloId: number | null; aca: boolean; conhecida: boolean }> {
   const r = String(ref ?? '')
@@ -167,20 +182,10 @@ export async function listarSobras(unitId: number | null = null): Promise<{ sobr
   let sobras: Sobra[] = []
   const falhas: string[] = []
   let verificadas = 0
-  // Cada unidade (empresa) costuma ter a sua conta do Asaas (portal.paymentConnectionId).
-  const portais = await prisma.enrollmentPortal.findMany({ select: { id: true, unitId: true, paymentConnectionId: true } })
   const marcas = await marcaPorPortal()
-  const unidadesDaConta = new Map<number, Set<number>>()
-  for (const p of portais) if (p.paymentConnectionId) (unidadesDaConta.get(p.paymentConnectionId) ?? unidadesDaConta.set(p.paymentConnectionId, new Set()).get(p.paymentConnectionId)!).add(p.unitId)
-  const marcaDaConta = (conexaoId: number) => {
-    const us = unidadesDaConta.get(conexaoId)
-    if (!us || us.size !== 1) return null
-    const u = [...us][0]
-    const p = portais.find((x) => x.unitId === u)
-    return p ? marcas.get(p.id) ?? null : null
-  }
-  let conexoes = await conexoesAsaas()
-  if (unitId) conexoes = conexoes.filter((c) => unidadesDaConta.get(c.id)?.has(unitId))
+  const todas = await conexoesAsaasComUnidade()
+  const marcaDaConta = (conexaoId: number) => todas.find((c) => c.id === conexaoId)?.unidade ?? null
+  const conexoes = unitId ? todas.filter((c) => c.unidadeIds.includes(unitId)) : todas
   for (const c of conexoes) {
     const cache = new Map<string, string | null>()
     for (const status of SITUACOES_ABERTAS) {

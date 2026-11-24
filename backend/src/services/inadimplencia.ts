@@ -274,6 +274,75 @@ export async function resumo(unitId: number | null = null) {
   }
 }
 
+// ─── Fila do dia ──────────────────────────────────────
+//
+// O trabalho de cobrança de um dia, de cima para baixo (ineprotec, 24/11):
+//   1. vence hoje            → lembrete antes de virar atraso;
+//   2. venceu há 1–3 dias    → 1º contato, enquanto é fácil resolver;
+//   3. promessa para hoje    → conferir se pagou / cobrar a promessa;
+//   4. acordo com parcela vencida → o acordo não pode cair.
+// Quem já teve contato registrado hoje vai para o fim da lista, marcado "feito".
+
+export interface LinhaDaFila {
+  leadId: number; nome: string; whatsapp: string | null
+  unidades: MarcaDaUnidade[]
+  valor: number; qtd: number; vencimento: string; diasAtraso: number
+  cursos: string[]
+  ultimoContato: Devedor['ultimoContato']
+  promessa: Devedor['promessa']
+  feitoHoje: boolean
+}
+
+export async function filaDoDia(unitId: number | null = null) {
+  const hoje = hojeBr()
+  const inicioDoDia = new Date(`${hoje}T00:00:00-03:00`)
+  const todos = await carregarItens({ incluirAVencer: true, unitId })
+  const vencidos = todos.filter((i) => i.vencimento < hoje)
+  const devedores = new Map((await agrupar(vencidos)).map((d) => [d.leadId, d]))
+  const ids = [...new Set(todos.map((i) => i.leadId))]
+  const [feitos, marcas, leads] = await Promise.all([
+    prisma.cobrancaContato.findMany({ where: { leadId: { in: ids }, createdAt: { gte: inicioDoDia } }, select: { leadId: true } }),
+    marcaPorPortal(),
+    prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true, whatsapp: true } }),
+  ])
+  const feitoHoje = new Set(feitos.map((f) => f.leadId))
+  const lead = new Map(leads.map((l) => [l.id, l]))
+  const linhas = (itens: ItemDevido[]): LinhaDaFila[] => {
+    const g = new Map<number, ItemDevido[]>()
+    for (const i of itens) (g.get(i.leadId) ?? g.set(i.leadId, []).get(i.leadId)!).push(i)
+    return [...g.entries()].map(([id, xs]) => {
+      const d = devedores.get(id)
+      return {
+        leadId: id, nome: lead.get(id)?.nome || 'Sem nome', whatsapp: lead.get(id)?.whatsapp ?? null,
+        unidades: [...new Map(xs.map((i) => (i.portalId ? marcas.get(i.portalId) : undefined)).filter((m): m is MarcaDaUnidade => !!m).map((m) => [m.id, m])).values()],
+        valor: xs.reduce((s, i) => s + i.valor, 0), qtd: xs.length,
+        vencimento: xs.map((i) => i.vencimento).sort()[0]!, diasAtraso: Math.max(...xs.map((i) => i.diasAtraso)),
+        cursos: [...new Set(xs.map((i) => i.curso).filter(Boolean) as string[])],
+        ultimoContato: d?.ultimoContato ?? null, promessa: d?.promessa ?? null, feitoHoje: feitoHoje.has(id),
+      }
+    }).sort((a, b) => Number(a.feitoHoje) - Number(b.feitoHoje) || b.valor - a.valor)
+  }
+  // Contato depois do vencimento = já procurado por este atraso.
+  const procuradoDesde = (leadId: number, venc: string) => {
+    const u = devedores.get(leadId)?.ultimoContato
+    return !!u && u.em.slice(0, 10) >= venc
+  }
+  const venceHoje = todos.filter((i) => i.vencimento === hoje && !i.acordoId)
+  const recente = vencidos.filter((i) => i.diasAtraso >= 1 && i.diasAtraso <= 3 && !i.acordoId && !procuradoDesde(i.leadId, i.vencimento))
+  const comPromessaHoje = new Set([...devedores.values()].filter((d) => d.promessa?.para === hoje).map((d) => d.leadId))
+  const promessa = vencidos.filter((i) => comPromessaHoje.has(i.leadId))
+  const acordo = vencidos.filter((i) => i.acordoId && i.fonte === 'titulo')
+  const listas = [
+    { id: 'vence_hoje', titulo: 'Vence hoje', dica: 'Lembrete antes de virar atraso.', itens: linhas(venceHoje) },
+    { id: 'venceu_recente', titulo: 'Venceu há 1 a 3 dias', dica: 'Primeiro contato: ainda ninguém falou com eles sobre este atraso.', itens: linhas(recente) },
+    { id: 'promessa_hoje', titulo: 'Prometeu pagar hoje', dica: 'Confira se o pagamento entrou; se não, cobre a promessa.', itens: linhas(promessa) },
+    { id: 'acordo_atrasado', titulo: 'Acordo com parcela vencida', dica: 'O acordo está em risco: fale antes que ele caia.', itens: linhas(acordo) },
+  ]
+  const total = new Set(listas.flatMap((l) => l.itens.map((x) => x.leadId)))
+  const feitosNaFila = [...total].filter((id) => feitoHoje.has(id)).length
+  return { hoje, listas, pessoas: total.size, feitos: feitosNaFila }
+}
+
 /** Dinheiro em título substituído ou cancelamento que falhou: a equipe trata e marca. */
 async function pagamentosAConferir(unitId: number | null = null) {
   const ts = await prisma.enrollmentTitulo.findMany({

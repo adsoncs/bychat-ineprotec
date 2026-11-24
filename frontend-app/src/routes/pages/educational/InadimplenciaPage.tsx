@@ -86,7 +86,8 @@ function Barras({ linhas, aoClicar }: { linhas: Array<{ id: string; rotulo: stri
 }
 
 export function InadimplenciaPage() {
-  const [aba, setAba] = useState<'painel' | 'devedores' | 'acordos' | 'sobrando' | 'regras'>('painel')
+  // Abre na Fila do dia: é por onde o financeiro começa o dia.
+  const [aba, setAba] = useState<'fila' | 'painel' | 'devedores' | 'acordos' | 'sobrando' | 'regras'>('fila')
   const [faixa, setFaixa] = useState('')
   const [portal, setPortal] = useState('')
   const [situacao, setSituacao] = useState('')
@@ -100,7 +101,7 @@ export function InadimplenciaPage() {
   const resumo = useQuery({ queryKey: ['inad-resumo', u], queryFn: () => api.get<Resumo>(comUnidade(`${BASE}/resumo`)) })
   const r = resumo.data
   const irPara = (f: { faixa?: string; portal?: string; situacao?: string }) => { setFaixa(f.faixa ?? ''); setPortal(f.portal ?? ''); setSituacao(f.situacao ?? ''); setAba('devedores') }
-  const ABAS = [['painel', 'Painel'], ['devedores', `Devedores${r ? ` (${r.devedores})` : ''}`], ['acordos', `Acordos${r ? ` (${r.acordos.ativos})` : ''}`], ['sobrando', 'Cobranças sobrando'], ['regras', 'Regras']] as const
+  const ABAS = [['fila', 'Fila do dia'], ['painel', 'Painel'], ['devedores', `Devedores${r ? ` (${r.devedores})` : ''}`], ['acordos', `Acordos${r ? ` (${r.acordos.ativos})` : ''}`], ['sobrando', 'Cobranças sobrando'], ['regras', 'Regras']] as const
   return (
     <Page title="Inadimplência e acordos" description="Quem está em atraso, o que já foi tratado e o que foi renegociado, no portal e no acadêmico."
       actions={<Button size="sm" variant="ghost" onClick={() => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('inad-') })}><RefreshCw size={14} /> Atualizar</Button>}>
@@ -116,6 +117,7 @@ export function InadimplenciaPage() {
             class={`px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-[1px] ${aba === id ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:text-fg'}`}>{rotulo}</button>
         ))}
       </div>
+      {aba === 'fila' && <FilaDoDia unitId={u} marcar={unidades.length > 1} abrir={setAberto} />}
       {aba === 'painel' && (resumo.isLoading || !r ? <Skeleton class="h-64" /> : <Painel r={r} irPara={irPara} todas={!u && unidades.length > 1} escolher={(id) => { setUnidade(id); setPortal('') }} />)}
       {aba === 'devedores' && <Devedores faixa={faixa} setFaixa={setFaixa} portal={portal} setPortal={setPortal} situacao={situacao} setSituacao={setSituacao} portais={r?.porPortal.map((p) => p.portal) ?? []} aging={r?.aging ?? []} abrir={setAberto} unitId={u} marcar={unidades.length > 1} />}
       {aba === 'acordos' && <Acordos abrir={setAberto} unitId={u} marcar={unidades.length > 1} />}
@@ -151,6 +153,64 @@ function AConferir({ itens }: { itens: Resumo['aConferir'] }) {
         <Textarea label="Anotação" rows={2} value={nota} onInput={(e) => setNota((e.target as HTMLTextAreaElement).value)} />
       </Modal>
     </Card>
+  )
+}
+
+interface LinhaFila {
+  leadId: number; nome: string; whatsapp: string | null; unidades: MarcaUnidade[]; valor: number; qtd: number; vencimento: string; diasAtraso: number
+  cursos: string[]; ultimoContato: Devedor['ultimoContato']; promessa: Devedor['promessa']; feitoHoje: boolean
+}
+interface Fila { hoje: string; pessoas: number; feitos: number; listas: Array<{ id: string; titulo: string; dica: string; itens: LinhaFila[] }> }
+const TOM_DA_LISTA: Record<string, string> = { vence_hoje: 'border-l-warning', venceu_recente: 'border-l-danger', promessa_hoje: 'border-l-accent', acordo_atrasado: 'border-l-danger' }
+
+/** O dia de cobrança, de cima para baixo. Abrir a pessoa = mesma ficha de Devedores (contato, 2ª via, acordo, baixa). */
+function FilaDoDia({ unitId, marcar, abrir }: { unitId: string; marcar: boolean; abrir: (id: number) => void }) {
+  const q = useQuery({ queryKey: ['inad-fila', unitId], queryFn: () => api.get<Fila>(`${BASE}/fila${unitId ? `?unitId=${unitId}` : ''}`) })
+  const f = q.data
+  if (q.isLoading || !f) return <Skeleton class="h-64 mt-3" />
+  const pct = f.pessoas ? Math.round((f.feitos / f.pessoas) * 100) : 100
+  return (
+    <div class="grid gap-3 mt-3">
+      <Card class="p-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-sm font-semibold">Hoje, {dia(f.hoje)}</div>
+            <div class="text-xs text-fg-muted">{f.pessoas ? `${f.feitos} de ${f.pessoas} pessoa(s) já com contato registrado hoje` : 'Nada para cobrar hoje.'}</div>
+          </div>
+          {f.pessoas > 0 && <div class="w-48 h-2 rounded-full bg-surface-3 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Fila feita"><div class="h-full bg-success" style={{ width: `${pct}%` }} /></div>}
+        </div>
+        <div class="text-2xs text-fg-muted mt-2">Abra a pessoa, fale com ela e registre o contato: ela desce para o fim da lista, marcada como feita.</div>
+      </Card>
+      {f.listas.map((l) => (
+        <Card key={l.id} class={`p-0 border-l-4 ${TOM_DA_LISTA[l.id] ?? ''}`}>
+          <div class="px-3 py-2 flex flex-wrap items-baseline justify-between gap-2 border-b border-border">
+            <div><span class="text-sm font-semibold">{l.titulo}</span> <span class="text-xs text-fg-muted">· {l.itens.length} pessoa(s) · {money(l.itens.reduce((s, x) => s + x.valor, 0))}</span></div>
+            <div class="text-2xs text-fg-muted">{l.dica}</div>
+          </div>
+          {!l.itens.length ? <div class="px-3 py-3 text-xs text-fg-muted">Ninguém nesta lista hoje.</div> : (
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm min-w-[44rem]">
+                <tbody>
+                  {l.itens.map((x) => (
+                    <tr key={x.leadId} class={`border-b border-border last:border-0 cursor-pointer hover:bg-surface-2 ${x.feitoHoje ? 'opacity-60' : ''}`} onClick={() => abrir(x.leadId)}>
+                      <td class="px-3 py-2">
+                        <div class={`font-medium ${x.feitoHoje ? 'line-through' : ''}`}>{x.nome}</div>
+                        <div class="text-xs text-fg-muted flex flex-wrap items-center gap-1">{x.whatsapp ?? 'sem WhatsApp'}{marcar && x.unidades.map((m) => <EtiquetaUnidade key={m.id} u={m} />)}</div>
+                      </td>
+                      <td class="px-2 py-2 text-xs text-fg-muted">{x.cursos.join(', ') || '—'}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{money(x.valor)}<div class="text-xs text-fg-muted">{x.qtd} título(s)</div></td>
+                      <td class="px-2 py-2 text-xs">{x.diasAtraso > 0 ? `${x.diasAtraso} d de atraso` : 'vence hoje'}<div class="text-fg-muted">{dia(x.vencimento)}</div></td>
+                      <td class="px-2 py-2 text-xs">{x.ultimoContato ? <>{RESULTADO[x.ultimoContato.resultado] ?? x.ultimoContato.resultado}<div class="text-fg-muted">{dia(x.ultimoContato.em)} · {CANAL[x.ultimoContato.canal] ?? x.ultimoContato.canal}</div></> : <span class="text-fg-muted">Nenhum contato</span>}</td>
+                      <td class="px-2 py-2 text-right">{x.feitoHoje ? <Badge tone="success">Feito hoje</Badge> : <Button size="sm" variant="secondary" onClick={(e: Event) => { e.stopPropagation(); abrir(x.leadId) }}>Abrir</Button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
   )
 }
 

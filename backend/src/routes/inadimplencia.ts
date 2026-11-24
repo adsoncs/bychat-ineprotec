@@ -26,6 +26,7 @@ export async function inadimplenciaRoutes(app: FastifyInstance) {
   const resposta = (reply: any, r: any) => (r.ok ? r : reply.code(r.status).send({ error: r.erro }))
 
   app.get(`${BASE}/resumo`, { preHandler: guarda }, (req) => I.resumo(unitIdDaQuery(req.query)))
+  app.get(`${BASE}/fila`, { preHandler: guarda }, (req) => I.filaDoDia(unitIdDaQuery(req.query)))
   // Rota própria: a do Financeiro do acadêmico não existe onde o ERP está desligado.
   app.get(`${BASE}/regras`, { preHandler: guarda }, async () => ({ config: await getEncargosConfig() }))
   app.put(`${BASE}/regras`, { preHandler: guarda }, async (req) => {

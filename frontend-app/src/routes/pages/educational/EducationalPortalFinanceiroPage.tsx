@@ -30,6 +30,7 @@ import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, Trocar
 import { useCan } from '@/hooks/usePermissions'
 import { SeletorDeColunas, colunasVisiveis, useColunasFin } from './financeiroColunas'
 import { DescontosConcedidosCard } from './DescontosConcedidosCard'
+import { ConciliacaoAsaasCard } from './ConciliacaoAsaasCard'
 import { EtiquetaUnidade, SeletorDeUnidade, portaisDaUnidade, useUnidadeEscolhida, useUnidadesFinanceiro } from '@/components/educational/UnidadeFinanceiro'
 
 const brl = (n: number | null | undefined) =>
@@ -243,6 +244,8 @@ export function EducationalPortalFinanceiroPage() {
       )}
 
       <DescontosConcedidosCard de={f.de} ate={f.ate} portalId={f.portalId} unitId={uAtual || undefined} />
+
+      <ConciliacaoAsaasCard unitId={uAtual || undefined} />
 
       {/* Filtros */}
       <Card class="p-3 mb-3">
