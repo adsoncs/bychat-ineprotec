@@ -434,14 +434,19 @@ async function recompute(envelopeId: number) {
   return prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, include: { signatarios: { orderBy: { ordem: 'asc' } } } })
 }
 
-/** Coleta candidatos a ID de documento em qualquer formato de payload (busca por chaves id/uuid). */
+/**
+ * Coleta candidatos a ID em qualquer formato de payload. Além de id/key/uuid,
+ * lê `document` e `public_id` quando são texto: no aviso de assinatura da
+ * Autentique (signature.*) o documento vem como string em `data.document` e o
+ * signatário em `public_id` — sem isso, nenhum desses avisos achava o envelope.
+ */
 function coletarIds(obj: any, acc = new Set<string>(), depth = 0): Set<string> {
   if (!obj || depth > 6) return acc
   if (Array.isArray(obj)) { for (const v of obj) coletarIds(v, acc, depth + 1); return acc }
   if (typeof obj === 'object') {
     for (const [k, v] of Object.entries(obj)) {
       // `key`: a Clicksign identifica o documento por `document.key`.
-      if ((k === 'id' || k === 'key' || k === 'uuid' || k === 'document_id' || k === 'documentId') && (typeof v === 'string' || typeof v === 'number')) acc.add(String(v))
+      if ((k === 'id' || k === 'key' || k === 'uuid' || k === 'document_id' || k === 'documentId' || k === 'document' || k === 'public_id') && (typeof v === 'string' || typeof v === 'number')) acc.add(String(v))
       else if (v && typeof v === 'object') coletarIds(v, acc, depth + 1)
     }
   }
@@ -451,10 +456,27 @@ function coletarIds(obj: any, acc = new Set<string>(), depth = 0): Set<string> {
 export async function processarWebhook(body: any): Promise<{ ok: boolean; envelopeId?: number }> {
   const ids = [...coletarIds(body)]
   if (!ids.length) return { ok: true }
-  const env = await prisma.acaAssinatura.findFirst({ where: { OR: [{ documentoExternoId: { in: ids } }, { pastaExternaId: { in: ids } }] }, select: { id: true } })
-  if (!env) return { ok: true }
+  let env = await prisma.acaAssinatura.findFirst({ where: { OR: [{ documentoExternoId: { in: ids } }, { pastaExternaId: { in: ids } }] }, select: { id: true } })
+  if (!env) {
+    // Aviso que só identifica o signatário: acha o envelope por ele.
+    const sig = await prisma.acaSignatario.findFirst({ where: { publicId: { in: ids } }, select: { assinaturaId: true } })
+    if (sig) env = { id: sig.assinaturaId }
+  }
+  if (!env) {
+    // Sem par: registra o tipo e o formato (só nomes de campo, sem dados pessoais)
+    // para que um aviso que não casa não passe mais despercebido.
+    console.warn('[acaAssinatura] webhook sem envelope:', JSON.stringify({ tipo: body?.event?.type ?? body?.event?.name ?? body?.type ?? null, formato: formatoDoPayload(body), ids: ids.length }))
+    return { ok: true }
+  }
   await sincronizar(env.id).catch(() => {})
   return { ok: true, envelopeId: env.id }
+}
+
+/** Nomes dos campos do payload (até 3 níveis), para diagnóstico. */
+function formatoDoPayload(obj: any, depth = 0): unknown {
+  if (!obj || typeof obj !== 'object' || depth > 2) return typeof obj
+  if (Array.isArray(obj)) return obj.length ? [formatoDoPayload(obj[0], depth + 1)] : []
+  return Object.fromEntries(Object.entries(obj).slice(0, 30).map(([k, v]) => [k, formatoDoPayload(v, depth + 1)]))
 }
 
 // ───────────────────────── Gatilhos (disparo automático) ─────────────────────────
