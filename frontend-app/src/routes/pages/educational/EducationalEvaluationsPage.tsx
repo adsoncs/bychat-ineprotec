@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
-import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, ExternalLink, AlertTriangle, RotateCcw } from '@/components/ui/icon-set'
+import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, AlertTriangle, RotateCcw } from '@/components/ui/icon-set'
 import {
   useEnemImports,
   useEnemImport,

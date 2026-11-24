@@ -14,10 +14,10 @@ export function ArquivoPreviewCard({
 }: {
   url: string
   mimeType: string | null | undefined
-  fileName?: string | null
-  sizeBytes?: number | null
+  fileName?: string | null | undefined
+  sizeBytes?: number | null | undefined
   /** Rótulo do cabeçalho; padrão é o nome do arquivo. */
-  label?: string | null
+  label?: string | null | undefined
 }) {
   const isImage = (mimeType ?? '').startsWith('image/')
   const isPdf = (mimeType ?? '') === 'application/pdf'
