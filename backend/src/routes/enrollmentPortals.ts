@@ -55,6 +55,7 @@ import { lerEduGeral, vestirMarca, salvarHeranca, herancaDoPortal, esquecerHeran
 import { campoCondicionalAtende } from '../services/docCondicional.js'
 import { guardTela } from '../lib/eduTelas.js'
 import { alcanceDaRequisicao, wherePortais, whereInscricoes } from '../lib/portalAccess.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -1216,7 +1217,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const q = (req.query as any) || {}
     const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { slug: true, continuationPortalId: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
-    const limit = Math.min(Math.max(parseInt(q.limit) || 50, 1), 200)
+    const limit = Math.min(Math.max(parseInt(q.limit) || 50, 1), 500)
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const busca = String(q.search || '').trim()
     const where: any = {
@@ -1259,7 +1260,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const q = req.query as any
     const portalId = parseInt(id)
-    const limit  = Math.min(Math.max(parseInt(q.limit)  || 50, 1), 200)
+    const limit  = Math.min(Math.max(parseInt(q.limit)  || 50, 1), 500)
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const where: any = { portalId }
     // Acesso por portal: em portal restrito, o membro vê só os próprios leads.
@@ -1546,6 +1547,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     const filename = `inscricoes-${portal?.slug || id}-${new Date().toISOString().slice(0,10)}.csv`
+    const formato = formatoDaQuery(q)
+    if (formato !== 'csv') {
+      return responderTabela(reply, tabelaDoCsv(lines.join('\n'), filename.replace(/\.csv$/, ''), `Inscrições — ${portal?.nome ?? 'portal'}`, null, ','), formato)
+    }
     reply
       .header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${filename}"`)

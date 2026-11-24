@@ -175,7 +175,7 @@ export async function listarAcervo(opts: {
   limite?: number
   offset?: number
 } = {}): Promise<{ itens: LinhaDoAcervo[]; total: number; limite: number; offset: number }> {
-  const limite = Math.min(200, Math.max(1, opts.limite ?? 50))
+  const limite = Math.min(500, Math.max(1, opts.limite ?? 50))
   const offset = Math.max(0, opts.offset ?? 0)
   const agora = Date.now()
   const setting = async (key: string, padrao: number) => {

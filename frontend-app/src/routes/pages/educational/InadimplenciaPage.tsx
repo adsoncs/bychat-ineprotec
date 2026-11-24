@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CalendarClock, Download, Handshake, MessageSquare, PhoneOff, RefreshCw, Users, Wallet } from 'lucide-preact'
+import { AlertTriangle, CalendarClock, Handshake, MessageSquare, PhoneOff, RefreshCw, Users, Wallet } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { env } from '@/lib/env'
 import { Page } from '@/components/ui/Page'
@@ -19,6 +19,7 @@ import { toast } from '@/lib/toast'
 import { useCan } from '@/hooks/usePermissions'
 import { pedirRascunho } from '@/lib/rascunhoDaConversa'
 import { EtiquetaUnidade, SeletorDeUnidade, useUnidadeEscolhida, useUnidadesFinanceiro, type MarcaUnidade } from '@/components/educational/UnidadeFinanceiro'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 const BASE = '/admin/inadimplencia'
 const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -275,13 +276,7 @@ function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: st
     return s.toString()
   }, [busca, p.faixa, p.portal, p.situacao, p.unitId, ordem])
   const q = useQuery({ queryKey: ['inad-devedores', qs], queryFn: () => api.get<{ devedores: Devedor[] }>(`${BASE}/devedores?${qs}`) })
-  const exportar = async () => {
-    const token = localStorage.getItem(env.authTokenKey)
-    const r = await fetch(`${env.apiBase}${BASE}/devedores.csv?${qs}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' })
-    if (!r.ok) { toast('Não foi possível exportar.', 'danger'); return }
-    const url = URL.createObjectURL(await r.blob())
-    const a = document.createElement('a'); a.href = url; a.download = 'inadimplencia.csv'; a.click(); URL.revokeObjectURL(url)
-  }
+
   const lista = q.data?.devedores ?? []
   return (
     <div class="grid gap-3">
@@ -294,7 +289,7 @@ function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: st
             <option value="">Todas</option><option value="sem_contato">Sem contato</option><option value="promessa">Com promessa</option><option value="promessa_quebrada">Promessa vencida</option><option value="acordo">Com acordo ativo</option>
           </Select></div>
           <div class="w-40"><Select label="Ordenar por" value={ordem} onChange={(e) => setOrdem((e.target as HTMLSelectElement).value)}><option value="atraso">Maior atraso</option><option value="valor">Maior valor</option><option value="nome">Nome</option></Select></div>
-          <Button size="sm" variant="secondary" onClick={() => void exportar()}><Download size={14} /> Exportar CSV</Button>
+          <div class="self-end"><ExportarDados url={`${BASE}/devedores.csv?${qs}`} nome="inadimplencia" /></div>
         </div>
       </Card>
       <Card class="p-0">

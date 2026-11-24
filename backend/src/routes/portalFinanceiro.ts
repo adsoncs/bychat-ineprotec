@@ -15,6 +15,7 @@ import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu
 import { appUrl } from '../lib/appUrl.js'
 import { guardTela } from '../lib/eduTelas.js'
 import { marcaPorPortal, unidadesDoFinanceiro, unitIdDaQuery, type MarcaDaUnidade } from '../lib/unidadesFinanceiro.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'transferido' | 'sem_cobranca'
 
@@ -537,6 +538,8 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
         n(l.comercial.comissao?.valor ?? null), l.comercial.comissao?.status, l.comercial.comissao?.regra, l.comercial.comissao?.competencia, dt(l.comercial.comissao?.pagaEm ?? null),
         n(centavos(l.recebidoTotal - comissaoValida(l))), l.origemInscricao, l.midia, l.campanha].map(esc).join(';')),
     ]
+    const formato = formatoDaQuery(q)
+    if (formato !== 'csv') return responderTabela(reply, tabelaDoCsv(linhas.join('\n'), 'financeiro-portal', 'Financeiro do portal', (q.de || q.ate ? `Período: ${String(q.de ?? '').split('-').reverse().join('/')} a ${String(q.ate ?? '').split('-').reverse().join('/')}` : null), ';', ['Código', 'Candidato', 'Unidade', 'Curso', 'Cobrança', 'Valor cobrado', 'Meio', 'Situação', 'Pago em', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento']), formato)
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="financeiro-portal.csv"')
     return '﻿' + linhas.join('\n')
   })

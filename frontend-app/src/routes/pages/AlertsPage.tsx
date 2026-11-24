@@ -80,6 +80,7 @@ export function AlertsPage() {
   const [severity, setSeverity] = useState('')
   const [busca, setBusca] = useState('')
   const [offset, setOffset] = useState(0)
+  const [porPagina, setPorPagina] = useState(POR_PAGINA)
   const [tipoAcervo, setTipoAcervo] = useState('')
 
   const kinds = useAlertKinds()
@@ -91,7 +92,7 @@ export function AlertsPage() {
     ? new Date(Date.now() - DIAS_RESOLVIDO * 86400_000).toISOString()
     : undefined
   const lista = useAlertList(
-    { escopo: aba === 'acervo' ? 'minha' : aba, status, kind, severity, busca, desde, limit: POR_PAGINA, offset },
+    { escopo: aba === 'acervo' ? 'minha' : aba, status, kind, severity, busca, desde, limit: porPagina, offset },
     aba !== 'acervo',
   )
   const acervo = useAcervoItens(tipoAcervo || undefined, offset, aba === 'acervo')
@@ -164,6 +165,7 @@ export function AlertsPage() {
                 limit={acervo.data.limite}
                 offset={acervo.data.offset}
                 onChange={setOffset}
+                onLimitChange={(n) => { setPorPagina(n); setOffset(0) }}
               />
             </div>
           )}
@@ -221,6 +223,7 @@ export function AlertsPage() {
                 limit={lista.data.limite}
                 offset={lista.data.offset}
                 onChange={setOffset}
+                onLimitChange={(n) => { setPorPagina(n); setOffset(0) }}
               />
             </div>
           )}

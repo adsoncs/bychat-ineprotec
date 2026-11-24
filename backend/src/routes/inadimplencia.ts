@@ -10,6 +10,7 @@ import * as I from '../services/inadimplencia.js'
 import { unitIdDaQuery } from '../lib/unidadesFinanceiro.js'
 import { excluirSobras, listarSobras } from '../services/cobrancasSobrando.js'
 import { getEncargosConfig, setEncargosConfig } from '../services/acaEncargos.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 const BASE = '/api/admin/inadimplencia'
 
@@ -36,6 +37,8 @@ export async function inadimplenciaRoutes(app: FastifyInstance) {
   app.get(`${BASE}/devedores`, { preHandler: guarda }, async (req) => ({ devedores: await I.listarDevedores(req.query as any) }))
   app.get(`${BASE}/devedores.csv`, { preHandler: guarda }, async (req, reply) => {
     const csv = I.csvDosDevedores(await I.listarDevedores(req.query as any))
+    const formato = formatoDaQuery(req.query)
+    if (formato !== 'csv') return responderTabela(reply, tabelaDoCsv(csv, 'inadimplencia', 'Inadimplência — devedores'), formato)
     return reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="inadimplencia.csv"').send(csv)
   })
   app.get(`${BASE}/devedores/:leadId`, { preHandler: guarda }, async (req, reply) => {

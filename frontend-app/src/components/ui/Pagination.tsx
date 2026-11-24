@@ -5,9 +5,14 @@ interface PaginationProps {
   limit: number
   offset: number
   onChange: (offset: number) => void
+  /** Com isto, aparece "Por página" (50/100/200/500): quem chama volta para a 1ª página. */
+  onLimitChange?: (limit: number) => void
+  limits?: number[]
 }
 
-export function Pagination({ total, limit, offset, onChange }: PaginationProps) {
+export const POR_PAGINA = [50, 100, 200, 500]
+
+export function Pagination({ total, limit, offset, onChange, onLimitChange, limits = POR_PAGINA }: PaginationProps) {
   const page = Math.floor(offset / limit) + 1
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const from = total === 0 ? 0 : offset + 1
@@ -17,9 +22,24 @@ export function Pagination({ total, limit, offset, onChange }: PaginationProps) 
     <div class="flex items-center justify-between gap-3 text-xs text-fg-muted">
       {/* A faixa inteira é tabular: sem isso o "12–24" muda de largura ao virar
           para "13–25" e o bloco todo se desloca a cada página. */}
-      <span class="tabular-nums">
-        {from}–{to} de <span class="font-semibold text-fg">{total}</span>
-      </span>
+      <div class="flex items-center gap-3">
+        <span class="tabular-nums">
+          {from}–{to} de <span class="font-semibold text-fg">{total}</span>
+        </span>
+        {onLimitChange && (
+          <label class="flex items-center gap-1.5">
+            <span>Por página</span>
+            <select
+              class="h-7 rounded-md border border-border bg-surface px-1.5 text-xs text-fg tabular-nums"
+              value={String(limit)}
+              onChange={(e) => onLimitChange(Number((e.target as HTMLSelectElement).value))}
+              aria-label="Itens por página"
+            >
+              {[...new Set([...limits, limit])].sort((a, b) => a - b).map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
       <div class="flex items-center gap-1">
         <button
           type="button"

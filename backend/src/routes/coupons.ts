@@ -10,6 +10,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { avaliarCupom } from '../services/portalCupom.js'
 import { guardTela } from '../lib/eduTelas.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 const COUPON_TYPES = ['percent', 'fixed'] as const
 type CouponType = typeof COUPON_TYPES[number]
@@ -253,6 +254,8 @@ export async function couponsRoutes(app: FastifyInstance) {
         ].map(esc).join(';')
       }),
     ]
+    const formato = formatoDaQuery(req.query)
+    if (formato !== 'csv') return responderTabela(reply, tabelaDoCsv(linhas.join('\n'), 'cupons', 'Cupons'), formato)
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="cupons.csv"')
     return '﻿' + linhas.join('\n')
   })

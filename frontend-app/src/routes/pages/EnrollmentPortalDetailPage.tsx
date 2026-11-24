@@ -54,6 +54,7 @@ import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { Pode } from '@/components/auth/Pode'
 import { partesDaOferta } from '@/lib/variacaoDaOferta'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics' | 'comercial'
 
@@ -618,7 +619,8 @@ function EmbedModal({ portal: p, onClose }: { portal: EnrollmentPortal; onClose:
 function InteressadosTab({ portal }: { portal: EnrollmentPortal }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
-  const { data, isLoading } = usePortalInteressados(portal.id, search.trim(), page * 50)
+  const [limiteI, setLimiteI] = useState(50)
+  const { data, isLoading } = usePortalInteressados(portal.id, search.trim(), page * limiteI, limiteI)
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const continuaram = items.filter((i) => i.inscricao).length
@@ -666,7 +668,7 @@ function InteressadosTab({ portal }: { portal: EnrollmentPortal }) {
           </table>
         )}
       </Card>
-      {total > 50 && <Pagination total={total} limit={50} offset={page * 50} onChange={(o) => setPage(Math.floor(o / 50))} />}
+      {total > 50 && <Pagination total={total} limit={limiteI} offset={page * limiteI} onChange={(o) => setPage(Math.floor(o / limiteI))} onLimitChange={(n) => { setLimiteI(n); setPage(0) }} />}
     </div>
   )
 }
@@ -692,7 +694,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [origem, setOrigem] = useState('')
   const [revisando, setRevisando] = useState(false)
   const [page, setPage] = useState(0)
-  const limit = 50
+  const [limit, setLimit] = useState(50)
 
   const filters: RegistrationFilters = useMemo(() => ({
     ...(situacao ? { situacao } : {}),
@@ -707,7 +709,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
     ...(origem ? { origem } : {}),
     limit,
     offset: page * limit,
-  }), [situacao, etapa, etapaSituacao, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, soMinhas, origem, page])
+  }), [situacao, etapa, etapaSituacao, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, soMinhas, origem, page, limit])
 
   const { data, isLoading } = usePortalRegistrations(portal.id, filters)
   const items = data?.items ?? []
@@ -729,7 +731,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const activeFiltersCount = [situacao, etapa && etapaSituacao, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades, soMinhas, origem].filter(Boolean).length
   const maisFiltrosAtivos = [utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades, origem].filter(Boolean).length
 
-  function handleExport() {
+  function urlDaExportacao() {
     const qs = new URLSearchParams()
     if (['cancelled', 'transferred', 'expired', 'merged'].includes(situacao)) qs.set('status', situacao)
     if (utmSource.trim()) qs.set('utmSource', utmSource.trim())
@@ -737,13 +739,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
     if (dateFrom) qs.set('dateFrom', dateFrom)
     if (dateTo) qs.set('dateTo', dateTo)
     if (search.trim()) qs.set('search', search.trim())
-    const filename = `inscricoes-${portal.slug}-${new Date().toISOString().slice(0, 10)}.csv`
     const qsStr = qs.toString()
-    downloadFile(
-      `/admin/enrollment-portals/${portal.id}/registrations.csv${qsStr ? `?${qsStr}` : ''}`,
-      filename,
-    ).then(() => toast('CSV baixado', 'success'))
-      .catch((e) => toast((e as Error).message, 'danger'))
+    return `/admin/enrollment-portals/${portal.id}/registrations.csv${qsStr ? `?${qsStr}` : ''}`
   }
 
   function handleResend(r: EnrollmentRegistration) {
@@ -833,9 +830,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
             <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)} class="self-end">
               <Plus size={12} /> Nova matrícula
             </Button></Pode>
-            <Button size="sm" variant="secondary" onClick={handleExport} class="self-end">
-              <Download size={12} /> Exportar CSV
-            </Button>
+            <div class="self-end"><ExportarDados url={urlDaExportacao()} nome={`inscricoes-${portal.slug}-${new Date().toISOString().slice(0, 10)}`} /></div>
           </div>
           <div class="flex items-center gap-3">
             <Button size="sm" variant="ghost" onClick={() => setMaisFiltros(!maisFiltros)}>
@@ -946,12 +941,13 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
         </Card>
       )}
 
-      {total > limit && (
+      {total > 50 && (
         <Pagination
           total={total}
           limit={limit}
           offset={page * limit}
           onChange={(off) => setPage(Math.floor(off / limit))}
+          onLimitChange={(n) => { setLimit(n); setPage(0) }}
         />
       )}
 

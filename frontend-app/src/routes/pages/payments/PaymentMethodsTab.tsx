@@ -91,13 +91,14 @@ export function PaymentMethodsTab() {
           </div>
         )}
 
-        {data && data.total > (filters.limit ?? 50) && (
+        {data && data.total > 50 && (
           <div class="mt-3">
             <Pagination
               total={data.total}
               limit={filters.limit ?? 50}
               offset={filters.offset ?? 0}
               onChange={(offset) => setFilters((s) => ({ ...s, offset }))}
+              onLimitChange={(limit) => setFilters((s) => ({ ...s, limit, offset: 0 }))}
             />
           </div>
         )}

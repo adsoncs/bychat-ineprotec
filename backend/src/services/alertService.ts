@@ -627,7 +627,7 @@ export async function listarAlertas(
   userId: number,
   f: FiltroDeAlertas,
 ): Promise<{ itens: LinhaDaLista[]; total: number; limite: number; offset: number }> {
-  const limite = Math.min(200, Math.max(1, f.limite ?? 50))
+  const limite = Math.min(500, Math.max(1, f.limite ?? 50))
   const offset = Math.max(0, f.offset ?? 0)
   // A ordem precisa ser TOTAL: `lastSeenAt` empata entre alertas levantados na
   // mesma volta do relógio, e empate com offset faz item pular de página ou

@@ -111,6 +111,11 @@ export function useNfseMut(parcelaId: number) {
 }
 
 /** Baixa o CSV (respeita filtros) com Authorization. */
+/** Caminho da exportação (Excel/PDF/CSV escolhidos em ExportarDados). */
+export function urlExportFinanceiro(f: FinFiltros): string {
+  return `/admin/aca/financeiro/export.csv?${qs({ ...f, page: undefined, limit: undefined })}`
+}
+
 export async function exportFinanceiroCsv(f: FinFiltros) {
   const token = (() => { try { return localStorage.getItem(env.authTokenKey) } catch { return null } })()
   const res = await fetch(`${env.apiBase}/admin/aca/financeiro/export.csv?${qs({ ...f, page: undefined, limit: undefined })}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })

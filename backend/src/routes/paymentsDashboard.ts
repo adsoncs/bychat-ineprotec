@@ -122,7 +122,7 @@ export async function paymentsDashboardRoutes(app: FastifyInstance) {
         { registration: { candidateCode: { contains: String(q.search) } } },
       ]
     }
-    const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 200))
+    const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
     const offset = parseInt(q.offset) || 0
 
     const [items, total] = await Promise.all([
@@ -292,7 +292,7 @@ export async function paymentsDashboardRoutes(app: FastifyInstance) {
     if (q.status) where.status = String(q.status)
     if (q.eventType) where.eventType = String(q.eventType)
     if (q.externalId) where.externalId = String(q.externalId)
-    const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 200))
+    const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
     const offset = parseInt(q.offset) || 0
 
     const [items, total, statusAgg] = await Promise.all([

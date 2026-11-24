@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks'
 import {
-  Wallet, Clock, AlertTriangle, TrendingUp, Receipt, Percent, Download, RefreshCw, X,
+  Wallet, Clock, AlertTriangle, TrendingUp, Receipt, Percent, RefreshCw, X,
   CheckCircle2, Ban, Undo2, Send, Copy, Eye, Filter, Mail,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
@@ -16,7 +16,6 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Pagination } from '@/components/ui/Pagination'
 import { toast } from '@/lib/toast'
-import { baixarCsv } from '@/lib/baixarCsv'
 import {
   usePortalFinanceiro, useDetalheFinanceiro, useCancelarCobranca, useEstornar,
   useSincronizarPagamento, useReenviarLink, useMensagemCobranca, useReenviarCobrancaEmail, qsDe,
@@ -32,6 +31,7 @@ import { SeletorDeColunas, colunasVisiveis, useColunasFin } from './financeiroCo
 import { DescontosConcedidosCard } from './DescontosConcedidosCard'
 import { ConciliacaoAsaasCard } from './ConciliacaoAsaasCard'
 import { EtiquetaUnidade, SeletorDeUnidade, portaisDaUnidade, useUnidadeEscolhida, useUnidadesFinanceiro } from '@/components/educational/UnidadeFinanceiro'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -92,9 +92,7 @@ export function EducationalPortalFinanceiroPage() {
           <Button variant="ghost" size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
             <RefreshCw size={13} /> Atualizar
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => baixarCsv(`/admin/educational/portal-financeiro/export.csv?${qsDe({ ...fq, limit: undefined, offset: undefined })}`, 'financeiro-portal.csv').catch((e) => toast(e.message, 'danger'))}>
-            <Download size={13} /> Exportar CSV
-          </Button>
+          <ExportarDados url={`/admin/educational/portal-financeiro/export.csv?${qsDe({ ...fq, limit: undefined, offset: undefined })}`} nome="financeiro-portal" />
         </div>
       }
     >
@@ -350,7 +348,7 @@ export function EducationalPortalFinanceiroPage() {
               </TBody>
             </Table>
             <div class="p-3 border-t border-border">
-              <Pagination total={q.data.total} limit={q.data.limit} offset={q.data.offset} onChange={(offset) => setF((a) => ({ ...a, offset }))} />
+              <Pagination total={q.data.total} limit={q.data.limit} offset={q.data.offset} onChange={(offset) => setF((a) => ({ ...a, offset }))} onLimitChange={(limit) => set({ limit })} />
             </div>
           </>
         )}

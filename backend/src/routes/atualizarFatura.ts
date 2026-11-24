@@ -22,6 +22,7 @@ import { areaAtiva, faturasDaInscricao, inscricaoParaFaturas, inscricoesDaConta 
 import { hojeBr } from '../services/pagamentoCombinado.js'
 import { estadoParaReabrir, reabrirPagamento } from '../services/reabrirPagamento.js'
 import { concederDesconto, cuponsParaDesconto, descontosDaInscricao, relatorioDeDescontos } from '../services/descontoFatura.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 const CHAVE = /^(titulo:\d+|reg:\d+|asaas:[A-Za-z0-9_]+)$/
 
@@ -67,6 +68,8 @@ export async function atualizarFaturaRoutes(app: FastifyInstance) {
       linhas.push([new Date(i.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }), i.codigo, i.aluno, i.portal, i.fatura, num(i.antes), num(i.desconto), num(i.depois),
         i.modo === 'percentual' ? `${i.percentual}%` : i.modo === 'cupom' ? 'Cupom' : 'Valor', i.cupom, SIT[i.situacao] ?? i.situacao, i.por, i.aprovadoPor, i.motivo].map(cel).join(';'))
     }
+    const formato = formatoDaQuery(req.query)
+    if (formato !== 'csv') return responderTabela(reply, tabelaDoCsv(linhas.join('\n'), 'descontos-concedidos', 'Descontos concedidos'), formato)
     reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="descontos-concedidos.csv"')
     return '\uFEFF' + linhas.join('\n')
   })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Wallet, AlertTriangle, TrendingUp, Users, Download, CheckCircle2, Send, FileText, Search, Percent } from 'lucide-preact'
+import { Wallet, AlertTriangle, TrendingUp, Users, CheckCircle2, Send, FileText, Search, Percent } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -9,9 +9,10 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import { Pagination } from '@/components/ui/Pagination'
 import { useTurmas } from '@/hooks/useAcaCatalogo'
-import { useFinResumo, useFinParcelas, useExtrato, useFinAcoes, useEncargosConfig, useEncargosConfigMut, useBloqueioConfigMut, useRenegociar, useReciboMut, useNfse, useNfseMut, useContratoTermo, useContratoTermoMut, exportFinanceiroCsv, money, type FinFiltros, type ParcelaLinha, type EncargosConfig, type BloqueioConfig } from '@/hooks/useAcaFinanceiroCentral'
+import { useFinResumo, useFinParcelas, useExtrato, useFinAcoes, useEncargosConfig, useEncargosConfigMut, useBloqueioConfigMut, useRenegociar, useReciboMut, useNfse, useNfseMut, useContratoTermo, useContratoTermoMut, urlExportFinanceiro, money, type FinFiltros, type ParcelaLinha, type EncargosConfig, type BloqueioConfig } from '@/hooks/useAcaFinanceiroCentral'
 import { abrirDocumentoPdf } from '@/hooks/useAcaSecretaria'
 import { Handshake, Receipt, FileSpreadsheet, FileSignature } from 'lucide-preact'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 const SIT_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral' | 'accent'> = { PAGA: 'success', ABERTA: 'warning', VENCIDA: 'danger', CANCELADA: 'neutral', RENEGOCIADA: 'accent' }
 const SIT_LABEL: Record<string, string> = { PAGA: 'Paga', ABERTA: 'Em aberto', VENCIDA: 'Vencida', CANCELADA: 'Cancelada', RENEGOCIADA: 'Renegociada' }
@@ -60,7 +61,7 @@ export function AcademicoFinanceiroPage() {
       <div class="flex gap-2">
         <Button variant="ghost" size="sm" onClick={() => setTermoOpen(true)}><FileSignature size={14} /> Termo</Button>
         <Button variant="ghost" size="sm" onClick={() => setCfgOpen(true)}><Percent size={14} /> Encargos</Button>
-        <Button variant="secondary" size="sm" onClick={() => exportFinanceiroCsv(filtros).catch(() => {})}><Download size={14} /> Exportar CSV</Button>
+        <ExportarDados url={urlExportFinanceiro(filtros)} nome="financeiro" />
       </div>
     }>
       {/* KPIs */}
@@ -146,7 +147,7 @@ export function AcademicoFinanceiroPage() {
         )}
       </Card>
       {parcelas.data && parcelas.data.total > LIMIT && (
-        <div class="mt-3"><Pagination total={parcelas.data.total} limit={LIMIT} offset={((filtros.page ?? 1) - 1) * LIMIT} onChange={(off) => setFiltros((f) => ({ ...f, page: Math.floor(off / LIMIT) + 1 }))} /></div>
+        <div class="mt-3"><Pagination total={parcelas.data.total} limit={filtros.limit ?? LIMIT} offset={((filtros.page ?? 1) - 1) * (filtros.limit ?? LIMIT)} onChange={(off) => setFiltros((f) => ({ ...f, page: Math.floor(off / (f.limit ?? LIMIT)) + 1 }))} onLimitChange={(limit) => setFiltros((f) => ({ ...f, limit, page: 1 }))} /></div>
       )}
 
       <Modal open={!!extratoAluno} onOpenChange={(o) => !o && setExtratoAluno(null)} title={extratoAluno ? `Extrato — ${extratoAluno.nome}` : ''} size="lg">

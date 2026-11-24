@@ -5,12 +5,9 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/Table'
-import { Download } from '@/components/ui/icon-set'
-import { toast } from '@/lib/toast'
-import { baixarCsv } from '@/lib/baixarCsv'
 import { brl, quandoBr } from '@/components/educational/PagamentosDaMatricula'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 interface Item {
   id: number; registrationId: number; portalId: number | null; codigo: string | null; aluno: string | null; portal: string | null; fatura: string
@@ -42,9 +39,7 @@ export function DescontosConcedidosCard({ de, ate, portalId, unitId }: { de?: st
       <div class="flex flex-wrap items-center gap-3 mb-3">
         <div class="text-sm font-semibold">Descontos concedidos pela equipe</div>
         <span class="text-xs text-fg-muted">{r.quantidade} desconto(s) · <strong class="text-fg tabular-nums">{brl(r.total)}</strong>{r.aguardando ? ` · ${r.aguardando} aguardando cartão` : ''}</span>
-        <Button class="ml-auto" variant="secondary" size="sm" onClick={() => baixarCsv(`/admin/educational/portal-financeiro/descontos.csv?${qs}`, 'descontos-concedidos.csv').catch((e) => toast(e.message, 'danger'))}>
-          <Download size={13} /> CSV
-        </Button>
+        <div class="ml-auto"><ExportarDados url={`/admin/educational/portal-financeiro/descontos.csv?${qs}`} nome="descontos-concedidos" /></div>
       </div>
       {pessoas.length > 1 && (
         <div class="flex flex-wrap gap-2 mb-3">{pessoas.map(([p, v]) => <Badge key={p} tone="neutral">{p}: {v.quantidade} · {brl(v.valor)}</Badge>)}</div>

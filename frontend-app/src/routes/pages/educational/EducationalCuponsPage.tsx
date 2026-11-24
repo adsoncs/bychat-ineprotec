@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks'
 import {
-  Ticket, Plus, Pencil, Trash2, Copy, Archive, ArchiveRestore, Layers, Download, Eye, Percent,
+  Ticket, Plus, Pencil, Trash2, Copy, Archive, ArchiveRestore, Layers, Eye, Percent,
   Wallet, TrendingUp, Sparkles, Tag, Users, Calendar, CheckCircle2, AlertTriangle,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
@@ -16,7 +16,6 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Pagination } from '@/components/ui/Pagination'
 import { toast } from '@/lib/toast'
-import { baixarCsv } from '@/lib/baixarCsv'
 import { qsDe } from '@/hooks/usePortalFinanceiro'
 import {
   useCuponsEdu, useResumoCupons, useDetalheCupom, useCriarCupom, useEditarCupom, useExcluirCupom,
@@ -26,6 +25,7 @@ import {
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses, useEducationalLevels, useModalities } from '@/hooks/useEducational'
 import { Pode } from '@/components/auth/Pode'
+import { ExportarDados } from '@/components/ui/ExportarDados'
 
 const brl = (n: number | null | undefined) => n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dt = (iso: string | null | undefined) => !iso ? '—' : new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -117,7 +117,7 @@ export function EducationalCuponsPage() {
       description="Descontos do portal de matrículas, com travas por curso, oferta, processo, meio de pagamento, público, quantidade e validade."
       actions={
         <div class="flex flex-wrap gap-2">
-          <Button variant="ghost" size="sm" onClick={() => baixarCsv(`/admin/coupons/export.csv?${qsDe({ ...f, limit: undefined, offset: undefined })}`, 'cupons.csv').catch(erro)}><Download size={13} /> CSV</Button>
+          <ExportarDados url={`/admin/coupons/export.csv?${qsDe({ ...f, limit: undefined, offset: undefined })}`} nome="cupons" />
           <Pode tela="edu_cupons" acao="create"><Button variant="secondary" size="sm" onClick={() => setLote(true)}><Layers size={13} /> Gerar lote</Button></Pode>
           <Pode tela="edu_cupons" acao="create"><Button variant="primary" size="sm" onClick={() => setEditando('novo')}><Plus size={13} /> Novo cupom</Button></Pode>
         </div>
@@ -202,7 +202,7 @@ export function EducationalCuponsPage() {
                 })}
               </TBody>
             </Table>
-            <div class="p-3 border-t border-border"><Pagination total={lista.data.total} limit={f.limit ?? 50} offset={f.offset ?? 0} onChange={(offset) => setF((a) => ({ ...a, offset }))} /></div>
+            <div class="p-3 border-t border-border"><Pagination total={lista.data.total} limit={f.limit ?? 50} offset={f.offset ?? 0} onChange={(offset) => setF((a) => ({ ...a, offset }))} onLimitChange={(limit) => setF((a) => ({ ...a, limit, offset: 0 }))} /></div>
           </>
         )}
       </Card>

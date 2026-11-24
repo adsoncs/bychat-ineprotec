@@ -113,13 +113,14 @@ export function WebhookHitsTab() {
           </div>
         )}
 
-        {data && data.total > filters.limit && (
+        {data && data.total > 50 && (
           <div class="mt-3">
             <Pagination
               total={data.total}
               limit={filters.limit}
               offset={filters.offset}
               onChange={(offset) => setFilters((s) => ({ ...s, offset }))}
+              onLimitChange={(limit) => setFilters((s) => ({ ...s, limit, offset: 0 }))}
             />
           </div>
         )}

@@ -923,11 +923,11 @@ export interface PortalInteressado {
   curso: string | null
   inscricao: { id: number; codigo: string; portalId: number; em: string } | null
 }
-export function usePortalInteressados(portalId: number, search: string, offset: number) {
+export function usePortalInteressados(portalId: number, search: string, offset: number, limit = 50) {
   return useQuery({
-    queryKey: ['portal-interessados', portalId, search, offset],
+    queryKey: ['portal-interessados', portalId, search, offset, limit],
     queryFn: () => api.get<{ total: number; items: PortalInteressado[] }>(
-      `/admin/enrollment-portals/${portalId}/interessados?limit=50&offset=${offset}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+      `/admin/enrollment-portals/${portalId}/interessados?limit=${limit}&offset=${offset}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     ),
     staleTime: 15_000,
   })

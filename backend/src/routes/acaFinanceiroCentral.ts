@@ -10,6 +10,7 @@ import { darBaixaManual, criarCobrancaParcela } from '../services/acaFinanceiro.
 import { getEncargosConfig, setEncargosConfig, calcularEncargos, type EncargosConfig } from '../services/acaEncargos.js'
 import { getBloqueioConfig, setBloqueioConfig, statusBloqueio } from '../services/acaBloqueio.js'
 import { getTermoTemplate, setTermoTemplate, dadosContrato } from '../services/acaContrato.js'
+import { formatoDaQuery, responderTabela, tabelaDoCsv } from '../lib/exportarTabela.js'
 
 const ABERTAS = ['ABERTA', 'VENCIDA'] as const
 const inicioDoDia = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
@@ -114,7 +115,7 @@ export async function acaFinanceiroCentralRoutes(app: FastifyInstance) {
     const q = req.query as any
     const where = buildWhere(q)
     const page = Math.max(1, Number(q.page) || 1)
-    const limit = Math.min(200, Math.max(10, Number(q.limit) || 50))
+    const limit = Math.min(500, Math.max(10, Number(q.limit) || 50))
     const [total, parcelas, cfg] = await Promise.all([
       prisma.acaParcela.count({ where }),
       prisma.acaParcela.findMany({ where, select: SEL_PARCELA, orderBy: [{ dataVencimento: 'asc' }], skip: (page - 1) * limit, take: limit }),
@@ -165,6 +166,8 @@ export async function acaFinanceiroCentralRoutes(app: FastifyInstance) {
     const esc = (s: any) => `"${String(s ?? '').replace(/"/g, '""')}"`
     const head = ['RA', 'Aluno', 'Turma', 'Parcela', 'Tipo', 'Vencimento', 'Valor', 'Multa', 'Juros', 'Atualizado', 'Situacao', 'DiasAtraso', 'PagoEm']
     const rows = parcelas.map((p) => linha(p, cfg)).map((l) => [l.ra, l.alunoNome, l.turmaNome, l.nroParcela, l.tipo, new Date(l.vencimento).toLocaleDateString('pt-BR'), (l.valor / 100).toFixed(2), (l.multa / 100).toFixed(2), (l.juros / 100).toFixed(2), (l.valorAtual / 100).toFixed(2), l.atrasada ? 'ATRASADA' : l.situacao, l.diasAtraso, l.pagoEm ? new Date(l.pagoEm).toLocaleDateString('pt-BR') : ''].map(esc).join(';'))
+    const formato = formatoDaQuery(req.query)
+    if (formato !== 'csv') return responderTabela(reply, tabelaDoCsv([head.map(esc).join(';'), ...rows].join('\n'), 'financeiro', 'Financeiro — parcelas'), formato)
     reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', 'attachment; filename="financeiro.csv"')
     return reply.send('﻿' + [head.map(esc).join(';'), ...rows].join('\n'))
   })
