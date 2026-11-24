@@ -102,6 +102,35 @@ export async function fichaParaMatricula(
 }
 
 /**
+ * Ficha de quem se inscreve pelo portal sem login (uma pessoa, uma ficha —
+ * 24/11/2026). Só pelo CPF, o único dado que identifica a pessoa: celular e
+ * e-mail podem ser da família. A ficha principal ganha da duplicata marcada;
+ * mais de uma pessoa possível = nenhuma (fica o comportamento antigo).
+ */
+export async function fichaDoCpf(cpfDigitado: string, portalId?: number | null): Promise<number | null> {
+  const cpf = normalizeCpf(String(cpfDigitado ?? ''))
+  if (cpf.length !== 11) return null
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    `SELECT id FROM bychat_leads WHERE REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?
+     UNION SELECT leadId AS id FROM bychat_enrollment_registrations WHERE leadId IS NOT NULL AND mergedIntoId IS NULL AND REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?
+     LIMIT 20`, cpf, cpf,
+  ).catch(() => [] as Array<{ id: number }>)
+  let fichas = await prisma.lead.findMany({
+    where: { id: { in: [...new Set(rows.map((r) => Number(r.id)))] }, isGroup: false },
+    select: { id: true, possibleDuplicateOfId: true, duplicateStatus: true },
+  })
+  if (portalId && fichas.length) fichas = await daMesmaEmpresa(fichas, portalId)
+  // Duplicata já ligada à principal conta como a principal.
+  const raizes = new Set<number>()
+  for (const f of fichas) {
+    const ehCopia = f.possibleDuplicateOfId && ['pending_review', 'linked'].includes(String(f.duplicateStatus ?? ''))
+      && fichas.some((o) => o.id === f.possibleDuplicateOfId)
+    raizes.add(ehCopia ? f.possibleDuplicateOfId! : f.id)
+  }
+  return raizes.size === 1 ? [...raizes][0]! : null
+}
+
+/**
  * Fichas que pertencem à empresa (unidade) do portal: a unidade da ficha é a do
  * portal da última inscrição ou a do número da conversa (lib/identidadeDaUnidade).
  * Ficha sem unidade só serve a unidade sem número próprio — a empresa "padrão"

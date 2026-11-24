@@ -159,8 +159,14 @@ export async function impedimentoParaJuntar(aId: number, bId: number, matchType:
   // Mesmo funil, processos diferentes (curso + forma de ingresso): cada um é
   // uma ficha com a sua etapa — ex.: duas Pós, duas Extensões, ou Bacharel por
   // Redação e por ENEM. Não junta: liga como mesma pessoa.
+  // UMA PESSOA, UMA FICHA (24/11/2026): mesmo CPF e as duas com inscrição =
+  // o mesmo aluno em mais de um curso (combo, segundo curso, transferência).
+  // Junta, mesmo com cursos ou funis diferentes — o funil segue a inscrição
+  // mais adiantada da ficha. Antes cada processo ficava numa ficha ligada.
+  const inscricoes = await prisma.enrollmentRegistration.groupBy({ by: ['leadId'], where: { leadId: { in: [aId, bId] }, mergedIntoId: null }, _count: { _all: true } }).catch(() => [] as any[])
+  const mesmoAluno = cpfIgual && inscricoes.length === 2
   const { processosDiferentes } = await import('./juncaoSegura.js')
-  const processos = await processosDiferentes(aId, bId)
+  const processos = mesmoAluno ? null : await processosDiferentes(aId, bId)
   if (processos) return `assuntos diferentes (${processos})`
   // Mesma pessoa, ASSUNTO diferente: quem conversa com Matrículas e manda o
   // formulário de Expansão precisa aparecer na Expansão. A junção mantém o funil
@@ -169,8 +175,8 @@ export async function impedimentoParaJuntar(aId: number, bId: number, matchType:
   // diferentes) = duas fichas, cada uma no seu lugar, sinalizadas.
   const destino = (id: number) => prisma.lead.findUnique({ where: { id }, select: { funnelId: true, teamId: true, funnel: { select: { name: true } }, team: { select: { name: true } } } })
   const [da, db] = await Promise.all([destino(aId), destino(bId)])
-  if (da?.funnelId && db?.funnelId && da.funnelId !== db.funnelId) return `assuntos diferentes (funil "${da.funnel?.name}" × "${db.funnel?.name}")`
-  if ((!da?.funnelId || !db?.funnelId) && da?.teamId && db?.teamId && da.teamId !== db.teamId) return `assuntos diferentes (equipe "${da.team?.name}" × "${db.team?.name}")`
+  if (!mesmoAluno && da?.funnelId && db?.funnelId && da.funnelId !== db.funnelId) return `assuntos diferentes (funil "${da.funnel?.name}" × "${db.funnel?.name}")`
+  if (!mesmoAluno && (!da?.funnelId || !db?.funnelId) && da?.teamId && db?.teamId && da.teamId !== db.teamId) return `assuntos diferentes (equipe "${da.team?.name}" × "${db.team?.name}")`
   // Duas pessoas da equipe conversando com o contato agora, uma em cada ficha:
   // juntar mistura os dois atendimentos no meio. Fica para o time decidir.
   const { atendimentoHumanoAtivo } = await import('./journey/validacaoContato.js')

@@ -2673,25 +2673,34 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }
     }
 
-    // Segundo PROCESSO da mesma pessoa (curso + forma de ingresso que a ficha
-    // ainda não tem em aberto — ex.: segunda Pós, ou Bacharel por ENEM depois do
-    // de Redação): ficha nova, ligada à primeira como mesma pessoa e com o mesmo
-    // responsável. Assim cada processo tem a sua etapa no funil (fabad, 22/10).
-    let fichaDoOutroProcesso: any = null
-    if (lead && !retomada && offeringId) {
-      const { processosAbertos, processoDaOferta } = await import('../services/juncaoSegura.js')
-      const [abertos, novo] = await Promise.all([processosAbertos(lead.id), processoDaOferta(offeringId)])
-      if (novo && abertos.length && !abertos.some((p) => p.chave === novo.chave)) {
-        fichaDoOutroProcesso = lead
-        lead = null
+    // UMA PESSOA, UMA FICHA (regra do usuário, 24/11/2026): combo, transferência
+    // ou segundo curso ficam na ficha que a pessoa já tem — nunca duplicam.
+    // Antes, o segundo processo (curso ou forma de ingresso diferente) abria uma
+    // ficha nova ligada à primeira (fabad, 22/10), e a pessoa virava duas no CRM
+    // e duas contas no portal (ineprotec: Carlos 42415/42416, Weslley 42794/42795).
+    //
+    // Inscrição pública sem login com o CPF de quem já tem ficha: vai para ela.
+    if (!lead && !atendente && cpf.length === 11) {
+      const { fichaDoCpf } = await import('../services/fichaDaMatricula.js')
+      const id = await fichaDoCpf(cpf, portal.id).catch(() => null)
+      if (id) {
+        lead = await prisma.lead.findUnique({ where: { id } })
+        if (lead) logEvent({
+          leadId: lead.id, type: EVENT_TYPES.ANNOTATION_SAVED, category: 'system',
+          title: 'Nova inscrição na ficha que a pessoa já tinha',
+          description: 'Mesmo CPF de uma ficha existente: a inscrição ficou aqui em vez de criar outra ficha.',
+          actorType: 'system',
+        })
       }
     }
     // Equipe fazendo a inscrição de quem já PAGOU outro curso: troca de curso vai
     // por "Transferir de curso" (crédito, contrato e documentos juntos). Só segue
     // como segundo curso quando quem atende confirma (segundoCurso).
-    if (fichaDoOutroProcesso && atendente && body.segundoCurso !== true && offeringId) {
-      const { matriculaPagaDeOutroCurso } = await import('../services/juncaoSegura.js')
-      const paga = await matriculaPagaDeOutroCurso(fichaDoOutroProcesso.id, Number(offeringId)).catch(() => null)
+    if (lead && !retomada && atendente && body.segundoCurso !== true && offeringId) {
+      const { processosAbertos, processoDaOferta, matriculaPagaDeOutroCurso } = await import('../services/juncaoSegura.js')
+      const [abertos, novo] = await Promise.all([processosAbertos(lead.id), processoDaOferta(offeringId)])
+      const outroProcesso = !!novo && abertos.length > 0 && !abertos.some((p) => p.chave === novo.chave)
+      const paga = outroProcesso ? await matriculaPagaDeOutroCurso(lead.id, Number(offeringId)).catch(() => null) : null
       if (paga) {
         return reply.code(409).send({
           error: `Esta pessoa já tem a matrícula ${paga.candidateCode} paga em ${paga.curso}. Se é troca de curso, use "Transferir de curso" nessa inscrição no painel; se é um segundo curso, confirme.`,
@@ -2724,10 +2733,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // A mesma pessoa já tem responsável noutra ficha (chave inscricaoHerdaDono):
       // o lead cai com ele em vez de abrir uma segunda pessoa pelo rodízio.
       const { donoDaMesmaPessoa } = await import('../services/leadSemDono.js')
-      const doOutroProcesso = fichaDoOutroProcesso?.assignedUserId
-        ? await prisma.user.findFirst({ where: { id: fichaDoOutroProcesso.assignedUserId, active: true, role: { not: 'VIEWER' } }, select: { id: true } })
-        : null
-      const herdado = doOutroProcesso ? { userId: doOutroProcesso.id } : await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
+      const herdado = await donoDaMesmaPessoa({ whatsapp, cpf: cpf, teamId: equipeDoPortal }).catch(() => null)
       // Inscrição assistida: sem dono herdado, a ficha fica com quem atendeu —
       // o rodízio não entrega a outra pessoa o candidato que já está sendo atendido.
       const rota = herdado ? { teamId: equipeDoPortal!, userId: herdado.userId }
@@ -2803,25 +2809,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       })
 
       // Fase 24: detecta possível duplicado (best-effort, não bloqueia o flow)
-      if (fichaDoOutroProcesso) {
-        const { ligarFichas } = await import('../services/juncaoSegura.js')
-        await ligarFichas(fichaDoOutroProcesso.id, lead.id, { nome: 'Sistema', motivo: 'outro processo da mesma pessoa (curso ou forma de ingresso diferente)' }).catch(() => null)
-      } else {
-        // ESPERA a marcação: ela passa a ficha duplicada para quem já atende a
-        // principal, e a inscrição (logo abaixo) congela o vendedor a partir do
-        // dono da ficha. Sem esperar, o vendedor ficava o do rodízio — ineprotec
-        // 19/11: a Jéssica atendia, a inscrição do portal ficou com a Valeska.
-        await flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
-          console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
-        })
-        // Mesma pessoa (CPF) que já tem outro curso: é o segundo curso dela, não duplicata.
-        if (cpf && offeringId) {
-          const { ligarSegundoCursoDoPortal } = await import('../services/juncaoSegura.js')
-          await ligarSegundoCursoDoPortal(lead.id, cpf, Number(offeringId)).catch((e) => req.log.warn(`[enrollment] segundo curso: ${e?.message || e}`))
-        }
-        const dono = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true, teamId: true } }).catch(() => null)
-        if (dono) { lead.assignedUserId = dono.assignedUserId; lead.teamId = dono.teamId }
+      // ESPERA a marcação: ela passa a ficha duplicada para quem já atende a
+      // principal, e a inscrição (logo abaixo) congela o vendedor a partir do
+      // dono da ficha. Sem esperar, o vendedor ficava o do rodízio — ineprotec
+      // 19/11: a Jéssica atendia, a inscrição do portal ficou com a Valeska.
+      await flagDuplicate({ newLeadId: lead.id, channel: 'enrollmentPortal' }).catch((e) => {
+        console.error('[enrollmentPortals] flagDuplicate error:', (e as any).message)
+      })
+      // Mesma pessoa (CPF) que já tem outro curso: é o segundo curso dela, não duplicata.
+      if (cpf && offeringId) {
+        const { ligarSegundoCursoDoPortal } = await import('../services/juncaoSegura.js')
+        await ligarSegundoCursoDoPortal(lead.id, cpf, Number(offeringId)).catch((e) => req.log.warn(`[enrollment] segundo curso: ${e?.message || e}`))
       }
+      const dono = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true, teamId: true } }).catch(() => null)
+      if (dono) { lead.assignedUserId = dono.assignedUserId; lead.teamId = dono.teamId }
     } else {
       // Enriquece dados básicos se vieram vazios + roteia para funil/etapa/team
       // de destino do portal (mesmo lead pode ter chegado antes só por WhatsApp;
@@ -2844,7 +2845,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const prevStatus = lead.status
       const prevTeamId = lead.teamId ?? null
 
-      if (portal.funnelId) {
+      // Ficha que já tem outra inscrição ativa (combo, segundo curso): funil,
+      // etapa e equipe ficam como estão — voltar à etapa de entrada do portal
+      // jogaria para trás quem já pagou ou se matriculou. O funil segue a
+      // inscrição mais adiantada da ficha (services/funilDaJornada.ts).
+      const outraAtiva = await prisma.enrollmentRegistration.count({ where: {
+        leadId: lead.id, mergedIntoId: null, ...(retomada ? { id: { not: retomada.id } } : {}),
+        status: { notIn: ['cancelled', 'transferred', 'rejected', 'merged', 'expired'] },
+      } })
+      if (outraAtiva) {
+        // nada: a ficha segue onde está
+      } else if (portal.funnelId) {
         // Portal define funil destino → muda funil + stage juntos (status só é
         // significativo dentro do funil corrente). Usa resolvedEntryStage que
         // já garantiu que a key existe no funil.
@@ -2858,7 +2869,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }
 
       const routedTeamId = portal.teamId || await resolveDefaultTeamId()
-      if (routedTeamId && prevTeamId !== routedTeamId) {
+      if (!outraAtiva && routedTeamId && prevTeamId !== routedTeamId) {
         upd.teamId = routedTeamId
       }
       // Lead que já existia sem responsável: o rodízio escolhe agora. Quem já
