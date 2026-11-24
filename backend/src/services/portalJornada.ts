@@ -276,6 +276,21 @@ export interface AnaliseDaEtapa {
   modo: 'parecer' | 'documentos'
 }
 
+/**
+ * Etapas que ainda seguram a inscrição. Cadastro com dado faltando é só uma
+ * pendência: se o aluno já concluiu alguma etapa depois dele (pagou, assinou),
+ * ele não segura o funil nem o Ganho — "pagou e assinou" segue valendo.
+ * Na inscrição que ainda não andou, o cadastro continua sendo a etapa atual.
+ */
+export function etapasQueSeguram<T extends { chave: string; situacao: string; liberada?: boolean | null }>(etapas: T[]): T[] {
+  const aberta = (e: T) => e.situacao !== 'feito' && !e.liberada
+  return etapas.filter((e, i) => {
+    if (!aberta(e)) return false
+    if (e.chave === 'cadastro' && etapas.slice(i + 1).some((d) => !aberta(d))) return false
+    return true
+  })
+}
+
 /** O que "concluir" quer dizer em cada etapa — usado na mensagem da trava. */
 export const CONCLUIR: Record<ChaveEtapa, string> = {
   cadastro: 'todos os dados preenchidos',

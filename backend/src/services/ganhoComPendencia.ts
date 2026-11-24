@@ -28,12 +28,12 @@ export async function pendenciasDoGanho(leadId: number): Promise<string[] | null
     select: { id: true, candidateCode: true },
   })
   if (!regs.length) return null
-  const { etapasDaInscricao } = await import('./portalJornada.js')
+  const { etapasDaInscricao, etapasQueSeguram } = await import('./portalJornada.js')
   const faltas: string[] = []
   for (const r of regs) {
     const j = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
     if (!j) continue
-    const pend = j.etapas.filter((e: any) => e.situacao !== 'feito' && !e.liberada)
+    const pend = etapasQueSeguram(j.etapas as any[])
     if (!pend.length) return null // uma inscrição concluída basta
     faltas.push(`${r.candidateCode}: falta ${pend.map((e: any) => String(e.titulo || e.chave).toLowerCase()).join(', ')}`)
   }

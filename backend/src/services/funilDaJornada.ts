@@ -20,7 +20,7 @@
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import { moveLeadStage } from './leadStageMove.js'
-import { etapasDaInscricao, lerJornada, ROTULO, type ChaveEtapa } from './portalJornada.js'
+import { etapasDaInscricao, etapasQueSeguram, lerJornada, ROTULO, type ChaveEtapa } from './portalJornada.js'
 
 export async function sincronizarFunilDaInscricao(
   registrationId: number,
@@ -91,7 +91,7 @@ type ChaveDoFunil = ChaveEtapa | 'concluido' | `${ChaveEtapa}:aguardando`
 async function situacaoDaInscricao(registrationId: number, mapa: Record<string, string | undefined>) {
   const j = await etapasDaInscricao(registrationId, 'inscricao')
   if (!j) return null
-  const atual = j.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
+  const atual = etapasQueSeguram(j.etapas)[0]
   const chave: ChaveDoFunil =
     !atual ? 'concluido' : atual.situacao === 'aguardando' && mapa[`${atual.chave}:aguardando`] ? `${atual.chave}:aguardando` : atual.chave
   const total = j.etapas.length || 1
@@ -187,7 +187,7 @@ export async function inscricoesAbertasDaFicha(leadIds: number[]): Promise<Recor
   })
   for (const r of regs) {
     const j = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
-    const atual = j?.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
+    const atual = j ? etapasQueSeguram(j.etapas)[0] : undefined
     const forma = r.processRegistration?.selectionProcess?.entryMode?.name
     ;(out[r.leadId!] ??= []).push({
       codigo: r.candidateCode,
