@@ -233,16 +233,14 @@ export async function faturasDaInscricao(r: Reg): Promise<{ faturas: Fatura[]; a
   // parcelas ficam na principal (regra de 24/11/2026; Samara GEM5/T3T3 tinha
   // sido montada com carnê nos dois cursos e foi unificada).
   if (pacote?.papel === 'membro') {
-    const pago = pacote.pago
+    // Sem fatura própria: o curso de dentro do pacote não tem cobrança — o carnê
+    // é todo da principal. Uma fatura "Paga" com o valor do curso fazia parecer
+    // que o curso inteiro estava quitado e somava no "pago" da aba Financeiro
+    // (Samara/Weslley, 24/11: R$ 1.558,80 "pagos" com só a 1ª parcela paga).
+    const total = pacote.totalCentavos ? ` (pacote de ${(pacote.totalCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''
     return {
-      faturas: [{
-        chave: `pacote:${r.id}`, titulo: 'Parte deste curso no pacote',
-        detalhe: `Paga junto com a inscrição ${pacote.principalCodigo} (${pacote.principalCurso})${pacote.totalCentavos ? ` — pacote de ${(pacote.totalCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}`,
-        valor: pacote.valorCentavos / 100, vencimento: null, situacao: pago ? 'paga' : 'prevista',
-        pagaEm: pago && r.paymentPaidAt ? r.paymentPaidAt.toISOString() : null, meio: 'Pacote',
-        pagar: null, boletoPdf: null, recibo: null, pix: null, linha: null, buscarCodigos: false, podeGerar: false,
-      }],
-      aviso: pago ? null : `O pagamento deste curso é feito pela inscrição ${pacote.principalCodigo}, uma vez só para o pacote.`,
+      faturas: [],
+      aviso: `Este curso está no pacote da inscrição ${pacote.principalCodigo} (${pacote.principalCurso})${total}: as parcelas são pagas pelo carnê de lá, uma vez só para os cursos do pacote.`,
     }
   }
   const avisoDoPacote = pacote?.papel === 'principal'
