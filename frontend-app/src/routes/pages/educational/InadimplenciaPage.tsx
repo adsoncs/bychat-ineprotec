@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { toast } from '@/lib/toast'
 import { useCan } from '@/hooks/usePermissions'
 import { pedirRascunho } from '@/lib/rascunhoDaConversa'
+import { EtiquetaUnidade, SeletorDeUnidade, useUnidadeEscolhida, useUnidadesFinanceiro, type MarcaUnidade } from '@/components/educational/UnidadeFinanceiro'
 
 const BASE = '/admin/inadimplencia'
 const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -30,13 +31,14 @@ interface Resumo {
   totalVencido: number; totalAtualizado: number; encargos: number; titulos: number; devedores: number; ticketMedio: number
   aging: Array<{ id: string; rotulo: string; qtd: number; valor: number; devedores: number }>
   porPortal: Array<{ portal: string; valor: number; qtd: number }>
+  porUnidade?: Array<{ id: number; nome: string; cor: string | null; valor: number; atualizado: number; qtd: number; devedores: number }>
   aVencer7Dias: { valor: number; qtd: number }
   acordos: { ativos: number; valorAtivo: number; quitados: number; cancelados: number; emAtraso: number; recuperado30d: number; pagamentos30d: number }
   aConferir: Array<{ id: number; nome: string; leadId: number | null; codigo: string; valor: number; motivo: string | null; em: string }>
   promessasVencidas: number; semContato: number
 }
 interface Devedor {
-  leadId: number; nome: string; whatsapp: string | null; email: string | null; cursos: string[]; portais: string[]
+  leadId: number; nome: string; whatsapp: string | null; email: string | null; cursos: string[]; portais: string[]; unidades?: MarcaUnidade[]
   qtd: number; valor: number; atualizado: number; maiorAtraso: number; vencimentoMaisAntigo: string
   ultimoContato: { em: string; canal: string; resultado: string; por: string | null } | null
   promessa: { para: string; quebrada: boolean } | null; acordoAtivo: boolean
@@ -48,7 +50,7 @@ interface Detalhe {
   contatos: Array<{ id: number; canal: string; resultado: string; promessaPara: string | null; nota: string | null; por: string | null; em: string }>
   acordos: Array<{ id: number; status: string; total: number; entrada: number; numParcelas: number; observacao: string | null; por: string | null; em: string; pagamentos: Array<{ id: number; ordem: number; meio: string; valor: number; vencimento: string; status: string; link: string | null; erro: string | null }> }>
 }
-interface AcordoLinha { id: number; fonte: 'portal' | 'academico'; nome: string; leadId: number | null; status: string; original: number; encargos: number; desconto: number; total: number; entrada: number; numParcelas: number; pago: number; emAtraso: boolean; podeCancelar: boolean; por: string | null; em: string; observacao: string | null }
+interface AcordoLinha { id: number; fonte: 'portal' | 'academico'; nome: string; leadId: number | null; status: string; original: number; encargos: number; desconto: number; total: number; entrada: number; numParcelas: number; pago: number; emAtraso: boolean; podeCancelar: boolean; por: string | null; em: string; observacao: string | null; unidade?: MarcaUnidade | null }
 interface Simulacao { original: number; encargos: number; desconto: number; total: number; entrada: number; parcelas: number[] }
 
 const CANAL: Record<string, string> = { whatsapp: 'WhatsApp', telefone: 'Telefone', email: 'E-mail', presencial: 'Presencial', outro: 'Outro' }
@@ -90,23 +92,34 @@ export function InadimplenciaPage() {
   const [situacao, setSituacao] = useState('')
   const [aberto, setAberto] = useState<number | null>(null)
   const qc = useQueryClient()
-  const resumo = useQuery({ queryKey: ['inad-resumo'], queryFn: () => api.get<Resumo>(`${BASE}/resumo`) })
+  // Unidade (empresa) escolhida: vale para todas as abas (mesma escolha do Financeiro).
+  const unidades = useUnidadesFinanceiro().data?.unidades ?? []
+  const [unidade, setUnidade] = useUnidadeEscolhida()
+  const u = unidades.length > 1 ? unidade : ''
+  const comUnidade = (url: string) => (u ? `${url}${url.includes('?') ? '&' : '?'}unitId=${u}` : url)
+  const resumo = useQuery({ queryKey: ['inad-resumo', u], queryFn: () => api.get<Resumo>(comUnidade(`${BASE}/resumo`)) })
   const r = resumo.data
   const irPara = (f: { faixa?: string; portal?: string; situacao?: string }) => { setFaixa(f.faixa ?? ''); setPortal(f.portal ?? ''); setSituacao(f.situacao ?? ''); setAba('devedores') }
   const ABAS = [['painel', 'Painel'], ['devedores', `Devedores${r ? ` (${r.devedores})` : ''}`], ['acordos', `Acordos${r ? ` (${r.acordos.ativos})` : ''}`], ['sobrando', 'Cobranças sobrando'], ['regras', 'Regras']] as const
   return (
     <Page title="Inadimplência e acordos" description="Quem está em atraso, o que já foi tratado e o que foi renegociado, no portal e no acadêmico."
       actions={<Button size="sm" variant="ghost" onClick={() => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('inad-') })}><RefreshCw size={14} /> Atualizar</Button>}>
+      {unidades.length > 1 && (
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+          <SeletorDeUnidade unidades={unidades} valor={u} onChange={(v) => { setUnidade(v); setPortal('') }} />
+          <span class="text-xs text-fg-muted">{u ? 'Painel, devedores, acordos e cobranças só desta unidade.' : 'Todas as unidades.'}</span>
+        </div>
+      )}
       <div role="tablist" class="flex gap-1 border-b border-border overflow-x-auto">
         {ABAS.map(([id, rotulo]) => (
           <button key={id} type="button" role="tab" aria-selected={aba === id} onClick={() => setAba(id)}
             class={`px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-[1px] ${aba === id ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:text-fg'}`}>{rotulo}</button>
         ))}
       </div>
-      {aba === 'painel' && (resumo.isLoading || !r ? <Skeleton class="h-64" /> : <Painel r={r} irPara={irPara} />)}
-      {aba === 'devedores' && <Devedores faixa={faixa} setFaixa={setFaixa} portal={portal} setPortal={setPortal} situacao={situacao} setSituacao={setSituacao} portais={r?.porPortal.map((p) => p.portal) ?? []} aging={r?.aging ?? []} abrir={setAberto} />}
-      {aba === 'acordos' && <Acordos abrir={setAberto} />}
-      {aba === 'sobrando' && <CobrancasSobrando />}
+      {aba === 'painel' && (resumo.isLoading || !r ? <Skeleton class="h-64" /> : <Painel r={r} irPara={irPara} todas={!u && unidades.length > 1} escolher={(id) => { setUnidade(id); setPortal('') }} />)}
+      {aba === 'devedores' && <Devedores faixa={faixa} setFaixa={setFaixa} portal={portal} setPortal={setPortal} situacao={situacao} setSituacao={setSituacao} portais={r?.porPortal.map((p) => p.portal) ?? []} aging={r?.aging ?? []} abrir={setAberto} unitId={u} marcar={unidades.length > 1} />}
+      {aba === 'acordos' && <Acordos abrir={setAberto} unitId={u} marcar={unidades.length > 1} />}
+      {aba === 'sobrando' && <CobrancasSobrando unitId={u} marcar={unidades.length > 1} />}
       {aba === 'regras' && <Regras />}
       {aberto != null && <FichaDoDevedor leadId={aberto} fechar={() => setAberto(null)} />}
     </Page>
@@ -141,10 +154,27 @@ function AConferir({ itens }: { itens: Resumo['aConferir'] }) {
   )
 }
 
-function Painel({ r, irPara }: { r: Resumo; irPara: (f: { faixa?: string; portal?: string; situacao?: string }) => void }) {
+function Painel({ r, irPara, todas, escolher }: { r: Resumo; irPara: (f: { faixa?: string; portal?: string; situacao?: string }) => void; todas: boolean; escolher: (id: string) => void }) {
   return (
     <div class="grid gap-3">
       <AConferir itens={r.aConferir} />
+      {todas && (r.porUnidade?.length ?? 0) > 1 && (
+        <div class="grid md:grid-cols-2 gap-3">
+          {r.porUnidade!.map((x) => (
+            <Card key={x.id} class="p-3 border-l-4" style={{ borderLeftColor: x.cor || undefined }}>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                {x.id ? <EtiquetaUnidade u={x} /> : <span class="text-xs font-semibold text-fg-muted">{x.nome}</span>}
+                {!!x.id && <button type="button" class="text-2xs text-accent hover:underline" onClick={() => escolher(String(x.id))}>Ver só esta</button>}
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div><div class="text-2xs text-fg-muted">Vencido</div><div class="text-sm font-semibold text-danger tabular-nums">{money(x.valor)}</div></div>
+                <div><div class="text-2xs text-fg-muted">Com multa e juros</div><div class="text-sm font-semibold tabular-nums">{money(x.atualizado)}</div></div>
+                <div><div class="text-2xs text-fg-muted">Devedores</div><div class="text-sm font-semibold tabular-nums">{x.devedores}</div><div class="text-2xs text-fg-muted">{x.qtd} título(s)</div></div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Indicador icone={<AlertTriangle size={14} />} rotulo="Total vencido" valor={money(r.totalVencido)} dica={`${money(r.totalAtualizado)} com multa e juros`} />
         <Indicador icone={<Users size={14} />} rotulo="Devedores" valor={String(r.devedores)} dica={`${r.titulos} título(s) · média de ${money(r.ticketMedio)}`} />
@@ -171,7 +201,7 @@ function Painel({ r, irPara }: { r: Resumo; irPara: (f: { faixa?: string; portal
   )
 }
 
-function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: string; setPortal: (v: string) => void; situacao: string; setSituacao: (v: string) => void; portais: string[]; aging: Resumo['aging']; abrir: (id: number) => void }) {
+function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: string; setPortal: (v: string) => void; situacao: string; setSituacao: (v: string) => void; portais: string[]; aging: Resumo['aging']; abrir: (id: number) => void; unitId: string; marcar: boolean }) {
   const [busca, setBusca] = useState('')
   const [ordem, setOrdem] = useState('atraso')
   const qs = useMemo(() => {
@@ -180,9 +210,10 @@ function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: st
     if (p.faixa) s.set('faixa', p.faixa)
     if (p.portal) s.set('portal', p.portal)
     if (p.situacao) s.set('situacao', p.situacao)
+    if (p.unitId) s.set('unitId', p.unitId)
     s.set('ordem', ordem)
     return s.toString()
-  }, [busca, p.faixa, p.portal, p.situacao, ordem])
+  }, [busca, p.faixa, p.portal, p.situacao, p.unitId, ordem])
   const q = useQuery({ queryKey: ['inad-devedores', qs], queryFn: () => api.get<{ devedores: Devedor[] }>(`${BASE}/devedores?${qs}`) })
   const exportar = async () => {
     const token = localStorage.getItem(env.authTokenKey)
@@ -218,7 +249,7 @@ function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: st
               {!q.isLoading && !lista.length && <tr><td colSpan={7} class="p-6 text-center text-fg-muted">Nenhum devedor com estes filtros.</td></tr>}
               {lista.map((d) => (
                 <tr key={d.leadId} class="border-b border-border last:border-0 cursor-pointer hover:bg-surface-2" onClick={() => p.abrir(d.leadId)}>
-                  <td class="px-3 py-2"><div class="text-fg font-medium">{d.nome}</div><div class="text-xs text-fg-muted">{d.whatsapp ?? d.email ?? 'Sem contato cadastrado'}</div></td>
+                  <td class="px-3 py-2"><div class="text-fg font-medium">{d.nome}</div><div class="text-xs text-fg-muted">{d.whatsapp ?? d.email ?? 'Sem contato cadastrado'}</div>{p.marcar && !!d.unidades?.length && <div class="flex flex-wrap gap-1 mt-1">{d.unidades.map((x) => <EtiquetaUnidade key={x.id} u={x} />)}</div>}</td>
                   <td class="px-2 py-2 text-xs text-fg-muted">{d.cursos.join(', ') || '—'}<div class="text-fg-subtle">{d.portais.join(', ')}</div></td>
                   <td class="px-2 py-2 text-right tabular-nums">{money(d.valor)}<div class="text-xs text-fg-muted">{d.qtd} título(s)</div></td>
                   <td class="px-2 py-2 text-right tabular-nums">{money(d.atualizado)}</td>
@@ -238,13 +269,13 @@ function Devedores(p: { faixa: string; setFaixa: (v: string) => void; portal: st
   )
 }
 
-function Acordos({ abrir }: { abrir: (id: number) => void }) {
+function Acordos({ abrir, unitId, marcar }: { abrir: (id: number) => void; unitId: string; marcar: boolean }) {
   const qc = useQueryClient()
   const [status, setStatus] = useState('')
   const [cancelar, setCancelar] = useState<AcordoLinha | null>(null)
   const [motivo, setMotivo] = useState('')
   const pode = useCan('edu_inadimplencia', 'edit')
-  const q = useQuery({ queryKey: ['inad-acordos', status], queryFn: () => api.get<{ acordos: AcordoLinha[] }>(`${BASE}/acordos${status ? `?status=${status}` : ''}`) })
+  const q = useQuery({ queryKey: ['inad-acordos', status, unitId], queryFn: () => api.get<{ acordos: AcordoLinha[] }>(`${BASE}/acordos?${new URLSearchParams({ ...(status ? { status } : {}), ...(unitId ? { unitId } : {}) })}`) })
   const m = useMutation({
     mutationFn: () => api.post(`${BASE}/acordos/${cancelar!.id}/cancelar`, { motivo }),
     onSuccess: () => { toast('Acordo cancelado. Os títulos voltaram a ser dívida.', 'success'); setCancelar(null); setMotivo(''); void qc.invalidateQueries({ predicate: (x) => String(x.queryKey[0]).startsWith('inad-') }) },
@@ -267,7 +298,7 @@ function Acordos({ abrir }: { abrir: (id: number) => void }) {
               {lista.map((a) => (
                 <tr key={`${a.fonte}-${a.id}`} class="border-b border-border last:border-0">
                   <td class="px-3 py-2">nº {a.id}<div class="text-xs text-fg-muted">{a.fonte === 'academico' ? 'Acadêmico' : 'Portal'} · {dia(a.em)}</div></td>
-                  <td class="px-2 py-2">{a.leadId ? <button type="button" class="text-accent hover:underline text-left" onClick={() => abrir(a.leadId!)}>{a.nome}</button> : a.nome}</td>
+                  <td class="px-2 py-2">{a.leadId ? <button type="button" class="text-accent hover:underline text-left" onClick={() => abrir(a.leadId!)}>{a.nome}</button> : a.nome}{marcar && a.unidade && <div class="mt-1"><EtiquetaUnidade u={a.unidade} /></div>}</td>
                   <td class="px-2 py-2 text-right tabular-nums">{money(a.original)}</td>
                   <td class="px-2 py-2 text-right tabular-nums">{money(a.total)}{a.desconto > 0 && <div class="text-xs text-fg-muted">desconto {money(a.desconto)}</div>}</td>
                   <td class="px-2 py-2 text-right tabular-nums">{a.fonte === 'portal' ? money(a.pago) : '—'}</td>
@@ -293,6 +324,7 @@ interface Sobra {
   conexaoId: number; conexao: string; paymentId: string; valor: number; vencimento: string; situacao: 'PENDING' | 'OVERDUE'; meio: string
   descricao: string; referencia: string | null; invoiceUrl: string | null; criadaEm: string | null; registrationId: number | null; portalId: number | null
   codigo: string | null; leadId: number | null; nome: string | null; motivo: string; certeza: 'limpar' | 'conferir'; explicacao: string
+  unidade?: MarcaUnidade | null
 }
 const MOTIVO: Record<string, string> = {
   inscricao_inexistente: 'Inscrição apagada', inscricao_encerrada: 'Inscrição encerrada', cancelada_no_sistema: 'Já cancelada no sistema',
@@ -304,13 +336,13 @@ const MOTIVO: Record<string, string> = {
  * cancelada, cobrança trocada por outra, opção que sobrou depois do pagamento).
  * O financeiro escolhe e exclui no Asaas; o sistema confere cada uma de novo antes.
  */
-function CobrancasSobrando() {
+function CobrancasSobrando({ unitId, marcar }: { unitId: string; marcar: boolean }) {
   const qc = useQueryClient()
   const pode = useCan('edu_inadimplencia', 'edit')
   const [filtro, setFiltro] = useState<'' | 'limpar' | 'conferir'>('')
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set())
   const [confirmar, setConfirmar] = useState(false)
-  const q = useQuery({ queryKey: ['inad-sobrando'], queryFn: () => api.get<{ sobras: Sobra[]; verificadas: number; falhas: string[] }>(`${BASE}/sobrando`), staleTime: 60_000 })
+  const q = useQuery({ queryKey: ['inad-sobrando', unitId], queryFn: () => api.get<{ sobras: Sobra[]; verificadas: number; falhas: string[] }>(`${BASE}/sobrando${unitId ? `?unitId=${unitId}` : ''}`), staleTime: 60_000 })
   const todas = q.data?.sobras ?? []
   const lista = filtro ? todas.filter((s) => s.certeza === filtro) : todas
   const escolhidas = todas.filter((s) => marcadas.has(s.paymentId))
@@ -364,6 +396,7 @@ function CobrancasSobrando() {
                   <td class="px-3 py-2">{pode && <input type="checkbox" aria-label={`Escolher ${s.paymentId}`} checked={marcadas.has(s.paymentId)} onChange={() => alternar(s.paymentId)} />}</td>
                   <td class="px-2 py-2">
                     <div class="font-medium">{s.nome ?? '—'}</div>
+                    {marcar && s.unidade && <div class="mt-0.5"><EtiquetaUnidade u={s.unidade} /></div>}
                     <div class="text-xs text-fg-muted">
                       {s.codigo && s.portalId && s.registrationId
                         ? <a class="text-accent hover:underline" href={`${env.appBasePath}/enrollment-portals/${s.portalId}/registrations/${s.registrationId}`} target="_blank" rel="noopener noreferrer">{s.codigo}</a>

@@ -30,6 +30,7 @@ import { ListaDeFaturas, Recolhivel, ResumoValores, TentativasDeCobranca, Trocar
 import { useCan } from '@/hooks/usePermissions'
 import { SeletorDeColunas, colunasVisiveis, useColunasFin } from './financeiroColunas'
 import { DescontosConcedidosCard } from './DescontosConcedidosCard'
+import { EtiquetaUnidade, SeletorDeUnidade, portaisDaUnidade, useUnidadeEscolhida, useUnidadesFinanceiro } from '@/components/educational/UnidadeFinanceiro'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -63,7 +64,12 @@ export function EducationalPortalFinanceiroPage() {
   const porPagamento = (f.dataPor ?? 'pagamento') === 'pagamento'
   const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState<number | null>(null)
-  const q = usePortalFinanceiro(f)
+  // Unidade (empresa): o recorte de cima de tudo — números, lista, descontos e CSV.
+  const unidades = useUnidadesFinanceiro().data?.unidades ?? []
+  const [unidade, setUnidade] = useUnidadeEscolhida()
+  const uAtual = unidades.length > 1 ? unidade : ''
+  const fq: FiltrosFin = { ...f, unitId: uAtual || undefined }
+  const q = usePortalFinanceiro(fq)
   const portais = useEnrollmentPortals()
   const cursos = useCourses()
   const ofertas = useOfferings(f.courseId ? { courseId: Number(f.courseId) } : {})
@@ -85,12 +91,18 @@ export function EducationalPortalFinanceiroPage() {
           <Button variant="ghost" size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
             <RefreshCw size={13} /> Atualizar
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => baixarCsv(`/admin/educational/portal-financeiro/export.csv?${qsDe({ ...f, limit: undefined, offset: undefined })}`, 'financeiro-portal.csv').catch((e) => toast(e.message, 'danger'))}>
+          <Button variant="secondary" size="sm" onClick={() => baixarCsv(`/admin/educational/portal-financeiro/export.csv?${qsDe({ ...fq, limit: undefined, offset: undefined })}`, 'financeiro-portal.csv').catch((e) => toast(e.message, 'danger'))}>
             <Download size={13} /> Exportar CSV
           </Button>
         </div>
       }
     >
+      {unidades.length > 1 && (
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+          <SeletorDeUnidade unidades={unidades} valor={uAtual} onChange={(v) => { setUnidade(v); set({ portalId: undefined }) }} />
+          <span class="text-xs text-fg-muted">{uAtual ? 'Números, lista, descontos e CSV só desta unidade.' : 'Todas as unidades — os totais de cada uma aparecem lado a lado.'}</span>
+        </div>
+      )}
       {/* Período — o recorte de todos os números da tela */}
       <Card class="p-3 mb-4">
         <div class="flex flex-wrap items-end gap-3">
@@ -122,6 +134,24 @@ export function EducationalPortalFinanceiroPage() {
         <KpiCard label="Ticket médio" value={brl(ind?.ticketMedio)} hint={`${ind?.inscricoes ?? 0} inscrição(ões) no período`} icon={<Receipt size={16} />} tone="violet" loading={q.isLoading} />
         <KpiCard label="Descontos" value={brl(ind?.descontos)} hint={`${ind?.comCupom ?? 0} pago(s) com cupom`} icon={<Percent size={16} />} tone="orange" loading={q.isLoading} />
       </div>
+
+      {!uAtual && (q.data?.porUnidade?.length ?? 0) > 1 && (
+        <div class="grid gap-3 md:grid-cols-2 mb-4">
+          {q.data!.porUnidade!.map(({ unidade: u, indicadores: x }) => (
+            <Card key={u.id} class="p-3 border-l-4" style={{ borderLeftColor: u.cor || undefined }}>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <EtiquetaUnidade u={u} />
+                <button type="button" class="text-2xs text-accent hover:underline" onClick={() => { setUnidade(String(u.id)); set({ portalId: undefined }) }}>Ver só esta</button>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div><div class="text-2xs text-fg-muted">{porPagamento ? 'Recebido no período' : 'Recebido'}</div><div class="text-sm font-semibold text-success tabular-nums">{brl(x.recebido)}</div></div>
+                <div><div class="text-2xs text-fg-muted">A receber</div><div class="text-sm font-semibold text-warning tabular-nums">{brl(x.pendente)}</div></div>
+                <div><div class="text-2xs text-fg-muted">Vencido</div><div class="text-sm font-semibold text-danger tabular-nums">{brl(x.vencido)}</div></div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <div class="grid gap-3 lg:grid-cols-3 mb-4">
         <Card class="p-4 lg:col-span-2">
@@ -212,7 +242,7 @@ export function EducationalPortalFinanceiroPage() {
         </Card>
       )}
 
-      <DescontosConcedidosCard de={f.de} ate={f.ate} portalId={f.portalId} />
+      <DescontosConcedidosCard de={f.de} ate={f.ate} portalId={f.portalId} unitId={uAtual || undefined} />
 
       {/* Filtros */}
       <Card class="p-3 mb-3">
@@ -265,7 +295,7 @@ export function EducationalPortalFinanceiroPage() {
           </Select>
           <Select label="Portal" value={f.portalId ?? ''} onChange={(e) => set({ portalId: (e.target as HTMLSelectElement).value || undefined })}>
             <option value="">Todos</option>
-            {(portais.data?.portals ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+            {portaisDaUnidade((portais.data?.portals ?? []) as any[], unidades, uAtual).map((p: any) => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </Select>
           <Select label="Curso" value={f.courseId ?? ''} onChange={(e) => set({ courseId: (e.target as HTMLSelectElement).value || undefined, offeringId: undefined })}>
             <option value="">Todos</option>
@@ -307,7 +337,7 @@ export function EducationalPortalFinanceiroPage() {
                   <TR key={l.id} class="cursor-pointer hover:bg-surface-2" onClick={() => setAberto(l.id)}>
                     <TD>
                       <div class="font-medium text-sm">{l.nome ?? '—'}</div>
-                      <div class="text-2xs text-fg-muted font-mono">{l.candidateCode}</div>
+                      <div class="flex items-center gap-1.5 flex-wrap"><span class="text-2xs text-fg-muted font-mono">{l.candidateCode}</span>{unidades.length > 1 && <EtiquetaUnidade u={l.unidade} />}</div>
                       {!!l.mescladas?.length && <div class="text-2xs text-fg-muted" title="Inscrições da mesma pessoa mescladas nesta">inclui {l.mescladas.join(', ')}</div>}
                     </TD>
                     {visiveis.map((c) => <TD key={c.id} align={c.direita ? 'right' : undefined}>{c.render(l)}</TD>)}

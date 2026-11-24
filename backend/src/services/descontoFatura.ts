@@ -335,12 +335,12 @@ export async function descontosDaInscricao(registrationId: number) {
   return (await comSituacao(lista)).map(paraTela)
 }
 
-export async function relatorioDeDescontos(f: { de?: string; ate?: string; portalId?: number; por?: string }) {
+export async function relatorioDeDescontos(f: { de?: string; ate?: string; portalId?: number; unitId?: number; por?: string }) {
   const where: any = {}
   if (f.de || f.ate) where.createdAt = { ...(f.de ? { gte: new Date(`${f.de}T00:00:00-03:00`) } : {}), ...(f.ate ? { lte: new Date(`${f.ate}T23:59:59-03:00`) } : {}) }
   if (f.por) where.criadoPorNome = f.por
-  if (f.portalId) {
-    const regs = await prisma.enrollmentRegistration.findMany({ where: { portalId: f.portalId }, select: { id: true } })
+  if (f.portalId || f.unitId) {
+    const regs = await prisma.enrollmentRegistration.findMany({ where: { ...(f.portalId ? { portalId: f.portalId } : {}), ...(f.unitId ? { portal: { unitId: f.unitId } } : {}) }, select: { id: true } })
     where.registrationId = { in: regs.map((r) => r.id) }
   }
   const lista = await comSituacao(await prisma.enrollmentDesconto.findMany({ where, orderBy: { createdAt: 'desc' }, take: 1000 }))

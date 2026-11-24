@@ -14,6 +14,7 @@ import { logEvent } from '../services/leadHistory.js'
 import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu, buscarFaturaIugu, enviarFaturaPorEmailIugu } from '../services/paymentIugu.js'
 import { appUrl } from '../lib/appUrl.js'
 import { guardTela } from '../lib/eduTelas.js'
+import { marcaPorPortal, unidadesDoFinanceiro, unitIdDaQuery, type MarcaDaUnidade } from '../lib/unidadesFinanceiro.js'
 
 type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'transferido' | 'sem_cobranca'
 
@@ -203,6 +204,8 @@ function linha(r: any) {
     inscricaoStatus: r.status,
     pagoEm: r.paymentPaidAt,
     portalId: r.portal?.id ?? null,
+    /** Unidade (empresa) do portal; preenchida na consulta (comUnidade). */
+    unidade: null as MarcaDaUnidade | null,
     venceEm: r.paymentExpiresAt,
     criadoEm: r.createdAt,
     tentativas: r._count?.paymentMethods ?? 0,
@@ -305,6 +308,13 @@ async function comComercial<T extends { id: number; comercial: Comercial }>(iten
 /** Comissão que vale como custo da venda (cancelada não conta). */
 const comissaoValida = (l: { comercial: Comercial }) => (l.comercial.comissao && l.comercial.comissao.status !== 'cancelada' ? l.comercial.comissao.valor : 0)
 
+/** Marca de unidade (empresa) em cada linha: id, nome e cor da identidade do portal. */
+async function comUnidade<T extends { portalId: number | null; unidade: MarcaDaUnidade | null }>(itens: T[]): Promise<T[]> {
+  const marcas = await marcaPorPortal()
+  for (const l of itens) l.unidade = l.portalId ? marcas.get(l.portalId) ?? null : null
+  return itens
+}
+
 function filtros(q: any) {
   // Mesclada em outra (duplicidade) não é linha própria: entra na principal.
   const where: any = { OR: [{ paymentId: { not: null } }, { portal: { requirePayment: true } }], status: { not: 'merged' } }
@@ -312,6 +322,8 @@ function filtros(q: any) {
   const ate = q.ate ? new Date(`${q.ate}T23:59:59.999-03:00`) : null
   if ((de || ate) && dataPor(q) === 'inscricao') where.createdAt = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) }
   if (q.portalId) where.portalId = parseInt(q.portalId)
+  // Unidade (empresa) do portal: INEPROTEC × Matrícula EAD (lib/unidadesFinanceiro).
+  if (unitIdDaQuery(q)) where.portal = { unitId: unitIdDaQuery(q) }
   if (q.offeringId) where.processRegistration = { offeringId: parseInt(q.offeringId) }
   else if (q.courseId) where.processRegistration = { offering: { courseId: parseInt(q.courseId) } }
   if (q.processId) where.processRegistration = { ...(where.processRegistration ?? {}), selectionProcessId: parseInt(q.processId) }
@@ -470,7 +482,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const rows = await prisma.enrollmentRegistration.findMany({
       where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 5000,
     })
-    const base = await comComercial(await comMescladas(rows.map(linha)))
+    const base = await comUnidade(await comComercial(await comMescladas(rows.map(linha))))
     // Para o filtro "Responsável": todas as pessoas que aparecem, antes de filtrar.
     const resp = new Map<number, string>()
     for (const l of base) { const p = l.comercial.fechadoPor ?? l.comercial.vendedor; if (p) resp.set(p.id, p.nome) }
@@ -484,21 +496,27 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     if (ordem === 'comissao') itens.sort((a, b) => comissaoValida(b) - comissaoValida(a))
     const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
     const offset = parseInt(q.offset) || 0
-    return { indicadores: indicadores(itens, q), responsaveis, dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
+    // Mesmos indicadores por unidade (empresa), para "Todas" mostrar lado a lado.
+    const unidades = [...new Map(itens.filter((l) => l.unidade).map((l) => [l.unidade!.id, l.unidade!])).values()]
+    const porUnidade = unidades.map((u) => ({ unidade: u, indicadores: indicadores(itens.filter((l) => l.unidade?.id === u.id), q) }))
+    return { indicadores: indicadores(itens, q), porUnidade, responsaveis, dataPor: dataPor(q), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
   })
+
+  // Unidades (empresas) para o seletor do topo do Financeiro e da Inadimplência.
+  app.get(`${BASE}/unidades`, { preHandler: guardTela('admin') }, async () => ({ unidades: await unidadesDoFinanceiro() }))
 
   app.get(`${BASE}/export.csv`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({ where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 20000 })
-    const itens = recortar(filtrarLinhas(await comComercial(await comMescladas(rows.map(linha))), q), q)
+    const itens = recortar(filtrarLinhas(await comUnidade(await comComercial(await comMescladas(rows.map(linha)))), q), q)
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const n = (v: number | null) => (v == null ? '' : v.toFixed(2).replace('.', ','))
     const dt = (d: Date | string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '')
     const linhas = [
-      ['Código', 'Candidato', 'E-mail', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em', 'Último pagamento', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento', 'Vence no período',
+      ['Código', 'Candidato', 'E-mail', 'Unidade', 'Portal', 'Curso', 'Oferta', 'Processo', 'Cobrança', 'Valor de tabela', 'Desconto cupom', 'Desconto à vista', 'Cupom', 'Valor cobrado', 'Parcelas', 'Meio', 'Gateway', 'Situação', 'Pago em', 'Vence em', 'Inscrito em', 'Último pagamento', 'Recebido no período', 'Recebido total', 'Em aberto', 'Vencido', 'Próximo vencimento', 'Vence no período',
         'Valor do plano', 'Responsável pela venda', 'Ganho em', 'Vendedor na inscrição', 'Atendido por', 'Responsável atual do lead', 'Proposta', 'Valor da proposta',
         'Comissão', 'Situação da comissão', 'Regra de comissão', 'Competência', 'Comissão paga em', 'Líquido após comissão', 'Origem da inscrição', 'Mídia', 'Campanha'].join(';'),
-      ...itens.map((l) => [l.candidateCode, l.nome, l.email, l.portal?.nome, l.curso?.nome, l.oferta?.nome, l.processo?.nome, l.rotulo,
+      ...itens.map((l) => [l.candidateCode, l.nome, l.email, l.unidade?.nome, l.portal?.nome, l.curso?.nome, l.oferta?.nome, l.processo?.nome, l.rotulo,
         n(l.valorTabela), n(l.descontoCupom), n(l.descontoAVista), l.cupom, n(l.valorCobrado), l.parcelas, l.meio, l.gateway, l.situacao,
         dt(l.pagoEm), dt(l.venceEm), dt(l.criadoEm), l.ultimoPagamento ? String(l.ultimoPagamento).slice(0, 10).split('-').reverse().join('/') : '',
         n(l.recebidoNoPeriodo), n(l.recebidoTotal), n(l.emAberto), n(l.vencidoValor),

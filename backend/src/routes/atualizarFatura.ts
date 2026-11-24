@@ -53,6 +53,7 @@ export async function atualizarFaturaRoutes(app: FastifyInstance) {
     de: /^\d{4}-\d{2}-\d{2}$/.test(String(q?.de ?? '')) ? String(q.de) : undefined,
     ate: /^\d{4}-\d{2}-\d{2}$/.test(String(q?.ate ?? '')) ? String(q.ate) : undefined,
     portalId: Number(q?.portalId) || undefined,
+    unitId: Number(q?.unitId) || undefined,
     por: q?.por ? String(q.por) : undefined,
   })
   app.get('/api/admin/educational/portal-financeiro/descontos', { preHandler: guardTela('admin') }, async (req) => relatorioDeDescontos(filtrosDoRelatorio(req.query)))

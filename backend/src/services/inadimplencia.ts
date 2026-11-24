@@ -8,6 +8,7 @@
 // mensagem: a cobrança parte do agente, com o texto levado à conversa.
 
 import { prisma } from '../lib/prisma.js'
+import { marcaPorPortal, portaisDaUnidade, type MarcaDaUnidade } from '../lib/unidadesFinanceiro.js'
 import { calcularEncargos, getEncargosConfig, type EncargosConfig } from './acaEncargos.js'
 import { lerCondicaoNegociada } from './planoFinanceiro.js'
 import { mesesDepois, vencimentoPrevisto } from './areaDoAluno.js'
@@ -92,7 +93,14 @@ export function parcelasEmAbertoDoBoleto(plano: any, base: Date, diaDoPlano: num
 }
 
 /** Todo o devido, vencido ou não, da instituição ou de um lead. */
-export async function carregarItens(opts: { leadId?: number; incluirAVencer?: boolean } = {}): Promise<ItemDevido[]> {
+export async function carregarItens(opts: { leadId?: number; incluirAVencer?: boolean; unitId?: number | null } = {}): Promise<ItemDevido[]> {
+  if (opts.unitId) {
+    // Uma unidade (empresa): só o que veio dos portais dela. Título do acadêmico
+    // não tem portal e fica só em "Todas".
+    const { unitId, ...resto } = opts
+    const ids = new Set(await portaisDaUnidade(unitId))
+    return (await carregarItens(resto)).filter((i) => i.portalId != null && ids.has(i.portalId))
+  }
   const hoje = hojeBr()
   const cfg = await getEncargosConfig()
   const out: ItemDevido[] = []
@@ -165,6 +173,8 @@ export async function carregarItens(opts: { leadId?: number; incluirAVencer?: bo
 export interface Devedor {
   leadId: number; nome: string; whatsapp: string | null; email: string | null
   cursos: string[]; portais: string[]; portalIds: number[]
+  /** Unidades (empresas) dos portais das dívidas: etiqueta na lista. */
+  unidades: MarcaDaUnidade[]
   qtd: number; valor: number; atualizado: number; maiorAtraso: number; vencimentoMaisAntigo: string
   ultimoContato: { em: string; canal: string; resultado: string; por: string | null } | null
   promessa: { para: string; quebrada: boolean } | null
@@ -175,10 +185,11 @@ async function agrupar(itens: ItemDevido[]): Promise<Devedor[]> {
   const ids = [...new Set(itens.map((i) => i.leadId))]
   if (!ids.length) return []
   const hoje = hojeBr()
-  const [leads, contatos, acordos] = await Promise.all([
+  const [leads, contatos, acordos, marcas] = await Promise.all([
     prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true, whatsapp: true, email: true } }),
     prisma.cobrancaContato.findMany({ where: { leadId: { in: ids } }, orderBy: { createdAt: 'desc' } }),
     prisma.enrollmentAcordo.findMany({ where: { leadId: { in: ids }, status: 'ATIVO' }, select: { leadId: true } }),
+    marcaPorPortal(),
   ])
   const lead = new Map(leads.map((l) => [l.id, l]))
   const ultimo = new Map<number, (typeof contatos)[number]>()
@@ -197,6 +208,7 @@ async function agrupar(itens: ItemDevido[]): Promise<Devedor[]> {
       cursos: [...new Set(g.map((i) => i.curso).filter(Boolean) as string[])],
       portais: [...new Set(g.map((i) => i.portal).filter(Boolean) as string[])],
       portalIds: [...new Set(g.map((i) => i.portalId).filter(Boolean) as number[])],
+      unidades: [...new Map(g.map((i) => (i.portalId ? marcas.get(i.portalId) : undefined)).filter((m): m is MarcaDaUnidade => !!m).map((m) => [m.id, m])).values()],
       qtd: g.length, valor: g.reduce((s, i) => s + i.valor, 0), atualizado: g.reduce((s, i) => s + i.atualizado, 0),
       maiorAtraso: Math.max(...g.map((i) => i.diasAtraso)), vencimentoMaisAntigo: g[0]!.vencimento,
       ultimoContato: u ? { em: u.createdAt.toISOString(), canal: u.canal, resultado: u.resultado, por: u.userNome } : null,
@@ -208,16 +220,19 @@ async function agrupar(itens: ItemDevido[]): Promise<Devedor[]> {
 
 // ─── Painel e lista ───────────────────────────────────
 
-export async function resumo() {
+export async function resumo(unitId: number | null = null) {
   const hoje = hojeBr()
-  const itens = await carregarItens()
+  const itens = await carregarItens({ unitId })
   const devedores = await agrupar(itens)
   const trintaDias = new Date(Date.now() - 30 * 86_400_000)
-  const [acordosAtivos, totalAcordos, recuperados, aVencerTitulos] = await Promise.all([
-    prisma.enrollmentAcordo.findMany({ where: { status: 'ATIVO' }, select: { id: true, valorTotalCentavos: true } }),
-    prisma.enrollmentAcordo.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.enrollmentTitulo.aggregate({ where: { origem: 'acordo', status: 'paga', paidAt: { gte: trintaDias } }, _sum: { valorPagoCentavos: true }, _count: { _all: true } }),
-    carregarItens({ incluirAVencer: true }),
+  // Acordo e título pertencem à unidade do portal da inscrição.
+  const daUnidade = unitId ? { registration: { portal: { unitId } } } : {}
+  const [acordosAtivos, totalAcordos, recuperados, aVencerTitulos, marcas] = await Promise.all([
+    prisma.enrollmentAcordo.findMany({ where: { status: 'ATIVO', ...daUnidade }, select: { id: true, valorTotalCentavos: true } }),
+    prisma.enrollmentAcordo.groupBy({ by: ['status'], where: daUnidade, _count: { _all: true } }),
+    prisma.enrollmentTitulo.aggregate({ where: { origem: 'acordo', status: 'paga', paidAt: { gte: trintaDias }, ...daUnidade }, _sum: { valorPagoCentavos: true }, _count: { _all: true } }),
+    carregarItens({ incluirAVencer: true, unitId }),
+    marcaPorPortal(),
   ])
   const emSete = new Date(Date.parse(`${hoje}T12:00:00Z`) + 7 * 86_400_000).toISOString().slice(0, 10)
   const proximos = aVencerTitulos.filter((i) => i.vencimento >= hoje && i.vencimento <= emSete)
@@ -239,22 +254,30 @@ export async function resumo() {
       const a = m.get(k) ?? { portal: k, valor: 0, qtd: 0 }
       a.valor += i.valor; a.qtd += 1; m.set(k, a); return m
     }, new Map<string, { portal: string; valor: number; qtd: number }>()).values()].sort((a, b) => b.valor - a.valor),
+    // Vencido por unidade (empresa): em "Todas", o painel mostra lado a lado.
+    porUnidade: [...itens.reduce((m, i) => {
+      const u = i.portalId ? marcas.get(i.portalId) : undefined
+      const k = u?.id ?? 0
+      const a = m.get(k) ?? { id: k, nome: u?.nome ?? 'Acadêmico', cor: u?.cor ?? null, valor: 0, atualizado: 0, qtd: 0, devedores: new Set<number>() }
+      a.valor += i.valor; a.atualizado += i.atualizado; a.qtd += 1; a.devedores.add(i.leadId); m.set(k, a); return m
+    }, new Map<number, { id: number; nome: string; cor: string | null; valor: number; atualizado: number; qtd: number; devedores: Set<number> }>()).values()]
+      .map(({ devedores: d, ...u }) => ({ ...u, devedores: d.size })).sort((a, b) => b.valor - a.valor),
     aVencer7Dias: { valor: proximos.reduce((s, i) => s + i.valor, 0), qtd: proximos.length },
     acordos: {
       ativos: acordosAtivos.length, valorAtivo: acordosAtivos.reduce((s, a) => s + a.valorTotalCentavos, 0),
       quitados: contagem('QUITADO'), cancelados: contagem('CANCELADO'), emAtraso: acordosEmAtraso.size,
       recuperado30d: recuperados._sum.valorPagoCentavos ?? 0, pagamentos30d: recuperados._count._all,
     },
-    aConferir: await pagamentosAConferir(),
+    aConferir: await pagamentosAConferir(unitId),
     promessasVencidas: devedores.filter((d) => d.promessa?.quebrada).length,
     semContato: devedores.filter((d) => !d.ultimoContato).length,
   }
 }
 
 /** Dinheiro em título substituído ou cancelamento que falhou: a equipe trata e marca. */
-async function pagamentosAConferir() {
+async function pagamentosAConferir(unitId: number | null = null) {
   const ts = await prisma.enrollmentTitulo.findMany({
-    where: { conferirEm: { not: null }, conferidoEm: null }, orderBy: { conferirEm: 'desc' }, take: 50,
+    where: { conferirEm: { not: null }, conferidoEm: null, ...(unitId ? { registration: { portal: { unitId } } } : {}) }, orderBy: { conferirEm: 'desc' }, take: 50,
     include: { registration: { select: { candidateCode: true, leadId: true, lead: { select: { nome: true } } } } },
   })
   return ts.map((t) => ({ id: t.id, nome: t.registration.lead?.nome ?? 'Sem nome', leadId: t.registration.leadId, codigo: t.registration.candidateCode, valor: t.valorPagoCentavos || t.valorCentavos, motivo: t.lastError, em: t.conferirEm!.toISOString() }))
@@ -269,8 +292,9 @@ export async function marcarConferido(id: number, nota: string, op: Operador) {
   return { ok: true as const }
 }
 
-export async function listarDevedores(f: { q?: string; faixa?: string; portal?: string; situacao?: string; ordem?: string }) {
-  let lista = await agrupar(await carregarItens())
+export async function listarDevedores(f: { q?: string; faixa?: string; portal?: string; situacao?: string; ordem?: string; unitId?: string }) {
+  const unitId = Number(f.unitId) || null
+  let lista = await agrupar(await carregarItens({ unitId }))
   const q = (f.q ?? '').trim().toLowerCase()
   if (q) {
     // Só busca por telefone quando o texto é um telefone: "Turma 51" não acha quem tem 51 no número.
@@ -295,9 +319,9 @@ export async function listarDevedores(f: { q?: string; faixa?: string; portal?: 
 export function csvDosDevedores(lista: Devedor[]): string {
   const c = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""').replace(/^([=+\-@\t\r])/, "'$1")}"`
   const n = (x: number) => (x / 100).toFixed(2).replace('.', ',')
-  const linhas = [['Nome', 'WhatsApp', 'E-mail', 'Curso', 'Portal', 'Títulos', 'Valor', 'Valor atualizado', 'Maior atraso (dias)', 'Vencimento mais antigo', 'Último contato', 'Resultado', 'Promessa', 'Acordo ativo'].map(c).join(';')]
+  const linhas = [['Nome', 'WhatsApp', 'E-mail', 'Unidade', 'Curso', 'Portal', 'Títulos', 'Valor', 'Valor atualizado', 'Maior atraso (dias)', 'Vencimento mais antigo', 'Último contato', 'Resultado', 'Promessa', 'Acordo ativo'].map(c).join(';')]
   for (const d of lista) {
-    linhas.push([d.nome, d.whatsapp, d.email, d.cursos.join(' / '), d.portais.join(' / '), d.qtd].map(c).join(';') + `;${n(d.valor)};${n(d.atualizado)};${d.maiorAtraso};` +
+    linhas.push([d.nome, d.whatsapp, d.email, d.unidades.map((u) => u.nome).join(' / '), d.cursos.join(' / '), d.portais.join(' / '), d.qtd].map(c).join(';') + `;${n(d.valor)};${n(d.atualizado)};${d.maiorAtraso};` +
       [d.vencimentoMaisAntigo, d.ultimoContato?.em?.slice(0, 10), d.ultimoContato?.resultado, d.promessa?.para, d.acordoAtivo ? 'Sim' : 'Não'].map(c).join(';'))
   }
   return '﻿' + linhas.join('\r\n')
@@ -335,10 +359,15 @@ function resumoDoAcordo(a: any) {
   }
 }
 
-export async function listarAcordos(status?: string) {
-  const [portal, aca] = await Promise.all([
-    prisma.enrollmentAcordo.findMany({ where: status ? { status } : {}, orderBy: { createdAt: 'desc' }, take: 500 }),
-    prisma.acaAcordo.findMany({ where: status ? { status } : {}, orderBy: { createdAt: 'desc' }, take: 500 }),
+export async function listarAcordos(status?: string, unitId: number | null = null) {
+  const [portal, aca, marcas] = await Promise.all([
+    prisma.enrollmentAcordo.findMany({
+      where: { ...(status ? { status } : {}), ...(unitId ? { registration: { portal: { unitId } } } : {}) },
+      orderBy: { createdAt: 'desc' }, take: 500, include: { registration: { select: { portalId: true } } },
+    }),
+    // Acordo do acadêmico não tem portal: só aparece em "Todas".
+    unitId ? Promise.resolve([] as any[]) : prisma.acaAcordo.findMany({ where: status ? { status } : {}, orderBy: { createdAt: 'desc' }, take: 500 }),
+    marcaPorPortal(),
   ])
   const hoje = hojeBr()
   const titulos = await prisma.enrollmentTitulo.findMany({ where: { acordoId: { in: portal.map((a) => a.id) }, origem: 'acordo' }, select: { acordoId: true, status: true, vencimento: true, valorCentavos: true, valorPagoCentavos: true } })
@@ -351,6 +380,7 @@ export async function listarAcordos(status?: string) {
       const t = titulos.filter((x) => x.acordoId === a.id)
       return {
         ...resumoDoAcordo(a), fonte: 'portal' as const, nome: a.leadId ? leads.get(a.leadId) ?? 'Sem nome' : 'Sem nome',
+        unidade: (a.registration?.portalId ? marcas.get(a.registration.portalId) : null) ?? null,
         pago: t.reduce((s, x) => s + (x.status === 'paga' ? x.valorPagoCentavos : 0), 0),
         emAtraso: a.status === 'ATIVO' && t.some((x) => TITULO_EM_ABERTO.includes(x.status as any) && x.vencimento < hoje),
         podeCancelar: a.status === 'ATIVO' && !t.some((x) => x.status === 'paga'),
@@ -362,6 +392,7 @@ export async function listarAcordos(status?: string) {
         id: a.id, registrationId: null, leadId, status: a.status, original: a.valorOriginalCentavos, encargos: a.valorEncargosCentavos,
         desconto: a.descontoEncargosCentavos, total: a.valorTotalCentavos, entrada: a.entradaCentavos, numParcelas: a.numParcelas, observacao: a.observacao,
         por: a.origem, em: a.createdAt.toISOString(), fonte: 'academico' as const, nome: leadId ? leads.get(leadId) ?? 'Sem nome' : 'Sem nome',
+        unidade: null as MarcaDaUnidade | null,
         pago: 0, emAtraso: false, podeCancelar: false,
       }
     }),

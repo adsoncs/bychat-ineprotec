@@ -26,11 +26,12 @@ const SIT = {
   nao_usado: { rotulo: 'Não usado', tom: 'neutral' as const },
 }
 
-export function DescontosConcedidosCard({ de, ate, portalId }: { de?: string | undefined; ate?: string | undefined; portalId?: string | number | undefined }) {
+export function DescontosConcedidosCard({ de, ate, portalId, unitId }: { de?: string | undefined; ate?: string | undefined; portalId?: string | number | undefined; unitId?: string | undefined }) {
   const qs = new URLSearchParams()
   if (de) qs.set('de', de)
   if (ate) qs.set('ate', ate)
   if (portalId) qs.set('portalId', String(portalId))
+  if (unitId) qs.set('unitId', unitId)
   const q = useQuery({ queryKey: ['descontos-concedidos', qs.toString()], queryFn: () => api.get<Relatorio>(`/admin/educational/portal-financeiro/descontos?${qs}`), staleTime: 30_000 })
   const r = q.data
   if (!r?.itens.length) return null

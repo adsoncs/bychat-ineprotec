@@ -5,6 +5,8 @@ export type SituacaoFin = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornad
 export type MeioFin = 'pix' | 'boleto' | 'cartao' | 'link' | 'manual' | null
 
 export interface LinhaFinanceiro {
+  /** Unidade (empresa) do portal: id, nome e cor da identidade. */
+  unidade?: { id: number; nome: string; cor: string | null } | null
   id: number
   candidateCode: string
   nome: string | null
@@ -104,6 +106,8 @@ export interface IndicadoresFin {
 }
 
 export interface FiltrosFin {
+  /** Unidade (empresa) do portal; vazio = todas. */
+  unitId?: string | undefined
   /** A que data o período se refere (padrão: pagamento). */
   dataPor?: DataPorFin | undefined
   de?: string | undefined
@@ -138,7 +142,7 @@ const BASE = '/admin/educational/portal-financeiro'
 export function usePortalFinanceiro(f: FiltrosFin) {
   return useQuery({
     queryKey: ['portal-financeiro', f],
-    queryFn: () => api.get<{ indicadores: IndicadoresFin; responsaveis?: Array<{ id: number; nome: string }>; total: number; limit: number; offset: number; items: LinhaFinanceiro[] }>(`${BASE}?${qsDe(f)}`),
+    queryFn: () => api.get<{ indicadores: IndicadoresFin; porUnidade?: Array<{ unidade: { id: number; nome: string; cor: string | null }; indicadores: IndicadoresFin }>; responsaveis?: Array<{ id: number; nome: string }>; total: number; limit: number; offset: number; items: LinhaFinanceiro[] }>(`${BASE}?${qsDe(f)}`),
     staleTime: 15_000,
   })
 }

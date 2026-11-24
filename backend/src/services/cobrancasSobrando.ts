@@ -16,6 +16,7 @@
 // conferida de novo, no Asaas e no banco: só sai o que continua sendo sobra.
 
 import { prisma } from '../lib/prisma.js'
+import { marcaPorPortal, type MarcaDaUnidade } from '../lib/unidadesFinanceiro.js'
 import { decryptToken } from './cloudApi.js'
 import { cancelarNoGateway } from './pagamentoCombinado.js'
 import { consultarClienteAsaas, consultarCobrancaAsaas, listarCobrancasAsaas, type AsaasConfig } from './paymentAsaas.js'
@@ -40,6 +41,8 @@ export interface Sobra {
   criadaEm: string | null
   registrationId: number | null
   portalId: number | null
+  /** Unidade (empresa) do portal da inscrição, ou a única que usa esta conta do Asaas. */
+  unidade?: MarcaDaUnidade | null
   codigo: string | null
   leadId: number | null
   nome: string | null
@@ -160,11 +163,25 @@ async function sobraDe(c: Conexao, p: any, cache: Map<string, string | null>): P
 }
 
 /** Varre as cobranças em aberto de todas as contas Asaas e devolve as sobras. */
-export async function listarSobras(): Promise<{ sobras: Sobra[]; verificadas: number; falhas: string[] }> {
-  const sobras: Sobra[] = []
+export async function listarSobras(unitId: number | null = null): Promise<{ sobras: Sobra[]; verificadas: number; falhas: string[] }> {
+  let sobras: Sobra[] = []
   const falhas: string[] = []
   let verificadas = 0
-  for (const c of await conexoesAsaas()) {
+  // Cada unidade (empresa) costuma ter a sua conta do Asaas (portal.paymentConnectionId).
+  const portais = await prisma.enrollmentPortal.findMany({ select: { id: true, unitId: true, paymentConnectionId: true } })
+  const marcas = await marcaPorPortal()
+  const unidadesDaConta = new Map<number, Set<number>>()
+  for (const p of portais) if (p.paymentConnectionId) (unidadesDaConta.get(p.paymentConnectionId) ?? unidadesDaConta.set(p.paymentConnectionId, new Set()).get(p.paymentConnectionId)!).add(p.unitId)
+  const marcaDaConta = (conexaoId: number) => {
+    const us = unidadesDaConta.get(conexaoId)
+    if (!us || us.size !== 1) return null
+    const u = [...us][0]
+    const p = portais.find((x) => x.unitId === u)
+    return p ? marcas.get(p.id) ?? null : null
+  }
+  let conexoes = await conexoesAsaas()
+  if (unitId) conexoes = conexoes.filter((c) => unidadesDaConta.get(c.id)?.has(unitId))
+  for (const c of conexoes) {
     const cache = new Map<string, string | null>()
     for (const status of SITUACOES_ABERTAS) {
       try {
@@ -183,6 +200,9 @@ export async function listarSobras(): Promise<{ sobras: Sobra[]; verificadas: nu
       }
     }
   }
+  for (const x of sobras) x.unidade = (x.portalId ? marcas.get(x.portalId) : null) ?? marcaDaConta(x.conexaoId)
+  // Conta compartilhada entre unidades: fica o que é desta (ou sem dono identificado).
+  if (unitId) sobras = sobras.filter((x) => !x.unidade || x.unidade.id === unitId)
   sobras.sort((a, b) => (a.certeza === b.certeza ? a.vencimento.localeCompare(b.vencimento) : a.certeza === 'limpar' ? -1 : 1))
   return { sobras, verificadas, falhas }
 }
