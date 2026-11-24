@@ -343,7 +343,21 @@ async function persistPaymentMethod(input: {
  */
 const SEM_PLANO = 'Este curso ainda não tem plano de pagamento cadastrado. Fale com a instituição para concluir a matrícula.'
 
-async function montarCobrancaDoCheckout(input: {
+/**
+ * O pacote (combo) é o vínculo entre as inscrições, não faz parte da cobrança:
+ * gerar a cobrança da principal não pode apagá-lo. Sem ele, o pagamento não
+ * chega aos outros cursos do combo (ineprotec MAT-26-000008/000007, 24/11).
+ */
+async function montarCobrancaDoCheckout(input: Parameters<typeof montarCobrancaDoCheckoutSemPacote>[0]): ReturnType<typeof montarCobrancaDoCheckoutSemPacote> {
+  const r = await montarCobrancaDoCheckoutSemPacote(input)
+  if ('erro' in r) return r
+  const atual = await prisma.enrollmentRegistration.findUnique({ where: { id: input.registrationId }, select: { paymentPlan: true } })
+  const pacote = (atual?.paymentPlan as any)?.pacote
+  if (!pacote) return r
+  return { ...r, paymentPlan: (extra?: Record<string, unknown>) => ({ ...r.paymentPlan(extra), pacote }) }
+}
+
+async function montarCobrancaDoCheckoutSemPacote(input: {
   registrationId: number
   portalId: number
   paymentMethodsConfig: unknown

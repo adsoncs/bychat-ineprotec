@@ -306,6 +306,8 @@ export async function criarCombinado(registrationId: number, body: any, op: Oper
       atendidoPorUserId: op.userId,
       paymentPlan: {
         ...(plano.planoFinanceiro ? { planoFinanceiro: plano.planoFinanceiro } : {}),
+        // O pacote (combo) liga as inscrições: a cobrança não pode apagá-lo.
+        ...(plano.pacote ? { pacote: plano.pacote } : {}),
         meio: 'combinado', escopo: 'curso', rotulo: 'Pagamento combinado', parcelas: v.titulos.length,
         valorTotal: v.totalCentavos / 100, valorTabela: v.totalCentavos / 100, valorCobrado: primeiro.valorCentavos / 100,
         combinado: { descricao, motivo: v.motivo, descontoPct: v.descontoPct, por: op.nome, porUserId: op.userId, em: new Date().toISOString() },
@@ -386,7 +388,7 @@ export async function cancelarTitulosAbertos(registrationId: number, motivo: str
     if (!resta) {
       const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { paymentPlan: true } })
       const { combinado: _c, ...resto } = (reg?.paymentPlan ?? {}) as Record<string, any>
-      await prisma.enrollmentRegistration.update({ where: { id: registrationId }, data: { paymentMethod: null, paymentPlan: { ...(resto.planoFinanceiro ? { planoFinanceiro: resto.planoFinanceiro } : {}) } as any } })
+      await prisma.enrollmentRegistration.update({ where: { id: registrationId }, data: { paymentMethod: null, paymentPlan: { ...(resto.planoFinanceiro ? { planoFinanceiro: resto.planoFinanceiro } : {}), ...(resto.pacote ? { pacote: resto.pacote } : {}) } as any } })
     }
   }
   return avisos
@@ -402,7 +404,7 @@ export async function desfazerCombinado(registrationId: number, op: Operador): P
   const { combinado: _c, ...resto } = (reg?.paymentPlan ?? {}) as Record<string, any>
   await prisma.enrollmentRegistration.update({
     where: { id: registrationId },
-    data: { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null, paymentMethod: null, paymentAmount: null, paymentPlan: { ...(resto.planoFinanceiro ? { planoFinanceiro: resto.planoFinanceiro } : {}) } as any },
+    data: { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null, paymentMethod: null, paymentAmount: null, paymentPlan: { ...(resto.planoFinanceiro ? { planoFinanceiro: resto.planoFinanceiro } : {}), ...(resto.pacote ? { pacote: resto.pacote } : {}) } as any },
   })
   await registrarEventoDaInscricao({ registrationId, etapa: 'pagamento', acao: 'combinado_desfeito', ator: 'atendente', userId: op.userId, userName: op.nome })
   return { ok: true, avisos: [] }
