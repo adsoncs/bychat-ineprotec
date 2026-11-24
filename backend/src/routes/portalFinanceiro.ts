@@ -106,7 +106,11 @@ function movimentos(r: any, plano: Record<string, any>) {
       : Number(plano.valorCobrado ?? r.paymentAmount ?? 0)
   const nParcelas = Number(plano.parcelas ?? 1) || 1
   const rotuloReg = nParcelas > 1 ? `Parcela 1 de ${nParcelas}` : (plano.rotulo ?? 'Cobrança')
-  if (r.paymentStatus === 'paid' && r.paymentPaidAt && !transferida) {
+  // Curso de dentro do pacote (combo): a 1ª cobrança foi paga UMA vez, na
+  // principal — contar aqui de novo somava o mesmo dinheiro duas vezes (Samara:
+  // R$ 215,80 viravam R$ 315,80). As parcelas próprias dele seguem contando.
+  const membroDoPacote = plano?.pacote?.papel === 'membro'
+  if (r.paymentStatus === 'paid' && r.paymentPaidAt && !transferida && !membroDoPacote) {
     recebimentos.push({ dia: diaBr(r.paymentPaidAt)!, em: new Date(r.paymentPaidAt).toISOString(), valor: valorDaReg, meio: meioDaReg, origem: 'cobranca', rotulo: rotuloReg })
   }
   if (r.paymentExpiresAt && r.paymentStatus !== 'refunded' && r.status !== 'cancelled' && r.status !== 'transferred' && !(expirada && r.paymentStatus !== 'paid')) {
@@ -191,7 +195,7 @@ function linha(r: any) {
     // das taxas do gateway). Pago: o valor confirmado. Em aberto: o da cobrança
     // vigente, gravado no plano — o paymentAmount já foi sujo por sincronização
     // de cobrança antiga (R$ 2.508 numa inscrição de boleto de R$ 5,02).
-    valorCobrado: r.paymentStatus === 'paid'
+    valorCobrado: (plano as any)?.pacote?.papel === 'membro' ? null : r.paymentStatus === 'paid'
       ? (r.paymentAmount != null ? Number(r.paymentAmount) : plano.valorCobrado != null ? Number(plano.valorCobrado) : null)
       : (plano.valorCobrado != null ? Number(plano.valorCobrado) : r.paymentAmount != null ? Number(r.paymentAmount) : null),
     /** Inscrições da mesma pessoa mescladas nesta (preenchido na consulta). */
