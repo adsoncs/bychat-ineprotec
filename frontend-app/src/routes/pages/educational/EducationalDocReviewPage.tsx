@@ -5,6 +5,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { AnaliseAcademicaCard, type EtapaAdmin } from '../EnrollmentRegistrationDetailPage'
+import { ArquivoPreviewCard } from '@/components/educational/ArquivoPreviewCard'
 import {
   useDocReviews,
   useDocReviewDetail,
@@ -883,9 +884,6 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
   const sp = reg?.processRegistration?.selectionProcess
   const portal = reg?.portal
 
-  const isImage = (doc.mimeType ?? '').startsWith('image/')
-  const isPdf = (doc.mimeType ?? '') === 'application/pdf'
-
   function handleReview(status: 'approved' | 'rejected') {
     setError(null)
     if (status === 'rejected' && !reviewNote.trim()) {
@@ -973,49 +971,20 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
           {lead?.whatsapp ? <Row label="WhatsApp" value={lead.whatsapp} /> : null}
         </div>
 
-        <div class="rounded-md border border-border bg-surface overflow-hidden">
-          <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
-            <span class="text-fg-muted truncate">
-              {doc.fileName ?? 'arquivo'}
-              {doc.sizeBytes != null && <span class="ml-1 text-fg-muted">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
-            </span>
-            <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
-              Abrir em nova aba <ExternalLink size={10} />
-            </a>
-          </div>
-          <div class="bg-[oklch(0.15_0_0)] flex items-center justify-center min-h-[280px]">
-            {isImage ? (
-              <img src={doc.fileUrl} alt={doc.fileName ?? ''} class="max-w-full max-h-[55vh] object-contain" />
-            ) : isPdf ? (
-              <iframe src={doc.fileUrl} class="w-full h-[55vh] bg-white border-0" title={doc.fileName ?? 'PDF'} />
-            ) : (
-              <div class="text-fg-on-brand/80 p-8 text-center text-xs">
-                Tipo de arquivo não pré-visualizável.
-                <br />
-                <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="text-accent hover:underline">Abrir em nova aba ↗</a>
-              </div>
-            )}
-          </div>
-        </div>
+        <ArquivoPreviewCard
+          url={doc.fileUrl}
+          mimeType={doc.mimeType}
+          fileName={doc.fileName}
+          sizeBytes={doc.sizeBytes}
+        />
 
         {doc.versoFileUrl && (
-          <div class="rounded-md border border-border bg-surface overflow-hidden">
-            <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
-              <span class="text-fg-muted truncate">Verso · {doc.versoFileName ?? 'arquivo'}</span>
-              <a href={doc.versoFileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
-                Abrir em nova aba <ExternalLink size={10} />
-              </a>
-            </div>
-            <div class="bg-[oklch(0.15_0_0)] flex items-center justify-center min-h-[200px]">
-              {(doc.versoMimeType ?? '').startsWith('image/') ? (
-                <img src={doc.versoFileUrl} alt={doc.versoFileName ?? 'Verso'} class="max-w-full max-h-[55vh] object-contain" />
-              ) : doc.versoMimeType === 'application/pdf' ? (
-                <iframe src={doc.versoFileUrl} class="w-full h-[55vh] bg-white border-0" title={doc.versoFileName ?? 'Verso'} />
-              ) : (
-                <a href={doc.versoFileUrl} target="_blank" rel="noreferrer" class="text-accent hover:underline p-8 text-xs">Abrir o verso em nova aba ↗</a>
-              )}
-            </div>
-          </div>
+          <ArquivoPreviewCard
+            url={doc.versoFileUrl}
+            mimeType={doc.versoMimeType}
+            fileName={doc.versoFileName}
+            label={`Verso · ${doc.versoFileName ?? 'arquivo'}`}
+          />
         )}
 
         {doc.status === 'rejected' && doc.reviewNote && (

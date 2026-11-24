@@ -35,6 +35,7 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 import { Pode } from '@/components/auth/Pode'
 import { IntegridadePainel, SeloIntegridade, TextoComDestaques } from '@/components/educational/IntegridadePainel'
+import { ArquivoPreviewCard } from '@/components/educational/ArquivoPreviewCard'
 
 type Tab = 'overview' | 'enem' | 'presencial' | 'essay'
 
@@ -393,8 +394,6 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
   const cutoff = off?.notaCorte ?? sp?.notaCorte ?? item.cutoffScore ?? null
 
   const doc = item.document
-  const isImage = (doc?.mimeType ?? '').startsWith('image/')
-  const isPdf = (doc?.mimeType ?? '') === 'application/pdf'
 
   const divergences: string[] = []
   if (item.nomeBateComForm === false) divergences.push('Nome divergente do formulário')
@@ -489,30 +488,12 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
 
       {/* Documento (boletim) */}
       {doc ? (
-        <div class="rounded-md border border-border bg-surface overflow-hidden">
-          <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
-            <span class="text-fg-muted truncate">
-              📄 {doc.fileName ?? 'boletim.pdf'}
-              {doc.sizeBytes !== null && <span class="ml-1 text-fg-muted">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
-            </span>
-            <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
-              Abrir em nova aba <ExternalLink size={10} />
-            </a>
-          </div>
-          <div class="bg-[oklch(0.15_0_0)] flex items-center justify-center min-h-[280px]">
-            {isImage ? (
-              <img src={doc.fileUrl} alt={doc.fileName ?? 'Boletim ENEM'} class="max-w-full max-h-[55vh] object-contain" />
-            ) : isPdf ? (
-              <iframe src={doc.fileUrl} class="w-full h-[55vh] bg-white border-0" title={doc.fileName ?? 'Boletim ENEM'} />
-            ) : (
-              <div class="text-fg-on-brand/80 p-8 text-center text-xs">
-                Tipo de arquivo não pré-visualizável.
-                <br />
-                <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="text-accent hover:underline">Abrir em nova aba ↗</a>
-              </div>
-            )}
-          </div>
-        </div>
+        <ArquivoPreviewCard
+          url={doc.fileUrl}
+          mimeType={doc.mimeType}
+          fileName={doc.fileName ?? 'boletim.pdf'}
+          sizeBytes={doc.sizeBytes}
+        />
       ) : (
         <div class="rounded-md border border-fg-muted/20 bg-surface p-3 text-xs text-fg-muted italic">
           📄 Nenhum boletim foi anexado a este registro (notas inseridas manualmente ou via integração).

@@ -58,6 +58,7 @@ import { MoodleInscricaoCard } from './integrations/MoodleIntegration'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { useCan } from '@/hooks/usePermissions'
 import { SeloIntegridade } from '@/components/educational/IntegridadePainel'
+import { ArquivoPreviewCard } from '@/components/educational/ArquivoPreviewCard'
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   pending: 'Pendente',
@@ -1477,11 +1478,13 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
   const reanalyze = useReanalyzeDocument(registrationId)
   // false = fechado; 'ambos' = o documento inteiro; 'frente'/'verso' = uma face.
   const [rejecting, setRejecting] = useState<false | 'ambos' | 'frente' | 'verso'>(false)
+  // Modal de visualização: qual lado focar (ou 'ambos' para documento único).
+  const [verAberto, setVerAberto] = useState<false | 'ambos' | 'frente' | 'verso'>(false)
   const lados = doc.lados ?? null
 
   const sizeKb = doc.sizeBytes ? Math.round(doc.sizeBytes / 1024) : null
-  const aprovar = (lado: 'frente' | 'verso' | null) => review.mutate({ docId: doc.id, status: 'approved', lado }, {
-    onSuccess: () => toast(lado ? `${lado === 'frente' ? 'Frente aprovada' : 'Verso aprovado'}` : 'Documento aprovado', 'success'),
+  const aprovar = (lado: 'frente' | 'verso' | null, aoConcluir?: () => void) => review.mutate({ docId: doc.id, status: 'approved', lado }, {
+    onSuccess: () => { toast(lado ? `${lado === 'frente' ? 'Frente aprovada' : 'Verso aprovado'}` : 'Documento aprovado', 'success'); aoConcluir?.() },
     onError: (e: unknown) => toast((e as Error).message, 'danger'),
   })
 
@@ -1508,7 +1511,7 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
                 </div>
                 {l.status === 'rejected' && l.nota && <div class="text-danger">Motivo: {l.nota}</div>}
                 <div class="flex flex-wrap gap-1">
-                  {url && <a href={url} target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border bg-surface-2 text-fg hover:bg-surface-3"><Eye size={11} /> Ver {k} <ExternalLink size={9} /></a>}
+                  {url && <Button size="sm" variant="secondary" onClick={() => setVerAberto(k)}><Eye size={11} /> Ver {k}</Button>}
                   {l.status !== 'approved' && <Button size="sm" variant="primary" disabled={review.isPending} onClick={() => aprovar(k)}><CheckCircle size={11} /> Aprovar {k}</Button>}
                   {l.status !== 'rejected' && <Button size="sm" variant="secondary" disabled={review.isPending} onClick={() => setRejecting(k)}><XCircle size={11} /> Recusar {k}</Button>}
                 </div>
@@ -1532,30 +1535,19 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
       <div class="flex flex-wrap gap-1.5">
         {/* Abrir o arquivo é o primeiro passo da análise: botão em destaque
             (laranja enquanto aguarda análise), não um link miúdo no meio das
-            informações do arquivo — o time bate o olho e sabe o que falta ver. */}
+            informações do arquivo — o time bate o olho e sabe o que falta ver.
+            Abre numa modal (não nova aba): o agente vê o arquivo e aprova ou
+            recusa dali mesmo, sem trocar de tela. */}
         {doc.fileUrl && !lados && (
-          <a
-            href={doc.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={() => setVerAberto('ambos')}
             class={doc.status === 'pending'
               ? 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold border border-warning bg-warning/10 text-warning hover:bg-warning/20 btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
               : 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'}
           >
-            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} {doc.versoFileUrl ? 'frente' : 'documento'} <ExternalLink size={10} />
-          </a>
-        )}
-        {doc.versoFileUrl && !lados && (
-          <a
-            href={doc.versoFileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            class={doc.status === 'pending'
-              ? 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold border border-warning bg-warning/10 text-warning hover:bg-warning/20 btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
-              : 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'}
-          >
-            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} verso <ExternalLink size={10} />
-          </a>
+            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar' : 'Ver'} documento
+          </button>
         )}
         {doc.status !== 'approved' && (
           <Button size="sm" variant={lados ? 'secondary' : 'primary'} onClick={() => aprovar(null)} disabled={review.isPending}>
@@ -1615,7 +1607,98 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
           submitting={review.isPending}
         />
       )}
+
+      {verAberto && (
+        <DocumentoViewModal
+          doc={doc}
+          foco={verAberto}
+          onClose={() => setVerAberto(false)}
+          aprovar={aprovar}
+          onRejeitar={(lado) => { setVerAberto(false); setRejecting(lado) }}
+          pending={review.isPending}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Modal de visualização do documento: o agente vê o arquivo (imagem/PDF
+ * embutidos, como no resto do sistema) e aprova ou recusa dali mesmo, sem
+ * trocar de aba. `foco` escolhe o que mostrar e quais ações oferecer —
+ * 'ambos' é o documento único (com verso, se houver, lado a lado); 'frente'
+ * ou 'verso' é só aquela face, quando o documento pede os dois em separado.
+ */
+function DocumentoViewModal({
+  doc, foco, onClose, aprovar, onRejeitar, pending,
+}: {
+  doc: EnrollmentDocument
+  foco: 'ambos' | 'frente' | 'verso'
+  onClose: () => void
+  aprovar: (lado: 'frente' | 'verso' | null, aoConcluir?: () => void) => void
+  onRejeitar: (lado: 'ambos' | 'frente' | 'verso') => void
+  pending: boolean
+}) {
+  const lados = doc.lados ?? null
+  const ladoFrente = lados?.frente
+  const ladoVerso = lados?.verso
+  const mostrarFrente = foco !== 'verso'
+  const mostrarVerso = foco !== 'frente' && !!doc.versoFileUrl
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title={doc.type?.name ?? doc.label ?? 'Documento'}
+      description={foco === 'frente' ? 'Frente' : foco === 'verso' ? 'Verso' : undefined}
+      size="xl"
+      footer={
+        <div class="flex items-center justify-between w-full gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
+          <div class="flex items-center gap-2 flex-wrap">
+            {foco === 'frente' && ladoFrente?.status !== 'approved' && (
+              <Button size="sm" variant="primary" disabled={pending} onClick={() => aprovar('frente', onClose)}><CheckCircle size={12} /> Aprovar frente</Button>
+            )}
+            {foco === 'frente' && ladoFrente?.status !== 'rejected' && (
+              <Button size="sm" variant="secondary" disabled={pending} onClick={() => onRejeitar('frente')}><XCircle size={12} /> Recusar frente</Button>
+            )}
+            {foco === 'verso' && ladoVerso?.status !== 'approved' && (
+              <Button size="sm" variant="primary" disabled={pending} onClick={() => aprovar('verso', onClose)}><CheckCircle size={12} /> Aprovar verso</Button>
+            )}
+            {foco === 'verso' && ladoVerso?.status !== 'rejected' && (
+              <Button size="sm" variant="secondary" disabled={pending} onClick={() => onRejeitar('verso')}><XCircle size={12} /> Recusar verso</Button>
+            )}
+            {foco === 'ambos' && doc.status !== 'approved' && (
+              <Button size="sm" variant="primary" disabled={pending} onClick={() => aprovar(null, onClose)}><CheckCircle size={12} /> Aprovar</Button>
+            )}
+            {foco === 'ambos' && doc.status !== 'rejected' && (
+              <Button size="sm" variant="secondary" disabled={pending} onClick={() => onRejeitar('ambos')}><XCircle size={12} /> Rejeitar</Button>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <div class="space-y-3">
+        {doc.aiSuggestion && <AiSummary doc={doc} />}
+        {mostrarFrente && doc.fileUrl && (
+          <ArquivoPreviewCard
+            url={doc.fileUrl}
+            mimeType={doc.mimeType}
+            fileName={doc.fileName}
+            sizeBytes={doc.sizeBytes}
+            label={mostrarVerso ? 'Frente' : undefined}
+          />
+        )}
+        {mostrarVerso && doc.versoFileUrl && (
+          <ArquivoPreviewCard
+            url={doc.versoFileUrl}
+            mimeType={doc.versoMimeType}
+            fileName={doc.versoFileName}
+            label="Verso"
+          />
+        )}
+      </div>
+    </Modal>
   )
 }
 
