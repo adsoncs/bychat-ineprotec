@@ -534,7 +534,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       // Tudo o que o candidato preencheu, na ordem do formulário do portal.
       cadastro: agruparCampos(camposDoFormulario((reg.portal as any)?.formConfig, (reg.formData as Record<string, any>) || {})),
       // Dados que só a equipe preenche (Setting edu.ficha_interna); vazio = nada configurado.
-      fichaInterna: await fichaInternaDaInscricao({ leadId: reg.lead?.id ?? null, formData: reg.formData }).catch(() => []),
+      fichaInterna: await fichaInternaDaInscricao({ leadId: reg.lead?.id ?? null, formData: reg.formData, portalId: reg.portal?.id ?? null }).catch(() => []),
       processRegistration: reg.processRegistration,
       completion,  // 'pending' | 'rejected' | 'complete'
       essay: {

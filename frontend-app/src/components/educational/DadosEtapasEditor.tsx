@@ -2,8 +2,57 @@
 // obrigatório ali e se é exigido para matricular. Usado no padrão da instituição
 // (Educacional › Dados por etapa) e no ajuste de cada portal (aba Etapas).
 import { Fragment } from 'preact'
-import { AlertTriangle, CheckCircle2 } from '@/components/ui/icon-set'
-import type { DadoCatalogo, DadosConfig, EtapaDados } from '@/hooks/useDadosEtapas'
+import { AlertTriangle, CheckCircle2, MapPin } from '@/components/ui/icon-set'
+import { aplicarEndereco, enderecoDaConfig, type DadoCatalogo, type DadosConfig, type EnderecoNaConfig, type EtapaDados } from '@/hooks/useDadosEtapas'
+
+/**
+ * Endereço completo (CEP, rua, número, complemento, bairro, cidade e UF) num
+ * controle só: onde pedir no portal, se aparece na ficha do painel, obrigatório
+ * e exigido para matricular. Complemento é sempre opcional. Usado aqui e na
+ * tela Educacional › Dados por etapa (todos os portais).
+ */
+export function EnderecoCompletoControle(p: {
+  valor: EnderecoNaConfig
+  etapas: { chave: EtapaDados; rotulo: string }[]
+  onChange: (v: EnderecoNaConfig) => void
+  compacto?: boolean
+  desabilitado?: boolean
+  rotulo?: string
+}) {
+  const v = p.valor
+  const set = (patch: Partial<EnderecoNaConfig>) => p.onChange({ ...v, ...patch })
+  const pedidoNoPortal = v.etapa !== ''
+  const pedido = pedidoNoPortal || v.painel
+  return (
+    <div class={`flex flex-wrap items-center gap-x-4 gap-y-2 text-xs ${p.desabilitado ? 'opacity-60 pointer-events-none' : ''}`}>
+      <label class="flex items-center gap-2">
+        {!p.compacto && <span class="text-fg-muted">No portal do aluno:</span>}
+        <select
+          class="min-w-[170px] rounded border border-border bg-surface px-2 py-1 text-xs"
+          value={v.etapa}
+          aria-label={`${p.rotulo ? p.rotulo + ': ' : ''}onde pedir o endereço no portal`}
+          onChange={(e) => set({ etapa: (e.target as HTMLSelectElement).value as EnderecoNaConfig['etapa'] })}
+        >
+          <option value="">Não pedir no portal</option>
+          {p.etapas.map((e) => <option key={e.chave} value={e.chave}>{e.rotulo}</option>)}
+          {v.etapa === 'misto' && <option value="misto">Ajustado campo a campo</option>}
+        </select>
+      </label>
+      <label class="flex items-center gap-1.5" title="A equipe vê e edita o endereço na aba Cadastro da matrícula (painel), mesmo quando o portal não pede">
+        <input type="checkbox" checked={v.painel} aria-label={`${p.rotulo ? p.rotulo + ': ' : ''}endereço na ficha do painel`} onChange={(e) => set({ painel: (e.target as HTMLInputElement).checked })} />
+        Na ficha do painel
+      </label>
+      <label class="flex items-center gap-1.5" title="Complemento fica sempre opcional">
+        <input type="checkbox" checked={v.obrigatorio && pedido} disabled={!pedido} aria-label={`${p.rotulo ? p.rotulo + ': ' : ''}endereço obrigatório`} onChange={(e) => set({ obrigatorio: (e.target as HTMLInputElement).checked })} />
+        Obrigatório
+      </label>
+      <label class="flex items-center gap-1.5" title="Sem o endereço preenchido, a inscrição não vira matrícula">
+        <input type="checkbox" checked={v.exigido} aria-label={`${p.rotulo ? p.rotulo + ': ' : ''}endereço exigido para matricular`} onChange={(e) => set({ exigido: (e.target as HTMLInputElement).checked })} />
+        Exigido p/ matricular
+      </label>
+    </div>
+  )
+}
 
 const MODOS: { valor: DadosConfig['modo']; nome: string; desc: string }[] = [
   { valor: 'completo', nome: 'Completo', desc: 'Passo a passo: a inscrição em etapas, e cada etapa da matrícula pede os seus dados.' },
@@ -80,6 +129,12 @@ export function DadosEtapasEditor(p: {
           {l.avisos.map((a) => <div key={a}>{a}</div>)}
         </div>
       )}
+
+      <div class="rounded-md border border-border p-3 space-y-2">
+        <div class="flex items-center gap-2 text-sm font-medium"><MapPin size={14} /> Endereço completo</div>
+        <div class="text-2xs text-fg-muted">CEP, rua, número, complemento, bairro, cidade e UF juntos. O contrato que usa o endereço continua pedindo antes de assinar, marcado aqui ou não.</div>
+        <EnderecoCompletoControle valor={enderecoDaConfig(v)} etapas={p.etapas} onChange={(e) => p.onChange(aplicarEndereco(v, e))} />
+      </div>
 
       <div class="text-2xs text-fg-muted">
         {pedidos} dado(s) pedido(s) · {porEtapa.filter((e) => e.n).map((e) => `${e.rotulo}: ${e.n}`).join(' · ') || 'nenhum'}

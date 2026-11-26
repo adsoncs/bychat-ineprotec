@@ -46,7 +46,8 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
       pôr({ chave, rotulo, grupo: 'Identificação' }, String(form[chave] ?? ''))
     }
     // Ficha interna: só a equipe preenche; o aluno não vê.
-    for (const c of review.fichaInterna ?? []) pôr({ chave: c.chave, rotulo: c.rotulo, grupo: 'Ficha do aluno', tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}), ...(c.obrigatorio ? { obrigatorio: true } : {}) }, c.valor)
+    // Endereço marcado "na ficha do painel" no portal vem com o grupo próprio.
+    for (const c of review.fichaInterna ?? []) pôr({ chave: c.chave, rotulo: c.rotulo, grupo: c.grupo === 'Endereço' ? 'Endereço' : 'Ficha do aluno', tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}), ...(c.obrigatorio ? { obrigatorio: true } : {}) }, c.valor)
     for (const g of review.cadastro ?? []) for (const c of g.campos) if (c.chave !== 'campusNome') pôr({ chave: c.chave, rotulo: c.rotulo, grupo: g.grupo, tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}) }, c.valor)
     for (const c of dados.data ?? []) pôr({ chave: c.name, rotulo: c.label, grupo: 'Pedido nas etapas', ...(c.type ? { tipo: c.type } : {}), ...(c.options ? { opcoes: c.options } : {}), ...(c.required ? { obrigatorio: true } : {}) }, c.valor)
     return { grupos: [...out.entries()], iniciais }

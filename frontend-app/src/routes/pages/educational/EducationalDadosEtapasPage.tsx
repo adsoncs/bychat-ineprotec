@@ -7,8 +7,9 @@ import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { DadosEtapasEditor } from '@/components/educational/DadosEtapasEditor'
-import { useDadosEtapas, useSalvarPadraoDados, type DadosConfig } from '@/hooks/useDadosEtapas'
+import { DadosEtapasEditor, EnderecoCompletoControle } from '@/components/educational/DadosEtapasEditor'
+import { useDadosEtapas, useSalvarPadraoDados, useEnderecoPortais, useSalvarEnderecoPortais, type DadosConfig, type DadosEtapasResposta, type EnderecoNaConfig } from '@/hooks/useDadosEtapas'
+import { MapPin } from '@/components/ui/icon-set'
 import { toast } from '@/lib/toast'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { useCan } from '@/hooks/usePermissions'
@@ -45,6 +46,7 @@ export function EducationalDadosEtapasPage() {
       ) : undefined}
     >
       <SomenteLeitura tela="edu_dados_etapas">
+      {data && <EnderecoNosPortais etapas={data.etapas} podeEditar={podeEditar} />}
       {isLoading || !data ? (
         <Skeleton class="h-96" />
       ) : !cfg ? (
@@ -69,5 +71,75 @@ export function EducationalDadosEtapasPage() {
       )}
       </SomenteLeitura>
     </Page>
+  )
+}
+
+/**
+ * Endereço completo, portal a portal: onde pedir no portal do aluno, se aparece
+ * na ficha do painel (aba Cadastro da matrícula), obrigatório e exigido para
+ * matricular. Grava no ajuste de cada portal (o mesmo da aba Etapas).
+ */
+function EnderecoNosPortais({ etapas, podeEditar }: { etapas: DadosEtapasResposta['etapas']; podeEditar: boolean }) {
+  const { data, isLoading } = useEnderecoPortais()
+  const salvar = useSalvarEnderecoPortais()
+  const [edicao, setEdicao] = useState<Record<number, EnderecoNaConfig>>({})
+  useEffect(() => { setEdicao({}) }, [data])
+  const portais = data?.portais ?? []
+  const alterados = portais.filter((p) => edicao[p.id] && JSON.stringify(edicao[p.id]) !== JSON.stringify(p.endereco))
+
+  function gravar() {
+    salvar.mutate(alterados.map((p) => ({ id: p.id, endereco: edicao[p.id]! })), {
+      onSuccess: (r) => {
+        if (r.pulados.length) toast(`Não salvo em ${r.pulados.length} portal(is): ${r.pulados.map((x) => x.motivo).join('; ')}`, 'warning')
+        else toast('Endereço salvo nos portais', 'success')
+      },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <Card class="p-4 mb-4 space-y-3">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <div class="flex items-center gap-2 font-semibold text-sm"><MapPin size={15} /> Endereço completo</div>
+          <p class="text-2xs text-fg-muted mt-1 max-w-3xl">
+            Marque, em cada portal, onde o endereço (CEP, rua, número, complemento, bairro, cidade e UF) é pedido: no portal do aluno
+            (formulário de inscrição, Completar cadastro, etc.) e/ou na ficha do painel, onde a equipe preenche e edita na aba Cadastro da matrícula.
+            O contrato que usa o endereço continua pedindo antes de assinar, como hoje.
+          </p>
+        </div>
+        {podeEditar && (
+          <Button size="sm" onClick={gravar} disabled={!alterados.length || salvar.isPending}>
+            <Save size={13} /> {salvar.isPending ? 'Salvando…' : alterados.length ? `Salvar (${alterados.length})` : 'Salvar'}
+          </Button>
+        )}
+      </div>
+      {isLoading ? <Skeleton class="h-40" /> : (
+        <div class="divide-y divide-border rounded-md border border-border">
+          {portais.map((p) => {
+            const v = edicao[p.id] ?? p.endereco
+            return (
+              <div key={p.id} class="px-3 py-2.5 grid gap-1.5 lg:grid-cols-[minmax(180px,240px)_1fr] lg:items-center">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium truncate">{p.nome}{!p.ativo && <span class="ml-1 text-3xs text-fg-muted">(inativo)</span>}</div>
+                  <div class="text-3xs text-fg-muted">
+                    {p.contratos.length
+                      ? p.contratos.map((c) => c.pede ? `Contrato pede antes de assinar (${c.modelo})` : `Termo imprime o endereço, mas não pede (${c.modelo})`).join(' · ')
+                      : 'Contrato não usa o endereço'}
+                  </div>
+                </div>
+                {p.configurado ? (
+                  <EnderecoCompletoControle valor={v} etapas={etapas} rotulo={p.nome} desabilitado={!podeEditar}
+                    onChange={(n) => setEdicao((x) => ({ ...x, [p.id]: n }))} />
+                ) : (
+                  <div class="text-2xs text-fg-muted">Este portal usa o formulário próprio (sem Dados por etapa). Ajuste na aba Etapas do portal.</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {alterados.length > 0 && <div class="text-2xs text-warning">{alterados.length} portal(is) com alteração não salva.</div>}
+    </Card>
   )
 }

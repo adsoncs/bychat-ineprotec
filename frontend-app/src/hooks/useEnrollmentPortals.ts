@@ -720,7 +720,7 @@ export interface RegistrationReview {
    */
   cadastro?: { grupo: string; campos: CampoDoCadastro[] }[]
   /** Dados que só a equipe preenche (Setting edu.ficha_interna). */
-  fichaInterna?: Array<{ chave: string; rotulo: string; tipo: string; opcoes?: string[]; obrigatorio: boolean; valor: string }>
+  fichaInterna?: Array<{ chave: string; rotulo: string; tipo: string; grupo?: string; opcoes?: string[]; obrigatorio: boolean; valor: string }>
   slots: DocumentSlot[]
   extras: EnrollmentDocument[]
   autoAdvance:

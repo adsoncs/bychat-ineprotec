@@ -137,17 +137,30 @@ export async function lerFichaInterna(): Promise<FichaInterna> {
   return normalizarFichaInterna(s?.value)
 }
 
-export interface CampoDaFicha { chave: string; rotulo: string; tipo: TipoDado; opcoes?: string[]; obrigatorio: boolean; valor: string }
+export interface CampoDaFicha { chave: string; rotulo: string; tipo: TipoDado; grupo: string; opcoes?: string[]; obrigatorio: boolean; valor: string }
 
-/** Campos da ficha interna com o valor atual (inscrição ou cadastro do aluno). */
-export async function fichaInternaDaInscricao(reg: { leadId: number | null; formData: unknown }): Promise<CampoDaFicha[]> {
+/**
+ * Campos da ficha do painel com o valor atual (inscrição ou cadastro do aluno):
+ * a ficha interna da instituição + o que o portal da inscrição marcou para o
+ * painel (DadosConfig.painel — ex.: o endereço completo).
+ */
+export async function fichaInternaDaInscricao(reg: { leadId: number | null; formData: unknown; portalId?: number | null }): Promise<CampoDaFicha[]> {
   const ficha = await lerFichaInterna()
-  if (!ficha.campos.length) return []
-  const atuais = await valoresAtuais(reg, ficha.campos.map((c) => c.chave))
-  return ficha.campos.map((c) => {
+  const campos = [...ficha.campos]
+  if (reg.portalId) {
+    const p = await prisma.enrollmentPortal.findUnique({ where: { id: reg.portalId }, select: { jornadaEtapas: true } }).catch(() => null)
+    const cfg = dadosDoPortalBruto(p?.jornadaEtapas)
+    for (const k of cfg?.painel ?? []) {
+      if (campos.some((c) => c.chave === k)) continue
+      campos.push({ chave: k, obrigatorio: cfg!.exigidosMatricula.includes(k) || (!!cfg!.campos[k]?.obrigatorio) })
+    }
+  }
+  if (!campos.length) return []
+  const atuais = await valoresAtuais(reg, campos.map((c) => c.chave))
+  return campos.map((c) => {
     const d = POR_CHAVE.get(c.chave)!
     return {
-      chave: c.chave, rotulo: d.rotulo, tipo: d.tipo, ...(d.opcoes ? { opcoes: d.opcoes } : {}),
+      chave: c.chave, rotulo: d.rotulo, tipo: d.tipo, grupo: d.grupo, ...(d.opcoes ? { opcoes: d.opcoes } : {}),
       obrigatorio: c.obrigatorio, valor: vazio(atuais[c.chave]) ? '' : String(atuais[c.chave]),
     }
   })
@@ -174,6 +187,11 @@ export interface DadosConfig {
   campos: Record<string, CampoConfig>
   /** Sem estes preenchidos, a inscrição não vira matrícula. */
   exigidosMatricula: string[]
+  /**
+   * Dados que aparecem para a EQUIPE na ficha do painel (aba Cadastro da
+   * matrícula interna), pedidos ou não no portal. Ex.: endereço completo.
+   */
+  painel?: string[]
 }
 
 /** Ponto de partida sugerido: o formulário de sempre + o mínimo do Censo. */
@@ -214,7 +232,56 @@ export function normalizarDados(bruto: unknown): DadosConfig | null {
   const exigidos = Array.isArray(b.exigidosMatricula)
     ? [...new Set((b.exigidosMatricula as unknown[]).map(String).filter((k) => POR_CHAVE.has(k)))]
     : []
-  return { modo: b.modo === 'simplificado' ? 'simplificado' : 'completo', campos, exigidosMatricula: exigidos }
+  const painel = Array.isArray(b.painel)
+    ? [...new Set((b.painel as unknown[]).map(String).filter((k) => POR_CHAVE.has(k) && !POR_CHAVE.get(k)!.essencial))]
+    : []
+  return { modo: b.modo === 'simplificado' ? 'simplificado' : 'completo', campos, exigidosMatricula: exigidos, ...(painel.length ? { painel } : {}) }
+}
+
+// ─── Endereço completo: um controle para os 7 campos ──────────────────────
+//
+// CEP, rua, número, complemento, bairro, cidade e UF são marcados juntos: onde
+// pedir no portal (uma etapa), se aparece na ficha do painel, se é obrigatório e
+// se é exigido para matricular. Complemento é sempre opcional e nunca exigido.
+
+export const CHAVES_ENDERECO = ['cep', 'logradouro', 'numero', 'complemento', 'bairro', 'municipio', 'uf'] as const
+const ENDERECO_OPCIONAL = new Set(['complemento'])
+
+export interface EnderecoNaConfig {
+  /** '' = não pedido no portal; 'misto' = ajustado campo a campo. */
+  etapa: EtapaDados | '' | 'misto'
+  obrigatorio: boolean
+  exigido: boolean
+  painel: boolean
+}
+
+export function enderecoDaConfig(cfg: DadosConfig | null): EnderecoNaConfig {
+  if (!cfg) return { etapa: '', obrigatorio: false, exigido: false, painel: false }
+  const etapas = new Set(CHAVES_ENDERECO.map((k) => cfg.campos[k]?.etapa ?? ''))
+  const principais = CHAVES_ENDERECO.filter((k) => !ENDERECO_OPCIONAL.has(k))
+  return {
+    etapa: etapas.size === 1 ? [...etapas][0] as EtapaDados | '' : 'misto',
+    obrigatorio: principais.every((k) => cfg.campos[k]?.obrigatorio),
+    exigido: principais.every((k) => cfg.exigidosMatricula.includes(k)),
+    painel: CHAVES_ENDERECO.every((k) => (cfg.painel ?? []).includes(k)),
+  }
+}
+
+/** A config com o endereço completo marcado como pedido (etapa 'misto' = não mexe nas etapas). */
+export function aplicarEndereco(cfg: DadosConfig, e: EnderecoNaConfig): DadosConfig {
+  const campos = { ...cfg.campos }
+  const exig = new Set(cfg.exigidosMatricula)
+  const painel = new Set(cfg.painel ?? [])
+  for (const k of CHAVES_ENDERECO) {
+    const opcional = ENDERECO_OPCIONAL.has(k)
+    if (e.etapa !== 'misto') {
+      if (!e.etapa) delete campos[k]
+      else campos[k] = { etapa: e.etapa, obrigatorio: e.obrigatorio && !opcional }
+    } else if (campos[k]) campos[k] = { ...campos[k], obrigatorio: e.obrigatorio && !opcional }
+    if (e.exigido && !opcional) exig.add(k); else exig.delete(k)
+    if (e.painel) painel.add(k); else painel.delete(k)
+  }
+  return { ...cfg, campos, exigidosMatricula: [...exig], painel: [...painel] }
 }
 
 const CHAVE_SETTING = 'edu.dados_etapas'

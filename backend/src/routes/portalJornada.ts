@@ -22,6 +22,7 @@ import {
   dadosEfetivos, camposDaEtapa, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
   camposDoFormulario, espelharNoLead,
   CATALOGO, ROTULO_ETAPA, SUGESTAO, lerPadraoInstituicao, gravarPadraoInstituicao, pendenciasParaMatricular,
+  CHAVES_ENDERECO, enderecoDaConfig, aplicarEndereco, dadosDoPortalBruto, type EnderecoNaConfig,
 } from '../services/dadosCadastro.js'
 import { guardTela } from '../lib/eduTelas.js'
 
@@ -128,6 +129,57 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   app.put('/api/admin/educacional/dados-etapas', { preHandler: guardTela('admin') }, async (req) => ({
     ok: true, padrao: await gravarPadraoInstituicao((req.body as any)?.padrao),
   }))
+
+  // ── Endereço completo: onde pedir, portal a portal, numa tela só ──
+  // Grava em jornadaEtapas.dados de cada portal (o mesmo que a aba Etapas edita).
+  // O contrato segue à parte: o modelo em Word que usa o endereço continua
+  // pedindo antes de assinar (cfgDadosComContrato), marcado aqui ou não.
+  app.get('/api/admin/educacional/endereco-portais', { preHandler: guardTela('login') }, async () => {
+    const [portais, modelos] = await Promise.all([
+      prisma.enrollmentPortal.findMany({ select: { id: true, nome: true, slug: true, active: true, jornadaEtapas: true }, orderBy: { id: 'asc' } }),
+      prisma.acaContratoTemplate.findMany({ where: { ativo: true, arquivoDocx: { not: null } }, select: { nome: true, portalIds: true, camposDocx: true } }),
+    ])
+    const partes = new Set<string>(CHAVES_ENDERECO)
+    return {
+      portais: portais.map((p) => {
+        const cfg = dadosDoPortalBruto(p.jornadaEtapas)
+        const contratos = modelos
+          .filter((m) => Array.isArray(m.portalIds) && (m.portalIds as unknown[]).map(Number).includes(p.id))
+          .map((m) => {
+            const campos = Array.isArray(m.camposDocx) ? (m.camposDocx as unknown[]).map(String) : []
+            return { modelo: m.nome, pede: campos.some((c) => partes.has(c)), mostra: campos.includes('endereco_completo') }
+          })
+          .filter((c) => c.pede || c.mostra)
+        return { id: p.id, nome: p.nome, slug: p.slug, ativo: p.active, configurado: !!cfg, endereco: enderecoDaConfig(cfg), contratos }
+      }),
+    }
+  })
+
+  app.put('/api/admin/educacional/endereco-portais', { preHandler: guardTela('admin') }, async (req, reply) => {
+    const lista = Array.isArray((req.body as any)?.portais) ? (req.body as any).portais as any[] : []
+    if (!lista.length) return reply.code(400).send({ error: 'Nada a salvar.' })
+    const etapasOk = new Set<string>(['', 'misto', ...ETAPAS_DADOS])
+    const { jornadaParaGravar } = await import('../services/portalJornada.js')
+    const salvos: number[] = []
+    const pulados: Array<{ id: number; motivo: string }> = []
+    for (const item of lista) {
+      const id = Number(item?.id)
+      const e: EnderecoNaConfig = {
+        etapa: etapasOk.has(String(item?.endereco?.etapa ?? '')) ? String(item.endereco.etapa ?? '') as EnderecoNaConfig['etapa'] : 'misto',
+        obrigatorio: !!item?.endereco?.obrigatorio, exigido: !!item?.endereco?.exigido, painel: !!item?.endereco?.painel,
+      }
+      const p = Number.isFinite(id) ? await prisma.enrollmentPortal.findUnique({ where: { id }, select: { id: true, jornadaEtapas: true } }) : null
+      if (!p) { pulados.push({ id, motivo: 'portal não encontrado' }); continue }
+      const j = lerJornada(p.jornadaEtapas)
+      const cfg = dadosDoPortalBruto(p.jornadaEtapas)
+      // Portal sem "Dados por etapa" próprio usa o formulário antigo: criar a
+      // configuração aqui trocaria o formulário inteiro. Ajusta-se na aba Etapas.
+      if (!cfg) { pulados.push({ id, motivo: 'portal sem dados por etapa (ajuste na aba Etapas do portal)' }); continue }
+      await prisma.enrollmentPortal.update({ where: { id }, data: { jornadaEtapas: jornadaParaGravar({ ...j, dados: aplicarEndereco(cfg, e) }) as any } })
+      salvos.push(id)
+    }
+    return { ok: true, salvos, pulados }
+  })
 
   // O que falta para esta inscrição virar matrícula (a secretaria vê antes de efetivar).
   app.get('/api/admin/aca/inscricoes-portal/:id/pendencias', { preHandler: guardTela('login') }, async (req) => ({
