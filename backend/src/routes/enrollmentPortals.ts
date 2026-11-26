@@ -83,6 +83,28 @@ async function resolveEntryStageKey(
   return first?.key || preferredKey || null
 }
 
+/**
+ * O que impede excluir uma inscrição: dinheiro recebido (em qualquer meio, parcela ou
+ * baixa manual) ou contrato/termo assinado. Lista vazia = pode excluir.
+ */
+async function motivosQueImpedemExcluir(registrationId: number): Promise<string[]> {
+  const [reg, meioPago, tituloPago, assinado] = await Promise.all([
+    prisma.enrollmentRegistration.findUnique({
+      where: { id: registrationId },
+      select: { paymentStatus: true, paymentPaidAt: true, contratoAceite: true },
+    }),
+    prisma.enrollmentPaymentMethod.count({ where: { registrationId, status: { in: ['paid', 'refunded'] } } }),
+    prisma.enrollmentTitulo.count({
+      where: { registrationId, OR: [{ status: { in: ['paga', 'estornada'] } }, { valorPagoCentavos: { gt: 0 } }, { paidAt: { not: null } }] },
+    }),
+    prisma.acaAssinatura.count({ where: { registrationId, status: { in: ['ASSINADO', 'PARCIAL'] } } }),
+  ])
+  const motivos: string[] = []
+  if (reg?.paymentStatus === 'paid' || reg?.paymentPaidAt || meioPago > 0 || tituloPago > 0) motivos.push('já tem pagamento recebido')
+  if ((reg?.contratoAceite != null) || assinado > 0) motivos.push('tem contrato assinado')
+  return motivos
+}
+
 function slugify(input: string): string {
   return String(input || '')
     .toLowerCase()
@@ -2060,6 +2082,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     if (reg.status === 'enrolled') {
       return reply.code(409).send({ error: 'Inscrição matriculada não pode ser excluída — cancele antes.' })
+    }
+    // Trava (26/11/2026): a exclusão é física e leva junto documentos, pagamentos e histórico.
+    // Inscrição com dinheiro recebido ou contrato assinado nunca pode ser apagada: cancela-se.
+    // Caso real: MAT-26-000006-GXXJ (ineprotec) paga e assinada, excluída em 24/11 e restaurada do backup.
+    const motivosTrava = await motivosQueImpedemExcluir(reg.id)
+    if (motivosTrava.length) {
+      return reply.code(409).send({
+        error: `Inscrição ${reg.candidateCode} não pode ser excluída: ${motivosTrava.join(' e ')}. Use "Cancelar inscrição".`,
+        code: 'registration_locked',
+        motivos: motivosTrava,
+      })
     }
 
     await prisma.enrollmentRegistration.delete({ where: { id: reg.id } })
