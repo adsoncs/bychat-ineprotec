@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
-import { identidadeDoContato, isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
+import { identidadeDoContato, isLikelyLid, onlyDigits, phoneKey as phoneKeyOf, telefoneDoWhatsApp } from '../lib/phone.js'
 import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { authMiddleware, adminOnly, verifyToken } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
@@ -1082,7 +1082,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
           ? altJid.replace('@s.whatsapp.net', '')
           : ''
         if (fromAlt && !isLikelyLid(fromAlt) && phoneKeyOf(fromAlt)) {
-          phone = fromAlt
+          phone = telefoneDoWhatsApp(fromAlt)
           app.log.info(`[Webhook] LID ${remoteJid} → ${phone} (remoteJidAlt)`)
         } else {
           // 2º: heurísticas contra o banco do Evolution (foto/correlação/pushName).
@@ -1095,7 +1095,10 @@ export async function whatsappRoutes(app: FastifyInstance) {
           }
         }
       } else {
-        phone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+        phone = isGroupMsg
+          ? remoteJid.replace('@g.us', '')
+          // JID de contato é E.164 completo: número de fora ganha o "+".
+          : telefoneDoWhatsApp(remoteJid.replace('@s.whatsapp.net', ''))
       }
 
       // ── Identidade canônica unificada (fix definitivo de duplicação) ──

@@ -244,3 +244,30 @@ describe('LID continua não sendo telefone', () => {
     assert.equal(phoneKey('1898123391718920016015'), '5518981233917')
   })
 })
+
+// ─── Número que o próprio WhatsApp entrega (wa_id / JID) ───
+// fabad, 11/2026: Giovani (Suíça, 41 76 533 62 16) e Magda (Dinamarca,
+// 45 26 74 13 90) escreviam pela Cloud API e cada resposta do atendente saía
+// para 5541765336216 / 554526741390 — Meta 131026. Corrigir a ficha para
+// "+41 …" não adiantava: o envio tirava o "+" antes de decidir o país.
+test('wa_id de fora não vira número brasileiro', async () => {
+  const { telefoneDoWhatsApp, phoneKey, toWaNumber } = await import('../src/lib/phone.js')
+  const casos: Array<[string, string]> = [
+    ['41765336216', '41765336216'],
+    ['4526741390', '4526741390'],
+    ['16892064057', '16892064057'],
+    ['51987654321', '51987654321'],
+  ]
+  for (const [wa, esperado] of casos) {
+    const p = telefoneDoWhatsApp(wa)
+    assert.equal(phoneKey(p), esperado, wa)
+    assert.equal(toWaNumber(p), esperado, wa)
+  }
+  // Brasil não muda nada: continua em dígitos, com a chave de sempre.
+  assert.equal(telefoneDoWhatsApp('5562991138484'), '5562991138484')
+  assert.equal(telefoneDoWhatsApp('556291138484'), '556291138484')
+  assert.equal(phoneKey(telefoneDoWhatsApp('556291138484')), '5562991138484')
+  // Ficha corrigida à mão com "+" disca o país certo.
+  assert.equal(toWaNumber('+41 76 533 62 16'), '41765336216')
+  assert.equal(toWaNumber('+45 26 74 13 90'), '4526741390')
+})

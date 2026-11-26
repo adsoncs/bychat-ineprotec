@@ -32,9 +32,12 @@ import {
 // não podem mais divergir.
 function paraDiscagem(identifier: string): string {
   const digitos = normalizePhone(identifier)
+  // O "+" é o DDI DECLARADO e tem de chegar ao `toWaNumber`: tirá-lo antes fazia
+  // "+41 76 533 62 16" (Suíça) sair como 5541765336216, e corrigir a ficha não
+  // adiantava (fabad, Giovani 348, 11/2026).
   // `toWaNumber` devolve null para LID e lixo; nesses casos segue o valor cru e
   // deixa a API recusar com a mensagem dela, como antes.
-  return toWaNumber(digitos) ?? digitos
+  return toWaNumber(String(identifier || '').trim()) ?? toWaNumber(digitos) ?? digitos
 }
 
 function toEvoNumber(identifier: string): string {

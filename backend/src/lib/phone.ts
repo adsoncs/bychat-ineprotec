@@ -87,6 +87,24 @@ export function firstOfConcatenated(raw: string | null | undefined): string | nu
  * casa com DDI + comprimento nacional de algum país. "74607944044732" começa
  * com 7 (Rússia) mas deixa 13 dígitos onde o plano russo aceita 10 — é LID.
  */
+/**
+ * O número que o PRÓPRIO WhatsApp entrega (`from`/`wa_id` da Cloud API, JID
+ * `@s.whatsapp.net` da Evolution) já vem em E.164 completo, com o DDI. Quem o
+ * reinterpreta sem o "+" erra: 41 76 533 62 16 (Suíça) vira celular de Curitiba
+ * e 45 26 74 13 90 (Dinamarca) vira fixo de Cascavel — o CRM respondia para
+ * 5541765336216 / 554526741390 e a Meta devolvia 131026 (fabad, Giovani 348 e
+ * Magda 3283, 11/2026).
+ *
+ * Todo número brasileiro começa com 55, então só o que NÃO começa com 55 ganha
+ * o "+" (DDI declarado no phoneKey). O tráfego brasileiro segue em dígitos,
+ * exatamente como antes — chave, sessão de chatbot e trava não mudam.
+ */
+export function telefoneDoWhatsApp(digitos: string | null | undefined): string {
+  const d = onlyDigits(digitos)
+  if (!d || d.startsWith('55') || d.length < 7 || d.length > 15) return d
+  return '+' + d
+}
+
 export function isLikelyLid(raw: string | null | undefined): boolean {
   const s = (raw || '').toLowerCase()
   if (s.includes('@lid')) return true

@@ -2,7 +2,7 @@
 // Webhook para receber mensagens e status da WhatsApp Cloud API Oficial
 
 import { FastifyInstance } from 'fastify'
-import { identidadeDoContato } from '../lib/phone.js'
+import { identidadeDoContato, telefoneDoWhatsApp } from '../lib/phone.js'
 import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
@@ -320,7 +320,8 @@ async function processIncomingMessage(
   app: FastifyInstance,
   contactName: string = ''
 ) {
-  const phone = normalizePhone(msg.from || '')
+  // `from` é E.164 completo: número de fora ganha o "+" (ver telefoneDoWhatsApp).
+  const phone = telefoneDoWhatsApp(normalizePhone(msg.from || ''))
   const msgId = msg.id || ''
   const msgType = msg.type || 'text'
   const timestamp = msg.timestamp ? new Date(parseInt(msg.timestamp) * 1000) : new Date()
