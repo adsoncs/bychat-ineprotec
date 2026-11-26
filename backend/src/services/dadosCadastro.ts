@@ -166,6 +166,14 @@ export async function fichaInternaDaInscricao(reg: { leadId: number | null; form
   })
 }
 
+/** Valor atual (texto) de cada dado do catálogo que tem valor nesta inscrição ou no cadastro do aluno. */
+export async function dadosDoAlunoDaInscricao(reg: { leadId: number | null; formData: unknown }): Promise<Record<string, string>> {
+  const atuais = await valoresAtuais(reg, CATALOGO.filter((d) => !d.essencial).map((d) => d.chave))
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(atuais)) if (!vazio(v)) out[k] = String(v)
+  return out
+}
+
 // ─── Etapas onde um dado pode ser pedido ──────────────────────────────────
 
 export type EtapaDados = 'inscricao' | 'cadastro' | 'documentos' | 'contrato' | 'pagamento'

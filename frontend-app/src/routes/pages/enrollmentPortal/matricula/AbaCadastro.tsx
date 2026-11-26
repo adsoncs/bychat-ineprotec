@@ -13,6 +13,7 @@ import type { RegistrationReview } from '@/hooks/useEnrollmentPortals'
 import { chamarComoAgente, rotaInscricao } from './sessao'
 import { invalidarInscricao } from './Dispensa'
 import { rotuloDaOferta, useCatalogo } from './NovaMatricula'
+import { useDadosEtapas, CHAVES_ENDERECO } from '@/hooks/useDadosEtapas'
 
 interface CampoEd { chave: string; rotulo: string; grupo: string; tipo?: string; opcoes?: string[]; obrigatorio?: boolean }
 interface DadosEtapa { campos: Array<{ name: string; label: string; required?: boolean; type?: string; options?: string[] }>; valores: Record<string, string> }
@@ -21,6 +22,9 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
   const qc = useQueryClient()
   const id = review.registration.id
   const form = (review.registration.formData ?? {}) as Record<string, unknown>
+  // Catálogo de dados do aluno: a equipe edita qualquer um aqui, pedido ou não pelo portal.
+  const catalogo = useDadosEtapas().data?.catalogo ?? []
+  const [extras, setExtras] = useState<string[]>([])
   const dados = useQuery({
     queryKey: ['mi-dados', id],
     queryFn: async () => {
@@ -49,12 +53,37 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
     // Endereço marcado "na ficha do painel" no portal vem com o grupo próprio.
     for (const c of review.fichaInterna ?? []) pôr({ chave: c.chave, rotulo: c.rotulo, grupo: c.grupo === 'Endereço' ? 'Endereço' : 'Ficha do aluno', tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}), ...(c.obrigatorio ? { obrigatorio: true } : {}) }, c.valor)
     for (const g of review.cadastro ?? []) for (const c of g.campos) if (c.chave !== 'campusNome') pôr({ chave: c.chave, rotulo: c.rotulo, grupo: g.grupo, tipo: c.tipo, ...(c.opcoes ? { opcoes: c.opcoes } : {}) }, c.valor)
+    // Endereço completo sempre à mão da equipe; o que já está no cadastro do aluno
+    // aparece preenchido; e o que a equipe acrescentou por "Adicionar dado".
+    const doAluno = review.dadosDoAluno ?? {}
+    const doCatalogo = (k: string) => {
+      const d = catalogo.find((x) => x.chave === k)
+      const naEtapa = (dados.data ?? []).find((c) => c.name === k)
+      if (d && !d.essencial) pôr({ chave: d.chave, rotulo: d.rotulo, grupo: d.grupo, tipo: d.tipo, ...(d.opcoes ? { opcoes: d.opcoes } : {}), ...(naEtapa?.required ? { obrigatorio: true } : {}) }, naEtapa?.valor || doAluno[k] || String(form[k] ?? ''))
+    }
+    for (const k of CHAVES_ENDERECO) doCatalogo(k)
     for (const c of dados.data ?? []) pôr({ chave: c.name, rotulo: c.label, grupo: 'Pedido nas etapas', ...(c.type ? { tipo: c.type } : {}), ...(c.options ? { opcoes: c.options } : {}), ...(c.required ? { obrigatorio: true } : {}) }, c.valor)
+    for (const k of Object.keys(doAluno)) doCatalogo(k)
+    for (const k of extras) doCatalogo(k)
     return { grupos: [...out.entries()], iniciais }
-  }, [review, dados.data])
+  }, [review, dados.data, catalogo, extras])
 
   const [valores, setValores] = useState<Record<string, string>>(iniciais)
-  useEffect(() => { setValores(iniciais) }, [iniciais])
+  // Campo novo (Adicionar dado, catálogo que chegou) entra sem apagar o que já
+  // foi digitado e não salvo — só dentro da MESMA inscrição; trocou, recomeça.
+  // Depois de salvar, a inscrição volta do servidor e o salvo vale.
+  const iniciaisAnteriores = useRef(iniciais)
+  const idDosValores = useRef(id)
+  const salvouAgora = useRef(false)
+  useEffect(() => {
+    if (idDosValores.current !== id || salvouAgora.current) { idDosValores.current = id; salvouAgora.current = false; setValores(iniciais); return }
+    setValores((x) => {
+      const n = { ...iniciais }
+      for (const [k, v] of Object.entries(x)) if (k in iniciais && v !== (iniciaisAnteriores.current[k] ?? '')) n[k] = v
+      return n
+    })
+  }, [iniciais])
+  useEffect(() => { iniciaisAnteriores.current = iniciais }, [iniciais])
   const alterados = Object.keys(valores).filter((k) => (valores[k] ?? '') !== (iniciais[k] ?? ''))
   // ── CEP: ao completar 8 dígitos, busca e preenche rua, bairro, cidade e UF ──
   const [cepAviso, setCepAviso] = useState<{ erro: boolean; texto: string } | null>(null)
@@ -96,10 +125,12 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
   const ehCpf = (c: { chave: string; tipo?: string }) => c.tipo === 'cpf' || CHAVES_DE_CPF.includes(c.chave)
   const cpfsComErro = grupos.flatMap(([, cs]) => cs).filter((c) => ehCpf(c) && alterados.includes(c.chave) && erroDoCpf(valores[c.chave] ?? ''))
 
+  // Dados do catálogo que ainda não estão na tela: entram pelo "Adicionar dado".
+  const faltamNoCatalogo = catalogo.filter((d) => !d.essencial && !chavesNaTela.has(d.chave))
   const fichaFaltando = (review.fichaInterna ?? []).filter((c) => c.obrigatorio && !String(valores[c.chave] ?? '').trim())
   const salvar = useMutation({
     mutationFn: () => api.put<{ mudou: string[] }>(`/admin/matricula-interna/${id}/cadastro`, { valores: Object.fromEntries(alterados.map((k) => [k, valores[k]])) }),
-    onSuccess: () => { toast('Cadastro salvo', 'success'); invalidarInscricao(qc, id) },
+    onSuccess: () => { salvouAgora.current = true; toast('Cadastro salvo', 'success'); invalidarInscricao(qc, id) },
     onError: (e: unknown) => toast((e as Error).message, 'danger'),
   })
 
@@ -110,7 +141,27 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
         <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
           <div class="text-xs uppercase tracking-wider text-fg-muted">Dados do cadastro</div>
           {podeEditar && (
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              {faltamNoCatalogo.length > 0 && (
+                <select
+                  class="rounded border border-border bg-surface px-2 py-1 text-xs"
+                  value=""
+                  aria-label="Adicionar dado ao cadastro"
+                  onChange={(e) => {
+                    const k = (e.target as HTMLSelectElement).value
+                    if (!k) return
+                    setExtras((x) => (x.includes(k) ? x : [...x, k]))
+                    focar(k)
+                  }}
+                >
+                  <option value="">+ Adicionar dado…</option>
+                  {[...new Set(faltamNoCatalogo.map((d) => d.grupo))].map((g) => (
+                    <optgroup key={g} label={g}>
+                      {faltamNoCatalogo.filter((d) => d.grupo === g).map((d) => <option key={d.chave} value={d.chave}>{d.rotulo}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              )}
               {alterados.length > 0 && <span class="text-2xs text-warning">{alterados.length} alteração(ões) sem salvar</span>}
               <Button size="sm" variant="primary" disabled={!alterados.length || cpfsComErro.length > 0 || salvar.isPending} title={cpfsComErro.length ? 'Corrija o CPF antes de salvar' : undefined} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar cadastro'}</Button>
             </div>

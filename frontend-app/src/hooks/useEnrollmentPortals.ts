@@ -721,6 +721,8 @@ export interface RegistrationReview {
   cadastro?: { grupo: string; campos: CampoDoCadastro[] }[]
   /** Dados que só a equipe preenche (Setting edu.ficha_interna). */
   fichaInterna?: Array<{ chave: string; rotulo: string; tipo: string; grupo?: string; opcoes?: string[]; obrigatorio: boolean; valor: string }>
+  /** Valor atual de cada dado do catálogo (inscrição ou cadastro do aluno) — só os preenchidos. */
+  dadosDoAluno?: Record<string, string>
   slots: DocumentSlot[]
   extras: EnrollmentDocument[]
   autoAdvance:

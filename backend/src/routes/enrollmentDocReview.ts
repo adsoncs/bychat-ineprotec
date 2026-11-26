@@ -13,7 +13,7 @@ import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
 import { dispensasDe, requisitosDaCondicao, requisitosQueValem } from '../services/docCondicional.js'
 // Formulário inteiro da inscrição (rótulos do portal) para a tela mostrar tudo.
-import { camposDoFormulario, agruparCampos, fichaInternaDaInscricao } from '../services/dadosCadastro.js'
+import { camposDoFormulario, agruparCampos, fichaInternaDaInscricao, dadosDoAlunoDaInscricao } from '../services/dadosCadastro.js'
 
 export { computeDocsCompletionStatus }  // re-export para preservar callers existentes
 
@@ -535,6 +535,9 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       cadastro: agruparCampos(camposDoFormulario((reg.portal as any)?.formConfig, (reg.formData as Record<string, any>) || {})),
       // Dados que só a equipe preenche (Setting edu.ficha_interna); vazio = nada configurado.
       fichaInterna: await fichaInternaDaInscricao({ leadId: reg.lead?.id ?? null, formData: reg.formData, portalId: reg.portal?.id ?? null }).catch(() => []),
+      // Valor atual de todo dado do catálogo (inscrição ou cadastro do aluno): a
+      // equipe edita na aba Cadastro qualquer dado, pedido ou não pelo portal.
+      dadosDoAluno: await dadosDoAlunoDaInscricao({ leadId: reg.lead?.id ?? null, formData: reg.formData }).catch(() => ({})),
       processRegistration: reg.processRegistration,
       completion,  // 'pending' | 'rejected' | 'complete'
       essay: {
