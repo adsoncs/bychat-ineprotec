@@ -20,6 +20,8 @@ export interface CapiConfigResponse {
   testEventCode: string
   stageMappings: Record<string, string>
   funnels: CapiFunnel[]
+  crmEvents?: boolean
+  leadEventSource?: string
 }
 
 export interface CapiConfigInput {
@@ -28,6 +30,8 @@ export interface CapiConfigInput {
   accessToken?: string | undefined
   testEventCode?: string | undefined
   stageMappings?: Record<string, string> | undefined
+  crmEvents?: boolean | undefined
+  leadEventSource?: string | undefined
 }
 
 export interface ConversionEvent {

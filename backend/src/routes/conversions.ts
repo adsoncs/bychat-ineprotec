@@ -23,11 +23,13 @@ export async function conversionsRoutes(app: FastifyInstance) {
     // Lê cada setting direto pra que a UI mostre estado parcial — getCapiConfig()
     // só retorna preenchido quando pixelId E accessToken existem (precondição do
     // envio), o que escondia o que o usuário acabou de salvar.
-    const [pixelSetting, tokenSetting, testCodeSetting, autoSendRow] = await Promise.all([
+    const [pixelSetting, tokenSetting, testCodeSetting, autoSendRow, crmRow, crmNomeRow] = await Promise.all([
       prisma.setting.findUnique({ where: { key: 'capi.pixel_id' } }),
       prisma.setting.findUnique({ where: { key: 'capi.access_token' } }),
       prisma.setting.findUnique({ where: { key: 'capi.test_event_code' } }),
       prisma.setting.findUnique({ where: { key: 'capi.auto_send_on_lead_won' } }),
+      prisma.setting.findUnique({ where: { key: 'capi.crm_events' } }),
+      prisma.setting.findUnique({ where: { key: 'capi.lead_event_source' } }),
     ])
     const unwrap = (v: unknown): string =>
       typeof v === 'string' ? v.replace(/^"|"$/g, '') : v == null ? '' : String(v).replace(/^"|"$/g, '')
@@ -53,6 +55,9 @@ export async function conversionsRoutes(app: FastifyInstance) {
       testEventCode,
       stageMappings: mappings,
       autoSendOnLeadWon,
+      // Modo CRM da Meta (leads qualificados): services/metaCapi.crmLigado.
+      crmEvents: crmRow?.value ? ['true', '1'].includes(unwrap(crmRow.value).trim().toLowerCase()) : false,
+      leadEventSource: crmNomeRow?.value ? unwrap(crmNomeRow.value).trim() : '',
       funnels: funnels.map(f => ({
         id: f.id,
         name: f.name,
@@ -76,6 +81,8 @@ export async function conversionsRoutes(app: FastifyInstance) {
     if (body.testEventCode !== undefined) settings.push({ key: 'capi.test_event_code', value: String(body.testEventCode || '') })
     if (body.stageMappings !== undefined) settings.push({ key: 'capi.stage_mappings', value: JSON.stringify(body.stageMappings || {}) })
     if (body.autoSendOnLeadWon !== undefined) settings.push({ key: 'capi.auto_send_on_lead_won', value: body.autoSendOnLeadWon ? 'true' : 'false' })
+    if (body.crmEvents !== undefined) settings.push({ key: 'capi.crm_events', value: body.crmEvents ? 'true' : 'false' })
+    if (body.leadEventSource !== undefined) settings.push({ key: 'capi.lead_event_source', value: String(body.leadEventSource || '').trim().slice(0, 60) })
 
     for (const s of settings) {
       await prisma.setting.upsert({

@@ -138,6 +138,8 @@ function ConfigTab() {
   const [showToken, setShowToken] = useState(false)
   const [tokenChanged, setTokenChanged] = useState(false)
   const [autoSendOnLeadWon, setAutoSendOnLeadWon] = useState(false)
+  const [crmEvents, setCrmEvents] = useState(false)
+  const [leadEventSource, setLeadEventSource] = useState('')
 
   // Sync inicial quando a config carrega
   useEffect(() => {
@@ -145,6 +147,8 @@ function ConfigTab() {
     setPixelId(data.pixelId || '')
     setTestEventCode(data.testEventCode || '')
     setAutoSendOnLeadWon(!!(data as any).autoSendOnLeadWon)
+    setCrmEvents(!!data.crmEvents)
+    setLeadEventSource(data.leadEventSource || '')
   }, [data])
 
   function handleSave() {
@@ -152,6 +156,8 @@ function ConfigTab() {
       pixelId: pixelId.trim(),
       testEventCode: testEventCode.trim(),
       autoSendOnLeadWon,
+      crmEvents,
+      leadEventSource: leadEventSource.trim(),
     }
     // Envia accessToken sempre que o usuário tiver digitado algo. O flag
     // tokenChanged controla apenas a UX de "Editar token existente"; pra
@@ -275,6 +281,32 @@ function ConfigTab() {
                   </span>
                 </span>
               </label>
+
+              <div class="p-3 rounded-md border border-border bg-surface-2/40 space-y-3">
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    class="mt-0.5"
+                    checked={crmEvents}
+                    onChange={(e) => setCrmEvents((e.target as HTMLInputElement).checked)}
+                  />
+                  <span class="text-xs">
+                    <span class="block font-medium text-fg">Modo CRM da Meta (leads qualificados)</span>
+                    <span class="block text-fg-muted mt-0.5">
+                      Envia um evento a cada mudança de etapa do funil (inclusive quando o lead nasce), conforme o mapeamento de etapas, com <code>event_source: crm</code> e o <code>lead_id</code> dos leads de formulário da Meta. É o que a Meta usa para otimizar campanhas por lead qualificado.
+                    </span>
+                  </span>
+                </label>
+                {crmEvents && (
+                  <Input
+                    label="Nome do CRM (lead_event_source)"
+                    placeholder="Attrae"
+                    value={leadEventSource}
+                    onInput={(e) => setLeadEventSource((e.target as HTMLInputElement).value)}
+                    hint="Aparece para a Meta como a origem dos eventos. Vazio = Attrae."
+                  />
+                )}
+              </div>
 
               <div class="flex flex-wrap gap-2 pt-2">
                 <Button variant="primary" size="sm" disabled={update.isPending} onClick={handleSave}>
