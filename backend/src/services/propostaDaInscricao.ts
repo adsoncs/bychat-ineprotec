@@ -125,6 +125,10 @@ async function valorDaVenda(reg: { paymentAmount: unknown; paymentPlan: unknown;
   const tr = (reg.formData as any)?._transferencia
   if (Number(tr?.valorCursoCentavos) > 0) return Number(tr.valorCursoCentavos) / 100
   const pp: any = reg.paymentPlan || {}
+  // Bolsa / cupom de 100%: matrícula sem venda. Sem isto a proposta caía no
+  // preço do curso e o bolsista virava venda (e comissão) de valor cheio
+  // (INE-26-000003-HJNL, 27/11).
+  if (pp.isento === true) return 0
   const total = Number(pp.valorTotal) || 0
   if (pp.combinado && total > 0) return total
   if (pp.planoFinanceiro?.opcao === 'integral' && total > 0) return total
