@@ -43,7 +43,10 @@ async function asaasFetch(config: AsaasConfig, path: string, method = 'GET', bod
     body: body ? JSON.stringify(body) : undefined,
     // Excluir um parcelamento inteiro (11 cobranças) passa de 10 s no Asaas — e ele
     // conclui mesmo depois que desistimos (fabad/ineprotec 12/11). DELETE espera mais.
-    signal: AbortSignal.timeout(method === 'DELETE' ? 45_000 : 10_000),
+    // Criar cobrança também: cartão parcelado em 12x passou de 10 s e o Asaas
+    // aprovou depois que desistimos — a tentativa ficou "falhou" e o plano não
+    // foi gravado (INE-26-000066-L94T, 26/11).
+    signal: AbortSignal.timeout(method === 'DELETE' ? 45_000 : method === 'POST' ? 30_000 : 10_000),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {

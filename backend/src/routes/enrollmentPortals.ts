@@ -3797,6 +3797,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // O que cada ramo tentou cobrar (cupom, condição): é o valor que fica na
     // tentativa que falhar — o cheio da tabela não é o que se tentou cobrar.
     let valorTentado: number | null = null
+    // O plano da tentativa: se o Asaas não responder a tempo mas aprovar
+    // depois, é ele que a inscrição precisa ter quando o aviso chegar.
+    let planoTentado: any = null
     try {
       let methodRow: any
       if (ehSimulado(conn.provider)) {
@@ -3926,6 +3929,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         })
         if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
         valorTentado = conta.valorCobrado
+        planoTentado = conta.paymentPlan()
         const { valorCobrado, parcelasCartao } = conta
 
         const order = await createAsaasOrder(cfg, {
@@ -4138,6 +4142,31 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           lastErrorMessage: e.message?.substring(0, 1000) || 'Falha desconhecida',
         },
       }).catch(() => {})
+
+      // Sem resposta do Asaas não quer dizer recusa: a cobrança pode ter sido
+      // criada e o cartão aprovado depois (INE-26-000066-L94T, 26/11 — 12x
+      // aprovadas 36 s depois do timeout). Guarda o plano tentado para o aviso
+      // que vier, e não pede ao candidato que pague de novo.
+      const semResposta = conn.provider === 'asaas' && /timeout|aborted/i.test(String(e?.name ?? '') + String(e?.message ?? ''))
+      if (semResposta) {
+        if (planoTentado) {
+          await prisma.enrollmentRegistration.updateMany({
+            where: { id: enrollment.id, OR: [{ paymentStatus: null }, { paymentStatus: { not: 'paid' } }] },
+            data: { paymentPlan: planoTentado },
+          }).catch(() => {})
+          // O aviso pode ter chegado antes deste catch: pago e sem plano.
+          const atual = await prisma.enrollmentRegistration.findUnique({ where: { id: enrollment.id }, select: { paymentPlan: true } }).catch(() => null)
+          if (atual && atual.paymentPlan == null) {
+            await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: { paymentPlan: planoTentado } }).catch(() => {})
+          }
+        }
+        return reply.code(504).send({
+          error: 'O pagamento está demorando para confirmar. Não tente de novo agora: aguarde alguns minutos '
+            + 'e atualize a página — se já foi aprovado, a confirmação aparece aqui. Se não aparecer, fale com a '
+            + `secretaria informando o código ${enrollment.candidateCode}.`,
+          aguardando: true,
+        })
+      }
 
       // Timeline: tentativa falhou
       if (enrollment.leadId) {

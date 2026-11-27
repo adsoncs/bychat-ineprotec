@@ -98,6 +98,20 @@ async function fetchNormalizedFromProvider(
     if (!r.ok) return { error: `Asaas: ${data?.errors?.[0]?.description || `HTTP ${r.status}`}` }
     const refRaw = String(data.externalReference || '')
     const m = refRaw.match(/^enrollment-(\d+)$/)
+    // Cartão parcelado: cada parcela é uma cobrança de 1/N do valor, mas a
+    // compra é uma só, aprovada inteira. O valor da inscrição é o do
+    // parcelamento — com o da parcela, o Financeiro mostrava "Curso completo ·
+    // R$ 189,90" numa compra de 12x 189,90 (INE-26-000066-L94T, 26/11).
+    // Boleto em carnê não entra: lá a cobrança da inscrição é a 1ª parcela.
+    let valor: number | null = data.value ? Number(data.value) : null
+    if (data.installment && data.billingType === 'CREDIT_CARD') {
+      const ri = await fetch(`${base}/installments/${encodeURIComponent(String(data.installment))}`, {
+        headers: { 'access_token': apiKeyPlain },
+        signal: AbortSignal.timeout(15_000),
+      }).catch(() => null)
+      const inst: any = ri?.ok ? await ri.json().catch(() => null) : null
+      if (inst && Number(inst.value) > 0) valor = Number(inst.value)
+    }
     return {
       externalId: data.id,
       // Apagada no Asaas continua com status PENDING e `deleted: true`: sem
@@ -106,7 +120,7 @@ async function fetchNormalizedFromProvider(
       paidAt: data.paymentDate || data.confirmedDate ? dataDoPagamento(data.paymentDate || data.confirmedDate) : null,
       billingType: data.billingType || null,
       enrollmentRefId: m ? parseInt(m[1]) : null,
-      amount: data.value ? Number(data.value) : null,
+      amount: valor,
     }
   }
 
