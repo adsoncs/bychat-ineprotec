@@ -60,6 +60,40 @@ export async function getCapiConfig(): Promise<CapiConfig | null> {
   }
 }
 
+// ── Eventos de CRM (Conversion Leads) ────────────
+// Setting `capi.crm_events` = true liga o modo CRM da Meta ("leads qualificados"):
+//  · um evento por etapa do funil, inclusive a inicial, disparado pela mudança de
+//    etapa de QUALQUER origem (tela, chatbot, fluxo, portal) e pela criação do lead;
+//  · custom_data.event_source = 'crm' e lead_event_source = `capi.lead_event_source`
+//    (padrão 'Attrae'); user_data.lead_id = id do lead do formulário da Meta;
+//  · valor só no evento que tem valor de verdade (nota de prioridade não vai).
+// Desligado, tudo segue como antes. Severiano, 27/11/2026.
+const lerSetting = async (key: string) => {
+  const r = await prisma.setting.findUnique({ where: { key } }).catch(() => null)
+  return r?.value == null ? '' : String(typeof r.value === 'string' ? r.value : JSON.stringify(r.value)).replace(/^"|"$/g, '').trim()
+}
+export async function crmLigado(): Promise<boolean> {
+  return ['true', '1'].includes((await lerSetting('capi.crm_events')).toLowerCase())
+}
+/** Id do lead do formulário da Meta (Lead Ads), 15–17 dígitos. */
+async function metaLeadIdDo(leadId: number): Promise<string | null> {
+  const r = await prisma.metaLeadLog.findFirst({ where: { leadId, status: 'processed' }, orderBy: { id: 'desc' }, select: { metaLeadId: true } }).catch(() => null)
+  const id = String(r?.metaLeadId ?? '').trim()
+  return /^\d{10,20}$/.test(id) ? id : null
+}
+// lead_id tem até 17 dígitos: como número em JS perde precisão. Vai no JSON
+// como inteiro cru, sem passar por Number.
+const MARCA_LEAD_ID = (id: string) => `__LEADID__${id}__`
+const corpoDoEnvio = (payload: unknown) => JSON.stringify(payload).replace(/"__LEADID__(\d{10,20})__"/g, '$1')
+/** Trava curta contra o mesmo evento sair duas vezes no mesmo instante
+ *  (ex.: "ganho" e "Matriculado" juntos geravam 2 Purchase). */
+async function primeiraVez(leadId: number, eventName: string): Promise<boolean> {
+  try {
+    const { redis } = await import('../lib/redis.js')
+    return (await redis.set(`capi:once:${leadId}:${eventName}`, '1', 'EX', 300, 'NX')) === 'OK'
+  } catch { return true }
+}
+
 // ── Mapeamento de Etapas → Eventos ───────────────
 
 export async function getStageEventMappings(): Promise<Record<string, string>> {
@@ -146,15 +180,22 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
   }
   // value: prioriza o explícito, senão usa priorityScore (proxy de "qualidade"
   // do lead — Meta otimiza por valor, então passar 0-100 ajuda a aprender).
+  const crm = await crmLigado()
   if (data.value && data.value > 0) {
     customData.value = data.value
-  } else if (lead.priorityScore != null && data.eventName !== 'Purchase') {
+  } else if (!crm && lead.priorityScore != null && data.eventName !== 'Purchase') {
     customData.value = Number(lead.priorityScore.toFixed(2))
     customData.value_source = 'priority_score'
   }
   if (lead.campaignId) customData.campaign_id = lead.campaignId
   if (data.funnelStage) customData.funnel_stage = data.funnelStage
   if (data.customData) Object.assign(customData, data.customData)
+  const metaLeadId = crm ? await metaLeadIdDo(lead.id) : null
+  if (crm) {
+    customData.event_source = 'crm'
+    customData.lead_event_source = (await lerSetting('capi.lead_event_source')) || 'Attrae'
+    if (metaLeadId) userData.lead_id = MARCA_LEAD_ID(metaLeadId)
+  }
 
   // Evento CAPI
   const event: Record<string, any> = {
@@ -171,7 +212,8 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
   // ou o id da pessoa na Página/conta (Messenger/Instagram). Se a Meta recusar
   // (dataset não ligado à WABA/Página), o mesmo evento segue como antes.
   const original = { ...event }
-  const bm = await camposDeMensagem(lead).catch(() => null)
+  // Lead do formulário da Meta com lead_id: evento de CRM, sempre system_generated.
+  const bm = metaLeadId ? null : await camposDeMensagem(lead).catch(() => null)
   if (bm) {
     event.action_source = 'business_messaging'
     event.messaging_channel = bm.canal
@@ -212,14 +254,14 @@ export async function sendCapiEvent(data: CapiEventData): Promise<{ success: boo
     let resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: corpoDoEnvio(payload),
     })
 
     let result = await resp.json() as any
     if (!resp.ok && bm) {
       console.warn(`[CAPI] business_messaging recusado (lead ${lead.id}): ${result?.error?.message || resp.status} — reenviando como system_generated`)
       payload.data = [original]
-      resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpoDoEnvio(payload) })
       result = await resp.json() as any
     }
 
@@ -334,7 +376,7 @@ export async function fireCapiLeadNoLead(input: CapiClickLeadInput): Promise<{ s
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: corpoDoEnvio(payload),
     })
     const text = await resp.text().catch(() => '')
     if (!resp.ok) {
@@ -362,6 +404,7 @@ export async function onLeadWonAutoSend(leadId: number, value?: number | null): 
       where: { leadId, eventName: 'Purchase', platform: 'meta_capi', status: 'sent' }
     })
     if (existing) return
+    if (!(await primeiraVez(leadId, 'Purchase'))) return
 
     let resolvedValue: number | undefined = value != null ? Number(value) : undefined
     if (resolvedValue == null) {
@@ -385,7 +428,12 @@ export async function onLeadWonAutoSend(leadId: number, value?: number | null): 
 
 export async function onLeadStageChanged(leadId: number, newStage: string, eventId?: string): Promise<void> {
   const mappings = await getStageEventMappings()
-  const eventName = mappings[newStage]
+  // "<funilId>:<ETAPA>" vale só naquele funil (a mesma chave NOVO existe em
+  // funis de alunos/pais); "<ETAPA>" sozinha, como antes, vale em todos.
+  const doFunil = Object.keys(mappings).some((k) => k.includes(':'))
+    ? (await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true } }).catch(() => null))?.funnelId
+    : null
+  const eventName = (doFunil != null ? mappings[`${doFunil}:${newStage}`] : undefined) ?? mappings[newStage]
   if (!eventName) return // Etapa não mapeada
 
   // Verificar se já enviou este evento para este lead (deduplicação)
@@ -393,6 +441,7 @@ export async function onLeadStageChanged(leadId: number, newStage: string, event
     where: { leadId, eventName, platform: 'meta_capi', status: 'sent' }
   })
   if (existing) return
+  if (!(await primeiraVez(leadId, eventName))) return
 
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -465,6 +514,21 @@ export function startCapiRetryScheduler(): void {
   // Fase 23-G: ouvir lead.won para auto-enviar Purchase quando toggle ativo.
   // Import dinâmico evita ciclo (eventBus → metaCapi → eventBus).
   import('../lib/eventBus.js').then(({ eventBus }) => {
+    // Modo CRM: toda mudança de etapa e todo lead novo passam pelo mapa de
+    // etapas. A etapa vem da ficha (o newValue do evento nem sempre é a chave).
+    const pelaFicha = (e: any) => {
+      if (!e?.leadId) return
+      setTimeout(() => {
+        crmLigado().then(async (on) => {
+          if (!on) return
+          const l = await prisma.lead.findUnique({ where: { id: e.leadId }, select: { status: true } }).catch(() => null)
+          if (l?.status) await onLeadStageChanged(e.leadId, l.status)
+        }).catch(() => {})
+      }, 3000)
+    }
+    eventBus.on('lead.stage_changed', pelaFicha)
+    eventBus.on('lead.created', pelaFicha)
+
     eventBus.on('lead.won', (e: any) => {
       const value = e?.payload?.metadata?.value
       onLeadWonAutoSend(e.leadId, typeof value === 'number' ? value : null).catch(() => {})

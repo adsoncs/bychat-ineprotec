@@ -471,23 +471,31 @@ function MappingTab() {
     if (data) setMappings(data.stageMappings || {})
   }, [data])
 
-  function setMapping(stageKey: string, eventName: string) {
+  // Mapa por funil ("<funilId>:<ETAPA>"): a mesma chave de etapa (NOVO, ATENDIMENTO)
+  // existe em vários funis, e o evento de um funil de vendas não pode sair do
+  // funil de alunos. A chave antiga, sem funil, segue valendo como padrão.
+  const chaveDe = (funnelId: number, stageKey: string) => `${funnelId}:${stageKey}`
+  const eventoDe = (funnelId: number, stageKey: string) => mappings[chaveDe(funnelId, stageKey)] ?? mappings[stageKey] ?? ''
+  function setMapping(funnelId: number, stageKey: string, eventName: string) {
     setMappings((m) => {
       const next = { ...m }
-      if (eventName) next[stageKey] = eventName
-      else delete next[stageKey]
+      const k = chaveDe(funnelId, stageKey)
+      if (eventName) next[k] = eventName
+      // "não disparar" num funil cuja etapa tem padrão antigo: grava vazio, senão o padrão voltaria.
+      else if (next[stageKey]) next[k] = ''
+      else delete next[k]
       return next
     })
   }
 
   function applySuggestions() {
-    const allFunnelStages = (data?.funnels ?? []).flatMap((f) => f.stages)
     setMappings((m) => {
       const next = { ...m }
-      for (const s of allFunnelStages) {
-        if (next[s.key]) continue // não sobrescreve o que admin já definiu
+      for (const f of data?.funnels ?? []) for (const s of f.stages) {
+        const k = `${f.id}:${s.key}`
+        if (next[k] !== undefined || next[s.key]) continue // não sobrescreve o que admin já definiu
         const sug = suggestEvent(s.name, s.key)
-        if (sug) next[s.key] = sug
+        if (sug) next[k] = sug
       }
       return next
     })
@@ -553,8 +561,9 @@ function MappingTab() {
           </div>
           <div class="divide-y divide-border">
             {f.stages.map((s) => {
-              const selected = mappings[s.key]
+              const selected = eventoDe(f.id, s.key)
               const evtMeta = selected ? CAPI_EVENTS.find((e) => e.value === selected) : null
+              const personalizado = !!selected && !evtMeta
               return (
                 <div key={s.key} class="flex items-start gap-3 px-3 py-2.5 hover:bg-surface-2">
                   <div class="flex-1 min-w-0">
@@ -565,11 +574,12 @@ function MappingTab() {
                     )}
                   </div>
                   <Select
-                    value={mappings[s.key] ?? ''}
-                    onChange={(e) => setMapping(s.key, (e.target as HTMLSelectElement).value)}
+                    value={selected}
+                    onChange={(e) => setMapping(f.id, s.key, (e.target as HTMLSelectElement).value)}
                     class="w-72 shrink-0"
                   >
                     <option value="">— não disparar —</option>
+                    {personalizado && <option value={selected}>{selected} (evento personalizado)</option>}
                     {CAPI_EVENTS.map((evt) => (
                       <option key={evt.value} value={evt.value}>{evt.label}</option>
                     ))}
