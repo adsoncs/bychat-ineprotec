@@ -2,10 +2,11 @@
 // "Completar cadastro", ou os dados que uma etapa pede antes da sua ação — o
 // responsável financeiro antes do contrato, por exemplo. Vem preenchido com o
 // que a pessoa já informou (ou a secretaria já digitou); ela só completa.
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import type { JSX } from 'preact'
 import { carregarDados, salvarDados, type DadosDaEtapa } from './api'
 import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
+import { ehCampoDeCep, focar, preencherPeloCep, type Preenchidos } from './cep'
 
 export function DadosEtapa(props: {
   codigo: string
@@ -20,6 +21,20 @@ export function DadosEtapa(props: {
   const [tocados, setTocados] = useState<Record<string, boolean>>({})
   const [falha, setFalha] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // CEP preenche rua, bairro, cidade e UF (só os vazios ou os que a busca preencheu).
+  const atuais = useRef<Record<string, string>>({})
+  atuais.current = valores
+  const doCep = useRef<Preenchidos>({})
+  const mudar = (nome: string, valor: string) => {
+    setValores((x) => ({ ...x, [nome]: valor }))
+    if (!dados || !ehCampoDeCep(nome)) return
+    atuais.current = { ...atuais.current, [nome]: valor }
+    preencherPeloCep({
+      cep: valor, campos: dados.campos, preenchidos: doCep.current,
+      ler: (n) => atuais.current[n] ?? '',
+      definir: (n, v) => { atuais.current = { ...atuais.current, [n]: v }; setValores((x) => ({ ...x, [n]: v })) },
+    }).then((n) => focar('d_', n)).catch(() => {})
+  }
 
   useEffect(() => {
     let vivo = true
@@ -87,7 +102,7 @@ export function DadosEtapa(props: {
                   {...comum}
                   type={c.type === 'email' ? 'email' : 'text'}
                   inputMode={modoEntrada(campo.type) as JSX.HTMLAttributes<HTMLInputElement>['inputMode']}
-                  onInput={(e) => setValores((x) => ({ ...x, [c.name]: mascarar(campo.type, (e.target as HTMLInputElement).value) }))}
+                  onInput={(e) => mudar(c.name, mascarar(campo.type, (e.target as HTMLInputElement).value))}
                 />
               )}
               {erro && <span class="erro" id={`de_${c.name}`} role="alert">{erro}</span>}

@@ -12,6 +12,7 @@ import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
 import { conclusaoDoPortal, irPara, recomendarCursos, type Recomendacao } from './api'
 import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
+import { ehCampoDeCep, focar, preencherPeloCep, type Preenchidos } from './cep'
 import { t as tx } from './textos'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,8 +250,20 @@ export function App() {
     return () => clearTimeout(t)
   }, [valores, passo, dados, concluido, slug])
 
+  // CEP preenche rua, bairro, cidade e UF do formulário (só os vazios ou os que
+  // a própria busca preencheu antes — o que a pessoa digitou fica).
+  const valoresAgora = useRef<Valores>({})
+  valoresAgora.current = valores
+  const doCep = useRef<Preenchidos>({})
   function definir(nome: string, valor: string | number | boolean) {
     setValores((v) => ({ ...v, [nome]: valor }))
+    if (!ehCampoDeCep(nome) || typeof valor !== 'string') return
+    valoresAgora.current = { ...valoresAgora.current, [nome]: valor }
+    preencherPeloCep({
+      cep: valor, campos: passos.flatMap((p) => camposDoPasso(p)), preenchidos: doCep.current,
+      ler: (n) => String(valoresAgora.current[n] ?? ''),
+      definir: (n, v) => { valoresAgora.current = { ...valoresAgora.current, [n]: v }; setValores((x) => ({ ...x, [n]: v })) },
+    }).then((n) => focar('c_', n)).catch(() => {})
   }
 
 
