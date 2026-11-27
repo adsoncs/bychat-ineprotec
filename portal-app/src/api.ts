@@ -250,6 +250,32 @@ export const criarSenhaInicial = (candidateToken: string, senha: string) =>
     body: JSON.stringify({ candidateToken, senha }),
   })
 
+/** Dados de acesso da conclusão: com o que a pessoa entra no portal. */
+export interface AcessoDaInscricao {
+  codigo: string
+  email: string | null
+  temSenha: boolean
+  /** Sem senha própria, a senha é o CPF (só números). */
+  senhaEhCpf: boolean
+  /** Pode entrar direto pelo botão (conta sem senha e ativa). */
+  podeEntrar: boolean
+  /** Tela de login da marca, com o código já preenchido. */
+  loginUrl: string
+}
+// Token no Authorization: o pedir() troca pelo renovado (X-Candidate-Token).
+export const acessoDaInscricao = (candidateToken: string) =>
+  pedir<AcessoDaInscricao>('/api/public/portal/acesso-da-inscricao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${candidateToken}` },
+    body: '{}',
+  })
+export const entrarPelaInscricao = (candidateToken: string, link = false) =>
+  pedir<{ ok: boolean; url: string }>('/api/public/portal/entrar-pela-inscricao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${candidateToken}` },
+    body: JSON.stringify({ link }),
+  })
+
 // ── Área do candidato: documentos ────────────────────────────────────────────
 
 export interface Exigencia {

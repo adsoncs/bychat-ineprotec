@@ -1690,3 +1690,29 @@ body { padding-top: var(--faixa-atendimento, 0px); }
   :root[data-topo='barra'][data-template='duas-colunas'] .resumo { top: calc(var(--altura-barra, 68px) + var(--faixa-atendimento, 0px) + 20px); }
 }
 .lado-a-lado > .coluna-dados { top: calc(20px + var(--faixa-atendimento, 0px)); }
+
+/* Conclusão: dados de acesso ao portal + "Entrar no portal" (26/11). */
+.acesso-portal {
+  margin: 16px 0 6px; padding: 16px; border-radius: var(--raio, 12px); text-align: left;
+  border: 1px solid color-mix(in srgb, var(--marca) 30%, var(--linha));
+  background: color-mix(in srgb, var(--marca) 6%, var(--papel));
+}
+.acesso-portal h3 { margin: 0 0 4px; font-size: 16px; color: var(--tinta); }
+.acesso-portal > .sub { margin: 0 0 12px; font-size: 14px; }
+.acesso-boas-vindas { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: var(--tinta); }
+.acesso-dados { margin: 0 0 10px; display: grid; gap: 8px; }
+.acesso-dados > div {
+  display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: baseline;
+  padding: 8px 10px; border-radius: 8px; background: var(--papel); border: 1px solid var(--linha);
+}
+.acesso-dados dt { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--tinta-3); }
+.acesso-dados dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--tinta); font-size: 15px; }
+.acesso-dados .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+.acesso-dados .ou { color: var(--tinta-2); font-size: 13.5px; }
+.acesso-portal .ajuda { display: block; margin: 6px 0 0; font-size: 13px; color: var(--tinta-2); }
+.acesso-portal .acesso-botao { display: block; width: 100%; margin-top: 12px; text-decoration: none; }
+.acesso-portal .acesso-botao button, .acesso-portal button.acesso-botao { width: 100%; }
+.acesso-portal .acesso-email { text-align: center; margin-top: 10px; }
+@media (max-width: 420px) {
+  .acesso-dados > div { grid-template-columns: 1fr; gap: 2px; }
+}

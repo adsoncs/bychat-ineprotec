@@ -5,7 +5,7 @@ import {
   carregarPortal, enviarInscricao, enviarInteresse, lerRascunho, marcarConversao, rotulo, salvarRascunho,
   type DadosPortal, type EtapaDaJornada, type Oferta, type Passo,
 } from './api'
-import { criarSenhaInicial, enviarDocumento } from './api'
+import { acessoDaInscricao, criarSenhaInicial, entrarPelaInscricao, enviarDocumento, type AcessoDaInscricao, type FalhaPedido } from './api'
 import { emAtendimento, definirInscricaoDoAtendimento } from './atendimento'
 import { comprimirSePreciso } from './imagem'
 import { Jornada } from './Jornada'
@@ -411,6 +411,7 @@ export function App() {
         previstas={previstas}
         nome={nomeDaPessoa}
         limpo={limpo}
+        atendimento={atendimento}
         aviso={avisoDocs}
       />
     )
@@ -1086,6 +1087,8 @@ function Concluido(props: {
   limpo?: boolean
   /** Arquivo do formulário que não subiu (será pedido na etapa Documentos). */
   aviso?: string | null
+  /** Inscrição feita pela equipe no navegador dela: mostra os dados, sem entrar. */
+  atendimento?: boolean
 }) {
   const [pago, setPago] = useState(false)
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(null)
@@ -1160,8 +1163,11 @@ function Concluido(props: {
         ) : null}
         {props.token && !props.pagamentoUrl && (
           <div style="margin-top:14px;text-align:left">
-            <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} />
+            <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} aoCarregar={setEtapas} />
           </div>
+        )}
+        {props.token && !props.pagamentoUrl && (pago || (etapas !== null && etapas.every((e) => e.situacao !== 'pendente'))) && (
+          <AcessoAoPortal token={props.token} codigo={props.codigo} embutido atendimento={props.atendimento} />
         )}
       </div>
     )
@@ -1209,7 +1215,8 @@ function Concluido(props: {
       <PassosDaMatricula passos={passosTrilha} atual={atualTrilha} feitas={feitasTrilha} />
       <div class="coluna-conclusao">
       {tudoEntregue && etapas ? (
-        <FinalDaMatricula portal={props.portal} nome={props.nome} codigo={props.codigo} etapas={etapas} mensagem={props.mensagem} />
+        <FinalDaMatricula portal={props.portal} nome={props.nome} codigo={props.codigo} etapas={etapas} mensagem={props.mensagem}
+          acesso={props.token && !pronto ? <AcessoAoPortal token={props.token} codigo={props.codigo} atendimento={props.atendimento} /> : null} />
       ) : (
       <div class="cartao fim">
         <div class="marca" aria-hidden="true">✓</div>
@@ -1229,7 +1236,7 @@ function Concluido(props: {
           </>
         ) : props.token && !pago && !semEtapas ? (
           <p class="sub">{tx('conc.sigaPassos', 'Siga os próximos passos abaixo para concluir.')}</p>
-        ) : semEtapas && !props.mensagem ? (
+        ) : semEtapas && !props.mensagem && !props.token ? (
           <p class="sub">{tx('conc.semPassos', 'Tudo certo por aqui. A instituição entra em contato com os próximos passos.')}</p>
         ) : !props.mensagem ? (
           <p class="sub">{tx('conc.whatsapp', 'Enviamos os próximos passos para o seu WhatsApp.')}</p>
@@ -1238,7 +1245,10 @@ function Concluido(props: {
         {/* O painel de senha deixou de vir aberto; sem este convite, criar
             acesso sumiria da vista de quem acabou de se inscrever — e é aqui
             que a pessoa está mais disposta a criar. */}
-        {props.token && !pronto && !props.temSenha && !props.abrirSenha && (
+        {props.token && semEtapas && !pronto && !props.pagamentoUrl && (
+          <AcessoAoPortal token={props.token} codigo={props.codigo} atendimento={props.atendimento} boasVindas={props.nome} />
+        )}
+        {props.token && !semEtapas && !pronto && !props.temSenha && !props.abrirSenha && (
           <p class="convite-senha">
             <button type="button" class="como-link" onClick={props.aoAbrirSenha}>
               {tx('conc.conviteSenhaLink', 'Criar uma senha')}
@@ -1355,7 +1365,7 @@ function ResumoDaConclusao(props: { portal: DadosPortal['portal']; oferta: Ofert
  * Tela final: tudo o que dependia da pessoa foi feito. Linha do tempo do que
  * aconteceu (e do que está com a instituição) e para onde ir agora.
  */
-function FinalDaMatricula(props: { portal: DadosPortal['portal']; nome?: string; codigo: string; etapas: EtapaDaJornada[]; mensagem?: string }) {
+function FinalDaMatricula(props: { portal: DadosPortal['portal']; nome?: string; codigo: string; etapas: EtapaDaJornada[]; mensagem?: string; acesso?: ComponentChildren }) {
   const primeiro = (props.nome || '').split(/\s+/)[0] || ''
   const tudoFeito = props.etapas.every((e) => e.situacao === 'feito')
   const ajuda = linkDeAjuda(props.portal)
@@ -1368,7 +1378,7 @@ function FinalDaMatricula(props: { portal: DadosPortal['portal']; nome?: string;
       <h2>{titulo.replace('{{nome}}', primeiro ? `, ${primeiro}` : '')}</h2>
       <p class="sub">
         {tudoFeito
-          ? tx('fim.textoConcluida', 'Está tudo certo com a sua matrícula. Veja abaixo o que aconteceu.')
+          ? tx('fim.textoConcluida', 'Seja muito bem-vindo(a)! Está tudo certo com a sua matrícula e o seu portal do aluno já está pronto.')
           : tx('fim.textoEnviada', 'Você fez a sua parte. Agora é com a gente: avisamos pelo WhatsApp a cada novidade.')}
       </p>
       {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
@@ -1388,10 +1398,97 @@ function FinalDaMatricula(props: { portal: DadosPortal['portal']; nome?: string;
           <div><b>{tx('fim.proximoTitulo', 'Acompanhe pelo seu portal')}</b><span class="sub">{tx('fim.proximoTexto', 'Novidades da sua matrícula aparecem lá e chegam pelo WhatsApp.')}</span></div>
         </li>
       </ol>
+      {props.acesso}
       <div class="acoes-fim">
-        <a href="/portal"><button class="principal">{tx('fim.irPortal', 'Ir para o meu portal')}</button></a>
+        {!props.acesso && <a href="/portal"><button class="principal">{tx('fim.irPortal', 'Ir para o meu portal')}</button></a>}
         {ajuda && <a href={ajuda} target="_blank" rel="noopener"><button class="secundario">{tx('fim.whatsapp', 'Falar no WhatsApp')}</button></a>}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Fim da inscrição: com o que a pessoa entra no portal (usuário e senha) e o
+ * botão que já abre o portal logado. Entra SÓ no clique — ninguém fica logado
+ * sem saber num computador compartilhado. Conta que já tem senha (o contato já
+ * existia) não entra por aqui: vai para o login com o código preenchido.
+ * No atendimento (equipe preenchendo pela pessoa) mostra os dados, sem botão.
+ */
+function AcessoAoPortal(props: { token: string; codigo: string; embutido?: boolean; atendimento?: boolean; boasVindas?: string }) {
+  const [acesso, setAcesso] = useState<AcessoDaInscricao | null>(null)
+  const [falhou, setFalhou] = useState(false)
+  const [entrando, setEntrando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [linkPronto, setLinkPronto] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    acessoDaInscricao(props.token).then((a) => { if (vivo) setAcesso(a) }).catch(() => { if (vivo) setFalhou(true) })
+    return () => { vivo = false }
+  }, [props.token])
+
+  // Sem os dados do servidor (sessão de 1h vencida), o código basta: o login
+  // aceita código da inscrição + CPF enquanto a pessoa não cria a senha.
+  const loginUrl = acesso?.loginUrl ?? `/portal/login?codigo=${encodeURIComponent(props.codigo)}`
+  const podeEntrar = !!acesso?.podeEntrar && !props.atendimento
+  const destino = props.embutido ? '_top' : '_self'
+
+  async function entrar() {
+    setEntrando(true)
+    setErro(null)
+    try {
+      const r = await entrarPelaInscricao(props.token, !!props.embutido)
+      if (props.embutido) {
+        // Dentro do iframe o cookie não vale: abre o portal na janela toda.
+        try { window.open(r.url, '_top') } catch { /* bloqueado: fica o link abaixo */ }
+        setLinkPronto(r.url)
+        setEntrando(false)
+      } else {
+        location.assign(r.url)
+      }
+    } catch (e) {
+      const f = e as FalhaPedido
+      setEntrando(false)
+      if (f.status === 409 || f.sessaoExpirada) { location.assign(loginUrl); return }
+      setErro(f.message)
+    }
+  }
+
+  const primeiro = (props.boasVindas || '').split(/\s+/)[0] || ''
+  return (
+    <div class="acesso-portal" role="region" aria-label={tx('acesso.titulo', 'Seus dados de acesso')}>
+      {props.boasVindas !== undefined && (
+        <p class="acesso-boas-vindas">{tx('acesso.boasVindas', 'Seja bem-vindo(a){{nome}}! O seu portal do aluno já está pronto.').replace('{{nome}}', primeiro ? `, ${primeiro}` : '')}</p>
+      )}
+      <h3>{tx('acesso.titulo', 'Seus dados de acesso')}</h3>
+      <p class="sub">{tx('acesso.texto', 'Use estes dados para entrar no portal quando quiser: acompanhar a matrícula, enviar documentos e ver o contrato.')}</p>
+      <dl class="acesso-dados">
+        <div><dt>{tx('acesso.usuario', 'Usuário')}</dt><dd><b class="mono">{acesso?.codigo ?? props.codigo}</b>{acesso?.email && <span class="ou"> {tx('acesso.ouEmail', 'ou')} {acesso.email}</span>}</dd></div>
+        <div><dt>{tx('acesso.senha', 'Senha')}</dt><dd>{
+          acesso?.temSenha ? tx('acesso.senhaPropria', 'A senha que você criou')
+            : acesso && !acesso.senhaEhCpf ? tx('acesso.senhaLink', 'Crie a sua pelo link que enviamos no WhatsApp')
+            : <>{tx('acesso.senhaCpf', 'O seu CPF')} <span class="ou">{tx('acesso.soNumeros', '(só números)')}</span></>
+        }</dd></div>
+        <div><dt>{tx('acesso.endereco', 'Endereço')}</dt><dd><a href={loginUrl} target={destino} class="mono">{location.host}/portal</a></dd></div>
+      </dl>
+      {!acesso?.temSenha && (
+        <p class="ajuda">{tx('acesso.dicaSenha', 'Depois de entrar, você pode criar uma senha só sua no menu da sua conta, em "Criar minha senha".')}</p>
+      )}
+      {erro && <div class="aviso erro" role="alert">{erro}</div>}
+      {props.atendimento ? (
+        <p class="ajuda">{tx('acesso.atendimento', 'Inscrição feita no atendimento: passe estes dados para a pessoa. Eles também vão por e-mail.')}</p>
+      ) : linkPronto ? (
+        <a href={linkPronto} target="_top" class="acesso-botao"><button class="principal" type="button">{tx('acesso.abrirPortal', 'Abrir o portal')}</button></a>
+      ) : podeEntrar ? (
+        <button class="principal acesso-botao" type="button" onClick={() => void entrar()} disabled={entrando}>
+          {entrando ? tx('acesso.entrando', 'Entrando…') : tx('acesso.entrar', 'Entrar no portal')}
+        </button>
+      ) : (acesso || falhou) ? (
+        <a href={loginUrl} target={destino} class="acesso-botao"><button class="principal" type="button">{
+          acesso?.temSenha ? tx('acesso.entrarComSenha', 'Entrar com a minha senha') : tx('acesso.entrar', 'Entrar no portal')
+        }</button></a>
+      ) : null}
+      <p class="ajuda acesso-email">{tx('acesso.enviamosEmail', 'Também enviamos estes dados para o seu e-mail.')}</p>
     </div>
   )
 }

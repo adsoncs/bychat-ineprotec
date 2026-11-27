@@ -484,6 +484,82 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // ── Conclusão da inscrição: dados de acesso + "Entrar no portal" já logado ──
+  // A tela final mostra com o que a pessoa entra (usuário = código da inscrição
+  // ou e-mail; senha = CPF enquanto não criou a sua) e um botão que troca o
+  // token da inscrição por uma sessão do portal — só NO CLIQUE, para ninguém
+  // ficar logado sem saber num computador compartilhado.
+  //
+  // Segurança: a inscrição pode cair num contato que já existia (mesmo telefone
+  // ou CPF). Conta COM senha não entra por aqui — quem preencheu o formulário
+  // com dados de outra pessoa não pode abrir a conta dela (mesma regra da
+  // senha-inicial). Conta sem senha já entra com código + CPF, que a pessoa
+  // acabou de digitar: o atalho não abre nada que ela já não abriria.
+  async function contaDaInscricao(req: FastifyRequest) {
+    const auth = String(req.headers.authorization || '')
+    const bruto = auth.startsWith('Bearer ') ? auth.slice(7) : String((req.body as any)?.candidateToken || '')
+    const sessao = verifyCandidateToken(bruto)
+    if (!sessao) return { ok: false as const, erro: 401 as const }
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: sessao.enrollmentId },
+      select: {
+        id: true, leadId: true, formData: true, candidateCode: true, status: true,
+        portal: { select: { slug: true } },
+        lead: { select: { email: true } },
+      },
+    })
+    if (!reg?.leadId || reg.status === 'merged') return { ok: false as const, erro: 404 as const }
+    const conta = await garantirConta(reg.leadId, (reg.formData as any)?.cpf ?? null)
+    const extra = await prisma.portalAccount.findUnique({ where: { id: conta.id }, select: { ativo: true, cpf: true } })
+    return { ok: true as const, leadId: reg.leadId, reg, conta, ativo: extra?.ativo !== false, temCpf: !!extra?.cpf }
+  }
+
+  // ── POST /api/public/portal/acesso-da-inscricao — o que mostrar no cartão ──
+  app.post('/api/public/portal/acesso-da-inscricao', async (req, reply) => {
+    const r = await contaDaInscricao(req)
+    if (!r.ok) return reply.code(r.erro).send({ error: r.erro === 401 ? 'Sua sessão de inscrição expirou.' : 'Inscrição não encontrada.' })
+    const slug = r.reg.portal?.slug
+    const loginUrl = `/portal/login?${new URLSearchParams({ ...(slug ? { portal: slug } : {}), codigo: r.reg.candidateCode }).toString()}`
+    return {
+      codigo: r.reg.candidateCode,
+      email: r.reg.lead?.email || null,
+      temSenha: !!r.conta.senhaHash,
+      // Sem senha própria, a senha é o CPF — só vale se a conta tiver CPF.
+      senhaEhCpf: !r.conta.senhaHash && r.temCpf,
+      podeEntrar: r.ativo && !r.conta.senhaHash,
+      loginUrl,
+    }
+  })
+
+  // ── POST /api/public/portal/entrar-pela-inscricao — o clique em "Entrar" ──
+  // `link: true` (formulário embutido em outro site): o cookie não vale dentro
+  // do iframe; devolve um link de uso único para abrir o portal na janela toda.
+  app.post('/api/public/portal/entrar-pela-inscricao', async (req, reply) => {
+    const r = await contaDaInscricao(req)
+    if (!r.ok) return reply.code(r.erro).send({ error: r.erro === 401 ? 'Sua sessão de inscrição expirou. Entre com o código da inscrição e o seu CPF.' : 'Inscrição não encontrada.' })
+    if (!r.ativo) return reply.code(403).send({ error: 'Este acesso está desativado. Fale com a instituição.' })
+    if (r.conta.senhaHash) return reply.code(409).send({ error: 'Você já tem uma senha. Entre com ela.', temSenha: true })
+
+    const comoLink = (req.body as any)?.link === true
+    logEvent({
+      leadId: r.leadId,
+      type: 'portal_acesso_conclusao',
+      category: 'lifecycle',
+      title: `Entrou no portal pela conclusão da inscrição — ${r.reg.candidateCode}`,
+      channel: 'portal',
+      actorType: 'contact',
+    } as any)
+    if (comoLink) {
+      const link = await criarLinkDeAcesso(r.conta.id, 'acesso_direto')
+      return { ok: true, url: link.url }
+    }
+    const s = await emitirSessao({
+      accountId: r.conta.id, userAgent: req.headers['user-agent'] as string, ip: ipDaRequisicao(req),
+    })
+    gravarCookie(reply, s.raw, s.expiresAt)
+    return { ok: true, url: '/portal' }
+  })
+
   // ───────────────────────── Telas de acesso ─────────────────────────
 
   // ── GET /api/public/portal/marca — a marca que as telas do portal vestem ──
