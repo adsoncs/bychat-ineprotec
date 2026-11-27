@@ -2024,6 +2024,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       where: { id: reg.id },
       include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
     })
+    await import('../services/documentosReaproveitados.js').then((m) => m.reaproveitarDocumentosAprovados(reg.id)).catch(() => {})
     return reply.code(201).send({ ok: true, registration: full })
   })
 
@@ -3318,6 +3319,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     //   • Pollar o status da análise (IA processando → resultado).
     // É o mesmo token de sessão do portal do candidato (mesma assinatura HMAC),
     // então o candidato pode usar para entrar direto no /candidato/:code também.
+    // Documento já aprovado em outra inscrição da mesma pessoa não se pede de novo.
+    await import('../services/documentosReaproveitados.js').then((m) => m.reaproveitarDocumentosAprovados(enrollment.id))
+      .then((r) => { if (r.copiados.length) req.log.info(`[enrollment] ${candidateCode}: ${r.copiados.length} documento(s) aprovado(s) reaproveitado(s)`) })
+      .catch((e) => req.log.warn(`[enrollment] reaproveitar documentos ${candidateCode}: ${e?.message || e}`))
     const candidateToken = signCandidateToken(enrollment.id, candidateCode)
 
     // Sinaliza ao frontend público o que renderizar pós-submit:

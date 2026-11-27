@@ -81,7 +81,8 @@ export function iaPodeFalarPelaFicha(formData: unknown, turnoDesde?: Date | null
 function reabrirJornada(fd: any): void {
   const j = fd?._aiJourney
   if (j && typeof j === 'object') {
-    fd._aiJourney = { ...j, ...(j.phase === 'handoff' || j.phase === 'done' ? { phase: 'active' } : {}) }
+    // devolvidaEm: a IA volta curta e só com o que sabe (LEMBRETE_DEVOLVIDA).
+    fd._aiJourney = { ...j, ...(j.phase === 'handoff' || j.phase === 'done' ? { phase: 'active' } : {}), devolvidaEm: new Date().toISOString() }
     delete fd._aiJourney.comercial
   }
 }
@@ -177,6 +178,7 @@ export async function resumeBot(
 
   const base: any = { ...((lead.formData || {}) as object) }
   delete base._botPaused
+  base._botResumedAt = new Date().toISOString()
   reabrirJornada(base)
   await prisma.lead.update({ where: { id: leadId }, data: { formData: base, completed: false } }).catch(() => {})
 
@@ -232,6 +234,7 @@ export async function autoResumeIfStale(leadId: number): Promise<boolean> {
 
   const base: any = { ...((lead?.formData || {}) as object) }
   delete base._botPaused
+  base._botResumedAt = new Date().toISOString()
   reabrirJornada(base)
   await prisma.lead.update({ where: { id: leadId }, data: { formData: base } }).catch(() => {})
 

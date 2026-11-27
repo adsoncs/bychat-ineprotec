@@ -467,7 +467,8 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     // Modo comercial no teste: 'auto' (como a produção), 'qualifica' ou 'completo'.
     const mc = String((req.body as any)?.modoComercial || '')
     const modoComercial = mc === 'qualifica' || mc === 'completo' ? mc : 'auto'
-    const r = await startPreview(chatbotId, { app, contextLeadId, modoComercial })
+    const conexao = Number((req.body as any)?.cloudApiConnectionId) || null
+    const r = await startPreview(chatbotId, { app, contextLeadId, modoComercial, cloudApiConnectionId: conexao })
     if ('error' in r) return reply.code(404).send(r)
     return reply.header('Access-Control-Allow-Origin', '*').send(r)
   })

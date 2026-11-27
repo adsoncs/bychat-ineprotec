@@ -152,6 +152,97 @@ export async function validacaoDoContato(leadId: number): Promise<string> {
   return linhas.join('\n')
 }
 
+// ── O que a pessoa já informou (varredura de todas as fichas dela) ──────────
+// A IA não pode pedir de novo o que a pessoa já deu — nesta ficha, numa ficha
+// de outro número da empresa ou numa inscrição que começou no portal. Junta os
+// dados pessoais, os campos personalizados, as anotações e o fim da última
+// conversa das OUTRAS fichas da mesma pessoa (mesmo WhatsApp ou CPF; CPF
+// diferente fica de fora — celular da família). 27/11/2026, ineprotec.
+const ROTULO_DADO: Array<[string, string]> = [
+  ['nome', 'Nome completo'], ['nomeSocial', 'Nome social'], ['cpf', 'CPF'], ['email', 'E-mail'],
+  ['nascimento', 'Data de nascimento'], ['rg', 'RG'], ['rgOrgaoEmissor', 'Órgão emissor do RG'],
+  ['naturalidade', 'Naturalidade'], ['racaCor', 'Raça/cor'], ['nomeMae', 'Nome da mãe'], ['nomePai', 'Nome do pai'],
+  ['cep', 'CEP'], ['logradouro', 'Endereço'], ['numero', 'Número'], ['complemento', 'Complemento'], ['bairro', 'Bairro'],
+  ['municipio', 'Cidade'], ['cidade', 'Cidade'], ['uf', 'UF'], ['tipoSanguineo', 'Tipo sanguíneo'],
+  ['responsavelNome', 'Responsável (nome)'], ['responsavelParentesco', 'Responsável (parentesco)'],
+  ['responsavelCpf', 'Responsável (CPF)'], ['responsavelTelefone', 'Responsável (telefone)'], ['responsavelEmail', 'Responsável (e-mail)'],
+]
+const curto = (v: unknown, n = 200) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
+
+export async function conhecidoDaPessoa(leadId: number): Promise<string> {
+  const fichas = await fichasDaMesmaPessoa(leadId).catch(() => [leadId])
+  const outras = fichas.filter((id) => id !== leadId)
+  const [leads, regs] = await Promise.all([
+    prisma.lead.findMany({ where: { id: { in: fichas } }, select: { id: true, nome: true, email: true, cidade: true, formData: true, customFields: true } }).catch(() => [] as any[]),
+    prisma.enrollmentRegistration.findMany({ where: { leadId: { in: fichas }, status: { not: 'merged' } }, orderBy: { id: 'desc' }, take: 8, select: { formData: true, candidateCode: true } }).catch(() => [] as any[]),
+  ])
+  const linhas: string[] = []
+
+  // Dados pessoais: inscrição mais nova primeiro (é o dado que a pessoa digitou
+  // no portal), depois as fichas (esta antes das outras).
+  const fontes: Array<{ fd: any; de: string }> = [
+    ...regs.map((r: any) => ({ fd: r.formData || {}, de: `inscrição ${r.candidateCode}` })),
+    ...[...leads].sort((a: any, b: any) => (a.id === leadId ? -1 : b.id === leadId ? 1 : b.id - a.id))
+      .map((l: any) => ({ fd: { ...(l.formData || {}), ...(l.email ? { email: l.email } : {}), ...(l.cidade ? { cidade: l.cidade } : {}) }, de: l.id === leadId ? 'esta ficha' : `ficha #${l.id}` })),
+  ]
+  const vistos = new Set<string>()
+  const dados: string[] = []
+  for (const [chave, rotulo] of ROTULO_DADO) {
+    if (vistos.has(rotulo)) continue
+    for (const f of fontes) {
+      const v = curto(f.fd?.[chave])
+      if (!v || /^(lead( lp)?|webchat|null|undefined)$/i.test(v)) continue
+      if (chave === 'nome' && v.split(' ').length < 2) continue // primeiro nome do perfil não é nome completo
+      dados.push(`- ${rotulo}: ${v} (${f.de})`)
+      vistos.add(rotulo)
+      break
+    }
+  }
+  if (dados.length) linhas.push(`DADOS QUE A PESSOA JÁ INFORMOU (nunca pergunte de novo; na inscrição use estes valores — no máximo confirme numa frase se estiverem incompletos):\n${dados.join('\n')}`)
+
+  if (!outras.length) return linhas.join('\n')
+
+  // Campos personalizados das outras fichas que esta ainda não tem.
+  const desta = leads.find((l: any) => l.id === leadId)
+  const jaTem = new Set(Object.entries((desta?.customFields || {}) as Record<string, unknown>).filter(([, v]) => v != null && String(v).trim() !== '').map(([k]) => k))
+  const extras = new Map<string, string>()
+  for (const l of leads.filter((x: any) => x.id !== leadId).sort((a: any, b: any) => b.id - a.id)) {
+    for (const [k, v] of Object.entries((l.customFields || {}) as Record<string, unknown>)) {
+      if (jaTem.has(k) || extras.has(k) || v == null || String(v).trim() === '' || String(v) === '[]') continue
+      if (/^(utm_|gclid|fbclid|ga_client_id|referrer|url_origem)/.test(k)) continue
+      extras.set(k, `${curto(Array.isArray(v) ? v.join(', ') : v, 300)} (ficha #${l.id})`)
+    }
+  }
+  if (extras.size) {
+    const defs = await prisma.customField.findMany({ where: { key: { in: [...extras.keys()] } }, select: { key: true, label: true } }).catch(() => [] as Array<{ key: string; label: string }>)
+    const rot = new Map(defs.map((d) => [d.key, d.label]))
+    // Dado pessoal já está na lista de cima; o resto do CRM antigo é bastidor.
+    const bastidor = /crm anterior|registro de atendimento|^empresa$|origem|campus|^cpf$|e-?mail|^nome/i
+    const itens = [...extras].filter(([k]) => !bastidor.test(rot.get(k) || k)).slice(0, 15)
+    if (itens.length) linhas.push(`Campos já preenchidos em OUTRAS fichas da mesma pessoa:\n${itens.map(([k, v]) => `- ${curto(rot.get(k) || k, 140)}: ${v}`).join('\n')}`)
+  }
+
+  // Aviso automático de duplicidade não é conversa da equipe.
+  const notas = await prisma.leadNote.findMany({ where: { leadId: { in: outras }, NOT: [{ content: { startsWith: 'Nova inscrição duplicada' } }, { content: { startsWith: 'Possível duplicado' } }] }, orderBy: { createdAt: 'desc' }, take: 5, select: { leadId: true, content: true, userName: true, createdAt: true } }).catch(() => [] as any[])
+  if (notas.length) linhas.push(`Anotações da equipe em OUTRAS fichas da mesma pessoa:\n${notas.map((n: any) => `- ${n.createdAt.toLocaleDateString('pt-BR')}${n.userName ? ` (${n.userName})` : ''}, ficha #${n.leadId}: ${curto(n.content, 300)}`).join('\n')}`)
+
+  // Fim da última conversa em outra ficha (90 dias): o assunto que ficou pendente.
+  const ultima = await prisma.message.findFirst({
+    where: { leadId: { in: outras }, isInternal: false, timestamp: { gte: new Date(Date.now() - 90 * 86400_000) } },
+    orderBy: { id: 'desc' }, select: { leadId: true },
+  }).catch(() => null)
+  if (ultima) {
+    const msgs = await prisma.message.findMany({
+      where: { leadId: ultima.leadId, isInternal: false }, orderBy: { id: 'desc' }, take: 10,
+      select: { fromMe: true, body: true, senderName: true, timestamp: true },
+    }).catch(() => [] as any[])
+    const txt = msgs.reverse().filter((m: any) => m.body && !/^\[(image|audio|video|document|sticker)\]$/i.test(m.body))
+      .map((m: any) => `- ${quando(m.timestamp)} ${m.fromMe ? (m.senderName || 'empresa') : 'pessoa'}: ${curto(m.body, 220)}`)
+    if (txt.length) linhas.push(`Fim da última conversa em outra ficha (#${ultima.leadId}) — contexto, não repita o que já foi respondido:\n${txt.join('\n')}`)
+  }
+  return linhas.join('\n')
+}
+
 /**
  * Fichas que são, com prova forte, da MESMA pessoa: mesmo WhatsApp (phoneKey)
  * ou mesmo CPF — nunca uma com CPF diferente (celular da família). Usada para a
@@ -182,7 +273,14 @@ export async function fichasDaMesmaPessoa(leadId: number): Promise<number[]> {
  * automações gravam o próprio nome.
  */
 export async function atendimentoHumanoAtivo(leadId: number): Promise<{ nome: string } | null> {
-  const desde = new Date(Date.now() - HUMANO_ATIVO_MS)
+  let desde = new Date(Date.now() - HUMANO_ATIVO_MS)
+  // Conversa devolvida ao bot ("devolver ao bot" ou retomada automática): o que
+  // a equipe falou ANTES disso não é atendimento em curso. Sem isto, a escolha
+  // do menu logo depois da devolução caía em "fulano está atendendo" e a IA
+  // repetia a triagem (ineprotec, 27/11/2026).
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+  const devolvido = new Date(String((lead?.formData as any)?._botResumedAt ?? ''))
+  if (!isNaN(devolvido.getTime()) && devolvido > desde) desde = devolvido
   const msgs = await prisma.message.findMany({
     where: { leadId, fromMe: true, isInternal: false, senderName: { not: null }, timestamp: { gte: desde } },
     orderBy: { id: 'desc' }, take: 40, select: { senderName: true },

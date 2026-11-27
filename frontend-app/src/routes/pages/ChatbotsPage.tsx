@@ -461,6 +461,11 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     mcMin: chatbot?.modoComercial?.minPerguntas ?? 2,
     mcMax: chatbot?.modoComercial?.maxPerguntas ?? 3,
     mcPresenca: chatbot?.modoComercial?.presencaMinutos ?? 5,
+    mcSilencio: chatbot?.modoComercial?.silencio === true,
+    mcPassagem: chatbot?.modoComercial?.mensagemPassagem ?? '',
+    sdAtivo: chatbot?.scriptedConfig?.somenteDirecionar?.ativo ?? false,
+    sdTeamIds: ((chatbot?.scriptedConfig?.somenteDirecionar?.teamIds ?? []) as number[]).map(Number),
+    sdMensagem: (chatbot?.scriptedConfig?.somenteDirecionar?.mensagem ?? '') as string,
     triggerMode: chatbot?.triggerMode ?? 'always',
     triggerKeywords: (chatbot?.triggerKeywords ?? []).join(', '),
     schedulingIntro: chatbot?.schedulingIntro ?? '',
@@ -500,6 +505,9 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     if (form.mode === 'ai_journey' && form.mcModo === 'fora_do_horario' && !form.mcTeamId) {
       toast('Escolha a equipe comercial do modo "só fora do horário".', 'danger'); setTab('general'); return
     }
+    if (form.mode === 'ai_journey' && form.sdAtivo && (!form.sdTeamIds.length || !form.sdMensagem.trim())) {
+      toast('Em "Departamentos que só recebem o direcionamento", marque as equipes e escreva a mensagem.', 'danger'); setTab('general'); return
+    }
     const payload = {
       name: form.name.trim(),
       channel: form.channel,
@@ -514,6 +522,13 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
           minPerguntas: Number(form.mcMin) || 0,
           maxPerguntas: Number(form.mcMax) || 0,
           presencaMinutos: Number(form.mcPresenca) || 5,
+          silencio: !!form.mcSilencio,
+          mensagemPassagem: String(form.mcPassagem ?? '').trim(),
+        },
+        // Preserva o resto do scriptedConfig (outros módulos) e grava só esta chave.
+        scriptedConfig: {
+          ...((chatbot?.scriptedConfig as Record<string, any> | null) ?? {}),
+          somenteDirecionar: { ativo: form.sdAtivo, teamIds: form.sdTeamIds, mensagem: form.sdMensagem.trim() },
         },
       } : {}),
       triggerMode: form.triggerMode,
@@ -701,18 +716,69 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
                     </Select>
                     <Input label="Online = painel aberto nos últimos (min)" type="number" min={1} max={120} value={String(form.mcPresenca)} onInput={(e) => patch('mcPresenca', Number((e.target as HTMLInputElement).value))} />
                   </div>
-                  <Textarea
+                  <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" class="mt-0.5" checked={form.mcSilencio} onChange={(e) => patch('mcSilencio', (e.target as HTMLInputElement).checked)} />
+                    <span class="text-sm text-fg">
+                      Com a equipe online, a IA não conversa com candidatos
+                      <span class="block text-xs text-fg-muted">A triagem continua a de sempre (abertura e menu). Quem escolhe a opção de candidato, o lead novo de formulário ou anúncio e o candidato devolvido à IA recebem só a abordagem breve abaixo e vão para o rodízio da equipe, sem conversa. Alunos e departamentos não mudam.</span>
+                    </span>
+                  </label>
+                  {form.mcSilencio && <Textarea
+                    label="Abordagem breve ao passar para a equipe"
+                    rows={3}
+                    value={form.mcPassagem}
+                    onInput={(e) => patch('mcPassagem', (e.target as HTMLTextAreaElement).value)}
+                    hint="Uma mensagem só, sem conversa. {nome} = primeiro nome. Vazio = passa sem dizer nada."
+                  />}
+                  {!form.mcSilencio && <Textarea
                     label="Perguntas de qualificação (uma por linha)"
                     rows={6}
                     value={form.mcPerguntas}
                     onInput={(e) => patch('mcPerguntas', (e.target as HTMLTextAreaElement).value)}
                     hint="A cada atendimento o sistema sorteia algumas, e a IA pula as que a ficha já responde."
-                  />
-                  <div class="grid gap-3 grid-cols-2">
+                  />}
+                  {!form.mcSilencio && <div class="grid gap-3 grid-cols-2">
                     <Input label="Sortear no mínimo" type="number" min={0} max={10} value={String(form.mcMin)} onInput={(e) => patch('mcMin', Number((e.target as HTMLInputElement).value))} />
                     <Input label="Sortear no máximo" type="number" min={0} max={10} value={String(form.mcMax)} onInput={(e) => patch('mcMax', Number((e.target as HTMLInputElement).value))} />
-                  </div>
+                  </div>}
                   <p class="text-xs text-fg-muted">O modo é decidido quando o atendimento começa e não muda no meio: conversa iniciada termina como começou.</p>
+                </>
+              )}
+            </div>
+          )}
+          {form.mode === 'ai_journey' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" class="mt-0.5" checked={form.sdAtivo} onChange={(e) => patch('sdAtivo', (e.target as HTMLInputElement).checked)} />
+                <span class="text-sm text-fg">
+                  Departamentos que só recebem o direcionamento
+                  <span class="block text-xs text-fg-muted">Nas equipes marcadas a IA não conversa: faz a abertura, manda os menus até a pessoa escolher o departamento, envia a mensagem abaixo e não fala mais nada. Não tira dúvida, não dá conselho e não pede detalhes. Se a pessoa voltar a escrever depois de a conversa ser resolvida, a triagem recomeça.</span>
+                </span>
+              </label>
+              {form.sdAtivo && (
+                <>
+                  <div class="grid gap-1 grid-cols-1 sm:grid-cols-2">
+                    {teamsData?.teams.map((t) => (
+                      <label key={t.id} class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.sdTeamIds.includes(t.id)}
+                          onChange={(e) => {
+                            const on = (e.target as HTMLInputElement).checked
+                            patch('sdTeamIds', on ? [...form.sdTeamIds, t.id] : form.sdTeamIds.filter((x) => x !== t.id))
+                          }}
+                        />
+                        {t.name}
+                      </label>
+                    ))}
+                  </div>
+                  <Textarea
+                    label="Mensagem enviada ao direcionar"
+                    rows={3}
+                    value={form.sdMensagem}
+                    onInput={(e) => patch('sdMensagem', (e.target as HTMLTextAreaElement).value)}
+                    hint="Use {setor} para o nome do departamento escolhido. É a última mensagem da IA nesta conversa."
+                  />
                 </>
               )}
             </div>

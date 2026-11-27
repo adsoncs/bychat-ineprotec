@@ -9,6 +9,8 @@ export interface ModoComercial {
   minPerguntas: number
   maxPerguntas: number
   presencaMinutos: number
+  silencio?: boolean
+  mensagemPassagem?: string
 }
 
 export interface ChatbotItem {
@@ -24,6 +26,8 @@ export interface ChatbotItem {
   interpretPrompt: string | null
   aiJourneyPrompt: string | null
   modoComercial?: ModoComercial | null
+  /** Config livre do chatbot; na jornada IA guarda `somenteDirecionar`. */
+  scriptedConfig?: Record<string, any> | null
   triggerMode: string
   triggerKeywords: string[] | null
   schedulingIntro: string | null
@@ -60,6 +64,7 @@ export interface ChatbotInput {
   interpretPrompt?: string | null | undefined
   aiJourneyPrompt?: string | null | undefined
   modoComercial?: ModoComercial | null | undefined
+  scriptedConfig?: Record<string, any> | null | undefined
   triggerMode?: string | undefined
   triggerKeywords?: string[] | null | undefined
   schedulingIntro?: string | null | undefined

@@ -30,6 +30,13 @@ export interface ModoComercialCfg {
   minPerguntas: number
   maxPerguntas: number
   presencaMinutos: number
+  /** Equipe ON: a IA não conversa com candidato — nem com o devolvido a ela.
+   *  Só a abertura e o menu para quem ainda não se identificou; candidato vai
+   *  calado para a equipe. Aluno e outros assuntos seguem como sempre. */
+  silencio: boolean
+  /** Com silêncio: abordagem breve que a IA manda ao passar o candidato para a
+   *  equipe (texto do cliente; {nome} = primeiro nome). Vazio = passa calada. */
+  mensagemPassagem: string
 }
 
 export interface DecisaoComercial {
@@ -57,6 +64,8 @@ export function lerModoComercial(raw: unknown): ModoComercialCfg | null {
     modo: 'fora_do_horario',
     teamId: Number.isInteger(teamId) && teamId > 0 ? teamId : null,
     perguntas, minPerguntas: min, maxPerguntas: max, presencaMinutos: presenca,
+    silencio: c.silencio === true,
+    mensagemPassagem: String(c.mensagemPassagem ?? '').trim().slice(0, 1000),
   }
 }
 
@@ -69,6 +78,8 @@ export function normalizarModoComercial(raw: unknown): Record<string, unknown> |
     modo: c.modo === 'fora_do_horario' ? 'fora_do_horario' : 'integral',
     teamId: lido.teamId, perguntas: lido.perguntas,
     minPerguntas: lido.minPerguntas, maxPerguntas: lido.maxPerguntas, presencaMinutos: lido.presencaMinutos,
+    silencio: lido.silencio,
+    mensagemPassagem: lido.mensagemPassagem,
   }
 }
 
@@ -78,6 +89,8 @@ export async function equipeOnline(teamId: number, presencaMinutos: number, agor
   return prisma.teamMember.count({
     where: {
       teamId,
+      // Gestor fora do rodízio online não é "alguém para atender".
+      participaRodizio: true,
       user: {
         active: true, lockedAt: null, workStatus: 'available',
         role: { not: 'VIEWER' },
@@ -132,12 +145,13 @@ export async function eNovoAtendimento(leadId: number, agora = new Date()): Prom
  * que manda apresentar preço e inscrever, o modelo seguia o roteiro de venda.
  */
 export const LEMBRETE_QUALIFICACAO = '[aviso interno do sistema, não é a pessoa] MODO QUALIFICAÇÃO ATIVO (a equipe comercial está online): neste atendimento você NÃO fala valores, preços, bolsas ou condições, NÃO faz inscrição, NÃO manda link e NÃO oferece fazer a inscrição. Siga só a seção "MODO QUALIFICAÇÃO": entenda o interesse, faça a próxima pergunta de qualificação que ainda falta e, quando acabarem (ou se a pessoa quiser se inscrever, pedir valores ou pedir alguém), chame salvar_dados e transferir_humano. Aluno ou outro assunto: departamentos, como sempre.'
-export function comLembreteDeQualificacao<T extends { role: string; content: any }>(messages: T[]): T[] {
+export const LEMBRETE_SILENCIO = '[aviso interno do sistema, não é a pessoa] HORÁRIO COMERCIAL (a equipe comercial está online). A triagem é a de sempre: se ainda não houve triagem nesta conversa, mande a abertura com o menu de triagem, mesmo que a pessoa já tenha dito o assunto. Só depois que ela ESCOLHER a opção de candidato, chame rotear_setor com essa opção e NÃO escreva nada (o sistema manda a passagem). Com candidato você não tira dúvida de curso, não fala valores, não faz perguntas e não inscreve. Aluno ou outro assunto: menu do aluno e departamentos, como sempre.'
+export function comLembreteDeQualificacao<T extends { role: string; content: any }>(messages: T[], lembrete = LEMBRETE_QUALIFICACAO): T[] {
   const i = messages.length - 1
   const ultima = messages[i]
   if (!ultima || ultima.role !== 'user' || typeof ultima.content !== 'string') return messages
   const copia = [...messages]
-  copia[i] = { ...ultima, content: `${ultima.content}\n\n${LEMBRETE_QUALIFICACAO}` }
+  copia[i] = { ...ultima, content: `${ultima.content}\n\n${lembrete}` }
   return copia
 }
 
@@ -156,4 +170,15 @@ ${lista}
 - NÃO faça inscrição, não ofereça fazer a inscrição, não mande link do portal, não gere pagamento e não fale de valores, preços, bolsas ou condições, mesmo que outra parte destas instruções mande apresentar o investimento, mandar o link ou inscrever: neste atendimento isso é da equipe. Se perguntarem valores, diga que a pessoa da equipe que vai atender passa os valores e as condições. Se a pessoa quiser se inscrever ou pedir o link, transfira na hora.
 - Terminadas as perguntas, ou se a pessoa pedir para falar com alguém, quiser se inscrever agora ou não quiser responder: chame salvar_dados com um resumo (interesse + respostas) e, em seguida, transferir_humano (motivo: "qualificado: " + o curso + as respostas). Depois escreva UMA mensagem curta dizendo que uma pessoa da equipe continua com ela por aqui, neste mesmo WhatsApp. Essa é a sua última mensagem.
 - Aluno ou outro assunto que não é estudar na instituição: siga as regras de departamentos normalmente.`
+}
+
+/** Instruções do horário comercial com silêncio (modoComercial.silencio). */
+export function blocoDeSilencio(equipe: string | null): string {
+  const quem = equipe ? `a equipe ${equipe}` : 'a equipe comercial'
+  return `
+## HORÁRIO COMERCIAL: ${quem} está online agora e atende TODOS os candidatos (vale ACIMA de qualquer instrução anterior)
+- A triagem é a de sempre: abertura e menu de triagem (aluno ou candidato) em toda conversa que ainda não passou por ela, mesmo que a pessoa já tenha conversado antes ou já tenha dito o assunto. Nunca decida sozinha que a pessoa é candidata.
+- Depois que a pessoa ESCOLHER a opção de candidato: chame rotear_setor com essa opção e NÃO escreva nenhuma mensagem. O sistema manda uma abordagem breve e uma pessoa da equipe assume a conversa.
+- Com candidato você NÃO conversa: não tira dúvida de curso, não fala de valores, não faz perguntas de qualificação, não inscreve e não manda link.
+- Aluno ou outro assunto que não é estudar na instituição: menu do aluno e regras de departamentos, como sempre.`
 }

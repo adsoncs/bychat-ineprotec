@@ -15,7 +15,7 @@
 // Leituras seguras (getActiveMeetingType/getMeetingTypeSlots/businessHours) são reais.
 
 import { prisma } from '../lib/prisma.js'
-import { prometeuEncaminharSemRotear, LEMBRETE_ROTEAR } from './aiJourneyEngine.js'
+import { prometeuEncaminharSemRotear, LEMBRETE_ROTEAR, somenteDirecionarDoChatbot, avisoDeDirecionamento, chavesSomenteDirecionar, blocoSomenteDirecionar } from './aiJourneyEngine.js'
 import { parseAnswer, evaluateQualification, nextStep } from './journey/journeyEngine.js'
 import { interpretSelectAnswer } from './journey/interpret.js'
 import { getActiveMeetingType, getMeetingTypeSlots } from './schedulingService.js'
@@ -33,7 +33,7 @@ import {
 } from './aiJourneyEngine.js'
 import type { FastifyInstance } from 'fastify'
 import { lerModoComercial, decidirModoComercial, sortearPerguntas, blocoDeQualificacao, comLembreteDeQualificacao } from './journey/modoComercial.js'
-import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
+import { eduSdrLigado, portaisDoCanal, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
 
 // O fluxo de atendimento/triagem (supportFlow) é opt-in por chatbot
 // (scriptedConfig.supportFlow; nasceu no terram). O módulo é carregado
@@ -87,6 +87,8 @@ interface PreviewSession {
   app?: FastifyInstance
   /** Lead real cujo CONTEXTO o teste usa (só leitura — nada é gravado nele). */
   contextLeadId?: number | null
+  /** Número de WhatsApp simulado (recorte de portais do consultor por canal). */
+  cloudApiConnectionId?: number | null
   createdAt: number
 }
 
@@ -286,6 +288,8 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       if (eduSdrLigado(form)) {
         state.phase = 'handoff'
         const r = opt.route || {}
+        // O laço do simulador confere se o setor é "só direcionar" e mostra o aviso fixo.
+        ;(state as any).ultimoSetor = { teamId: r.teamId ?? null, label: stripTags(opt.label).replace(/\s*\(.*$/s, '').trim() }
         return JSON.stringify({ ok: true, simulacao: true, setor: stripTags(opt.label), noWhatsAppReal: `funil ${r.funnelId ?? '-'} / etapa ${r.stageKey ?? '-'} / equipe ${r.teamId ?? '-'}`, instrucao: instrucaoDepartamentoEdu(stripTags(opt.label)) })
       }
       return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado nos bastidores. NÃO mencione "setor"/"encaminhamento"; siga ajudando com naturalidade.' })
@@ -339,8 +343,12 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
     if (name === 'transferir_humano') {
       // Espelha a produção: quem PEDIU um humano (ou perdeu a paciência, ou pediu
       // proposta) não é interrogado antes — transfere na hora.
-      const missing = input?.pedido_do_lead || input?.sensivel === true ? [] : missingContactPreview(form, state.answers, contato)
+      const missing = input?.pedido_do_lead || input?.sensivel === true || input?.problema === true ? [] : missingContactPreview(form, state.answers, contato)
       if (missing.length) return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos', instrucao: `Antes de transferir, peça e salve (salvar_dados): ${missing.join(', ')}. Uma pergunta por vez.` })
+      if (input?.problema === true && input?.sensivel !== true) {
+        state.phase = 'handoff'
+        return JSON.stringify({ ok: true, problema: true, simulacao: true, noWhatsAppReal: 'nota de problema gravada e IA pausada nesta conversa', instrucao: 'Responda UMA única mensagem curta e genérica: diga que vai passar o atendimento para uma pessoa da equipe, que continua com ela por aqui, neste mesmo WhatsApp. NÃO tente resolver, NÃO explique a causa, NÃO concorde nem discorde do que a pessoa afirmou, NÃO prometa prazo nem resultado.' })
+      }
       if (input?.sensivel === true) {
         state.phase = 'handoff'
         return JSON.stringify({ ok: true, sensivel: true, simulacao: true, noWhatsAppReal: 'nota de insatisfação gravada e IA pausada nesta conversa', instrucao: 'Responda UMA única mensagem curta: acolha sem julgar, diga que uma pessoa da equipe vai assumir o atendimento por aqui e encerre. NÃO concorde com acusações nem dê razão contra a instituição, NÃO avalie o mérito, NÃO sugira outros canais, órgãos ou medidas, NÃO prometa prazo.' })
@@ -391,7 +399,7 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     : null
   const lead = real ?? { nome: '', whatsapp: '', email: '', cidade: '' }
   const eduBloco = edu
-    ? protocoloEdu(await resumoDoCatalogo(sess.app!).catch(() => ''), await contextoDoLead(sess.contextLeadId ?? null).catch(() => ''), true)
+    ? protocoloEdu(await resumoDoCatalogo(sess.app!, ((state as any).edu ||= {}).portais = portaisDoCanal(sess.form, sess.cloudApiConnectionId ?? real?.cloudApiConnectionId)).catch(() => ''), await contextoDoLead(sess.contextLeadId ?? null).catch(() => ''), true)
     : null
   const bh = edu ? await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null) : null
   // Marca vai junto no preview também: sem ela, {{brand_name}} sairia vazio no
@@ -406,7 +414,10 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     ? (await prisma.team.findUnique({ where: { id: cfgComercial.teamId }, select: { name: true } }).catch(() => null))?.name ?? null
     : null
   const qualificacao = qualificando ? blocoDeQualificacao(state.comercial?.perguntas ?? [], equipe) : null
-  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco, { cfg, qualificacao })
+  // Departamentos "só direcionar": mesmas instruções e o mesmo aviso fixo da produção.
+  const sd = edu ? somenteDirecionarDoChatbot(chatbot) : null
+  const blocoSd = blocoSomenteDirecionar(chavesSomenteDirecionar(form, sd)) || null
+  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, marca?.brandName ?? null, null, eduBloco, { cfg, qualificacao, somenteDirecionar: blocoSd })
   const tools = aiFerramentas(form, cfg, { qualificacao: qualificando })
   let replied = false
   let cobrouEncaminhamento = false
@@ -453,6 +464,12 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
         : await executeToolPreview(call.name, call.input, form, state, cfg)
       results.push({ type: 'tool_result', tool_use_id: call.id, content: r })
     }
+    const us = (state as any).ultimoSetor
+    delete (state as any).ultimoSetor
+    if (sd && us && us.teamId != null && sd.teamIds.has(Number(us.teamId))) {
+      if (empurrarMensagens(out, avisoDeDirecionamento(sd, us.label), [], estiloDaJornada(form))) replied = true
+      break
+    }
     messages.push({ role: 'user', content: results })
   }
   if (!replied) {
@@ -468,7 +485,7 @@ export interface PreviewResult { sessionId: string; messages: string[]; phase: s
 
 export async function startPreview(
   chatbotId: number,
-  opts: { app?: FastifyInstance; contextLeadId?: number | null; primeiraMensagem?: string; modoComercial?: 'auto' | 'qualifica' | 'completo' } = {},
+  opts: { app?: FastifyInstance; contextLeadId?: number | null; primeiraMensagem?: string; modoComercial?: 'auto' | 'qualifica' | 'completo'; cloudApiConnectionId?: number | null } = {},
 ): Promise<PreviewResult | { error: string }> {
   gc()
   const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } })
@@ -501,7 +518,7 @@ export async function startPreview(
     // A conversa abre com o que o lead escreveu primeiro ("Olá", se não vier
     // nada): é como testar a mensagem que já chega dizendo o que a pessoa quer.
     const aiMessages: LlmMsg[] = [{ role: 'user', content: opts.primeiraMensagem?.trim() || 'Olá' }]
-    const sess: PreviewSession = { chatbotId, chatbot, form: aform, kind: 'ai', state: { stepIndex: 0, answers: {}, phase: 'asking', fallbackCount: 0 }, aiState, aiMessages, app: opts.app, contextLeadId: opts.contextLeadId ?? null, createdAt: Date.now() }
+    const sess: PreviewSession = { chatbotId, chatbot, form: aform, kind: 'ai', state: { stepIndex: 0, answers: {}, phase: 'asking', fallbackCount: 0 }, aiState, aiMessages, app: opts.app, contextLeadId: opts.contextLeadId ?? null, cloudApiConnectionId: opts.cloudApiConnectionId ?? null, createdAt: Date.now() }
     await runAiLoop(sess, out)
     const sid = genId()
     sessions.set(sid, sess)

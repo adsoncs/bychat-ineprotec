@@ -36,9 +36,12 @@ import { planosDaOferta, resumoParaMostrar } from '../planoFinanceiro.js'
 import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, bloqueioDoDocumento, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
 import { descreverCondicao, campoCondicionalAtende } from '../docCondicional.js'
-import { validacaoDoContato, fichasDaMesmaPessoa } from './validacaoContato.js'
+import { validacaoDoContato, fichasDaMesmaPessoa, conhecidoDaPessoa } from './validacaoContato.js'
 
 export interface EduState {
+  /** Portais que este canal pode oferecer (slugs; `form.settings.eduSdr.portaisPorConexao`).
+   *  Vazio/ausente = todos os portais ativos. */
+  portais?: string[]
   /** Inscrição que esta conversa está conduzindo (criada aqui ou já existente). */
   registrationId?: number
   candidateCode?: string
@@ -59,6 +62,19 @@ export interface EduCtx {
 
 export function eduSdrLigado(form: any): boolean {
   return !!form?.settings?.eduSdr?.enabled
+}
+
+/**
+ * Portais que o número de WhatsApp oferece: `form.settings.eduSdr.portaisPorConexao`
+ * = { "<cloudApiConnectionId>": ["slug", ...] }. Instituição com duas empresas
+ * (cada uma no seu número) não mistura catálogo, preço nem portal. Sem config
+ * para o canal = todos os portais ativos (como sempre).
+ */
+export function portaisDoCanal(form: any, cloudApiConnectionId: number | null | undefined): string[] | undefined {
+  const mapa = form?.settings?.eduSdr?.portaisPorConexao
+  if (!mapa || typeof mapa !== 'object' || cloudApiConnectionId == null) return undefined
+  const lista = (mapa as any)[String(cloudApiConnectionId)]
+  return Array.isArray(lista) && lista.length ? lista.map((x: unknown) => String(x)) : undefined
 }
 
 const brl = (v: number | null | undefined) =>
@@ -128,7 +144,18 @@ interface PortalInfo {
 let cache: { em: number; ofertas: OfertaDoPortal[]; portais: Map<string, PortalInfo> } | null = null
 const CACHE_MS = 60_000
 
-async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal[]; portais: Map<string, PortalInfo> }> {
+/** Catálogo recortado aos portais do canal (ver portaisDoCanal). */
+async function catalogo(app: FastifyInstance, so?: string[] | null): Promise<{ ofertas: OfertaDoPortal[]; portais: Map<string, PortalInfo> }> {
+  const tudo = await catalogoCompleto(app)
+  if (!so?.length) return tudo
+  const permitidos = new Set(so)
+  return {
+    ofertas: tudo.ofertas.filter((o) => permitidos.has(o.portalSlug)),
+    portais: new Map([...tudo.portais].filter(([slug]) => permitidos.has(slug))),
+  }
+}
+
+async function catalogoCompleto(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal[]; portais: Map<string, PortalInfo> }> {
   if (cache && Date.now() - cache.em < CACHE_MS) return cache
   const lista = await prisma.enrollmentPortal.findMany({
     where: { active: true, formMode: { not: 'interest' } },
@@ -273,8 +300,8 @@ async function documentosDaOferta(processoId: number | null | undefined) {
 }
 
 /** Resumo para o prompt: níveis → cursos. Só nomes (os detalhes vêm por ferramenta). */
-export async function resumoDoCatalogo(app: FastifyInstance): Promise<string> {
-  const { ofertas } = await catalogo(app).catch(() => ({ ofertas: [] as OfertaDoPortal[] }))
+export async function resumoDoCatalogo(app: FastifyInstance, portais?: string[] | null): Promise<string> {
+  const { ofertas } = await catalogo(app, portais).catch(() => ({ ofertas: [] as OfertaDoPortal[] }))
   if (!ofertas.length) return ''
   // O mesmo curso pode ter uma oferta por forma de ingresso (graduação:
   // vestibular, ENEM, segunda graduação, transferência) — aparece UMA vez, com
@@ -351,6 +378,9 @@ export async function contextoDoLead(leadId: number | null): Promise<string> {
       .map(([k, v]) => `- ${limpar(rotulo.get(k) || k, 140)}: ${limpar(Array.isArray(v) ? v.join(', ') : v, 300)}`)
     if (itens.length) linhas.push(`Campos personalizados já preenchidos:\n${itens.join('\n')}`)
   }
+
+  const conhecido = await conhecidoDaPessoa(leadId).catch(() => '')
+  if (conhecido) linhas.push(conhecido)
 
   if (lead.notes.length) {
     linhas.push(`Anotações da equipe (mais recentes primeiro):\n${lead.notes.map((n) => `- ${n.createdAt.toLocaleDateString('pt-BR')}${n.userName ? ` (${n.userName})` : ''}: ${limpar(n.content, 400)}`).join('\n')}`)
@@ -593,7 +623,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
   const edu = (ctx.state.edu ||= {})
   try {
     if (name === 'consultar_cursos') {
-      const { ofertas } = await catalogo(app)
+      const { ofertas } = await catalogo(app, edu.portais)
       const busca = semAcento(String(input?.busca || '').trim())
       const nivel = semAcento(String(input?.nivel || '').trim())
       const palavras = busca.split(/\s+/).filter((w) => w.length >= 3 && !['curso', 'tecnico', 'em', 'de'].includes(w))
@@ -621,7 +651,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
     }
 
     if (name === 'detalhes_do_curso') {
-      const { ofertas, portais } = await catalogo(app)
+      const { ofertas, portais } = await catalogo(app, edu.portais)
       const o = ofertas.find((x) => x.offeringId === Number(input?.offeringId))
       if (!o) return erro('Oferta não encontrada no portal.', 'Chame consultar_cursos para achar o offeringId certo.')
       const campusEscolhido = input?.campusId && o.polos.some((x) => x.id === Number(input.campusId)) ? Number(input.campusId) : null
@@ -700,7 +730,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
     }
 
     if (name === 'fazer_inscricao') {
-      const { ofertas, portais } = await catalogo(app)
+      const { ofertas, portais } = await catalogo(app, edu.portais)
       const o = ofertas.find((x) => x.offeringId === Number(input?.offeringId))
       if (!o) return erro('Oferta não encontrada no portal.', 'Chame consultar_cursos e confirme o curso com o lead.')
       if (input?.aceite_privacidade !== true) return erro('Falta o aceite da política de privacidade.', 'Peça ao lead, em uma frase, o aceite para usar os dados dele na inscrição, conforme a política de privacidade. Só prossiga com um "sim" claro.')
@@ -772,7 +802,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
     if (name === 'dados_da_etapa') {
       const etapa = String(input?.etapa || 'cadastro')
       if (ctx.dryRun && edu.simulada) {
-        const { portais } = await catalogo(app)
+        const { portais } = await catalogo(app, edu.portais)
         const p = portais.get(edu.simulada.portalSlug)
         const cfg = p ? await dadosEfetivos({ jornadaEtapas: p.jornadaEtapas }).catch(() => null) : null
         const campos = cfg ? camposDaEtapa(cfg, etapa as any) : []
@@ -804,7 +834,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
     if (name === 'opcoes_de_pagamento') {
       const cupom = String(input?.cupom || '').trim()
       if (ctx.dryRun && edu.simulada) {
-        const { ofertas, portais } = await catalogo(app)
+        const { ofertas, portais } = await catalogo(app, edu.portais)
         const o = ofertas.find((x) => x.offeringId === edu.simulada!.offeringId)
         void portais
         return ok({ simulacao: true, meios: o?.pagamento?.meios ?? [], precos: o ? condicoesDosPlanos(o) : null, cupom: cupom ? 'cupom não é validado na simulação' : undefined })

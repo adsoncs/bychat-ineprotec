@@ -370,5 +370,25 @@ export async function fichasDaConta(leadId: number): Promise<number[]> {
       if (mesmoCpf) { vistas.add(id); fila.push(id) }
     }
   }
+  // Mesmo CPF e mesma empresa, mesmo sem a equipe ter ligado as fichas: todas
+  // as inscrições da pessoa aparecem no portal dela para escolher. Empresa
+  // diferente (ex.: Ineprotec × Matrícula EAD) fica no portal da própria
+  // empresa. Caso Edilvo, 27/11/2026: 3 inscrições em 3 fichas "pendentes de
+  // revisão" e o portal mostrava só uma, sem a escolha de curso.
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    `SELECT leadId AS id FROM bychat_portal_accounts WHERE cpf = ?
+     UNION SELECT leadId AS id FROM bychat_enrollment_registrations WHERE leadId IS NOT NULL AND mergedIntoId IS NULL
+       AND REGEXP_REPLACE(JSON_UNQUOTE(JSON_EXTRACT(formData, '$.cpf')), '[^0-9]', '') = ?
+     LIMIT 30`, cpf, cpf,
+  ).catch(() => [] as Array<{ id: number }>)
+  const novas = [...new Set(rows.map((r) => Number(r.id)))].filter((id) => Number.isInteger(id) && !vistas.has(id))
+  if (novas.length) {
+    const { unidadeDoLead } = await import('../lib/identidadeDaUnidade.js')
+    const minha = await unidadeDoLead(leadId).catch(() => null)
+    for (const id of novas) {
+      const dela = await unidadeDoLead(id).catch(() => null)
+      if (dela === minha) vistas.add(id)
+    }
+  }
   return [...vistas]
 }

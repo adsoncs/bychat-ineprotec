@@ -620,6 +620,8 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       actorType: 'operator', userId: u.userId, userName: nome,
     })
     ;(await import('../services/funilDaJornada.js')).sincronizarFunil(reg.id)
+    // Curso novo pode exigir outros documentos: os já aprovados da pessoa valem.
+    await import('../services/documentosReaproveitados.js').then((m) => m.reaproveitarDocumentosAprovados(reg.id)).catch(() => {})
     return { ok: true, avisos }
   })
 }
