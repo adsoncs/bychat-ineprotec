@@ -1889,12 +1889,10 @@ export async function processAiJourneyMessage(
 ): Promise<void> {
   // Rajada vale para o consultor educacional e, com ritmo humano ligado
   // (`ai.journey.human_pace_seconds`), para qualquer jornada.
-  // Mídia sem texto com a leitura desligada não entra na conta: ela não gera
-  // resposta, e contá-la faria a mensagem de texto anterior ceder a vez a quem
-  // não vai responder — a pessoa ficaria sem resposta nenhuma.
+  // Mídia sem texto também gera resposta (27/11/2026: "nunca deixe o cliente
+  // sem resposta"), então entra na rajada como qualquer mensagem.
   const cfgEntrada = await configDaJornada()
-  const semResposta = !String(text || '').trim() && !!media && !cfgEntrada.lerMidia
-  const rajada = !semResposta && (eduSdrLigado(form) || cfgEntrada.ritmoHumanoMs > 0)
+  const rajada = eduSdrLigado(form) || cfgEntrada.ritmoHumanoMs > 0
   if (rajada) {
     pendentes.set(phone, (pendentes.get(phone) ?? 0) + 1)
     ultimaChegada.set(phone, Date.now())
@@ -1911,6 +1909,40 @@ export async function processAiJourneyMessage(
   )
   locks.set(phone, run.then(() => undefined))
   await run
+}
+
+// ── Troca de setor depois da entrega ──────────────────────────────────────
+// A pessoa foi entregue a um setor e, antes de alguém da equipe responder, pede
+// outro ("na verdade é na secretaria"). Só casa com o NOME do setor escrito na
+// mensagem (Financeiro, Secretaria, Comercial), nunca com o assunto.
+async function trocarSetorSePediu(leadId: number, text: string, form: any, chatbot: any, pausa: { at: string; setor?: string | null }):
+  Promise<{ setor: string; aviso: string } | null> {
+  const desde = new Date(pausa.at)
+  const nomes = new Set((await prisma.user.findMany({ select: { name: true } }).catch(() => [] as Array<{ name: string }>)).map((u) => u.name))
+  const falas = await prisma.message.findMany({ where: { leadId, fromMe: true, isInternal: false, timestamp: { gt: desde } }, select: { senderName: true } }).catch(() => [] as Array<{ senderName: string | null }>)
+  if (falas.some((m) => m.senderName && nomes.has(m.senderName))) return null // a equipe já está atendendo
+  const n = (t: string) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  const palavras = new Set(n(text).split(' '))
+  const routeField = (form?.fields || []).find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+  if (!routeField) return null
+  const atual = n(pausa.setor ?? '')
+  const pedidas = routeField.options.filter((o: any) => o?.route?.teamId != null && !o.route.fallback).filter((o: any) => {
+    const nome = stripTags(o.label).replace(/\s*\(.*$/s, '').trim()
+    const chaves = [...n(nome).split(' '), n(String(o.value ?? ''))].filter((w) => w.length >= 5 && w !== 'equipe')
+    return chaves.some((w) => palavras.has(w)) && n(nome) !== atual
+  })
+  if (pedidas.length !== 1) return null
+  const opt = pedidas[0]
+  const nome = stripTags(opt.label).replace(/\s*\(.*$/s, '').trim()
+  await enviarParaEquipe(leadId, { teamId: opt.route.teamId, funnelId: opt.route.funnelId ?? null, stageKey: opt.route.stageKey, userIds: opt.route.userIds }, 'chatbot')
+  const l = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+  const fd: any = { ...((l?.formData || {}) as object) }
+  if (fd._botPaused) fd._botPaused = { ...fd._botPaused, setor: nome }
+  await prisma.lead.update({ where: { id: leadId }, data: { formData: fd } }).catch(() => {})
+  logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: pessoa pediu outro setor — ${pausa.setor ?? '?'} → ${nome}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+  const sd = somenteDirecionarDoChatbot(chatbot)
+  const aviso = sd ? avisoDeDirecionamento(sd, nome) : `Pronto! Seu atendimento foi direcionado para a equipe *${nome}*. Uma pessoa da equipe vai te responder por aqui.`
+  return { setor: nome, aviso }
 }
 
 // ── Encerrar pelo contato ─────────────────────────────────────────────────
@@ -2056,10 +2088,13 @@ async function _process(
   // responder (ela não vê a foto) — como sempre, o bot não responde. A mensagem
   // só é gravada (com o anexo) se ainda não foi e o contato já tem ficha; sem
   // ficha, segue como antes: quem cria o lead é a primeira mensagem de texto.
-  if (!String(text || '').trim() && media && !cfg.lerMidia) {
-    if (lead && !media.saved) await saveIncoming(lead.id, '')
-    return
-  }
+  // Com ficha, a IA responde mesmo sem ver o arquivo: confirma o recebimento e
+  // segue (o consultor anexa o documento pela lista de arquivos do contexto).
+  // Antes ficava calada e a pessoa mandava o documento e não ouvia nada
+  // (ineprotec, 27/11/2026). Sem ficha, segue como antes: quem cria o lead é a
+  // primeira mensagem de texto.
+  const midiaSemLeitura = !String(text || '').trim() && !!media && !cfg.lerMidia
+  if (midiaSemLeitura && !lead) return
 
   const fd: any = (lead?.formData as any) || {}
   let state: AiState | null = fd._aiJourney || null
@@ -2133,6 +2168,19 @@ async function _process(
     if (paused) {
       await saveIncoming(leadId, text)
       await reabrirSeResolvida(leadId)
+      // Entregue a um setor pela própria IA ("só direcionar") e ninguém da
+      // equipe respondeu ainda: se a pessoa pede OUTRO setor, troca o
+      // encaminhamento e avisa — antes ficava sem resposta até alguém ver
+      // (ineprotec, 27/11/2026). Liga em scriptedConfig.somenteDirecionar.trocaDeSetor.
+      if (paused.reason === 'handoff' && (chatbot?.scriptedConfig as any)?.somenteDirecionar?.trocaDeSetor === true) {
+        const troca = await trocarSetorSePediu(leadId, text, form, chatbot, paused).catch(() => null)
+        if (troca) {
+          const r = await sendFn(phone, troca.aviso).catch(() => ({ messageId: null as any }))
+          await saveOutgoing(leadId, troca.aviso, r?.messageId ?? null)
+          app.log.info(`[aiJourney] lead ${leadId}: pediu outro setor depois da entrega — ${paused.setor ?? '?'} → ${troca.setor}`)
+          return
+        }
+      }
       app.log.info(`[aiJourney] lead ${leadId}: bot pausado (humano assumiu em ${paused.at}) — sem resposta automática`)
       return
     }
@@ -2269,6 +2317,11 @@ async function _process(
     const userContent = await buildUserTurnContent(text, media)
     if (messages.length && messages[messages.length - 1].role === 'user') messages[messages.length - 1].content = userContent
     else messages.push({ role: 'user', content: userContent })
+  } else if (midiaSemLeitura) {
+    const tipo = media?.type === 'image' ? 'uma foto' : media?.type === 'audio' ? 'um áudio' : media?.type === 'video' ? 'um vídeo' : 'um arquivo'
+    const aviso = `[aviso interno do sistema, não é a pessoa] A pessoa enviou ${tipo}${media?.name ? ` (${media.name})` : ''} pelo chat, sem texto. Você não vê o conteúdo. Responda sempre: confirme numa frase que recebeu e siga o próximo passo da conversa. Se for um documento que a matrícula pede, anexe com a ferramenta de documento usando o arquivo da lista "Arquivos que o contato enviou no chat". Não descreva nem avalie o conteúdo do arquivo.`
+    if (messages.length && messages[messages.length - 1].role === 'user') messages[messages.length - 1].content = aviso
+    else messages.push({ role: 'user', content: aviso })
   } else if (!messages.length || messages[messages.length - 1].role !== 'user') {
     messages.push({ role: 'user', content: text })
   }
