@@ -1018,11 +1018,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       logo:    { field: 'brandLogoUrl',    mimes: ['image/png','image/jpeg','image/webp','image/svg+xml','image/gif'], maxBytes: 1024 * 1024, allowedExts: ['.png','.jpg','.jpeg','.webp','.svg','.gif'] },
       favicon: { field: 'brandFaviconUrl', mimes: ['image/png','image/x-icon','image/vnd.microsoft.icon','image/svg+xml'], maxBytes: 200 * 1024, allowedExts: ['.png','.ico','.svg'] },
       hero:    { field: 'brandHeroUrl',    mimes: ['image/png','image/jpeg','image/webp'], maxBytes: 4 * 1024 * 1024, allowedExts: ['.png','.jpg','.jpeg','.webp'] },
+      // Ícone do portal NO PAINEL (identidadePainel.imagem): logo da empresa no
+      // lugar do ícone da lista. PNG sem fundo ou ICO.
+      icone:   { field: 'identidadePainel', mimes: ['image/png','image/x-icon','image/vnd.microsoft.icon','image/ico','application/octet-stream'], maxBytes: 512 * 1024, allowedExts: ['.png','.ico'] },
     }
     const spec = KINDS[kind]
-    if (!spec) return reply.code(400).send({ error: 'kind deve ser logo, favicon ou hero' })
+    if (!spec) return reply.code(400).send({ error: 'kind deve ser logo, favicon, hero ou icone' })
 
-    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true } })
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true, identidadePainel: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
 
     const data = await req.file()
@@ -1041,11 +1044,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     // Remove versão anterior (qualquer extensão), evita acumular órfãos.
     for (const oldExt of spec.allowedExts) {
-      const old = join(portalDir, `${kind}${oldExt}`)
+      const old = join(portalDir, `${kind === 'icone' ? 'icone-painel' : kind}${oldExt}`)
       if (existsSync(old)) await unlink(old).catch(() => {})
     }
 
-    const fileName = `${kind}${ext}`
+    const fileName = `${kind === 'icone' ? 'icone-painel' : kind}${ext}`
     const filePath = join(portalDir, fileName)
     let total = 0
     // Buffer + validação de magic bytes + sanitização de SVG antes de gravar (A8/M6).
@@ -1067,7 +1070,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Cache-buster com mtime para forçar refresh em cdn/browser.
     const url = `/uploads/portals/${portalId}/${fileName}?v=${Date.now()}`
     const updateData: any = {}
-    updateData[spec.field] = url
+    if (kind === 'icone') {
+      const atual = (portal.identidadePainel && typeof portal.identidadePainel === 'object' ? portal.identidadePainel : {}) as Record<string, unknown>
+      updateData.identidadePainel = lerIdentidadePainel({ ...atual, imagem: url }) ?? Prisma.DbNull
+    } else {
+      updateData[spec.field] = url
+    }
     await prisma.enrollmentPortal.update({ where: { id: portalId }, data: updateData })
 
     return { ok: true, url, kind, sizeBytes: total }
@@ -1078,18 +1086,25 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const portalId = parseInt(id)
     const kind = String((req.query as any)?.kind || '').toLowerCase()
-    const fieldMap: Record<string, string> = { logo: 'brandLogoUrl', favicon: 'brandFaviconUrl', hero: 'brandHeroUrl' }
+    const fieldMap: Record<string, string> = { logo: 'brandLogoUrl', favicon: 'brandFaviconUrl', hero: 'brandHeroUrl', icone: 'identidadePainel' }
     const field = fieldMap[kind]
-    if (!field) return reply.code(400).send({ error: 'kind inválido' })
+    if (!field || !portalId) return reply.code(400).send({ error: 'kind inválido' })
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true, identidadePainel: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
 
     const portalDir = join(_portalUploadsBase, String(portalId))
     if (existsSync(portalDir)) {
       for (const ext of ['.png','.jpg','.jpeg','.webp','.svg','.gif','.ico']) {
-        const f = join(portalDir, `${kind}${ext}`)
+        const f = join(portalDir, `${kind === 'icone' ? 'icone-painel' : kind}${ext}`)
         if (existsSync(f)) await unlink(f).catch(() => {})
       }
     }
-    await prisma.enrollmentPortal.update({ where: { id: portalId }, data: { [field]: null } })
+    if (kind === 'icone') {
+      const atual = (portal.identidadePainel && typeof portal.identidadePainel === 'object' ? portal.identidadePainel : {}) as Record<string, unknown>
+      await prisma.enrollmentPortal.update({ where: { id: portalId }, data: { identidadePainel: (lerIdentidadePainel({ ...atual, imagem: null }) as any) ?? Prisma.DbNull } })
+    } else {
+      await prisma.enrollmentPortal.update({ where: { id: portalId }, data: { [field]: null } })
+    }
     return { ok: true }
   })
 

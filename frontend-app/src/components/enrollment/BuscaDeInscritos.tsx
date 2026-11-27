@@ -127,7 +127,7 @@ export function BuscaDeInscritos({
                         style={{ borderLeft: `3px solid ${id.cor}` }}
                         title={`Abrir a inscrição ${i.codigo} no portal ${i.portal?.nome ?? ''}`}
                       >
-                        <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={28} />
+                        <SeloDoPortal icone={id.icone} cor={id.cor} imagem={id.imagem} tamanho={28} />
                         <span class="min-w-0 flex-1">
                           <span class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                             <span class="truncate text-xs font-semibold text-fg">{i.portal?.nome ?? `Portal #${i.portalId}`}</span>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { createPortal } from 'preact/compat'
-import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreVertical, ChevronRight, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
+import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreVertical, ChevronRight, Upload, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useEnrollmentPortals,
@@ -9,6 +9,8 @@ import {
   useUpdateEnrollmentPortal,
   useDeleteEnrollmentPortal,
   useDuplicatePortal,
+  useUploadPortalAsset,
+  useDeletePortalAsset,
   checkPortalSlug,
   type CheckSlugResult,
   type EnrollmentPortal,
@@ -331,7 +333,7 @@ function PortalCard({
       class={`group flex items-center gap-3 rounded-lg border border-border bg-surface-2 pl-3 pr-1.5 py-2.5 cursor-pointer select-none transition-all hover:shadow-md hover:-translate-y-px hover:border-[color:var(--cor)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${p.active ? '' : 'opacity-60'}`}
       style={{ borderLeft: `3px solid ${id.cor}`, ['--cor' as any]: id.cor }}
     >
-      <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={36} />
+      <SeloDoPortal icone={id.icone} cor={id.cor} imagem={id.imagem} tamanho={36} />
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5 min-w-0">
           <span class="text-sm font-semibold text-fg truncate group-hover:text-[color:var(--cor)]">{p.nome}</span>
@@ -500,6 +502,7 @@ function PortalFormModal({
     descricao: portal?.identidadePainel?.descricao ?? null,
     ordem: portal?.identidadePainel?.ordem ?? null,
     mostrarPolo: portal?.identidadePainel?.mostrarPolo === true,
+    imagem: portal?.identidadePainel?.imagem ?? null,
   })
 
   const create = useCreateEnrollmentPortal()
@@ -648,6 +651,7 @@ function PortalFormModal({
           nome={nome}
           codePrefix={codePrefix}
           corDaMarca={portal?.brandPrimaryColor ?? null}
+          portalId={portal?.id ?? null}
           polos={(portal?.polos ?? []).map((x) => x.nome)}
           empresas={[...new Set(existingPortals.map((p) => p.identidadePainel?.empresa).filter((x): x is string => !!x))]}
         />
@@ -807,8 +811,10 @@ function PortalFormModal({
 
 // Ícone, cor, empresa, descrição interna e ordem — só a equipe vê. A prévia
 // mostra o card como vai ficar na lista de portais.
-function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, empresas, polos }: {
+function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, empresas, polos, portalId }: {
   polos: string[]
+  /** Sem id (portal novo) não dá para enviar a imagem ainda: o arquivo mora na pasta do portal. */
+  portalId: number | null
   valor: IdentidadePainel
   onChange: (v: IdentidadePainel) => void
   nome: string
@@ -829,7 +835,7 @@ function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, emp
 
       {/* Prévia */}
       <div class="rounded-lg border border-border bg-surface-2 p-3 flex items-center gap-3" style={{ borderLeft: `3px solid ${id.cor}` }}>
-        <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={44} />
+        <SeloDoPortal icone={id.icone} cor={id.cor} imagem={id.imagem} tamanho={44} />
         <div class="min-w-0">
           <div class="text-sm font-semibold text-fg truncate">{nome.trim() || 'Nome do portal'}</div>
           <div class="mt-1 flex items-center gap-1.5 flex-wrap text-2xs">
@@ -844,9 +850,10 @@ function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, emp
 
       <div>
         <div class="text-xs font-medium text-fg mb-1.5">Ícone</div>
+        <ImagemDoIcone portalId={portalId} imagem={valor.imagem ?? null} cor={id.cor} onChange={(imagem) => pôr({ imagem })} />
         <div class="grid grid-cols-8 sm:grid-cols-12 gap-1" role="radiogroup" aria-label="Ícone do portal">
           {ICONES_PORTAL.map(({ chave, rotulo, Icone }) => {
-            const sel = id.icone === chave
+            const sel = !valor.imagem && id.icone === chave
             return (
               <button
                 key={chave}
@@ -855,7 +862,7 @@ function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, emp
                 aria-checked={sel}
                 aria-label={rotulo}
                 title={rotulo}
-                onClick={() => pôr({ icone: chave })}
+                onClick={() => pôr({ icone: chave, imagem: null })}
                 class={`aspect-square rounded-md grid place-items-center border transition-colors ${sel ? '' : 'border-transparent text-fg-muted hover:bg-surface-3 hover:text-fg'}`}
                 style={sel ? { background: tinta(id.cor, 16), color: id.cor, borderColor: tinta(id.cor, 50) } : undefined}
               >
@@ -944,6 +951,64 @@ function IdentidadeNoPainel({ valor, onChange, nome, codePrefix, corDaMarca, emp
         hint="Uma linha para a equipe saber para que serve o portal."
       />
     </Section>
+  )
+}
+
+// Logo da empresa no lugar do ícone: PNG sem fundo ou ICO, até 512 KB. Sobe na
+// hora (como o logo da aba Aparência) e já fica gravado; escolher um ícone da
+// grade volta para o ícone (vale ao salvar).
+function ImagemDoIcone({ portalId, imagem, cor, onChange }: {
+  portalId: number | null
+  imagem: string | null
+  cor: string
+  onChange: (imagem: string | null) => void
+}) {
+  const upload = useUploadPortalAsset(portalId ?? 0)
+  const remover = useDeletePortalAsset(portalId ?? 0)
+  const input = useRef<HTMLInputElement>(null)
+  const ocupado = upload.isPending || remover.isPending
+
+  function enviar(f: File | undefined) {
+    if (!f || !portalId) return
+    const ext = f.name.toLowerCase().split('.').pop()
+    if (ext !== 'png' && ext !== 'ico') { toast('Use PNG (sem fundo) ou ICO', 'danger'); return }
+    if (f.size > 512 * 1024) { toast('Imagem muito grande (máximo 512 KB)', 'danger'); return }
+    upload.mutate({ kind: 'icone', file: f }, {
+      onSuccess: (r) => { onChange(r.url); toast('Imagem do ícone enviada', 'success') },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  if (!portalId) {
+    return <div class="mb-2 text-2xs text-fg-muted">Para usar o logo da empresa (PNG sem fundo ou ICO), salve o portal e depois volte em Editar.</div>
+  }
+  return (
+    <div class="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border p-2">
+      <span class="size-10 rounded-lg grid place-items-center shrink-0 ring-1 ring-inset overflow-hidden"
+        style={{ background: tinta(cor, 8), ['--tw-ring-color' as any]: tinta(cor, 35) }}>
+        {imagem
+          ? <img src={imagem} alt="Imagem do ícone" class="size-8 object-contain" />
+          : <Upload size={16} class="text-fg-muted" />}
+      </span>
+      <div class="min-w-0 flex-1 text-2xs text-fg-muted">
+        <div class="text-xs font-medium text-fg">{imagem ? 'Usando imagem própria' : 'Usar o logo da empresa'}</div>
+        PNG sem fundo ou ICO, até 512 KB. Fica no lugar do ícone.
+      </div>
+      <input ref={input} type="file" accept=".png,.ico,image/png,image/x-icon,image/vnd.microsoft.icon" class="hidden"
+        onChange={(e) => { const el = e.target as HTMLInputElement; enviar(el.files?.[0]); el.value = '' }} />
+      <Button type="button" size="sm" variant="secondary" disabled={ocupado} onClick={() => input.current?.click()}>
+        {upload.isPending ? <Loader2 size={14} class="animate-spin" /> : <Upload size={14} />} {imagem ? 'Trocar' : 'Enviar imagem'}
+      </Button>
+      {imagem && (
+        <Button type="button" size="sm" variant="ghost" disabled={ocupado}
+          onClick={() => remover.mutate('icone', {
+            onSuccess: () => { onChange(null); toast('Voltou para o ícone', 'success') },
+            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          })}>
+          <Trash2 size={14} /> Remover
+        </Button>
+      )}
+    </div>
   )
 }
 

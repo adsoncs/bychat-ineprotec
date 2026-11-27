@@ -170,6 +170,8 @@ export interface IdentidadePainel {
   ordem: number | null
   /** Mostra o polo no card e na faixa da inscrição, quando houver. */
   mostrarPolo?: boolean
+  /** Logo próprio (PNG sem fundo ou ICO) no lugar do ícone. Gravado pelo upload kind=icone. */
+  imagem?: string | null
 }
 
 export interface EnrollmentPortalInput {
@@ -329,7 +331,7 @@ export function useUpdatePortalBranding(id: number) {
   })
 }
 
-export type PortalAssetKind = 'logo' | 'favicon' | 'hero'
+export type PortalAssetKind = 'logo' | 'favicon' | 'hero' | 'icone'
 
 export function useUploadPortalAsset(id: number) {
   const qc = useQueryClient()

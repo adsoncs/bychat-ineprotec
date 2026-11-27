@@ -80,25 +80,29 @@ export function identidadeDo(p: Pick<EnrollmentPortal, 'identidadePainel'> | nul
     descricao: i.descricao || null,
     ordem: i.ordem ?? null,
     mostrarPolo: i.mostrarPolo === true,
-    configurada: !!(i.icone || i.cor),
+    imagem: i.imagem || null,
+    configurada: !!(i.icone || i.cor || i.imagem),
   }
 }
 
 /** Fundo e borda tingidos pela cor do portal (mistura com transparente: vale nos dois temas). */
 export const tinta = (cor: string, pct: number) => `color-mix(in srgb, ${cor} ${pct}%, transparent)`
 
-/** O "selo" do portal: quadrado com o ícone na cor do portal. */
-export function SeloDoPortal({ icone, cor, tamanho = 40, class: className }: {
-  icone: string | null | undefined; cor: string; tamanho?: number; class?: string
+/** O "selo" do portal: quadrado com o ícone na cor do portal — ou, quando o
+ *  portal tem imagem própria (logo PNG sem fundo / ICO), a imagem no lugar. */
+export function SeloDoPortal({ icone, cor, imagem, tamanho = 40, class: className }: {
+  icone: string | null | undefined; cor: string; imagem?: string | null; tamanho?: number; class?: string
 }) {
   const I = iconeDaChave(icone)
   return (
     <span
-      class={cn('rounded-lg grid place-items-center shrink-0 ring-1 ring-inset', className)}
-      style={{ width: tamanho, height: tamanho, background: tinta(cor, 16), color: cor, ['--tw-ring-color' as any]: tinta(cor, 35) }}
+      class={cn('rounded-lg grid place-items-center shrink-0 ring-1 ring-inset overflow-hidden', className)}
+      style={{ width: tamanho, height: tamanho, background: tinta(cor, imagem ? 8 : 16), color: cor, ['--tw-ring-color' as any]: tinta(cor, 35) }}
       aria-hidden="true"
     >
-      <I size={Math.round(tamanho * 0.45)} />
+      {imagem
+        ? <img src={imagem} alt="" loading="lazy" draggable={false} class="object-contain" style={{ width: Math.round(tamanho * 0.78), height: Math.round(tamanho * 0.78) }} />
+        : <I size={Math.round(tamanho * 0.45)} />}
     </span>
   )
 }
@@ -115,7 +119,7 @@ export function EtiquetaDoPortal({ portal, class: className }: {
       style={{ background: tinta(id.cor, 14), color: id.cor }}
       title={id.empresa ? `${portal.nome} · ${id.empresa}` : portal.nome}
     >
-      <I size={12} />
+      {id.imagem ? <img src={id.imagem} alt="" class="size-3.5 object-contain" /> : <I size={12} />}
       <span class="truncate text-fg">{portal.nome}</span>
       {id.empresa && <span class="truncate opacity-80">· {id.empresa}</span>}
     </span>
@@ -136,7 +140,7 @@ export function FaixaDoPortal({ portal, rotulo, polos }: {
       class="rounded-lg border border-border bg-surface-2 px-3 py-2.5 flex items-center gap-3"
       style={{ borderLeft: `3px solid ${id.cor}`, background: `linear-gradient(90deg, ${tinta(id.cor, 9)}, transparent 60%)` }}
     >
-      <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={36} />
+      <SeloDoPortal icone={id.icone} cor={id.cor} imagem={id.imagem} tamanho={36} />
       <div class="min-w-0 flex-1">
         {rotulo && <div class="text-3xs uppercase tracking-wider text-fg-muted">{rotulo}</div>}
         <div class="flex items-center gap-2 flex-wrap">
