@@ -140,6 +140,12 @@ export async function aplicarFiltrosAvancados(q: any, whereAnd: any[]): Promise<
   push(inOuNulo('aiScoreLabel', scores.vals.filter((s) => ['hot', 'warm', 'cold'].includes(s)), scores.sem))
   const resumos = inteiros(q.statusSummaryIds)
   push(inOuNulo('statusSummaryId', resumos.ids, resumos.sem, false))
+  // Motivo da perda: a barra mandava lossReasonIds e nada aqui lia — o filtro
+  // não filtrava (27/11/2026). Só lead perdido: a ficha reaberta guarda o
+  // motivo antigo, e as opções da barra também contam só os perdidos.
+  const motivos = inteiros(q.lossReasonIds)
+  const porMotivo = inOuNulo('lostReasonId', motivos.ids, motivos.sem, false)
+  if (porMotivo) push({ AND: [{ outcome: 'lost' }, porMotivo] })
   if (q.duplicate === '1') push({ duplicateStatus: 'pending_review' })
   if (q.saleDetected === '1') push({ saleDetected: true })
 
