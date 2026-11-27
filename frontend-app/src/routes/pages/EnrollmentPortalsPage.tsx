@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { createPortal } from 'preact/compat'
-import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
+import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreVertical, ChevronRight, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle, Search, Check } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useEnrollmentPortals,
@@ -26,7 +26,6 @@ import { Input, Textarea, Select, Switch } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { ColorPicker } from '@/components/ui/ColorPicker'
-import { formatRelative } from '@/lib/format'
 import { ICONES_PORTAL, CORES_PORTAL, SeloDoPortal, PolosDoPortal, identidadeDo, tinta } from '@/lib/identidadePortal'
 import { useBuscaDeInscritos, type IdentidadePainel } from '@/hooks/useEnrollmentPortals'
 import { BuscaDeInscritos, caminhoDaInscricao } from '@/components/enrollment/BuscaDeInscritos'
@@ -83,8 +82,8 @@ export function EnrollmentPortalsPage() {
       )}
 
       {isLoading && (
-        <div class="grid gap-2 grid-cols-1 lg:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-28 w-full" />)}
+        <div class="grid gap-2 grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-14 w-full" />)}
         </div>
       )}
 
@@ -290,7 +289,7 @@ function ListaDePortais({ portals, renderCard }: {
               <span class="text-2xs text-fg-muted tabular-nums">{g.itens.length} portal(is)</span>
             </div>
           )}
-          <div class="grid gap-3 grid-cols-1 lg:grid-cols-2">{g.itens.map(renderCard)}</div>
+          <div class="grid gap-2 grid-cols-1 md:grid-cols-2 2xl:grid-cols-3">{g.itens.map(renderCard)}</div>
         </section>
       ))}
     </div>
@@ -310,71 +309,51 @@ function PortalCard({
   onDelete: () => void
   onDuplicate: () => void
 }) {
-  const formModeLabel = p.formMode === 'interest' ? 'Captura de interesse' : 'Inscrição completa'
   const publicUrl = p.customDomain
     ? `https://${p.customDomain}/portal/${p.slug}`
     : `${window.location.origin}/portal/${p.slug}`
   const id = identidadeDo(p)
-  const r = p.resumo
   const copiar = (e: Event) => {
     e.stopPropagation()
-    void navigator.clipboard.writeText(publicUrl).then(() => toast('URL copiada', 'success'))
+    void navigator.clipboard.writeText(publicUrl).then(() => toast('Link do portal copiado', 'success'))
   }
+  const acao = 'shrink-0 size-9 sm:size-8 grid place-items-center rounded-md text-fg-muted hover:text-fg hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
 
+  // O card inteiro abre o portal (inscrições e configurações). As ações ficam
+  // à vista, à direita; só Duplicar/Excluir/Embed vão no menu "Mais".
   return (
     <div
-      class={`relative rounded-lg border border-border bg-surface-2 overflow-hidden transition-shadow hover:shadow-md ${p.active ? '' : 'opacity-75'}`}
-      style={{ borderLeft: `3px solid ${id.cor}` }}
+      role="link"
+      tabIndex={0}
+      aria-label={`Abrir ${p.nome}`}
+      onClick={onOpen}
+      onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onOpen() } }}
+      class={`group flex items-center gap-3 rounded-lg border border-border bg-surface-2 pl-3 pr-1.5 py-2.5 cursor-pointer select-none transition-all hover:shadow-md hover:-translate-y-px hover:border-[color:var(--cor)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${p.active ? '' : 'opacity-60'}`}
+      style={{ borderLeft: `3px solid ${id.cor}`, ['--cor' as any]: id.cor }}
     >
-      <div class="p-4 flex items-start gap-3">
-        <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={44} />
-        <button type="button" class="min-w-0 flex-1 text-left" onClick={onOpen}>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-semibold text-fg truncate hover:text-accent">{p.nome}</span>
-            <span
-              class={`inline-flex items-center gap-1 rounded-full px-1.5 py-px text-3xs font-medium uppercase tracking-wide ${p.active ? 'bg-success/15 text-success' : 'bg-surface-3 text-fg-muted'}`}
-            >
-              <span class={`size-1.5 rounded-full ${p.active ? 'bg-success' : 'bg-fg-muted'}`} />
-              {p.active ? 'Ativo' : 'Inativo'}
-            </span>
-          </div>
-          <div class="mt-1 flex items-center gap-1.5 flex-wrap text-2xs">
-            {id.empresa && (
-              <span class="rounded px-1.5 py-px font-medium text-fg ring-1 ring-inset" style={{ background: tinta(id.cor, 18), ["--tw-ring-color" as any]: tinta(id.cor, 40) }}>{id.empresa}</span>
-            )}
-            <code class="rounded bg-surface-3 px-1.5 py-px text-fg-muted font-mono">{p.codePrefix}</code>
-            <span class="text-fg-muted">{formModeLabel}</span>
-            {p.team && <span class="text-fg-muted">· {p.team.name}</span>}
-          </div>
-          {id.descricao && <div class="mt-1.5 text-xs text-fg-muted line-clamp-2">{id.descricao}</div>}
-          {id.mostrarPolo && (p.polos?.length ?? 0) > 0 && <div class="mt-1.5"><PolosDoPortal polos={p.polos!.map((x) => x.nome)} /></div>}
-        </button>
-        <PortalActionsMenu portal={p} publicUrl={publicUrl} onEdit={onEdit} onDelete={onDelete} onDuplicate={onDuplicate} onOpen={onOpen} />
+      <SeloDoPortal icone={id.icone} cor={id.cor} tamanho={36} />
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="text-sm font-semibold text-fg truncate group-hover:text-[color:var(--cor)]">{p.nome}</span>
+          {!p.active && <span class="shrink-0 rounded-full bg-surface-3 px-1.5 py-px text-3xs font-medium uppercase tracking-wide text-fg-muted">Inativo</span>}
+        </div>
+        <div class="text-2xs text-fg-muted truncate">{id.descricao || `/portal/${p.slug}`}</div>
       </div>
-      <div class="grid grid-cols-3 border-t border-border divide-x divide-border">
-        <Numero rotulo="Inscrições" valor={p._count?.registrations ?? 0} />
-        <Numero rotulo="Últimos 30 dias" valor={r?.ultimos30 ?? 0} />
-        <Numero rotulo="Pagas" valor={r?.pagas ?? 0} />
-      </div>
-      <div class="flex items-center gap-2 border-t border-border px-4 py-2 text-2xs text-fg-muted">
-        <span class="truncate flex-1 font-mono" title={publicUrl}>/portal/{p.slug}</span>
-        <span class="shrink-0 hidden sm:inline">{r?.ultimaInscricao ? `última inscrição ${formatRelative(r.ultimaInscricao)}` : 'sem inscrições'}</span>
-        <button type="button" onClick={copiar} class="shrink-0 size-6 grid place-items-center rounded hover:bg-surface-3 hover:text-fg" aria-label="Copiar URL pública" title="Copiar URL pública">
-          <Copy size={12} />
+      <div class="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button type="button" onClick={copiar} class={acao} aria-label="Copiar link do portal" title="Copiar link do portal">
+          <Copy size={15} />
         </button>
-        <a href={publicUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} class="shrink-0 size-6 grid place-items-center rounded hover:bg-surface-3 hover:text-fg" aria-label="Abrir portal público" title="Abrir portal público">
-          <ExternalLink size={12} />
+        <a href={publicUrl} target="_blank" rel="noopener noreferrer" class={acao} aria-label="Abrir página pública" title="Abrir página pública">
+          <ExternalLink size={15} />
         </a>
+        <Pode tela="enrollment_portals" acao="edit">
+          <button type="button" onClick={onEdit} class={`${acao} hidden sm:grid`} aria-label="Editar portal" title="Editar portal">
+            <Pencil size={15} />
+          </button>
+        </Pode>
+        <PortalActionsMenu portal={p} publicUrl={publicUrl} onEdit={onEdit} onDelete={onDelete} onDuplicate={onDuplicate} onOpen={onOpen} />
+        <ChevronRight size={16} class="hidden sm:block ml-0.5 mr-1 text-fg-muted transition-transform group-hover:translate-x-0.5 group-hover:text-fg" aria-hidden="true" />
       </div>
-    </div>
-  )
-}
-
-function Numero({ rotulo, valor }: { rotulo: string; valor: number }) {
-  return (
-    <div class="px-4 py-2.5">
-      <div class="text-base font-semibold text-fg tabular-nums leading-none">{valor.toLocaleString('pt-BR')}</div>
-      <div class="mt-1 text-3xs uppercase tracking-wide text-fg-muted">{rotulo}</div>
     </div>
   )
 }
@@ -435,13 +414,14 @@ function PortalActionsMenu({
       <button
         ref={botao}
         type="button"
-        class="size-8 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 border border-border"
+        class={`shrink-0 size-9 sm:size-8 rounded-md grid place-items-center hover:text-fg hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${open ? 'bg-surface-3 text-fg' : 'text-fg-muted'}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
-        aria-label="Ações"
+        aria-label="Mais ações"
+        title="Mais ações"
       >
-        <MoreHorizontal size={14} />
+        <MoreVertical size={15} />
       </button>
       {open && pos && createPortal(
         <div
