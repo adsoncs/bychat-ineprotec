@@ -573,6 +573,8 @@ export async function gerarParcela(leadId: number, codigo: string, chave: string
         name: r.lead?.nome || String(fd.nome || 'Aluno'), email: r.lead?.email || fd.email || undefined,
         cpfCnpj: cpf || undefined, mobilePhone: r.lead?.whatsapp || fd.whatsapp || undefined,
         externalReference: `lead-${leadId}`,
+        // Responsável financeiro empresa (CNPJ): a cobrança sai no nome dela.
+        ...((await import('./dadosCadastro.js')).pagadorEmpresa(fd) ?? {}),
       })
       const pg = await createAsaasPayment(cfg, {
         customerId: cliente.id, billingType: 'BOLETO', value: f.valor, dueDate,

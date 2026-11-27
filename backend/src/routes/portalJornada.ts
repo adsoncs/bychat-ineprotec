@@ -19,7 +19,7 @@ import {
   iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva, comportamentoDoModelo,
 } from '../services/contratoDoPortal.js'
 import {
-  dadosEfetivos, camposDaEtapa, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
+  dadosEfetivos, camposDaEtapa, camposQueValem, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
   camposDoFormulario, espelharNoLead,
   CATALOGO, ROTULO_ETAPA, SUGESTAO, lerPadraoInstituicao, gravarPadraoInstituicao, pendenciasParaMatricular,
   CHAVES_ENDERECO, enderecoDaConfig, aplicarEndereco, dadosDoPortalBruto, type EnderecoNaConfig,
@@ -39,7 +39,7 @@ async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
     : await dadosEfetivos(reg.portal)
   const campos = cfg ? camposDaEtapa(cfg, etapa) : []
   const valores = await valoresAtuais(reg, campos.map((c) => c.name))
-  const faltando = campos.filter((c) => c.required && String(valores[c.name] ?? '').trim() === '').length
+  const faltando = camposQueValem(campos, valores).filter((c) => c.required && String(valores[c.name] ?? '').trim() === '').length
   return { reg, campos, valores, faltando }
 }
 
@@ -72,7 +72,7 @@ async function contratoWordDaInscricao(registrationId: number) {
   const widgetClicksign = provedor === 'CLICKSIGN' && (await (await import('../services/clicksign.js')).getConfig()).widget
   return {
     modelo: { id: modelo.id, nome: modelo.nome, tipo: comportamentoDoModelo(modelo.config).tipo },
-    eletronica: await assinaturaEletronicaAtiva(modelo),
+    eletronica: await assinaturaEletronicaAtiva(modelo, registrationId),
     provedor,
     widget: widgetClicksign,
     menorSemResponsavel: d.menor && !d.responsavel,
@@ -306,7 +306,9 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     // Só entra o que a etapa pede; o resto do corpo é ignorado.
     const novos: Record<string, string> = {}
     const erros: Record<string, string> = {}
-    for (const c of d.campos) {
+    // CNPJ no responsável traz o representante legal (obrigatório); CPF, não.
+    const doc = 'responsavelCpf' in recebidos ? recebidos.responsavelCpf : d.valores.responsavelCpf
+    for (const c of camposQueValem(d.campos, { responsavelCpf: doc })) {
       const v = c.name in recebidos ? String(recebidos[c.name] ?? '').trim().slice(0, 300) : String(d.valores[c.name] ?? '')
       const e = erroDoValor(c, v)
       if (e) erros[c.name] = e

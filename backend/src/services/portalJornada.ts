@@ -14,7 +14,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { getTermoTemplate } from './acaContrato.js'
-import { normalizarDados, dadosEfetivos, camposDaEtapa, valoresAtuais, type EtapaDados } from './dadosCadastro.js'
+import { normalizarDados, dadosEfetivos, camposDaEtapa, camposQueValem, valoresAtuais, type EtapaDados } from './dadosCadastro.js'
 import { dispensasDe, requisitosQueValem } from './docCondicional.js'
 
 export type ChaveEtapa = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
@@ -404,7 +404,7 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       const campos = camposDaEtapa(cfgDados, et)
       if (!campos.length) { faltandoPorEtapa.set(et, -1); continue }
       const atuais = await valoresAtuais(reg, campos.map((c) => c.name))
-      faltandoPorEtapa.set(et, campos.filter((c) => c.required && String(atuais[c.name] ?? '').trim() === '').length)
+      faltandoPorEtapa.set(et, camposQueValem(campos, atuais).filter((c) => c.required && String(atuais[c.name] ?? '').trim() === '').length)
     }
   }
 

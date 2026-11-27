@@ -70,7 +70,7 @@ export async function pedirNovoAceite(registrationId: number, p: { motivo: strin
   if (env.provider !== 'PORTAL') return { ok: false, status: 400, erro: 'Este contrato foi assinado na plataforma de assinatura: refaça pelo provedor, não pelo novo aceite do portal.' }
   const modelo = await cp.modeloDaInscricao(registrationId)
   if (!modelo) return { ok: false, status: 400, erro: 'Não há modelo de contrato em Word para o portal/curso desta inscrição.' }
-  if (await cp.assinaturaEletronicaAtiva(modelo)) return { ok: false, status: 400, erro: 'O modelo atual é assinado na plataforma de assinatura, não por aceite no portal.' }
+  if (await cp.assinaturaEletronicaAtiva(modelo, registrationId)) return { ok: false, status: 400, erro: 'O modelo atual é assinado na plataforma de assinatura, não por aceite no portal.' }
 
   const pedido: PedidoDeNovoAceite = {
     pedidoEm: new Date().toISOString(), motivo, porUserId: p.porUserId, porNome: String(p.porNome || '').slice(0, 191),

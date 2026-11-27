@@ -121,7 +121,16 @@ export async function montarPessoa(reg: { leadId: number | null; formData: unkno
   })
   if (limpo(v.nomeMae)) filiacao.push(entrada('MA', limpo(v.nomeMae)))
   if (limpo(v.nomePai)) filiacao.push(entrada('PA', limpo(v.nomePai)))
-  if (!respProprio) {
+  // Empresa (CNPJ) como responsável: o SEI só tem pessoa física na filiação —
+  // vai o representante legal, que é quem responde e assina por ela.
+  const empresa = so(v.responsavelCpf).length === 14
+  if (!respProprio && empresa && limpo(v.responsavelRepresentanteNome)) {
+    const f = entrada('OT', limpo(v.responsavelRepresentanteNome))
+    f.descricaoTipoOutro = `Representante legal de ${respNome}`.slice(0, 100)
+    f.responsavelFinanceiro = true
+    f.pais = { ...f.pais, cpf: so(v.responsavelRepresentanteCpf), email: limpo(v.responsavelRepresentanteEmail) || limpo(v.responsavelEmail), celular: so(v.responsavelTelefone) }
+    filiacao.push(f)
+  } else if (!respProprio && !empresa) {
     const dadosResp = { cpf: so(v.responsavelCpf), email: limpo(v.responsavelEmail), celular: so(v.responsavelTelefone) }
     const mesmo = parentesco === 'Mãe' ? filiacao.find((f) => f.tipo === 'MA') : parentesco === 'Pai' ? filiacao.find((f) => f.tipo === 'PA') : null
     if (mesmo) {

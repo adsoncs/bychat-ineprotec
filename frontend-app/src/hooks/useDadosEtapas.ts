@@ -12,6 +12,8 @@ export interface DadoCatalogo {
   grupo: string
   opcoes?: string[]
   essencial?: boolean
+  /** Representante legal: só com CNPJ no responsável; vai junto do documento dele, não se configura. */
+  soEmpresa?: boolean
 }
 
 export interface DadosConfig {

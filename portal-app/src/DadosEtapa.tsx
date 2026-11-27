@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { JSX } from 'preact'
 import { carregarDados, salvarDados, type DadosDaEtapa } from './api'
-import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
+import { ehCnpj, erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
 import { ehCampoDeCep, focar, preencherPeloCep, type Preenchidos } from './cep'
 
 export function DadosEtapa(props: {
@@ -52,13 +52,19 @@ export function DadosEtapa(props: {
   if (!dados) return <div class="esqueleto" style="height:120px" />
   if (!dados.campos.length) return null
 
+  // Responsável empresa (CNPJ): aparece o representante legal, obrigatório —
+  // é quem assina o contrato por ela. Com CPF, esses campos nem aparecem.
+  const empresa = ehCnpj(valores.responsavelCpf ?? '')
+  const campos = dados.campos
+    .filter((c) => !c.soEmpresa || empresa)
+    .map((c) => (c.soEmpresa ? { ...c, required: true } : c))
   const erros = Object.fromEntries(
-    dados.campos.map((c) => [c.name, erroDoCampo(c as Campo, valores[c.name] ?? '')]).filter(([, e]) => e),
+    campos.map((c) => [c.name, erroDoCampo(c as Campo, valores[c.name] ?? '')]).filter(([, e]) => e),
   ) as Record<string, string>
 
   async function salvar() {
     if (Object.keys(erros).length) {
-      setTocados(Object.fromEntries(dados!.campos.map((c) => [c.name, true])))
+      setTocados(Object.fromEntries(campos.map((c) => [c.name, true])))
       const primeiro = document.querySelector<HTMLElement>(`.dados-etapa [name="${Object.keys(erros)[0]}"]`)
       primeiro?.focus()
       primeiro?.scrollIntoView({ block: 'center', behavior: 'smooth' })
@@ -67,7 +73,8 @@ export function DadosEtapa(props: {
     setSalvando(true)
     setFalha(null)
     try {
-      await salvarDados(props.codigo, props.token, props.etapa, valores)
+      // Campo do representante escondido (voltou para CPF) não vai.
+      await salvarDados(props.codigo, props.token, props.etapa, Object.fromEntries(Object.entries(valores).filter(([k]) => campos.some((c) => c.name === k))))
       props.aoSalvar()
     } catch (e: any) {
       setFalha(e.message)
@@ -79,7 +86,7 @@ export function DadosEtapa(props: {
   return (
     <div class="dados-etapa">
       <div class="campos">
-        {dados.campos.map((c) => {
+        {campos.map((c) => {
           const campo = c as Campo
           const v = valores[c.name] ?? ''
           const erro = tocados[c.name] ? erros[c.name] : erroDoCampo(campo, v, true)
@@ -106,6 +113,7 @@ export function DadosEtapa(props: {
                 />
               )}
               {erro && <span class="erro" id={`de_${c.name}`} role="alert">{erro}</span>}
+              {c.name === 'responsavelCpf' && empresa && !erro && <span class="sub">Empresa: a cobrança sai no CNPJ e o representante legal assina o contrato.</span>}
             </div>
           )
         })}

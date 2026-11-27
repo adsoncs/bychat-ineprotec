@@ -11,7 +11,7 @@ import { comprimirSePreciso } from './imagem'
 import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
 import { conclusaoDoPortal, irPara, recomendarCursos, type Recomendacao } from './api'
-import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
+import { ehCnpj, erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
 import { ehCampoDeCep, focar, preencherPeloCep, type Preenchidos } from './cep'
 import { t as tx } from './textos'
 
@@ -194,7 +194,8 @@ export function App() {
       if (!Array.isArray(exigidos) || exigidos.length === 0) return true
       // Sem curso escolhido ainda, esconde o condicional em vez de exigir cego.
       return !!modo && exigidos.includes(modo)
-    }).flatMap((c) => (c.type === 'offering-picker' ? [c, ...extrasDoIngresso(oferta)] : [c]))
+    }).map((c) => (c.soEmpresa ? { ...c, required: true } : c))
+      .flatMap((c) => (c.type === 'offering-picker' ? [c, ...extrasDoIngresso(oferta)] : [c]))
   }
 
   /**
@@ -606,6 +607,8 @@ function Cabecalho(props: {
 
 /** Campo que só aparece conforme outra resposta (ex.: tipo de deficiência só se "Sim"). */
 function dependenciaAtende(c: Campo, valores: Record<string, unknown>): boolean {
+  // Representante legal: só quando o responsável financeiro é empresa (CNPJ).
+  if (c.soEmpresa && !ehCnpj(String(valores.responsavelCpf ?? ''))) return false
   const f = c.visibleWhen?.field
   if (!f?.name || !Array.isArray(f.values) || !f.values.length) return true
   return f.values.includes(String(valores[f.name] ?? ''))

@@ -157,7 +157,10 @@ export function DadosEtapasEditor(p: {
                 <tr class="bg-surface-2/50">
                   <td colSpan={4} class="px-3 py-1.5 text-2xs font-semibold text-fg-muted">{g}</td>
                 </tr>
-                {p.catalogo.filter((d) => d.grupo === g).map((d) => {
+                {g === 'Responsável financeiro' && (
+                  <tr><td colSpan={4} class="px-3 py-1 text-3xs text-fg-muted">Aceita CPF ou CNPJ. Com CNPJ (empresa), o portal pede também o representante legal, que assina o contrato, e a cobrança sai no CNPJ.</td></tr>
+                )}
+                {p.catalogo.filter((d) => d.grupo === g && !d.soEmpresa).map((d) => {
                   const c = v.campos[d.chave]
                   const exigido = v.exigidosMatricula.includes(d.chave)
                   const falha = exigido && (!c || !c.obrigatorio)

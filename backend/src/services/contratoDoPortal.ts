@@ -33,12 +33,16 @@ const EXEMPLO_CADASTRO: Record<string, string> = {
   tipoEscolaEM: 'Pública', anoConclusaoEM: '2018', enemInscricao: '', enemAno: '', deficiencia: 'Não', rendaFamiliar: '',
   responsavelNome: 'Ana da Silva', responsavelCpf: '987.654.321-00', responsavelParentesco: 'Mãe',
   responsavelTelefone: '(62) 98888-0000', responsavelEmail: 'ana@exemplo.com',
+  responsavelRepresentanteNome: '', responsavelRepresentanteCpf: '', responsavelRepresentanteEmail: '',
 }
 
 const DERIVADOS: CampoContrato[] = [
   { chave: 'endereco_completo', rotulo: 'Endereço completo do aluno', grupo: 'Endereço', exemplo: 'Rua 10, 100, Apto 1 — Centro, Goiânia/GO, CEP 74000-000' },
   { chave: 'contratante_nome', rotulo: 'Contratante: nome (responsável financeiro, ou o próprio aluno)', grupo: 'Contratante', exemplo: 'Maria da Silva Souza' },
-  { chave: 'contratante_cpf', rotulo: 'Contratante: CPF', grupo: 'Contratante', exemplo: '123.456.789-09' },
+  { chave: 'contratante_cpf', rotulo: 'Contratante: CPF (ou CNPJ, quando o responsável é empresa)', grupo: 'Contratante', exemplo: '123.456.789-09' },
+  { chave: 'contratante_documento', rotulo: 'Contratante: "CPF" ou "CNPJ" (para escrever "inscrito no {{contratante_documento}} nº…")', grupo: 'Contratante', exemplo: 'CPF' },
+  { chave: 'contratante_empresa', rotulo: '"Sim" quando o contratante é uma empresa (CNPJ)', grupo: 'Contratante', exemplo: 'Não' },
+  { chave: 'contratante_representante', rotulo: 'Contratante empresa: representante legal (nome e CPF), vazio para pessoa física', grupo: 'Contratante', exemplo: '' },
   { chave: 'aluno_menor', rotulo: '"Sim" quando o aluno é menor de 18 anos', grupo: 'Contratante', exemplo: 'Não' },
   { chave: 'curso', rotulo: 'Curso', grupo: 'Curso', exemplo: 'Técnico em Administração' },
   { chave: 'oferta', rotulo: 'Oferta (turma/complemento do portal)', grupo: 'Curso', exemplo: 'Técnico em Administração — EAD 2026/2' },
@@ -197,6 +201,22 @@ function temResponsavel(v: VarsContrato): boolean {
   return true
 }
 
+/** Responsável empresa: CNPJ no documento do responsável. */
+const ehEmpresa = (v: VarsContrato) => soDigitos(v.responsavelCpf).length === 14
+
+/** Quem contrata: o responsável (pessoa ou empresa) ou o próprio aluno. */
+function dadosDoContratante(v: VarsContrato, temResp: boolean): VarsContrato {
+  const empresa = temResp && ehEmpresa(v)
+  const rep = empresa ? [v.responsavelRepresentanteNome, v.responsavelRepresentanteCpf ? `CPF ${v.responsavelRepresentanteCpf}` : ''].filter(Boolean).join(', ') : ''
+  return {
+    contratante_nome: temResp ? v.responsavelNome : v.nome,
+    contratante_cpf: temResp ? v.responsavelCpf : v.cpf,
+    contratante_documento: empresa ? 'CNPJ' : 'CPF',
+    contratante_empresa: empresa ? 'Sim' : 'Não',
+    contratante_representante: rep,
+  }
+}
+
 const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão de crédito' }
 
 // ─── Dados de uma inscrição ────────────────────────────────────────────────
@@ -207,7 +227,8 @@ export interface DadosDoContrato {
   courseId: number | null
   menor: boolean
   aluno: { nome: string; email: string | null; telefone: string | null; cpf: string | null }
-  responsavel: { nome: string; email: string | null; telefone: string | null; cpf: string | null } | null
+  /** Quem assina como responsável. Empresa: o representante legal (`empresa` = razão social). */
+  responsavel: { nome: string; email: string | null; telefone: string | null; cpf: string | null; empresa?: string } | null
   plano: { valorTotalCentavos: number; numParcelas: number; valorParcelaCentavos: number }
 }
 
@@ -231,7 +252,7 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   const v: VarsContrato = {}
   for (const d of CATALOGO) {
     const bruto = cad[d.chave]
-    v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' ? formatarDoc(String(bruto)) : String(bruto)
+    v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' || d.tipo === 'cpfCnpj' ? formatarDoc(String(bruto)) : String(bruto)
   }
 
   // Condição do contrato: a paga no checkout, ou a do plano de pagamento da
@@ -281,8 +302,7 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
 
   Object.assign(v, {
     endereco_completo: end,
-    contratante_nome: temResp ? v.responsavelNome : v.nome,
-    contratante_cpf: temResp ? v.responsavelCpf : v.cpf,
+    ...dadosDoContratante(v, temResp),
     aluno_menor: menor ? 'Sim' : 'Não',
     curso: of.course?.nome ?? of.nome,
     oferta: [of.nome, of.complemento].filter(Boolean).join(' — '),
@@ -321,7 +341,10 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   return {
     vars: comApelidos(v), portalId: reg.portalId, courseId: of.courseId, menor,
     aluno: { nome: v.nome, email: v.email || null, telefone: v.whatsapp || null, cpf: v.cpf || null },
-    responsavel: temResp ? { nome: v.responsavelNome, email: v.responsavelEmail || null, telefone: v.responsavelTelefone || null, cpf: v.responsavelCpf || null } : null,
+    // Empresa não assina: quem assina por ela é o representante legal (pessoa).
+    responsavel: !temResp ? null
+      : ehEmpresa(v) ? { nome: v.responsavelRepresentanteNome, email: v.responsavelRepresentanteEmail || v.responsavelEmail || null, telefone: v.responsavelTelefone || null, cpf: v.responsavelRepresentanteCpf || null, empresa: v.responsavelNome }
+      : { nome: v.responsavelNome, email: v.responsavelEmail || null, telefone: v.responsavelTelefone || null, cpf: v.responsavelCpf || null },
     plano,
   }
 }
@@ -390,12 +413,10 @@ export async function varsDoAluno(ctx: { alunoId?: number | null; matriculaId?: 
     const cad = await valoresAtuais({ leadId: aluno.leadId, formData: {} }, CATALOGO.map((d) => d.chave))
     for (const d of CATALOGO) {
       const bruto = cad[d.chave]
-      v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' ? formatarDoc(String(bruto)) : String(bruto)
+      v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' || d.tipo === 'cpfCnpj' ? formatarDoc(String(bruto)) : String(bruto)
     }
     v.ra = aluno.ra ?? ''
-    const temResp = temResponsavel(v)
-    v.contratante_nome = temResp ? v.responsavelNome : v.nome
-    v.contratante_cpf = temResp ? v.responsavelCpf : v.cpf
+    Object.assign(v, dadosDoContratante(v, temResponsavel(v)))
     const anos = idade(v.nascimento)
     v.aluno_menor = anos != null && anos < 18 ? 'Sim' : 'Não'
     v.endereco_completo = [[v.logradouro, v.numero, v.complemento].filter(Boolean).join(', '), v.bairro,
@@ -507,10 +528,21 @@ export function comportamentoDoModelo(config: unknown): { assinatura: 'PROVEDOR'
  * Há provedor de assinatura configurado de verdade (credencial)? Sem ele, o
  * aceite é no portal. Com o modelo, respeita a escolha dele ("aceite no portal").
  */
-export async function assinaturaEletronicaAtiva(modelo?: { config?: unknown } | null): Promise<boolean> {
-  if (modelo && comportamentoDoModelo(modelo.config).assinatura === 'ACEITE') return false
+export async function assinaturaEletronicaAtiva(modelo?: { config?: unknown } | null, registrationId?: number | null): Promise<boolean> {
+  // Termo por aceite no portal: só o aluno aceita. Com responsável EMPRESA
+  // (CNPJ), o representante legal também precisa assinar — aí vai para a
+  // plataforma de assinatura, com os dois.
+  if (modelo && comportamentoDoModelo(modelo.config).assinatura === 'ACEITE' && !(registrationId && await responsavelEmpresaDaInscricao(registrationId))) return false
   const { provedorAtivo } = await import('./assinaturaProvedor.js')
   return (await provedorAtivo()) !== 'SIMULADO'
+}
+
+/** O responsável financeiro desta inscrição é uma empresa (CNPJ)? */
+export async function responsavelEmpresaDaInscricao(registrationId: number): Promise<boolean> {
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { leadId: true, formData: true } }).catch(() => null)
+  if (!reg) return false
+  const { responsavelEhEmpresa } = await import('./dadosCadastro.js')
+  return responsavelEhEmpresa((await valoresAtuais(reg, ['responsavelCpf'])).responsavelCpf)
 }
 
 /** Modelo que vale para a inscrição (sem gerar PDF). */
@@ -531,7 +563,7 @@ type Resultado = { ok: true; assinatura: EstadoDaAssinatura } | { ok: false; err
 export async function iniciarAssinaturaDaInscricao(registrationId: number): Promise<Resultado> {
   // Sem Autentique, o "envelope" seria simulado e o link não abriria nada: o
   // caminho é o aceite no portal (aceitarContratoNoPortal).
-  if (!(await assinaturaEletronicaAtiva(await modeloDaInscricao(registrationId)))) return { ok: false, erro: 'A assinatura eletrônica não está configurada — assine pelo aceite nesta página.' }
+  if (!(await assinaturaEletronicaAtiva(await modeloDaInscricao(registrationId), registrationId))) return { ok: false, erro: 'A assinatura eletrônica não está configurada — assine pelo aceite nesta página.' }
   const { redis } = await import('../lib/redis.js')
   const trava = `contrato:insc:${registrationId}`
   if (!(await redis.set(trava, '1', 'EX', 90, 'NX'))) return { ok: false, erro: 'O contrato já está sendo preparado — aguarde alguns segundos.' }
@@ -544,6 +576,9 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
     const { dados, modelo, pdf } = r
     if (dados.menor && !dados.responsavel) {
       return { ok: false, erro: 'Aluno menor de idade: informe os dados do responsável financeiro para gerar o contrato.' }
+    }
+    if (dados.responsavel?.empresa && (!dados.responsavel.nome || !dados.responsavel.cpf)) {
+      return { ok: false, erro: 'O responsável financeiro é uma empresa: informe o representante legal (nome, CPF e e-mail), que assina o contrato por ela.' }
     }
     // Canal de cada um. Autentique devolve link: o aluno assina na hora, pelo
     // portal. Clicksign não devolve link: com o Widget o aluno assina dentro da
@@ -564,7 +599,8 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
     const signatarios = [
       { nome: dados.aluno.nome, email: dados.aluno.email, telefone: dados.aluno.telefone, cpf: dados.aluno.cpf, papel: 'ALUNO', deliveryMethod: canalAluno },
       ...(dados.responsavel ? [{
-        nome: dados.responsavel.nome, email: dados.responsavel.email, telefone: dados.responsavel.telefone, cpf: dados.responsavel.cpf,
+        nome: dados.responsavel.empresa ? `${dados.responsavel.nome} (por ${dados.responsavel.empresa})`.slice(0, 191) : dados.responsavel.nome,
+        email: dados.responsavel.email, telefone: dados.responsavel.telefone, cpf: dados.responsavel.cpf,
         papel: 'RESPONSAVEL', deliveryMethod: canalResp!,
       }] : []),
     ]
@@ -596,6 +632,10 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
  * nasce assinado e segue o mesmo caminho (aceite da inscrição, GED, matrícula).
  */
 export async function aceitarContratoNoPortal(registrationId: number, nome: string, ip?: string | null): Promise<Resultado> {
+  // Responsável empresa: o representante legal assina junto, pela plataforma.
+  if (await responsavelEmpresaDaInscricao(registrationId) && await assinaturaEletronicaAtiva(await modeloDaInscricao(registrationId), registrationId)) {
+    return { ok: false, erro: 'O responsável financeiro é uma empresa: o termo é assinado pela plataforma de assinatura, pelo aluno e pelo representante legal.' }
+  }
   const atual = await envelopeDaInscricao(registrationId)
   // Novo aceite pedido pela secretaria (services/novoAceite): o aceite anterior
   // não encerra — o aluno aceita o texto atual e nasce um envelope novo.

@@ -277,7 +277,9 @@ export async function pagarRestante(leadId: number, codigo: string, body: any, r
       if (!cfg) return { ok: false, status: 503, erro: 'Pagamento indisponível no momento. Fale com a secretaria.' }
       const cpf = String(fd.cpf || '').replace(/\D/g, '')
       if (!cpf) return { ok: false, status: 400, erro: 'A inscrição não tem CPF: fale com a secretaria.' }
-      const cliente = { name: r.lead?.nome || String(fd.nome || 'Aluno'), email: r.lead?.email || fd.email || undefined, cpfCnpj: cpf, mobilePhone: r.lead?.whatsapp || fd.whatsapp || undefined, externalReference: `lead-${leadId}` }
+      const cliente = { name: r.lead?.nome || String(fd.nome || 'Aluno'), email: r.lead?.email || fd.email || undefined, cpfCnpj: cpf, mobilePhone: r.lead?.whatsapp || fd.whatsapp || undefined, externalReference: `lead-${leadId}`,
+        // Responsável financeiro empresa (CNPJ): a cobrança sai no nome dela.
+        ...((await import('./dadosCadastro.js')).pagadorEmpresa(fd) ?? {}) }
       // Como no combinado: o Asaas não manda e-mail/SMS da cobrança (nenhum envio automático).
       const cus = await createOrFindAsaasCustomer(cfg, cliente as any)
       await silenciarAvisosDeCriacaoAsaas(cfg, cus.id).catch(() => {})

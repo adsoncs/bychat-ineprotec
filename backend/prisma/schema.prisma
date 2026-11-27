@@ -8265,6 +8265,10 @@ model AcaResponsavel {
   telefone   String?            @db.VarChar(30)
   email      String?            @db.VarChar(191)
   ativo      Boolean            @default(true)
+  /// Responsável EMPRESA (CNPJ em `cpf`): quem assina o contrato por ela.
+  representanteNome  String? @db.VarChar(191)
+  representanteCpf   String? @db.VarChar(20)
+  representanteEmail String? @db.VarChar(191)
 
   aluno Aluno @relation(fields: [alunoId], references: [id], onDelete: Cascade)
 

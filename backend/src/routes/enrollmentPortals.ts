@@ -3788,12 +3788,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       ? new Date(`${vencCombinado}T23:59:00-03:00`)
       : new Date(Date.now() + deadlineHours * 3600 * 1000)
     const description = `${cobranca?.rotulo ?? 'Taxa de inscrição'} — ${enrollment.portal.nome} (${enrollment.candidateCode})`
+    // Responsável financeiro empresa (CNPJ): a cobrança sai no nome dela.
+    const empresa = (await import('../services/dadosCadastro.js')).pagadorEmpresa(fd)
     const customer = {
       name: enrollment.lead?.nome || fd.nome || 'Candidato',
       email: enrollment.lead?.email || fd.email || undefined,
       cpfCnpj: fd.cpf || undefined,
       phone: enrollment.lead?.whatsapp || fd.whatsapp || undefined,
       externalReference: `lead-${enrollment.leadId ?? 'unknown'}`,
+      ...(empresa ?? {}),
     }
 
     // Preenchida no ramo Asaas quando a cobrança tem página de pagamento.

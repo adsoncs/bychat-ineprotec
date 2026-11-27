@@ -482,7 +482,9 @@ export async function criarCobrancaAsaas(parcelaId: number, regras: RegrasDoPlan
     // 1) garante o customer (cacheia no contrato)
     let customerId = parcela.contrato.asaasCustomerId
     if (!customerId) {
-      const cust = await createOrFindAsaasCustomer(config, { name: aluno.lead.nome, email: aluno.lead.email || undefined, cpfCnpj: aluno.cpf || undefined, phone: aluno.lead.whatsapp || undefined } as any)
+      // Responsável financeiro empresa (CNPJ): as mensalidades saem no nome dela.
+      const empresa = await (await import('./dadosCadastro.js')).pagadorEmpresaDoAluno(aluno.id)
+      const cust = await createOrFindAsaasCustomer(config, { name: aluno.lead.nome, email: aluno.lead.email || undefined, cpfCnpj: aluno.cpf || undefined, phone: aluno.lead.whatsapp || undefined, ...(empresa ?? {}) } as any)
       customerId = cust.id
       await prisma.acaContrato.update({ where: { id: parcela.contrato.id }, data: { asaasCustomerId: customerId } })
     }
@@ -556,9 +558,11 @@ async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: 
   if (parcela.asaasChargeId) return { ok: true, asaasChargeId: parcela.asaasChargeId }
   if (parcela.situacao === 'PAGA' || parcela.situacao === 'CANCELADA') return { ok: false, error: `Parcela ${parcela.situacao.toLowerCase()} não gera cobrança.` }
   const aluno = parcela.contrato.matricula.aluno
-  const cpf = String(aluno.cpf || '').replace(/\D/g, '')
+  // Responsável financeiro empresa (CNPJ): a fatura sai no nome dela.
+  const empresa = await (await import('./dadosCadastro.js')).pagadorEmpresaDoAluno(aluno.id)
+  const cpf = empresa?.cpfCnpj ?? String(aluno.cpf || '').replace(/\D/g, '')
   if (cpf.length !== 11 && cpf.length !== 14) return { ok: false, error: 'Aluno sem CPF válido — a iugu exige CPF para emitir boleto e PIX.' }
-  const email = aluno.lead?.email?.trim()
+  const email = (empresa?.email ?? aluno.lead?.email)?.trim()
   if (!email) return { ok: false, error: 'Aluno sem e-mail — a iugu exige e-mail para emitir a cobrança.' }
 
   try {
@@ -575,7 +579,7 @@ async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: 
       vencimento,
       descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}${pontual ? ` · ${textoDaPontualidade(pontual)}` : ''}`,
       email,
-      pagador: { nome: aluno.lead?.nome || 'Aluno', cpfCnpj: cpf, telefone: aluno.lead?.whatsapp || undefined, email },
+      pagador: { nome: empresa?.name || aluno.lead?.nome || 'Aluno', cpfCnpj: cpf, telefone: empresa?.phone || aluno.lead?.whatsapp || undefined, email },
       referencia: `aca-parcela:${parcelaId}`,
       // Mesma parcela, mesmo valor, mesmo vencimento: clique duplo não gera
       // duas faturas. Valor ou data diferentes são outra cobrança de verdade.

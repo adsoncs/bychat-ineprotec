@@ -21,7 +21,7 @@ import { guardTela, avaliarTela } from '../lib/eduTelas.js'
 import { alcanceDaRequisicao, podeOperarPortal, whereInscricoes } from '../lib/portalAccess.js'
 import { signAtendimento, signCandidateToken, signMagicLink } from '../lib/candidateAuth.js'
 import { canUserAccessLead } from '../lib/teamAccess.js'
-import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
+import { isValidCpf, isValidCpfOuCnpj, normalizeCpf } from '../lib/cpf.js'
 import { CABECALHO_ATENDENTE, registrarEventoDaInscricao } from '../services/inscricaoAssistida.js'
 import { dispensasDe, type Dispensas } from '../services/docCondicional.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
@@ -498,15 +498,26 @@ export async function matriculaInternaRoutes(app: FastifyInstance) {
       novos[k] = String(v ?? '').trim().slice(0, 500)
     }
     // Todo campo de CPF do cadastro (aluno e responsável financeiro), não só o do aluno.
-    const { POR_CHAVE } = await import('../services/dadosCadastro.js')
+    const { POR_CHAVE, responsavelEhEmpresa } = await import('../services/dadosCadastro.js')
     for (const [k, v] of Object.entries(novos)) {
-      if (!v || (k !== 'cpf' && POR_CHAVE.get(k)?.tipo !== 'cpf')) continue
-      if (!isValidCpf(normalizeCpf(v))) {
+      const tipo = k === 'cpf' ? 'cpf' : POR_CHAVE.get(k)?.tipo
+      if (!v || (tipo !== 'cpf' && tipo !== 'cpfCnpj')) continue
+      // O responsável financeiro pode ser empresa: aí vale CNPJ.
+      const ok = tipo === 'cpfCnpj' ? isValidCpfOuCnpj(v) : isValidCpf(normalizeCpf(v))
+      if (!ok) {
         const rotulo = POR_CHAVE.get(k)?.rotulo ?? 'CPF'
-        return reply.code(400).send({ error: `${rotulo} não confere. Verifique os números digitados.`, campo: k })
+        const qual = tipo === 'cpfCnpj' && normalizeCpf(v).length === 14 ? 'CNPJ' : tipo === 'cpfCnpj' && normalizeCpf(v).length !== 11 ? 'O documento (CPF com 11 ou CNPJ com 14 números)' : rotulo
+        return reply.code(400).send({ error: `${qual} não confere. Verifique os números digitados.`, campo: k })
       }
     }
     const form = (reg.formData as Record<string, any>) || {}
+    // Empresa como responsável: alguém assina por ela.
+    const depois = { ...form, ...novos }
+    if (responsavelEhEmpresa(depois.responsavelCpf)) {
+      const falta = ['responsavelNome', 'responsavelRepresentanteNome', 'responsavelRepresentanteCpf', 'responsavelRepresentanteEmail']
+        .filter((k) => !String(depois[k] ?? '').trim())
+      if (falta.length) return reply.code(400).send({ error: `Responsável é empresa (CNPJ): preencha ${falta.map((k) => POR_CHAVE.get(k)?.rotulo.toLowerCase()).join(', ')}.`, campo: falta[0] })
+    }
     const mudou = Object.keys(novos).filter((k) => String(form[k] ?? '') !== novos[k])
     if (!mudou.length) return { ok: true, mudou: [] }
     const novoForm = { ...form, ...novos }

@@ -205,6 +205,8 @@ export async function gerarCobrancaDoTitulo(tituloId: number, opts: { avisosJaAj
       name: reg.lead?.nome || String(fd.nome || 'Aluno'), email: reg.lead?.email || fd.email || undefined,
       cpfCnpj: String(fd.cpf || '').replace(/\D/g, '') || undefined, mobilePhone: reg.lead?.whatsapp || fd.whatsapp || undefined,
       externalReference: `lead-${reg.leadId ?? 'unknown'}`,
+      // Responsável financeiro empresa (CNPJ): a cobrança sai no nome dela.
+      ...((await import('./dadosCadastro.js')).pagadorEmpresa(fd) ?? {}),
     }
     if (!cliente.cpfCnpj) throw new Error('A inscrição não tem CPF: o Asaas exige para gerar a cobrança.')
 

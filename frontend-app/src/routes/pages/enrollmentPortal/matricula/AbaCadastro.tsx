@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
-import { CHAVES_DE_CPF, erroDoCpf, mascararCpf } from '@/lib/cpf'
+import { CHAVES_DE_CPF, CHAVES_DE_CPF_OU_CNPJ, ehCnpj, erroDoCpf, erroDoCpfOuCnpj, mascararCpf, mascararCpfOuCnpj } from '@/lib/cpf'
 import { CHAVES_DE_CEP, CHAVES_DO_ENDERECO, consultarCep, digitosDoCep, mascararCep } from '@/lib/cep'
 import type { RegistrationReview } from '@/hooks/useEnrollmentPortals'
 import { chamarComoAgente, rotaInscricao } from './sessao'
@@ -85,6 +85,13 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
   }, [iniciais])
   useEffect(() => { iniciaisAnteriores.current = iniciais }, [iniciais])
   const alterados = Object.keys(valores).filter((k) => (valores[k] ?? '') !== (iniciais[k] ?? ''))
+  // Responsável com CNPJ (empresa): o representante legal, que assina por ela, entra na tela.
+  const empresa = ehCnpj(valores.responsavelCpf ?? '')
+  useEffect(() => {
+    if (!empresa) return
+    const daEmpresa = catalogo.filter((d) => d.soEmpresa).map((d) => d.chave)
+    setExtras((x) => (daEmpresa.every((k) => x.includes(k)) ? x : [...new Set([...x, ...daEmpresa])]))
+  }, [empresa, catalogo])
   // ── CEP: ao completar 8 dígitos, busca e preenche rua, bairro, cidade e UF ──
   const [cepAviso, setCepAviso] = useState<{ erro: boolean; texto: string } | null>(null)
   const [cepBuscando, setCepBuscando] = useState(false)
@@ -122,8 +129,10 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
   }
 
   // CPF: máscara e conferência na hora; com CPF que não confere não dá para salvar.
-  const ehCpf = (c: { chave: string; tipo?: string }) => c.tipo === 'cpf' || CHAVES_DE_CPF.includes(c.chave)
-  const cpfsComErro = grupos.flatMap(([, cs]) => cs).filter((c) => ehCpf(c) && alterados.includes(c.chave) && erroDoCpf(valores[c.chave] ?? ''))
+  // O documento do responsável financeiro aceita CPF ou CNPJ (empresa).
+  const ehDoc = (c: { chave: string; tipo?: string }) => c.tipo === 'cpfCnpj' || CHAVES_DE_CPF_OU_CNPJ.includes(c.chave)
+  const ehCpf = (c: { chave: string; tipo?: string }) => !ehDoc(c) && (c.tipo === 'cpf' || CHAVES_DE_CPF.includes(c.chave))
+  const cpfsComErro = grupos.flatMap(([, cs]) => cs).filter((c) => alterados.includes(c.chave) && (ehDoc(c) ? erroDoCpfOuCnpj(valores[c.chave] ?? '') : ehCpf(c) && erroDoCpf(valores[c.chave] ?? '')))
 
   // Dados do catálogo que ainda não estão na tela: entram pelo "Adicionar dado".
   const faltamNoCatalogo = catalogo.filter((d) => !d.essencial && !chavesNaTela.has(d.chave))
@@ -163,7 +172,7 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
                 </select>
               )}
               {alterados.length > 0 && <span class="text-2xs text-warning">{alterados.length} alteração(ões) sem salvar</span>}
-              <Button size="sm" variant="primary" disabled={!alterados.length || cpfsComErro.length > 0 || salvar.isPending} title={cpfsComErro.length ? 'Corrija o CPF antes de salvar' : undefined} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar cadastro'}</Button>
+              <Button size="sm" variant="primary" disabled={!alterados.length || cpfsComErro.length > 0 || salvar.isPending} title={cpfsComErro.length ? 'Corrija o CPF/CNPJ antes de salvar' : undefined} onClick={() => salvar.mutate()}>{salvar.isPending ? 'Salvando…' : 'Salvar cadastro'}</Button>
             </div>
           )}
         </div>
@@ -183,6 +192,11 @@ export function AbaCadastro({ review, podeEditar }: { review: RegistrationReview
                     {(valores[c.chave] && !c.opcoes.includes(valores[c.chave]!)) && <option value={valores[c.chave]}>{valores[c.chave]}</option>}
                     {c.opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
                   </Select>
+                ) : ehDoc(c) ? (
+                  <Input key={c.chave} data-chave={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} inputMode="numeric" maxLength={18} placeholder="CPF ou CNPJ"
+                    value={valores[c.chave] ?? ''} onInput={(e) => { const v = mascararCpfOuCnpj((e.target as HTMLInputElement).value); setValores((x) => ({ ...x, [c.chave]: v })) }}
+                    hint={ehCnpj(valores[c.chave] ?? '') ? 'Empresa: a cobrança sai no CNPJ e o representante legal assina o contrato.' : undefined}
+                    error={erroDoCpfOuCnpj(valores[c.chave] ?? '') ?? undefined} />
                 ) : ehCpf(c) ? (
                   <Input key={c.chave} data-chave={c.chave} label={`${c.rotulo}${c.obrigatorio ? ' *' : ''}`} disabled={!podeEditar} inputMode="numeric" maxLength={14} placeholder="000.000.000-00"
                     value={valores[c.chave] ?? ''} onInput={(e) => { const v = mascararCpf((e.target as HTMLInputElement).value); setValores((x) => ({ ...x, [c.chave]: v })) }}

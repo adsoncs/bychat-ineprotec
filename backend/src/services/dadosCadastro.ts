@@ -19,16 +19,17 @@
 // Sem nenhuma das duas, nada muda: o portal segue com o formulário que tem.
 
 import { prisma } from '../lib/prisma.js'
+import { isValidCnpj, isValidCpf } from '../lib/cpf.js'
 
 // ─── Catálogo ─────────────────────────────────────────────────────────────
 
-export type TipoDado = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'number'
+export type TipoDado = 'text' | 'email' | 'phone' | 'cpf' | 'cpfCnpj' | 'date' | 'cep' | 'select' | 'number'
 
 type Destino =
   | { lead: 'nome' | 'email' | 'whatsapp' }
   | { aluno: string; conv?: 'digitos' | 'data' | 'int' }
   | { json: 'enderecoJson' | 'socioEconomicoJson'; campo: string }
-  | { responsavel: 'nome' | 'cpf' | 'parentesco' | 'telefone' | 'email' }
+  | { responsavel: 'nome' | 'cpf' | 'parentesco' | 'telefone' | 'email' | 'representanteNome' | 'representanteCpf' | 'representanteEmail' }
 
 export interface DadoCatalogo {
   chave: string
@@ -39,6 +40,13 @@ export interface DadoCatalogo {
   destino: Destino
   /** Dado sem o qual não existe inscrição: sempre pedido na inscrição, obrigatório. */
   essencial?: boolean
+  /**
+   * Só existe quando o responsável financeiro é uma EMPRESA (CNPJ): o
+   * representante legal, que é quem assina. Não se configura por etapa — vai
+   * junto do "CPF ou CNPJ do responsável", onde ele for pedido, e aparece só
+   * quando o documento digitado é um CNPJ.
+   */
+  soEmpresa?: boolean
 }
 
 const RACA_COR = ['Branca', 'Preta', 'Parda', 'Amarela', 'Indígena', 'Não declarada']
@@ -81,12 +89,43 @@ export const CATALOGO: DadoCatalogo[] = [
   { chave: 'deficiencia', rotulo: 'Pessoa com deficiência, TEA ou altas habilidades', tipo: 'select', grupo: 'Escolaridade', opcoes: ['Não', 'Sim — deficiência', 'Sim — TEA', 'Sim — altas habilidades'], destino: { json: 'socioEconomicoJson', campo: 'deficiencia' } },
   { chave: 'rendaFamiliar', rotulo: 'Renda familiar', tipo: 'text', grupo: 'Escolaridade', destino: { json: 'socioEconomicoJson', campo: 'renda' } },
   // Responsável financeiro (vira AcaResponsavel na matrícula)
-  { chave: 'responsavelNome', rotulo: 'Nome do responsável financeiro', tipo: 'text', grupo: 'Responsável financeiro', destino: { responsavel: 'nome' } },
-  { chave: 'responsavelCpf', rotulo: 'CPF do responsável', tipo: 'cpf', grupo: 'Responsável financeiro', destino: { responsavel: 'cpf' } },
-  { chave: 'responsavelParentesco', rotulo: 'Parentesco', tipo: 'select', grupo: 'Responsável financeiro', opcoes: ['O(a) próprio(a) aluno(a)', 'Mãe', 'Pai', 'Cônjuge', 'Outro'], destino: { responsavel: 'parentesco' } },
+  // Pode ser uma empresa: CNPJ no lugar do CPF e razão social no nome. Aí a
+  // cobrança sai no CNPJ e o contrato é assinado pelo representante legal.
+  { chave: 'responsavelNome', rotulo: 'Nome do responsável financeiro (ou razão social)', tipo: 'text', grupo: 'Responsável financeiro', destino: { responsavel: 'nome' } },
+  { chave: 'responsavelCpf', rotulo: 'CPF ou CNPJ do responsável', tipo: 'cpfCnpj', grupo: 'Responsável financeiro', destino: { responsavel: 'cpf' } },
+  { chave: 'responsavelParentesco', rotulo: 'Parentesco', tipo: 'select', grupo: 'Responsável financeiro', opcoes: ['O(a) próprio(a) aluno(a)', 'Mãe', 'Pai', 'Cônjuge', 'Empresa', 'Outro'], destino: { responsavel: 'parentesco' } },
   { chave: 'responsavelTelefone', rotulo: 'Telefone do responsável', tipo: 'phone', grupo: 'Responsável financeiro', destino: { responsavel: 'telefone' } },
   { chave: 'responsavelEmail', rotulo: 'E-mail do responsável', tipo: 'email', grupo: 'Responsável financeiro', destino: { responsavel: 'email' } },
+  { chave: 'responsavelRepresentanteNome', rotulo: 'Representante legal da empresa (quem assina)', tipo: 'text', grupo: 'Responsável financeiro', destino: { responsavel: 'representanteNome' }, soEmpresa: true },
+  { chave: 'responsavelRepresentanteCpf', rotulo: 'CPF do representante legal', tipo: 'cpf', grupo: 'Responsável financeiro', destino: { responsavel: 'representanteCpf' }, soEmpresa: true },
+  { chave: 'responsavelRepresentanteEmail', rotulo: 'E-mail do representante legal', tipo: 'email', grupo: 'Responsável financeiro', destino: { responsavel: 'representanteEmail' }, soEmpresa: true },
 ]
+
+const DADOS_DA_EMPRESA = CATALOGO.filter((d) => d.soEmpresa)
+
+/** O documento do responsável é um CNPJ (14 números)? */
+export const responsavelEhEmpresa = (doc: unknown) => String(doc ?? '').replace(/\D+/g, '').length === 14
+
+/**
+ * Pagador da cobrança quando o responsável financeiro é uma empresa: a
+ * cobrança sai no CNPJ, com a razão social. Pessoa física (ou sem responsável)
+ * → null, e a cobrança segue no aluno, como sempre.
+ */
+export function pagadorEmpresa(form: Record<string, any> | null | undefined): { name: string; cpfCnpj: string; email?: string; phone?: string } | null {
+  const doc = String(form?.responsavelCpf ?? '').replace(/\D+/g, '')
+  const nome = String(form?.responsavelNome ?? '').trim()
+  if (!isValidCnpj(doc) || !nome) return null
+  const email = String(form?.responsavelEmail ?? '').trim()
+  const tel = String(form?.responsavelTelefone ?? '').replace(/\D+/g, '')
+  return { name: nome.slice(0, 191), cpfCnpj: doc, ...(email ? { email } : {}), ...(tel ? { phone: tel } : {}) }
+}
+
+/** O mesmo, a partir do responsável financeiro já gravado no cadastro do aluno (mensalidades do ERP). */
+export async function pagadorEmpresaDoAluno(alunoId: number) {
+  const r = await prisma.acaResponsavel.findFirst({ where: { alunoId, tipo: 'FINANCEIRO', ativo: true }, orderBy: { id: 'asc' } }).catch(() => null)
+  return r ? pagadorEmpresa({ responsavelCpf: r.cpf, responsavelNome: r.nome, responsavelEmail: r.email, responsavelTelefone: r.telefone }) : null
+}
+
 
 export const POR_CHAVE = new Map(CATALOGO.map((d) => [d.chave, d]))
 
@@ -327,10 +366,21 @@ export interface CampoPedido {
   label: string
   required: boolean
   options?: string[]
+  /** Só vale (e só aparece) com CNPJ em responsavelCpf. */
+  soEmpresa?: boolean
 }
 
 function paraCampo(d: DadoCatalogo, obrigatorio: boolean): CampoPedido {
-  return { type: d.tipo, name: d.chave, label: d.rotulo, required: obrigatorio, ...(d.opcoes ? { options: d.opcoes } : {}) }
+  return { type: d.tipo, name: d.chave, label: d.rotulo, required: obrigatorio, ...(d.opcoes ? { options: d.opcoes } : {}), ...(d.soEmpresa ? { soEmpresa: true } : {}) }
+}
+
+/**
+ * Campos que valem para estes valores: os do representante legal só com CNPJ
+ * no responsável — e aí são obrigatórios (a empresa não assina sozinha).
+ */
+export function camposQueValem<T extends { name: string; required: boolean; soEmpresa?: boolean }>(campos: T[], valores: Record<string, unknown>): T[] {
+  const empresa = responsavelEhEmpresa(valores.responsavelCpf)
+  return campos.filter((c) => !c.soEmpresa || empresa).map((c) => (c.soEmpresa ? { ...c, required: true } : c))
 }
 
 /**
@@ -342,8 +392,16 @@ export function camposDaEtapa(cfg: DadosConfig, etapa: EtapaDados): CampoPedido[
   const vale = (e: EtapaDados) => cfg.modo === 'simplificado' && etapa !== 'inscricao'
     ? (etapa === 'cadastro' ? e !== 'inscricao' : false)
     : e === etapa
-  return CATALOGO.filter((d) => cfg.campos[d.chave] && vale(cfg.campos[d.chave].etapa))
-    .map((d) => paraCampo(d, cfg.campos[d.chave].obrigatorio))
+  const out: CampoPedido[] = []
+  for (const d of CATALOGO) {
+    if (d.soEmpresa || !cfg.campos[d.chave] || !vale(cfg.campos[d.chave].etapa)) continue
+    out.push(paraCampo(d, cfg.campos[d.chave].obrigatorio))
+    // Onde se pede o documento do responsável, vai junto o representante legal.
+    // Sai opcional (não conta como falta para quem é pessoa física); com CNPJ,
+    // camposQueValem() o torna obrigatório.
+    if (d.chave === 'responsavelCpf') for (const e of DADOS_DA_EMPRESA) out.push(paraCampo(e, false))
+  }
+  return out
 }
 
 // ─── Formulário de inscrição efetivo ──────────────────────────────────────
@@ -479,7 +537,7 @@ export async function aplicarNoCadastro(leadId: number | null, form: Record<stri
     const dst = d.destino as any
     if (dst.aluno) cols[dst.aluno] = v
     else if (dst.json) (jsons[dst.json] ??= {})[dst.campo] = v
-    else if (dst.responsavel) resp[dst.responsavel] = dst.responsavel === 'cpf' ? String(v).replace(/\D+/g, '') : v
+    else if (dst.responsavel) resp[dst.responsavel] = dst.responsavel === 'cpf' || dst.responsavel === 'representanteCpf' ? String(v).replace(/\D+/g, '') : v
   }
   for (const [col, novos] of Object.entries(jsons)) {
     cols[col] = { ...(((aluno as any)[col] as object) ?? {}), ...novos }
@@ -498,6 +556,10 @@ export function erroDoValor(c: CampoPedido, v: unknown): string | null {
   if (!s) return c.required ? `${c.label}: preencha este campo.` : null
   const dig = s.replace(/\D+/g, '')
   if (c.type === 'cpf' && dig.length !== 11) return `${c.label}: CPF precisa ter 11 números.`
+  if (c.type === 'cpfCnpj') {
+    if (dig.length !== 11 && dig.length !== 14) return `${c.label}: informe o CPF (11 números) ou o CNPJ (14 números).`
+    if (dig.length === 11 ? !isValidCpf(dig) : !isValidCnpj(dig)) return `${c.label}: ${dig.length === 11 ? 'CPF' : 'CNPJ'} não confere. Verifique os números digitados.`
+  }
   if (c.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s)) return `${c.label}: e-mail inválido.`
   if (c.type === 'cep' && dig.length !== 8) return `${c.label}: CEP precisa ter 8 números.`
   if (c.type === 'date' && !/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return `${c.label}: use o formato dd/mm/aaaa.`
@@ -618,7 +680,7 @@ export function agruparCampos(campos: CampoPreenchido[]): { grupo: string; campo
 /** Nome, e-mail e WhatsApp já são colunas do lead: espelhá-los seria repetir. */
 const JA_NO_LEAD = new Set(['nome', 'email', 'whatsapp'])
 const TIPO_CUSTOM_FIELD: Record<TipoDado, string> = {
-  text: 'text', email: 'email', phone: 'phone', cpf: 'text',
+  text: 'text', email: 'email', phone: 'phone', cpf: 'text', cpfCnpj: 'text',
   date: 'date', cep: 'text', select: 'select', number: 'number',
 }
 

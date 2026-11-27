@@ -33,5 +33,38 @@ export function erroDoCpf(valor: string): string | null {
   return cpfValido(d) ? null : 'CPF não confere. Verifique os números digitados.'
 }
 
-/** Chaves de CPF reconhecidas no cadastro. */
-export const CHAVES_DE_CPF = ['cpf', 'responsavelCpf']
+/** Chaves de CPF reconhecidas no cadastro (o do responsável aceita CNPJ: ver CHAVES_DE_CPF_OU_CNPJ). */
+export const CHAVES_DE_CPF = ['cpf', 'responsavelRepresentanteCpf']
+
+// ── CNPJ: o responsável financeiro pode ser uma empresa ──
+
+/** CNPJ pelos dígitos verificadores. */
+export function cnpjValido(valor: string): boolean {
+  const d = digitosDoCpf(valor)
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false
+  const dv = (base: string) => {
+    let soma = 0, peso = base.length - 7
+    for (const ch of base) { soma += Number(ch) * peso--; if (peso < 2) peso = 9 }
+    const r = soma % 11
+    return r < 2 ? 0 : 11 - r
+  }
+  return dv(d.slice(0, 12)) === Number(d[12]) && dv(d.slice(0, 13)) === Number(d[13])
+}
+
+/** Máscara de CPF até 11 números; passou disso, de CNPJ (00.000.000/0000-00). */
+export function mascararCpfOuCnpj(v: string): string {
+  const d = digitosDoCpf(v).slice(0, 14)
+  if (d.length <= 11) return mascararCpf(d)
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
+}
+
+export function erroDoCpfOuCnpj(valor: string): string | null {
+  const d = digitosDoCpf(valor)
+  if (!d || d.length === 11) return erroDoCpf(d)
+  if (d.length < 14) return d.length < 11 ? `Faltam ${11 - d.length} dígito(s) para CPF.` : `Faltam ${14 - d.length} dígito(s) para CNPJ.`
+  return cnpjValido(d) ? null : 'CNPJ não confere. Verifique os números digitados.'
+}
+
+/** Documento do responsável financeiro: CPF ou CNPJ. */
+export const CHAVES_DE_CPF_OU_CNPJ = ['responsavelCpf']
+export const ehCnpj = (v: string) => digitosDoCpf(v).length === 14

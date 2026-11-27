@@ -4,7 +4,7 @@
 // só que está errado: quem está preenchendo isso no ônibus não vai adivinhar o
 // que "campo inválido" quer dizer.
 
-export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker' | 'number' | 'rg' | 'document'
+export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'cpfCnpj' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker' | 'number' | 'rg' | 'document'
 
 const digitos = (v: string) => v.replace(/\D+/g, '')
 
@@ -21,6 +21,22 @@ export function cpfValido(valor: string): boolean {
   }
   return true
 }
+
+/** CNPJ pelos dígitos verificadores (o responsável financeiro pode ser empresa). */
+export function cnpjValido(valor: string): boolean {
+  const d = digitos(valor)
+  if (d.length !== 14 || /^(\d)\1{13}$/.test(d)) return false
+  const dv = (base: string) => {
+    let soma = 0, peso = base.length - 7
+    for (const ch of base) { soma += Number(ch) * peso--; if (peso < 2) peso = 9 }
+    const r = soma % 11
+    return r < 2 ? 0 : 11 - r
+  }
+  return dv(d.slice(0, 12)) === Number(d[12]) && dv(d.slice(0, 13)) === Number(d[13])
+}
+
+/** O documento é um CNPJ (14 números)? */
+export const ehCnpj = (valor: string) => digitos(String(valor ?? '')).length === 14
 
 export function emailValido(valor: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor.trim())
@@ -58,6 +74,10 @@ export function mascarar(tipo: Tipo, valor: string): string {
         .replace(/(\d{3})(\d)/, '$1.$2')
         .replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
         .replace(/(\d{3})\.(\d{3})\.(\d{3})(\d{1,2})/, '$1.$2.$3-$4')
+    case 'cpfCnpj':
+      // CPF até 11 números; passou disso, CNPJ.
+      if (d.length <= 11) return mascarar('cpf', d)
+      return d.slice(0, 14).replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/, '$1.$2.$3/$4-$5')
     case 'phone': {
       const n = d.slice(0, 11)
       if (n.length <= 2) return n
@@ -75,7 +95,7 @@ export function mascarar(tipo: Tipo, valor: string): string {
 
 /** Teclado do celular: número onde só entra número. */
 export function modoEntrada(tipo: Tipo): string | undefined {
-  if (tipo === 'cpf' || tipo === 'phone' || tipo === 'cep' || tipo === 'date' || tipo === 'number') return 'numeric'
+  if (tipo === 'cpf' || tipo === 'cpfCnpj' || tipo === 'phone' || tipo === 'cep' || tipo === 'date' || tipo === 'number') return 'numeric'
   if (tipo === 'email') return 'email'
   return undefined
 }
@@ -90,6 +110,8 @@ export interface Campo {
   helpText?: string
   /** entryMode: só nessas formas de ingresso; field: só quando outra resposta for um destes valores. */
   visibleWhen?: { entryMode?: string[]; field?: { name: string; values: string[] } }
+  /** Representante legal: só aparece (e é obrigatório) com CNPJ no documento do responsável. */
+  soEmpresa?: boolean
   /** Só em type 'document': código do tipo de documento (DocumentType.code) em que o arquivo entra. */
   documentType?: string
   /** Só na escolha de curso: formato da lista e se mostra o valor. */
@@ -113,6 +135,12 @@ export function erroDoCampo(campo: Campo, valor: string, parcial = false): strin
     case 'cpf':
       if (digitos(v).length < 11) return parcial ? null : 'Faltam dígitos no CPF — são 11 ao todo.'
       return cpfValido(v) ? null : 'Esse CPF não confere. Verifique os números digitados.'
+    case 'cpfCnpj': {
+      const n = digitos(v).length
+      if (n === 11) return cpfValido(v) ? null : 'Esse CPF não confere. Verifique os números digitados.'
+      if (n === 14) return cnpjValido(v) ? null : 'Esse CNPJ não confere. Verifique os números digitados.'
+      return parcial ? null : 'Informe o CPF (11 números) ou, se for empresa, o CNPJ (14 números).'
+    }
     case 'email':
       if (parcial) return null
       return emailValido(v) ? null : 'E-mail incompleto. O formato é nome@provedor.com.'
