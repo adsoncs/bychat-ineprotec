@@ -256,7 +256,7 @@ function ListaDePortais({ portals, renderCard }: {
       {empresas.length > 1 && (
         <div class="flex flex-wrap gap-1.5" role="group" aria-label="Empresa">
           <button type="button" class={chip(empresa === 'todas')} aria-pressed={empresa === 'todas'} onClick={() => setEmpresa('todas')}>
-            Todas as empresas
+            Todas
           </button>
           {empresas.map(([k, e]) => (
             <button key={k || '-'} type="button" class={chip(empresa === k)} aria-pressed={empresa === k} onClick={() => setEmpresa(k)}>
