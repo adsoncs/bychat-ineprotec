@@ -99,9 +99,9 @@
 
     var textDiv = doc.createElement('div');
     textDiv.style.cssText = 'flex:1;min-width:280px;';
-    textDiv.innerHTML = '<strong>Privacidade e Cookies</strong><br>' +
-      'Utilizamos cookies e tecnologias semelhantes para melhorar sua experiência, ' +
-      'analisar o tráfego e personalizar conteúdo. Ao clicar em "Aceitar", você concorda com o uso dessas tecnologias. ' +
+    // ineprotec 27/11/2026: texto curto — o longo virava o maior elemento da tela no
+    // celular (LCP do PageSpeed) e derrubava a nota do site.
+    textDiv.innerHTML = 'Usamos cookies para melhorar sua experiência e analisar o tráfego. ' +
       '<a href="' + escAttr(privacyUrl()) + '" target="_blank" rel="noopener" id="bt-consent-details" style="color:#4361ee;text-decoration:underline;">Saiba mais</a>';
 
     var btnWrap = doc.createElement('div');
